@@ -126,12 +126,20 @@ client 测试分两层：`tests/client-bundle.spec.ts` 断言**制品字节**（
 
 ## 5. 安装到真实运行时
 
+正式通道是按 tag 从本仓库的 GitHub 源安装（`#<tag>&path:` 同时锁定版本与单仓子目录；tag 由仓库根 `scripts/release.mjs` 产出）：
+
 ```sh
-dsh plugin --profile web add <本仓库路径>
+dsh plugin --profile web add "github:exponentxqq/dsh-plugins#v1.0.0&path:plugins/dsh-plugin-multi-root-workspace"
 dsh --profile web --dump-config     # 应看到两行 disabled + 十行 insert
 ```
 
-`link:` 来源用的是本仓库已装好的依赖，因此不需要 `allowBuilds` 表态；npm / tarball / git 来源都需要，原因与处置见 [README §安装](../../README.md) 与[故障排查：安装停在构建授权](../troubleshooting/install-stops-at-build-approval.md)。
+开发调试仍可 `link:` 安装（改源码重启 profile 即生效，无需发布）：
+
+```sh
+dsh plugin --profile web add <本仓库路径>
+```
+
+`link:` 来源用的是本仓库已装好的依赖，因此不需要 `allowBuilds` 表态；npm / tarball / git 来源都需要（git / tarball 来源还要加上 `koffi`），原因与处置见 [README §安装](../../README.md) 与[故障排查：安装停在构建授权](../troubleshooting/install-stops-at-build-approval.md)。宿主 `~/.gitconfig` 若有 github.com 的 `insteadOf=ssh` 改写，容器内安装要加 `-e GIT_CONFIG_GLOBAL=/dev/null`（容器没有 ssh）。
 
 `dsh plugin` 是 pnpm 的转发器：它在 profile 目录里执行 pnpm，并把解析到 `dsh.bundle` 声明的依赖回填进 `dsh.profile.bundles`。桌面端（Electron）保留自己的 `$DSH_HOME/profiles/desktop`，安装方式同源。
 

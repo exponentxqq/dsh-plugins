@@ -1,6 +1,6 @@
 # dsh-plugins — DSH 自定义插件单仓
 
-[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）自定义插件的统一仓库。每个插件都是一份官方组合包（bundle），以 **pnpm workspace** 单仓多包管理：源码在这里，profile 侧用 `link:` 安装。
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）自定义插件的统一仓库。每个插件都是一份官方组合包（bundle），以 **pnpm workspace** 单仓多包管理：源码在这里，profile 侧按 **GitHub tag** 安装。
 
 ## 目录结构
 
@@ -8,31 +8,55 @@
 pnpm-workspace.yaml   # workspace 定义（packages: plugins/*）、依赖构建白名单与发布年龄豁免
 package.json          # workspace 根：pnpm 版本 pin（packageManager / volta）与递归脚本
 plugins/<name>/       # 一个插件一个目录（结构见 AGENTS.md）
+scripts/release.mjs   # 发布：同步版本号 → 发布提交 → annotated tag
 openspec/             # 规范工作区（spec-driven schema，zh-CN）
 ```
 
 ## 常用命令
 
 ```bash
-pnpm install          # 装齐全部插件依赖（workspace 统一安装；会触发多根插件的 prepare 构建）
-pnpm build            # 全部插件构建（产物 lib/ 不入库，装入 profile 前必须先构建）
+pnpm install          # 装齐全部插件依赖（workspace 统一安装；会触发各插件的 prepare 构建）
+pnpm build            # 全部插件构建（产物 lib/ 不入库，git 安装时由 prepare 现场构建）
 pnpm typecheck        # 全部插件类型检查
 pnpm test             # 全部插件单测
 pnpm lint             # 全部插件 lint（无 lint 脚本的插件自动跳过）
+pnpm release 1.0.0    # 发布：同步版本 + 提交 + 打 tag v1.0.0（详见「发布与版本」）
 ```
 
 只跑单个插件：`pnpm --filter <包名> <脚本>`，例如 `pnpm --filter dsh-plugin-multi-root-workspace verify:all`（含 lint / typecheck / build / 内核探测 / 单测 / 冒烟，需运行中的 dsh 环境）。
 
 ## 装入 profile
 
-profile 由 dotfiles 仓库管理（`dsh/profiles/*`），插件以 `link:` 形式装入，容器内路径与宿主一致：
+profile 由 dotfiles 仓库管理（`dsh/profiles/*`）。插件按 **tag 锁定**从 GitHub 装入（`#<tag>&path:plugins/<目录>` 同时指定版本与单仓子目录）：
 
 ```bash
-docker exec dsh dsh plugin --profile web add /home/xuqinqin/develop/person/dsh-plugins/plugins/<name>
+docker exec dsh dsh plugin --profile web add \
+  "github:exponentxqq/dsh-plugins#v1.0.0&path:plugins/dsh-plugin-multi-root-workspace"
 docker exec dsh dsh --profile web --dump-config-schema   # 校验组合可加载（会 import 插件）
 ```
 
-`dsh plugin add` 会做两件事：把 `link:` 依赖写进 profile 的 `package.json`（改源码后重启 profile 即生效，无需重装），并把声明了 `dsh.bundle` 的包追加进 `dsh.profile.bundles` 激活其 patch 层。移除用 `dsh plugin --profile web remove <包名>`。
+`dsh plugin add` 走 pnpm：把 git spec 写进 profile 的 `package.json` 依赖，并把声明了 `dsh.bundle` 的包追加进 `dsh.profile.bundles` 激活其 patch 层。移除用 `dsh plugin --profile web remove <包名>`。
+
+两件必知的事：
+
+- **构建授权**：git 来源没有预构建产物，pnpm 会在安装时跑插件的 `prepare` 现场构建。pnpm ≥10 默认拦截依赖的构建脚本，首次安装会以非 0 退出，并把待决项写进 profile 的 `pnpm-workspace.yaml`（`allowBuilds:` 下形如 `包名: set this to true or false`）；把插件包名与 `koffi` 改成 `true` 后重跑即可。详见 [安装停在构建授权](plugins/dsh-plugin-multi-root-workspace/docs/troubleshooting/install-stops-at-build-approval.md)。
+- **`insteadOf` 陷阱**：若宿主 `~/.gitconfig` 写了 `url.git@github.com:.insteadOf = https://github.com/`（该文件被只读挂载进 dsh 容器），容器内 `git ls-remote` 会被改写成 ssh 而容器没有 ssh，安装直接失败。解决办法二选一：把该段拆到宿主专属的 include 文件（容器读不到即静默跳过，见 dotfiles `dsh/README.md`），或给这条命令加 `-e GIT_CONFIG_GLOBAL=/dev/null`：`docker exec -e GIT_CONFIG_GLOBAL=/dev/null dsh dsh plugin …`。
+
+升级 = 改 profile `package.json` 里的 tag 后重装（`pnpm install` + 重启 profile）；想自动跟进同主版本也可用范围写法 `#semver:^1.0.0&path:plugins/<目录>`。
+
+本地开发调试仍可 `link:` 安装（改源码重启即生效，无需发布）：`dsh plugin --profile web add /home/xuqinqin/develop/person/dsh-plugins/plugins/<name>`。
+
+## 发布与版本
+
+仓库采用**仓库级统一版本**：根 `package.json` 与每个插件包的 `version` 始终等于当前 tag（风格 `v1.0.0`），tag 是 profile 侧安装的唯一锚点，`package.json#version` 与之对齐便于把 DSH 的 `package@version` 版本豁免和排障输出直接对上发布点。
+
+```bash
+pnpm verify            # 1. 发布前自检（递归 verify:all；多根插件的 smoke 需运行中的 dsh）
+pnpm release 1.0.0     # 2. 同步版本 → 提交 chore(release): v1.0.0 → 打 annotated tag
+git push origin main --tags   # 3. 在宿主 push（容器内没有 ssh）
+```
+
+`pnpm release --dry-run 1.0.0` 只打印将变更的版本；脚本会拒绝脏工作区、非 main 分支与已存在的 tag。tag 未推到远程前，profile 无法按 `#v1.0.0` 解析安装。
 
 ## 插件一览
 
@@ -51,6 +75,6 @@ docker exec dsh dsh --profile web --dump-config-schema   # 校验组合可加载
 
 ## 相关仓库与环境
 
-- **dotfiles**（`~/develop/dotfiles`）：dotfiles 本体与 dsh profile 配置；插件在此仓库开发，profile 侧只保留 `link:` 引用与 bundle 清单
+- **dotfiles**（`~/develop/dotfiles`）：dotfiles 本体与 dsh profile 配置；插件在此仓库开发与发布，profile 侧只保留按 tag 锁定的 git 依赖与 bundle 清单
 - **docker**（`~/develop/docker`）：dsh 运行时容器；dsh 相关命令一律 `docker exec dsh dsh …`
 - 插件各自的许可证见其目录下的 `LICENSE`（多根插件 MIT，git-graph-multi Apache-2.0，fork 部分版权归上游作者）

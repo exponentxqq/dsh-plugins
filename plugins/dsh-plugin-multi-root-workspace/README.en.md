@@ -18,10 +18,10 @@ Three things make this plugin worth looking at:
 
 ## Quick Start
 
-With a DSH runtime at hand (web / Electron desktop / headless all work), the shortest path is two commands — this repository is a **local fork**: the package dropped its `@dsh-electron` scope (it is `dsh-plugin-multi-root-workspace` now) and is no longer published to npm with upstream, so it is installed from the local checkout through a pnpm `link:`:
+With a DSH runtime at hand (web / Electron desktop / headless all work), the shortest path is two commands — this repository is a **local fork**: the package dropped its `@dsh-electron` scope (it is `dsh-plugin-multi-root-workspace` now) and is not published to npm with upstream; it is installed from this repository's GitHub source, pinned to a tag:
 
 ```sh
-dsh plugin --profile web add /path/to/dsh-plugin-multi-root-workspace
+dsh plugin --profile web add "github:exponentxqq/dsh-plugins#v1.0.0&path:plugins/dsh-plugin-multi-root-workspace"
 dsh --profile web
 ```
 
@@ -49,10 +49,10 @@ The agent can now read, write, and run bash in that directory, with the same rig
 
 | Source | Command | Notes |
 | --- | --- | --- |
+| GitHub (how this fork is used) | `dsh plugin --profile web add "github:exponentxqq/dsh-plugins#v1.0.0&path:plugins/dsh-plugin-multi-root-workspace"` | This fork's release channel: pulls the source at a tag and builds it on the spot through `prepare` (`&path:` names the subdirectory inside the monorepo); needs **two** `allowBuilds` answers (this package plus `koffi`); always pin a tag |
 | npm registry (upstream package) | `dsh plugin --profile web add @dsh-electron/dsh-plugin-multi-root-workspace` | Upstream's pre-built artifacts, ready to use; **this fork is not published** under its new name, so this command installs the upstream release |
 | tarball | `dsh plugin --profile web add ./dsh-plugin-multi-root-workspace-<version>.tgz` | Pre-built offline package, handy for air-gapped or offline delivery — with the same one-time `allowBuilds` answer |
-| local path (how this fork is used) | `dsh plugin --profile web add /path/to/dsh-plugin-multi-root-workspace` | pnpm `link:` to a local checkout (its dependencies are already installed in this repository) — best for development and local customization |
-| GitHub / git (upstream source) | `dsh plugin --profile web add github:cherrchen/dsh-plugin-multi-root-workspace` | Pulls upstream source and builds it on the spot through `prepare` (its package name still carries the scope); needs **two** `allowBuilds` answers (this package plus `koffi`); pin a tag |
+| local path (development & debugging) | `dsh plugin --profile web add /path/to/dsh-plugin-multi-root-workspace` | pnpm `link:` to a local checkout (its dependencies are already installed in this repository); source edits take effect when the profile restarts |
 
 **Every install source needs one `allowBuilds` answer the first time.** The plugin carries a native dependency that must be built, `koffi` (the FFI wrapper behind Registry Authority on Windows; installed but unused elsewhere), and pnpm ≥10 runs no dependency lifecycle script by default. So the first `dsh plugin add` fails with `[ERR_PNPM_IGNORED_BUILDS]` and leaves the pending decision in that profile's `pnpm-workspace.yaml`:
 
@@ -69,7 +69,7 @@ Set it to `true` and run `add` again. Read that line as **letting the dependency
 dsh plugin --profile web add @dsh-electron/dsh-plugin-multi-root-workspace
 ```
 
-This installs **upstream's** pre-built artifacts (the plugin itself is never compiled), and the first install still needs the `allowBuilds` answer above. This fork renamed the package and is not published to npm; to run this fork's code, use the local-path install below.
+This installs **upstream's** pre-built artifacts (the plugin itself is never compiled), and the first install still needs the `allowBuilds` answer above. This fork renamed the package and does not publish to npm; to run this fork's code, use the GitHub install above.
 
 ### Install from a tarball
 
@@ -84,8 +84,10 @@ Also pre-built (the plugin itself is never compiled here), handy for air-gapped 
 
 ### Install from GitHub
 
+This fork's release channel is the `dsh-plugins` monorepo; `#<tag>&path:<directory>` pins both the version and the subdirectory:
+
 ```sh
-dsh plugin --profile web add github:cherrchen/dsh-plugin-multi-root-workspace
+dsh plugin --profile web add "github:exponentxqq/dsh-plugins#v1.0.0&path:plugins/dsh-plugin-multi-root-workspace"
 ```
 
 With pnpm ≥10 the first `add` fails: a git install pulls **source code rather than build artifacts**, so the package's self-contained `prepare` script must build it on the spot (a direct transpile of `src/`, no type-checking). Follow `dsh`'s guidance and copy the exact package keys pnpm prints into the profile's `pnpm-workspace.yaml` — this source has **two** pending decisions:
@@ -96,11 +98,11 @@ allowBuilds:
   koffi: true
 ```
 
-Then run `add` again. Pinning a tag (e.g. `#v0.1.5`) is recommended so a later push cannot silently change what actually runs:
+Then run `add` again. `#v1.0.0` is a tag lock, so a later push cannot silently change what actually runs; to follow the same major automatically, write `#semver:^1.0.0&path:plugins/dsh-plugin-multi-root-workspace` instead.
 
-```sh
-dsh plugin --profile web add github:cherrchen/dsh-plugin-multi-root-workspace#v0.1.5
-```
+> If the host's `~/.gitconfig` rewrites `https://github.com/` to ssh (`insteadOf`) while the container has no ssh, `git ls-remote` fails — add `-e GIT_CONFIG_GLOBAL=/dev/null` to the command (`docker exec -e GIT_CONFIG_GLOBAL=/dev/null dsh …`), or split that section into a host-only include file as the dotfiles documentation describes.
+>
+> To run **upstream** source instead, the command is different (its package name still carries the scope; clone the tag yourself): `dsh plugin --profile web add github:cherrchen/dsh-plugin-multi-root-workspace#v0.1.5`.
 
 ### Install from a local clone (development & debugging)
 

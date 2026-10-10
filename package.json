@@ -17,6 +17,7 @@
     "typecheck": "pnpm -r run typecheck",
     "lint": "pnpm -r run lint",
     "docs:check": "pnpm -r run docs:check",
+    "release": "node scripts/release.mjs",
     "verify": "pnpm -r run verify:all"
   }
 }

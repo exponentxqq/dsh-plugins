@@ -18,10 +18,10 @@ DSH（DeepSeek Harness）的外部插件 bundle：把 Workspace 的可写范围�
 
 ## 快速开始
 
-已有 DSH 运行时（web / Electron 桌面 / headless 均可）时，最短路径是两步——本仓库是**本地 fork**：包名已去掉 `@dsh-electron` 作用域（现为 `dsh-plugin-multi-root-workspace`），也不再随上游发布到 npm，因此按本地源码 `link:` 安装：
+已有 DSH 运行时（web / Electron 桌面 / headless 均可）时，最短路径是两步——本仓库是**本地 fork**：包名已去掉 `@dsh-electron` 作用域（现为 `dsh-plugin-multi-root-workspace`），不随上游发布到 npm，而是按 tag 从本仓库的 GitHub 源安装：
 
 ```sh
-dsh plugin --profile web add /path/to/dsh-plugin-multi-root-workspace
+dsh plugin --profile web add "github:exponentxqq/dsh-plugins#v1.0.0&path:plugins/dsh-plugin-multi-root-workspace"
 dsh --profile web
 ```
 
@@ -51,10 +51,10 @@ dsh --profile web
 
 | 来源 | 命令 | 说明 |
 | --- | --- | --- |
+| GitHub（本 fork 的用法） | `dsh plugin --profile web add "github:exponentxqq/dsh-plugins#v1.0.0&path:plugins/dsh-plugin-multi-root-workspace"` | 本 fork 的发布通道：按 tag 拉源码、由 `prepare` 现场构建（`&path:` 指定单仓子目录）；需要两次 `allowBuilds` 回答（本包 + `koffi`），务必锁定 tag |
 | npm 注册表（上游包） | `dsh plugin --profile web add @dsh-electron/dsh-plugin-multi-root-workspace` | 上游已发布的预构建产物，即装即用；**本 fork 改名后未发布**，这条命令装到的是上游版本 |
 | tarball | `dsh plugin --profile web add ./dsh-plugin-multi-root-workspace-<version>.tgz` | 预构建离线包，适合内网/离线；同样需要那一次 `allowBuilds` 回答 |
-| 本地路径（本 fork 的用法） | `dsh plugin --profile web add /path/to/dsh-plugin-multi-root-workspace` | pnpm `link:` 链接本地 checkout（依赖已在本仓库装好），适合开发调试与自用定制 |
-| GitHub / git（上游源码） | `dsh plugin --profile web add github:cherrchen/dsh-plugin-multi-root-workspace` | 拉上游源码由 `prepare` 现场构建（包名仍带 scope）；需要两次 `allowBuilds` 回答（本包 + `koffi`），建议锁定 tag |
+| 本地路径（开发调试） | `dsh plugin --profile web add /path/to/dsh-plugin-multi-root-workspace` | pnpm `link:` 链接本地 checkout（依赖已在本仓库装好），改源码重启 profile 即生效，适合调试 |
 
 **首次安装需要回答一次 `allowBuilds`，四种来源皆然。** 本插件带一个需要构建的原生依赖 `koffi`（Windows 上 Registry Authority 用的 FFI 封装；其他平台装了不用），而 pnpm ≥10 默认不运行任何依赖的生命周期脚本。所以第一次 `dsh plugin add` 会以 `[ERR_PNPM_IGNORED_BUILDS]` 失败，并把待决项写进该 profile 的 `pnpm-workspace.yaml`：
 
@@ -71,7 +71,7 @@ allowBuilds:
 dsh plugin --profile web add @dsh-electron/dsh-plugin-multi-root-workspace
 ```
 
-装到的是**上游**发布的预构建产物（不需要编译插件本身），首次仍要回答上面那一次 `allowBuilds`。本 fork 改了包名、没有发布到 npm，要跑本 fork 的代码请走下面的本地路径安装。
+装到的是**上游**发布的预构建产物（不需要编译插件本身），首次仍要回答上面那一次 `allowBuilds`。本 fork 改了包名、不发布到 npm，要跑本 fork 的代码请走上面的 GitHub 安装。
 
 ### 从 tarball 安装
 
@@ -86,8 +86,10 @@ dsh plugin --profile web add ./dsh-plugin-multi-root-workspace-0.1.5.tgz
 
 ### 从 GitHub 安装
 
+本 fork 的发布通道就在 `dsh-plugins` 单仓里，用 `#<tag>&path:<目录>` 同时锁定版本与子目录：
+
 ```sh
-dsh plugin --profile web add github:cherrchen/dsh-plugin-multi-root-workspace
+dsh plugin --profile web add "github:exponentxqq/dsh-plugins#v1.0.0&path:plugins/dsh-plugin-multi-root-workspace"
 ```
 
 pnpm ≥10 下首次 `add` 会失败：git 安装拉取的是**源码而非构建产物**，包内自包含的 `prepare` 脚本要现场构建（直接转译 `src/`，不做类型检查）。按 `dsh` 的提示把 pnpm 打印的包键写入该 profile 的 `pnpm-workspace.yaml`——这条来源要回答**两个**待决项：
@@ -98,11 +100,11 @@ allowBuilds:
   koffi: true
 ```
 
-然后重新执行 `add` 即可。建议锁定 tag（如 `#v0.1.5`），让后续推送无法悄悄改变实际运行的内容：
+然后重新执行 `add` 即可。`#v1.0.0` 是 tag 锁：推送无法悄悄改变实际运行的内容；想自动跟进同主版本可写成 `#semver:^1.0.0&path:plugins/dsh-plugin-multi-root-workspace`。
 
-```sh
-dsh plugin --profile web add github:cherrchen/dsh-plugin-multi-root-workspace#v0.1.5
-```
+> 若宿主 `~/.gitconfig` 把 `https://github.com/` 改写成了 ssh（`insteadOf`），而容器里没有 ssh，`git ls-remote` 会失败——给命令加 `-e GIT_CONFIG_GLOBAL=/dev/null`（`docker exec -e GIT_CONFIG_GLOBAL=/dev/null dsh …`），或按 dotfiles 说明把该段拆到宿主专属的 include 文件。
+>
+> 想跑**上游**源码则是另一条命令（包名仍带 scope，且需自行 clone tag）：`dsh plugin --profile web add github:cherrchen/dsh-plugin-multi-root-workspace#v0.1.5`。
 
 ### 从本地源码安装（开发调试）
 

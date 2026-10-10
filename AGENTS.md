@@ -12,6 +12,7 @@ DSH（DeepSeek Harness）自定义插件仓库。每个插件以官方组合包�
 pnpm-workspace.yaml      # workspace 定义（packages: plugins/*）+ 构建白名单 / 发布年龄豁免
 package.json             # workspace 根：pnpm 版本 pin 与递归脚本
 plugins/<name>/          # 一个插件一个目录（见下文插件结构）
+scripts/release.mjs      # 发布：同步版本号 → 发布提交 → annotated tag
 README.md                # 仓库说明与常用命令
 .dsh/skills/             # OpenSpec 安装的 DSH skill（本地生成，由 openspec 管理，勿手改）
 openspec/                # OpenSpec 规范工作区（spec-driven schema，zh-CN）
@@ -34,18 +35,29 @@ plugins/<name>/
 
 ```bash
 # workspace 级命令（在仓库根执行；pnpm 版本由 package.json#packageManager 固定为 11.25.0）
-pnpm install             # 装齐全部插件依赖（单包目录内执行同效）；会触发多根插件的 prepare 构建
+pnpm install             # 装齐全部插件依赖（单包目录内执行同效）；会触发各插件的 prepare 构建
 pnpm build               # 递归构建全部插件（产物 lib/，不入库）
 pnpm typecheck           # 递归类型检查
 pnpm test                # 递归单测
 pnpm lint                # 递归 lint（无该脚本的插件自动跳过）
+pnpm release 1.0.0       # 发布：同步版本 + 发布提交 + 打 tag v1.0.0（--dry-run 只打印）
 
 # 只跑单个插件
 pnpm --filter dsh-plugin-multi-root-workspace verify:all
 ```
 
 ```bash
-# 安装插件到某个 profile（link: 形式，改源码重启 profile 即生效）
+# 安装插件到某个 profile（按 tag 从 GitHub 装；#<tag>&path: 同时指定版本与单仓子目录）
+docker exec dsh dsh plugin --profile web add \
+  "github:exponentxqq/dsh-plugins#v1.0.0&path:plugins/<name>"
+
+# 首次 git 安装会被 pnpm 拦下构建脚本：把 profile pnpm-workspace.yaml 里 allowBuilds
+# 下的插件包名与 koffi 改成 true 后重跑（详见插件的「安装停在构建授权」排障文档）
+
+# 若宿主 ~/.gitconfig 有 github.com 的 insteadOf=ssh 改写（容器无 ssh 会失败），加环境覆盖：
+# docker exec -e GIT_CONFIG_GLOBAL=/dev/null dsh dsh plugin --profile web add "github:…#v1.0.0&path:…"
+
+# 本地开发调试仍可 link: 安装（改源码重启 profile 即生效，无需发布）
 docker exec dsh dsh plugin --profile web add /home/xuqinqin/develop/person/dsh-plugins/plugins/<name>
 
 # 校验配置可加载（会 import 插件）
@@ -56,6 +68,18 @@ docker exec dsh dsh --profile web --dump-config
 ```
 
 DSH 源码与 API 参考位于 `/usr/local/lib/node_modules/@deepseek-ai/dsh/`（各子包 `README.zh.md` 有中文包文档，如 `dsh-commands`、`dsh-agent-instructions`、`dsh-skill`）。
+
+## 发布与版本
+
+仓库级统一版本：根 `package.json` 与每个插件包的 `version` 恒等于当前 tag（风格 `v1.0.0`），tag 是 profile 侧安装的唯一锚点。
+
+```bash
+pnpm verify                    # 发布前自检（递归 verify:all）
+pnpm release 1.0.0             # 同步版本 → 提交 chore(release): v1.0.0 → annotated tag（--dry-run 只打印）
+git push origin main --tags    # 在宿主执行：容器内没有 ssh，push 不可用
+```
+
+`scripts/release.mjs` 拒绝脏工作区、非 main 分支与已存在的 tag；tag 未推到远程前 profile 无法按 `#v<version>` 解析安装。
 
 ## Codebase Memory 索引
 
