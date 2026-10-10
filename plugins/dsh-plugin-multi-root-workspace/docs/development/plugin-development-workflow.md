@@ -147,14 +147,15 @@ dsh plugin --profile web add <本仓库路径>
 
 发布形态的 `files` 现在包含 `lib/*.js`（含 `lib/client.js`）与两面的 `lib/types/**/*.d.ts`；client 制品必须在 `pnpm pack` 之前构建好（宿主直接读盘，不做编译）。
 
-**`prepare` 脚本（git 安装入口）**：`package.json` 的 `prepare` 只跑 `pnpm run bundle`（tsdown 直接转译 `src/`，无项目引用、不做类型检查，配置自包含，符合上游 [publish 文档](https://github.com/deepseek-ai/deepseek-harness/blob/main/docs/user/develop/basic/publish.zh.md)对 git 安装的要求）。它的三个触发点：git 方式 `dsh plugin add` 后由 pnpm 现场构建（用户需先授权 profile 的 `allowBuilds`）；`pnpm publish` 打包前保证 `lib/*.js` 新鲜；workspace 根的 `pnpm install`（在本包目录内执行同效）也会顺带产出 JS 面（`.d.ts` 仍需 `pnpm build` 的 `build:types`）。CI 里 install 阶段的这次预构建是预期行为，显式 `pnpm build` 保持不变。
+**`prepare` 脚本（git 安装入口）**：`package.json` 的 `prepare` 只跑 `pnpm run bundle`（tsdown 直接转译 `src/`，无项目引用、不做类型检查，配置自包含，符合上游 [publish 文档](https://github.com/deepseek-ai/deepseek-harness/blob/main/docs/user/develop/basic/publish.zh.md)对 git 安装的要求）。它的三个触发点：git 方式 `dsh plugin add` 后由 pnpm 现场构建（用户需先授权 profile 的构建白名单——pnpm ≥11 的 `allowBuilds` 占位，或 pnpm 10 的 `onlyBuiltDependencies` 精确 dep path，见[故障排查](../troubleshooting/install-stops-at-build-approval.md)）；`pnpm publish` 打包前保证 `lib/*.js` 新鲜；workspace 根的 `pnpm install`（在本包目录内执行同效）也会顺带产出 JS 面（`.d.ts` 仍需 `pnpm build` 的 `build:types`）。CI 里 install 阶段的这次预构建是预期行为，显式 `pnpm build` 保持不变。
 
-两种安装形态都已验证（M1）：
+三种安装形态都已验证：
 
 | 形态 | 依赖解析 | 验证结果 |
 | --- | --- | --- |
-| 本地路径（`link:`） | 插件按自身真实路径解析，使用本仓库 pin 的 `@deepseek-ai/*` 副本 | 三行全部挂载，冒烟全绿 |
+| 本地路径（`link:`，开发调试） | 插件按自身真实路径解析，使用本仓库 pin 的 `@deepseek-ai/*` 副本 | 三行全部挂载，冒烟全绿 |
 | 打包安装（`pnpm pack` + `file:`，即发布形态） | 包内不含 `node_modules`，`@deepseek-ai/*` 由宿主运行时/模块回退目录提供 | 三行全部挂载，provider 身份正确 |
+| git tag 安装（`github:<owner>/<repo>#v<tag>&path:plugins/<目录>`，正式通道） | pnpm 拉 tarball、在 store 里装齐 devDeps 并跑 `prepare` 产出 `lib/`，再按 `files` 打包进 profile | 十行 insert + 两行 disabled 全部就位，`node_modules/<包名>` 为实体目录且版本等于 tag，`--dump-config-schema` 通过（M1 后追加） |
 
 发布形态的包内容为：`package.json`、`cordis.patch.yml`、`lib/*.js`（含共享 chunk）、`lib/types/**/*.d.ts`、README、LICENSE —— 因此**不要**假设任何 `src/` 路径在安装后存在（见 §6）。
 

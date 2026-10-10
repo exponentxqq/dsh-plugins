@@ -51,8 +51,9 @@ pnpm --filter dsh-plugin-multi-root-workspace verify:all
 docker exec dsh dsh plugin --profile web add \
   "github:exponentxqq/dsh-plugins#v1.0.0&path:plugins/<name>"
 
-# 首次 git 安装会被 pnpm 拦下构建脚本：把 profile pnpm-workspace.yaml 里 allowBuilds
-# 下的插件包名与 koffi 改成 true 后重跑（详见插件的「安装停在构建授权」排障文档）
+# 首次 git 安装会被 pnpm 拦下构建脚本：pnpm 10 不写占位，需把它打印的精确 dep path
+# （含 commit，换 tag 要刷新）加进 profile 的 onlyBuiltDependencies，另加 koffi（用包名）；
+# pnpm ≥11 则把 allowBuilds 占位改成 true。详见插件的「安装停在构建授权」排障文档
 
 # 若宿主 ~/.gitconfig 有 github.com 的 insteadOf=ssh 改写（容器无 ssh 会失败），加环境覆盖：
 # docker exec -e GIT_CONFIG_GLOBAL=/dev/null dsh dsh plugin --profile web add "github:…#v1.0.0&path:…"

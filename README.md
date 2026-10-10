@@ -39,7 +39,7 @@ docker exec dsh dsh --profile web --dump-config-schema   # 校验组合可加载
 
 两件必知的事：
 
-- **构建授权**：git 来源没有预构建产物，pnpm 会在安装时跑插件的 `prepare` 现场构建。pnpm ≥10 默认拦截依赖的构建脚本，首次安装会以非 0 退出，并把待决项写进 profile 的 `pnpm-workspace.yaml`（`allowBuilds:` 下形如 `包名: set this to true or false`）；把插件包名与 `koffi` 改成 `true` 后重跑即可。详见 [安装停在构建授权](plugins/dsh-plugin-multi-root-workspace/docs/troubleshooting/install-stops-at-build-approval.md)。
+- **构建授权**：git 来源没有预构建产物，pnpm 会在安装时跑插件的 `prepare` 现场构建，而 pnpm ≥10 默认拦截依赖的构建脚本，首次安装会以非 0 退出。处置分两代：pnpm ≥11 会把待决项以 `allowBuilds:` 占位写进 profile 的 `pnpm-workspace.yaml`（改成 `true` 重跑）；**pnpm 10 不写任何东西**，只以 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` 失败并打印确切的 dep path，需要把它加进 `onlyBuiltDependencies`——pnpm 10 对 git 依赖只做**精确匹配**，键里带着解析出的 commit，所以每次改 tag 都要按新打印的行刷新；注册表依赖 `koffi`（多根插件的原生依赖）用包名即可。详见 [安装停在构建授权](plugins/dsh-plugin-multi-root-workspace/docs/troubleshooting/install-stops-at-build-approval.md)。
 - **`insteadOf` 陷阱**：若宿主 `~/.gitconfig` 写了 `url.git@github.com:.insteadOf = https://github.com/`（该文件被只读挂载进 dsh 容器），容器内 `git ls-remote` 会被改写成 ssh 而容器没有 ssh，安装直接失败。解决办法二选一：把该段拆到宿主专属的 include 文件（容器读不到即静默跳过，见 dotfiles `dsh/README.md`），或给这条命令加 `-e GIT_CONFIG_GLOBAL=/dev/null`：`docker exec -e GIT_CONFIG_GLOBAL=/dev/null dsh dsh plugin …`。
 
 升级 = 改 profile `package.json` 里的 tag 后重装（`pnpm install` + 重启 profile）；想自动跟进同主版本也可用范围写法 `#semver:^1.0.0&path:plugins/<目录>`。

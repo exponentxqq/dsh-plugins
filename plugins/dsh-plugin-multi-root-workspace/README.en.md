@@ -90,13 +90,15 @@ This fork's release channel is the `dsh-plugins` monorepo; `#<tag>&path:<directo
 dsh plugin --profile web add "github:exponentxqq/dsh-plugins#v1.0.0&path:plugins/dsh-plugin-multi-root-workspace"
 ```
 
-With pnpm ≥10 the first `add` fails: a git install pulls **source code rather than build artifacts**, so the package's self-contained `prepare` script must build it on the spot (a direct transpile of `src/`, no type-checking). Follow `dsh`'s guidance and copy the exact package keys pnpm prints into the profile's `pnpm-workspace.yaml` — this source has **two** pending decisions:
+With pnpm ≥10 the first `add` fails: a git install pulls **source code rather than build artifacts**, so the package's self-contained `prepare` script must build it on the spot (a direct transpile of `src/`, no type-checking). With pnpm ≥11 the pending decisions are written into the profile's `pnpm-workspace.yaml` as `allowBuilds` placeholders — set them to `true`; this source has **two**:
 
 ```yaml
 allowBuilds:
   'dsh-plugin-multi-root-workspace': true
   koffi: true
 ```
+
+**pnpm 10 writes no placeholders**: it fails with `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` and prints the exact dep path (of the form `dsh-plugin-multi-root-workspace@https://codeload.github.com/…/tar.gz/<commit>#path:plugins/dsh-plugin-multi-root-workspace`). Git dependencies are matched exactly, so that line has to be added verbatim to `onlyBuiltDependencies` (use the bare name for `koffi`); the key carries the commit, so refresh it after a tag bump. See [Troubleshooting: the install stops at build approval](./docs/troubleshooting/install-stops-at-build-approval.md) for both pnpm generations.
 
 Then run `add` again. `#v1.0.0` is a tag lock, so a later push cannot silently change what actually runs; to follow the same major automatically, write `#semver:^1.0.0&path:plugins/dsh-plugin-multi-root-workspace` instead.
 

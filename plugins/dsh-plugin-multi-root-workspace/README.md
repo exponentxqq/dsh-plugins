@@ -92,13 +92,15 @@ dsh plugin --profile web add ./dsh-plugin-multi-root-workspace-0.1.5.tgz
 dsh plugin --profile web add "github:exponentxqq/dsh-plugins#v1.0.0&path:plugins/dsh-plugin-multi-root-workspace"
 ```
 
-pnpm ≥10 下首次 `add` 会失败：git 安装拉取的是**源码而非构建产物**，包内自包含的 `prepare` 脚本要现场构建（直接转译 `src/`，不做类型检查）。按 `dsh` 的提示把 pnpm 打印的包键写入该 profile 的 `pnpm-workspace.yaml`——这条来源要回答**两个**待决项：
+pnpm ≥10 下首次 `add` 会失败：git 安装拉取的是**源码而非构建产物**，包内自包含的 `prepare` 脚本要现场构建（直接转译 `src/`，不做类型检查）。pnpm ≥11 会把待决项写成该 profile `pnpm-workspace.yaml` 里的 `allowBuilds` 占位，改成 `true` 即可——这条来源要回答**两个**：
 
 ```yaml
 allowBuilds:
   'dsh-plugin-multi-root-workspace': true
   koffi: true
 ```
+
+**pnpm 10 不写占位**：它以 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` 失败并打印确切的 dep path（形如 `dsh-plugin-multi-root-workspace@https://codeload.github.com/…/tar.gz/<commit>#path:plugins/dsh-plugin-multi-root-workspace`），git 依赖只做精确匹配，所以要把那一行原样加进 `onlyBuiltDependencies`（`koffi` 用包名）；键里带着 commit，换 tag 后要按新打印的行刷新。两种 pnpm 代的完整处置见[故障排查：安装停在构建授权](./docs/troubleshooting/install-stops-at-build-approval.md)。
 
 然后重新执行 `add` 即可。`#v1.0.0` 是 tag 锁：推送无法悄悄改变实际运行的内容；想自动跟进同主版本可写成 `#semver:^1.0.0&path:plugins/dsh-plugin-multi-root-workspace`。
 

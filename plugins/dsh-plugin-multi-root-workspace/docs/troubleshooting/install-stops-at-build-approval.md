@@ -1,4 +1,4 @@
-# 安装停在构建授权（`ERR_PNPM_IGNORED_BUILDS`）
+# 安装停在构建授权（`ERR_PNPM_IGNORED_BUILDS` / `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`）
 
 ## 症状
 
@@ -11,28 +11,40 @@ Run "pnpm approve-builds" to pick which dependencies should be allowed to run sc
 dsh: pnpm failed in profile directory <$DSH_HOME>/profiles/<name>
 ```
 
+git 来源还会先撞上另一条更早的失败——插件自己的 `prepare` 也要授权：
+
+```text
+ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED  Failed to prepare git-hosted package fetched from
+"https://codeload.github.com/<owner>/<repo>/tar.gz/<commit>": The git-hosted package
+"dsh-plugin-multi-root-workspace@<version>" needs to execute build scripts but is not in the
+"onlyBuiltDependencies" allowlist.
+```
+
 安装**没有完成**：该 profile 的 `dsh.profile.bundles` 里没有本插件，`dsh --profile <name>` 也就完全没有多根能力。再执行一次 `add` 仍然是同样的失败——它不是瞬时错误。
 
 ## 根本原因
 
-本插件带一个需要构建的原生依赖 `koffi`（Windows 上 Registry Authority 的 FFI 封装，见 [ADR-0007](../decisions/ADR-0007-registry-authority-lease.md)），而 pnpm ≥10 **默认不运行任何依赖的生命周期脚本**：未在 profile 的 `pnpm-workspace.yaml` 里显式表态的构建脚本会被跳过，pnpm 以非 0 退出，`dsh plugin add` 随即把这次安装判定为失败。
+本插件带一个需要构建的原生依赖 `koffi`（Windows 上 Registry Authority 的 FFI 封装，见 [ADR-0007](../decisions/ADR-0007-registry-authority-lease.md)），而 pnpm ≥10 **默认不运行任何依赖的生命周期脚本**：未在 profile 的 `pnpm-workspace.yaml` 里显式表态的构建脚本会被跳过，pnpm 以非 0 退出，`dsh plugin add` 随即把这次安装判定为失败。git 来源除此之外还要授权插件自己的 `prepare`（现场构建 `lib/`）。
 
 这是 pnpm 的供应链纪律，不是本插件的 bug——但 v0.1.1 之前本插件没有原生依赖，所以**四种安装来源现在都多出这一次表态**（`v0.1.0` 及更早版本的 npm / tarball 来源没有这一步）。
 
 ## 诊断方法
 
-1. 看该 profile 的 `pnpm-workspace.yaml`：`dsh` 会把待决项留在文件里，形如
+1. 看该 profile 的 `pnpm-workspace.yaml`。**pnpm ≥11** 会把待决项留在文件里，形如
 
    ```yaml
    allowBuilds:
      koffi: set this to true or false
    ```
 
-   出现 `set this to true or false` 就说明卡在构建授权，不用再找别的原因。
+   出现 `set this to true or false` 就说明卡在构建授权，不用再找别的原因。**pnpm 10 不写占位**（文件保持原样），只在失败输出里给出确切的键。
+
 2. 确认 profile 目录：`<$DSH_HOME>/profiles/<name>`（桌面端是 `desktop`，CLI 常用 `web` / `headless`）。
 3. 想要更完整的 pnpm 输出，可以直接在 profile 目录里跑 `pnpm install`——`dsh plugin add` 只转述了最后一行。
 
 ## 已验证的解决方案
+
+### pnpm ≥11：改 `allowBuilds` 占位
 
 1. 把那一行改成 `true`（该 profile 的 `pnpm-workspace.yaml`）：
 
@@ -50,9 +62,21 @@ dsh: pnpm failed in profile directory <$DSH_HOME>/profiles/<name>
      koffi: true
    ```
 
+### pnpm 10：把打印出来的精确 dep path 加进 `onlyBuiltDependencies`
+
+pnpm 10 对 git 依赖只做**精确 dep path 匹配**（包名与通配都不认），所以字段名是 `onlyBuiltDependencies`、值是 pnpm 在报错里原样打印的那一行（`name@<解析出的来源>#path:<子目录>`，键里带着 commit）：
+
+```yaml
+onlyBuiltDependencies:
+  - 'dsh-plugin-multi-root-workspace@https://codeload.github.com/<owner>/<repo>/tar.gz/<commit>#path:plugins/dsh-plugin-multi-root-workspace'
+  - koffi
+```
+
+`koffi` 是注册表依赖（有 semver 版本），用包名即可。换 tag 后 commit 变了，要按新一次失败打印的行刷新这条——**这条记录会随每次升级 tag 过期一次**。
+
 把 `koffi` 置 `true` 意味着**允许该依赖的安装脚本在你的机器上执行**（不在 agent 运行的任何沙箱之内）；它的脚本只做本地预编译。置 `false` 也能让 pnpm 退出 0，但 koffi 的原生二进制就不会被准备，Windows 上的 Registry Authority 会因此在运行时失败——不确定时选 `true`。
 
 ## 相关
 
-- [README §安装](../../README.md)（四种安装来源与 `allowBuilds` 说明）
+- [README §安装](../../README.md)（四种安装来源与构建授权说明）
 - [故障排查：DSH 版本不在支持矩阵上](./unsupported-dsh-release.md)（装完之后插件仍不生效的另一种原因）
