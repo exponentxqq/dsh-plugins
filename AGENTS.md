@@ -57,6 +57,10 @@ docker exec dsh dsh --profile web --dump-config
 
 DSH 源码与 API 参考位于 `/usr/local/lib/node_modules/@deepseek-ai/dsh/`（各子包 `README.zh.md` 有中文包文档，如 `dsh-commands`、`dsh-agent-instructions`、`dsh-skill`）。
 
+## Codebase Memory 索引
+
+本项目已索引，project 名为 `home-xuqinqin-develop-person-dsh-plugins`（规则：绝对路径去掉开头 `/`，`/` 全部替换为 `-`）。检索代码优先用 codebase-memory-mcp（`search_graph` / `search_code` / `get_file_outline` / `get_architecture`），仅当未索引或属纯文本/文件名匹配时回退 grep/glob。`.git`、`.dsh` 按设计不索引；索引会自动刷新，若查询结果滞后可重新执行 `index_repository`。
+
 ## OpenSpec 工作流
 
 本项目已初始化 OpenSpec（规范驱动开发）：
