@@ -1,0 +1,15 @@
+# dsh-plugin-git-graph-multi bundle patch: inserts the dual-face plugin row
+# into the web profile roster. Applied as a profile bundle layer (the
+# `dsh.bundle.patch` manifest field) over dsh-base; activate with
+# `dsh plugin --profile web add /home/xuqinqin/develop/dotfiles/dsh/plugins/git-graph-multi`.
+#
+# The row is a bare plugin by package name: the node half (exports ".") runs
+# in the host process (git service + /git/* HTTP routes), and the dsh.client
+# declaration in package.json makes the browser half (exports "./client",
+# served at /plugins/<id>/client.js) load in the web GUI.
+#
+# NOTE: this plugin replaces @linxin666/dsh-client-ui-git-graph (same slot id
+# `git-graph` and the same /git/* route prefix). Never enable both at once.
+- insert:
+    - id: ui-git-graph-multi
+      name: 'dsh-plugin-git-graph-multi'

@@ -1,0 +1,583 @@
+/**
+ * The user-facing surface: the `/workspace-folders` command and the panel's
+ * RPC channel.
+ *
+ * They share one module because they are one thing — the operator-facing edge
+ * over `ctx.multiRootRegistry`. The command serves the text surfaces (the
+ * composer, headless diagnostics) and the channel serves the browser panel;
+ * both resolve the same canonical workspace root, call the same registry, and
+ * report the same `RootValidationCode` values.
+ *
+ * Both are also the two places a READ happens, so both go through the same
+ * revalidation entry point: `registry.refresh()` re-stats every registered
+ * directory, re-resolves it against the directory it was granted for, and
+ * republishes the scope BEFORE the list is rendered. Listing is therefore
+ * enough to notice that a directory disappeared (and enough to bring a
+ * restored one back) — which is what the panel's "Retry" button and the
+ * command's `list` both promise.
+ *
+ * Both halves are SOFT: the command registers only where a command registry is
+ * composed, and the channel only where a host Connection and web server exist
+ * (web), so a headless profile mounts this row with zero effect on the
+ * providers.
+ *
+ * The command's own text is English: a host-side command handler has no active
+ * locale to consult (the browser owns locale state). The panel is bilingual.
+ * That split is recorded in the M3 plan and the requirements as a known limit.
+ *
+ * @module dsh-plugin-multi-root-workspace/command
+ */
+
+import { Context } from '@deepseek-ai/cordis'
+import type { ConnectionRpcResult } from '@deepseek-ai/dsh-client-connection'
+import type {} from '@deepseek-ai/dsh-client-connection'
+import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
+import { canonicalPath } from '@deepseek-ai/dsh-sandbox'
+import type {} from '@deepseek-ai/dsh-sandbox-policy'
+import type { SessionId } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-subprocess'
+// Type-only: loads the `workspaceRegistry` Context augmentation this module's
+// optional lookup is typed against (the service itself stays a sibling lookup).
+import type {} from '@deepseek-ai/dsh-workspace'
+import {
+  PANEL_CHANNEL,
+  parsePanelCall,
+  type PanelCall,
+  type RevealedView,
+  type RootEntryView,
+  type RootView,
+  type RootsView,
+} from './contract.ts'
+import type { MultiRootRegistry } from './registry.ts'
+import { browseRoot } from './panel-files.ts'
+import {
+  availableRoots,
+  canonicalRoot,
+  entryRootRef,
+  RootValidationError,
+  resolveRootRef,
+  type RootRef,
+  type RootStatus,
+} from './roots.ts'
+
+/** Services this row needs before it may activate. */
+export const inject = ['commands', 'sandboxPolicy', 'multiRootRegistry']
+
+/** The command name, without the leading slash. */
+export const COMMAND_NAME = 'workspace-folders'
+
+/**
+ * How the report marks a root the plugin configuration grants to every
+ * workspace (not an alias a localization layer may rename: the report is
+ * English-only, like every host-side command result).
+ */
+export const COMMON_MARKER = 'common'
+
+/** One parsed command line. */
+export interface FoldersCommand {
+  /** The subcommand; `list` when the line named none. */
+  readonly verb: 'list' | 'add' | 'remove' | 'alias' | 'reveal' | 'help'
+  /** Everything after the verb, verbatim (paths may contain spaces). */
+  readonly rest: string
+}
+
+/**
+ * Parse the text that follows `/workspace-folders`.
+ * @param rawInput - the verbatim `rawInput` of the command invocation.
+ * @returns the subcommand and its remaining text.
+ * @throws {RootValidationError} `invalid-ref` for an unknown subcommand.
+ */
+export function parseFoldersCommand(rawInput: string): FoldersCommand {
+  const trimmed = rawInput.trim()
+  if (trimmed === '') return { verb: 'list', rest: '' }
+  const match = /^(\S+)(?:\s+([\s\S]*))?$/.exec(trimmed)
+  const verb = match?.[1] ?? ''
+  const rest = (match?.[2] ?? '').trim()
+  switch (verb) {
+    case 'list':
+    case 'add':
+    case 'remove':
+    case 'alias':
+    case 'reveal':
+    case 'help':
+      return { verb, rest }
+    default:
+      throw new RootValidationError('invalid-ref', `unknown subcommand "${verb}"; try /${COMMAND_NAME} help`)
+  }
+}
+
+/** Strip one layer of matching quotes from an operator-supplied path. */
+function unquote(text: string): string {
+  if (text.length >= 2) {
+    const first = text[0]
+    const last = text[text.length - 1]
+    if ((first === '"' && last === '"') || (first === "'" && last === "'")) return text.slice(1, -1)
+  }
+  return text
+}
+
+/**
+ * Render the roots report the command returns. Additional roots are numbered
+ * from 1, which is the numbering every other subcommand accepts; the workspace
+ * root is never numbered because it cannot be removed.
+ *
+ * A root the plugin configuration grants to every workspace is marked `[common]`
+ * and counted separately: it is listed because it is part of the scope, and
+ * marked because no subcommand can change it (`remove`/`alias` answer
+ * `common-root`).
+ * @param primaryRoot - the canonical workspace root.
+ * @param statuses - the registry's status list, common roots included.
+ * @param unavailable - the store failure, when the registry could not read it.
+ * @returns the report text.
+ */
+export function renderRootsReport(
+  primaryRoot: string,
+  statuses: readonly RootStatus[],
+  unavailable?: string,
+): string {
+  const lines = [`Workspace root (primary; access follows the current sandbox mode): ${primaryRoot}`]
+  if (unavailable !== undefined) {
+    lines.push(`Root registry unavailable: ${unavailable}`)
+    return lines.join('\n')
+  }
+  if (statuses.length === 0) {
+    lines.push(`No additional roots. Add one with /${COMMAND_NAME} add <absolute path>.`)
+    return lines.join('\n')
+  }
+  for (const [index, status] of statuses.entries()) {
+    const alias = status.alias === undefined ? '' : ` [${status.alias}]`
+    const state = status.state === 'available' ? '' : ` (${status.state}: ${status.detail ?? 'unavailable'})`
+    const common = status.source === 'common' ? ` [${COMMON_MARKER}]` : ''
+    lines.push(`  ${index + 1} ${status.path}${alias}${common}${state}`)
+  }
+  const registered = statuses.filter(status => status.source !== 'common')
+  const withheld = registered.length - availableRoots(registered).length
+  if (withheld > 0) {
+    lines.push(
+      `${withheld} root(s) are registered but not writable right now;`
+      + ` restore the directory and run /${COMMAND_NAME} list, or remove the entry.`,
+    )
+  }
+  lines.push(`Writable additional roots: ${availableRoots(statuses).length} of ${statuses.length}.`)
+  const common = statuses.length - registered.length
+  if (common > 0) {
+    lines.push(
+      `${common} of them are ${COMMON_MARKER} roots: this plugin's commonRoots configuration grants them to every`
+      + ' workspace, so they are changed in that configuration (cordis.patch.yml), not here.',
+    )
+  }
+  return lines.join('\n')
+}
+
+/**
+ * Register the command and, where a host Connection exists, the panel channel.
+ * @param ctx - the host context carrying `commands`, `sandboxPolicy`, and the registry.
+ */
+export function apply(ctx: Context): void {
+  ctx.commands.register({
+    name: COMMAND_NAME,
+    description: 'List, add, remove, alias, or reveal the additional workspace roots of this session',
+    input: { hint: '[list|add [path]|remove <n|path>|alias <n|path> [name]|reveal <n|path>|help]' },
+    handler: async invocation => await runCommand(ctx, invocation),
+  })
+
+  // Soft: a profile without the browser host half (headless, sdk) simply has no
+  // panel to serve, and the registry is unaffected.
+  //
+  // `webServer` MUST be in the dependency list so this callback only runs once
+  // the route table exists, and the service MUST be read off `ctx.root`:
+  // `connection.rpc.handle` resolves `webServer` as a property of the context
+  // the service was READ from, and cordis property resolution from a plugin
+  // fiber can only see that fiber's own injected services — a sibling row's
+  // `webServer` is invisible, the registration dies with `cannot get property
+  // "webServer" without inject`, and every panel request then falls through to
+  // the static SPA fallback as HTTP 405. Reading at the root (what the upstream
+  // connection tests do) resolves against the shared service store instead.
+  ctx.inject(['connection', 'webServer'], (connectionCtx) => {
+    const connection = connectionCtx.root.get('connection')
+    if (connection === undefined) {
+      ctx.logger.warn('multi-root: connection resolved without the service; the panel channel is not mounted')
+      return
+    }
+    const dispose = connection.rpc.handle(PANEL_CHANNEL, async (endpoint, payload, signal) =>
+      await dispatchPanelRequest(ctx, endpoint, payload, signal))
+    return () => { void dispose() }
+  })
+}
+
+/** Execute one `/workspace-folders` invocation. */
+async function runCommand(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
+  let parsed: FoldersCommand
+  try {
+    parsed = parseFoldersCommand(invocation.rawInput)
+  } catch (error: unknown) {
+    return { kind: 'error', text: failureText(error) }
+  }
+  const policy = ctx.sandboxPolicy.resolve({ session: invocation.agent.session })
+  const primaryRoot = policy.workspaceRoot
+  const registry = ctx.multiRootRegistry
+
+  try {
+    switch (parsed.verb) {
+      case 'help':
+        return { kind: 'success', text: helpText() }
+      case 'list':
+        return { kind: 'success', text: await report(registry, primaryRoot) }
+      case 'add': {
+        const typed = unquote(parsed.rest)
+        const path = typed === '' ? await pickRootPath(ctx, invocation.signal) : typed
+        if (path === undefined) {
+          return {
+            kind: 'error',
+            text: `/${COMMAND_NAME}: no directory was selected; pass an absolute path or use the Workspace Folders panel`,
+          }
+        }
+        await registry.add(primaryRoot, { path })
+        return { kind: 'success', text: await report(registry, primaryRoot) }
+      }
+      case 'remove': {
+        const { ref } = await targetOf(registry, primaryRoot, parsed.rest)
+        await registry.removeAt(primaryRoot, ref)
+        return { kind: 'success', text: await report(registry, primaryRoot) }
+      }
+      case 'alias': {
+        const { text: reference, rest: alias } = splitReference(parsed.rest)
+        const { ref } = await targetOf(registry, primaryRoot, reference)
+        await registry.setAlias(primaryRoot, ref, alias === '' ? undefined : unquote(alias))
+        return { kind: 'success', text: await report(registry, primaryRoot) }
+      }
+      case 'reveal': {
+        const { status: target } = await targetOf(registry, primaryRoot, parsed.rest)
+        await revealRoot(ctx, target.path)
+        return { kind: 'success', text: `revealed ${target.path}` }
+      }
+    }
+  } catch (error: unknown) {
+    return { kind: 'error', text: failureText(error) }
+  }
+}
+
+/**
+ * The current report for one primary root, after re-checking every registered
+ * directory. The refresh is what makes the report describe the present rather
+ * than the moment the process started.
+ */
+async function report(registry: MultiRootRegistry, primaryRoot: string): Promise<string> {
+  const statuses = await registry.refresh(primaryRoot)
+  return renderRootsReport(canonicalRoot(primaryRoot), statuses, registry.unavailable)
+}
+
+/** Render a failure the way the composer displays it. */
+function failureText(error: unknown): string {
+  if (error instanceof RootValidationError) return `/${COMMAND_NAME}: ${error.code}: ${error.message}`
+  return `/${COMMAND_NAME}: ${error instanceof Error ? error.message : String(error)}`
+}
+
+/** The command's own help text. */
+function helpText(): string {
+  return [
+    `/${COMMAND_NAME} — additional workspace roots of this session`,
+    `  /${COMMAND_NAME} list`,
+    `  /${COMMAND_NAME} add [absolute path]   (no path opens the directory picker when one is composed)`,
+    `  /${COMMAND_NAME} remove <n|path>`,
+    `  /${COMMAND_NAME} alias <n|path> [name]  (no name clears the alias)`,
+    `  /${COMMAND_NAME} reveal <n|path>`,
+    'Roots are canonicalized before they are stored: `~` expands, and a duplicate, a nested directory,',
+    "or this session's own workspace root is rejected.",
+    `A root marked [${COMMON_MARKER}] comes from the plugin configuration and is granted to every`,
+    'workspace; change it in cordis.patch.yml rather than with remove/alias.',
+  ].join('\n')
+}
+
+/**
+ * Split `alias`'s argument into a reference and the alias text.
+ *
+ * The reference is the first whitespace-delimited token, except when it opens
+ * with a quote: a quoted path may contain spaces, so the whole quoted span is
+ * the reference and the remainder is the alias.
+ */
+function splitReference(text: string): { text: string; rest: string } {
+  const trimmed = text.trim()
+  if (trimmed === '') throw new RootValidationError('invalid-ref', 'a root reference is required')
+  if (trimmed.startsWith('"') || trimmed.startsWith("'")) {
+    const quote = trimmed[0] ?? ''
+    const end = trimmed.indexOf(quote, 1)
+    if (end > 0) return { text: trimmed.slice(0, end + 1), rest: trimmed.slice(end + 1).trim() }
+  }
+  const match = /^(\S+)(?:\s+([\s\S]*))?$/.exec(trimmed)
+  return { text: match?.[1] ?? '', rest: (match?.[2] ?? '').trim() }
+}
+
+/**
+ * Resolve an operator reference — a 1-based number, a path, or an id — to the
+ * registered root it names.
+ * @param registry - the registry to read.
+ * @param primaryRoot - the workspace root the registrations belong to.
+ * @param text - the operator's text.
+ * @returns the matched status, after re-checking the registered directories.
+ * @throws {RootValidationError} `invalid-ref` for empty text, `not-found` when nothing matches.
+ */
+async function targetOf(
+  registry: MultiRootRegistry,
+  primaryRoot: string,
+  text: string,
+): Promise<{ readonly status: RootStatus; readonly ref: RootRef }> {
+  const trimmed = text.trim()
+  if (trimmed === '') throw new RootValidationError('invalid-ref', 'a root reference is required')
+  // A reference must name a root that exists RIGHT NOW: an ordinal points at a
+  // position, and a path is resolved against the current canonical spelling.
+  const statuses = await registry.refresh(primaryRoot)
+  let status: RootStatus
+  if (/^\d+$/.test(trimmed)) {
+    const ordinal = Number(trimmed)
+    status = resolveRootRef(statuses, { kind: 'ordinal', ordinal })
+    return { status, ref: entryRootRef(status, ordinal) }
+  }
+  const asPath = unquote(trimmed)
+  if (asPath === '~' || asPath.startsWith('~') || asPath.startsWith('/') || /^[A-Za-z]:[\\/]/.test(asPath)) {
+    status = resolveRootRef(statuses, { kind: 'path', path: asPath })
+  } else {
+    status = resolveRootRef(statuses, { kind: 'id', id: trimmed })
+  }
+  const ordinal = statuses.indexOf(status) + 1
+  return { status, ref: entryRootRef(status, ordinal) }
+}
+
+/**
+ * Derive the primary root a panel request may act on.
+ *
+ * The browser names a live session; the host looks that session up and uses
+ * its immutable cwd. There is no client-supplied path and no deployment-default
+ * fallback: a panel call without a real host session has no workspace to
+ * manage. Property access would demand an injected `sessions` dependency this
+ * row does not name, so the lookup stays an explicit sibling `get` (the same
+ * pattern as `directoryPicker` / `subprocess`).
+ *
+ * @param ctx - the host context that may carry `sessions`.
+ * @param sessionId - the id the panel sent; already required by the wire schema.
+ * @returns the canonical cwd of that session.
+ * @throws {RootValidationError} `session-not-found` when the service is absent,
+ *   the id does not name a live session, or that session has no cwd.
+ */
+export function resolvePanelPrimaryRoot(ctx: Context, sessionId: string): string {
+  const session = ctx.get('sessions')?.get(sessionId as SessionId)
+  const cwd = session?.header.cwd
+  if (session === undefined || cwd === undefined || cwd === '') {
+    throw new RootValidationError('session-not-found', `session "${sessionId}" is not an active host session`, {
+      reference: sessionId,
+    })
+  }
+  return canonicalPath(cwd)
+}
+
+/** Project one status into the panel's view. */
+function toRootView(status: RootStatus, index: number): RootView {
+  return {
+    ordinal: index + 1,
+    id: status.id,
+    path: status.path,
+    ...(status.alias === undefined ? {} : { alias: status.alias }),
+    addedAt: status.addedAt,
+    state: status.state,
+    ...(status.detail === undefined ? {} : { detail: status.detail }),
+    ...(status.source === undefined ? {} : { source: status.source }),
+  }
+}
+
+/**
+ * Resolve the display name of the primary root from the host's workspace
+ * registry — the title the operator set in the workspace browser, falling back
+ * to nothing (the panel then shows the path's basename).
+ *
+ * The registry is an optional sibling service, read through the explicit
+ * lookup like `sessions`/`subprocess`: property access would demand an
+ * injected dependency this row does not name. Membership wins over cwd, which
+ * mirrors the host's own session→workspace resolution.
+ */
+async function primaryNameOf(ctx: Context, primaryRoot: string, request: PanelCall): Promise<string | undefined> {
+  const registry = ctx.get('workspaceRegistry')
+  if (registry === undefined) return undefined
+  try {
+    const sessionId = request.sessionId
+    if (sessionId !== undefined && sessionId !== '') {
+      const member = registry.list().find(workspace => workspace.sessionIds.includes(sessionId as SessionId))
+      if (member !== undefined) return member.title
+    }
+    const resolved = await registry.resolveByPath(primaryRoot)
+    return resolved?.title
+  } catch (error: unknown) {
+    // A name is decoration, never a reason to fail the endpoint: an unreadable
+    // registry leaves the panel on the basename fallback.
+    ctx.logger.warn('multi-root: workspace title lookup failed; the panel falls back to the path basename', error)
+    return undefined
+  }
+}
+
+/**
+ * Build the panel's view of one primary root, after re-checking every
+ * registered directory — the panel's read path is the same revalidation the
+ * command uses, so "the list the operator sees" is always the list the scope
+ * currently enforces.
+ */
+async function rootsViewOf(ctx: Context, registry: MultiRootRegistry, primaryRoot: string, request: PanelCall): Promise<RootsView> {
+  const statuses = await registry.refresh(primaryRoot)
+  const unavailable = registry.unavailable
+  const primaryName = await primaryNameOf(ctx, primaryRoot, request)
+  return {
+    primaryRoot: canonicalRoot(primaryRoot),
+    ...(primaryName === undefined ? {} : { primaryName }),
+    roots: statuses.map(toRootView),
+    ...(unavailable === undefined ? {} : { unavailable }),
+  }
+}
+
+/**
+ * Serve one panel endpoint.
+ *
+ * The payload is validated before anything acts on it: it arrived from a
+ * browser, and the host is the side that must not be surprised by a shape it
+ * did not expect (see `contract.ts`, which owns the schema both halves share).
+ * A malformed request is reported as `panel/bad-request` rather than throwing
+ * through the channel.
+ */
+async function dispatchPanelRequest(
+  ctx: Context,
+  endpoint: string,
+  payload: unknown,
+  signal: AbortSignal,
+): Promise<ConnectionRpcResult<unknown>> {
+  try {
+    const parsed = parsePanelCall(endpoint, payload)
+    if (!parsed.ok) {
+      return { ok: false, error: { code: 'panel/bad-request', message: parsed.message, details: {} } }
+    }
+    const request = parsed.value
+    const registry = ctx.multiRootRegistry
+    const primaryRoot = resolvePanelPrimaryRoot(ctx, request.sessionId)
+    switch (request.endpoint) {
+      case 'files':
+      case 'readFile':
+        return { ok: true, value: await browseRoot(ctx, primaryRoot, request, signal) }
+      case 'list':
+        return { ok: true, value: await rootsViewOf(ctx, registry, primaryRoot, request) }
+      case 'add': {
+        if (request.path === undefined || request.path === '') {
+          throw new RootValidationError('missing', 'a directory path is required')
+        }
+        await registry.add(primaryRoot, {
+          path: request.path,
+          ...(request.alias === undefined ? {} : { alias: request.alias }),
+        })
+        return { ok: true, value: await rootsViewOf(ctx, registry, primaryRoot, request) }
+      }
+      case 'remove':
+        await registry.removeAt(primaryRoot, requireEntry(request))
+        return { ok: true, value: await rootsViewOf(ctx, registry, primaryRoot, request) }
+      case 'alias':
+        await registry.setAlias(primaryRoot, requireEntry(request), request.alias)
+        return { ok: true, value: await rootsViewOf(ctx, registry, primaryRoot, request) }
+      case 'move':
+        await registry.move(
+          primaryRoot,
+          requireEntry(request),
+          request.beforeEntry !== undefined
+            ? entryRefOf(request.beforeEntry)
+            : request.beforeId === undefined ? undefined : { kind: 'id', id: request.beforeId },
+        )
+        return { ok: true, value: await rootsViewOf(ctx, registry, primaryRoot, request) }
+      case 'reveal': {
+        const ref = requireEntry(request)
+        // The reference is resolved against the re-checked list, so revealing a
+        // root whose directory changed still targets the current spelling.
+        const target = resolveRootRef(await registry.refresh(primaryRoot), ref)
+        await revealRoot(ctx, target.path)
+        // The ONE endpoint that does not answer with a roots view: it reports
+        // what it revealed, and the panel leaves its list as it is.
+        const value: RevealedView = { revealed: target.path }
+        return { ok: true, value }
+      }
+    }
+  } catch (error: unknown) {
+    if (error instanceof RootValidationError) {
+      return { ok: false, error: { code: error.code, message: error.message, details: {} } }
+    }
+    return {
+      ok: false,
+      error: { code: 'panel/internal', message: error instanceof Error ? error.message : String(error), details: {} },
+    }
+  }
+}
+
+/** Convert a validated wire snapshot to the registry's exact-entry reference. */
+function entryRefOf(entry: RootEntryView): RootRef {
+  return { kind: 'entry', ...entry }
+}
+
+/** Require the exact list row a mutating panel request must carry. */
+function requireEntry(request: PanelCall): RootRef {
+  if (request.entry !== undefined) return entryRefOf(request.entry)
+  if (request.id !== undefined && request.id !== '') return { kind: 'id', id: request.id }
+  throw new RootValidationError('invalid-ref', 'an exact root entry is required')
+}
+
+/**
+ * Open the composed directory picker when one exists, and answer `undefined`
+ * otherwise (the command then reports the missing affordance).
+ *
+ * Only the `native` capability can answer a host-side command: the `browse`
+ * capability is an in-app dialog that only the browser panel can render.
+ */
+async function pickRootPath(ctx: Context, signal: AbortSignal): Promise<string | undefined> {
+  const picker = ctx.get('directoryPicker')
+  if (picker === undefined) return undefined
+  const capability = picker.capability()
+  if (capability.kind !== 'native') return undefined
+  const picked = await capability.pick(signal)
+  return picked ?? undefined
+}
+
+/** The per-platform argv that reveals one directory in the OS file manager. */
+export function revealArgv(platform: NodeJS.Platform, path: string): readonly string[] {
+  switch (platform) {
+    case 'darwin':
+      return ['open', '-R', path]
+    case 'win32':
+      return ['explorer', `/select,${path}`]
+    default:
+      return ['xdg-open', path]
+  }
+}
+
+/**
+ * Reveal one directory in the OS file manager through `ctx.subprocess`.
+ *
+ * This runs no confined command and grants the agent nothing: it is an
+ * operator action taken from the panel or the command line, and the process is
+ * the platform's own file manager. Failures are reported to the caller.
+ */
+async function revealRoot(ctx: Context, path: string): Promise<void> {
+  const subprocess = ctx.get('subprocess')
+  if (subprocess === undefined) {
+    throw new RootValidationError(
+      'reveal-unavailable',
+      'revealing a root needs a process runtime, which this composition does not mount',
+    )
+  }
+  const argv = revealArgv(process.platform, path)
+  const [program = '', ...args] = argv
+  const executable = await subprocess.resolveExecutable(program)
+  const handle = subprocess.spawn({
+    argv: [executable, ...args],
+    cwd: path,
+    // The file manager's own chatter is collected boundedly and never shown:
+    // all this action reports is whether the platform accepted the request.
+    stdio: { stdin: 'ignore', stdout: { maxBytes: 4096 }, stderr: { maxBytes: 4096 } },
+    graceMs: 3000,
+  })
+  const outcome = await handle.done
+  await handle.waitForExit()
+  if (outcome.exitCode !== 0) {
+    throw new RootValidationError('reveal-unavailable', `the file manager exited with ${String(outcome.exitCode)}`)
+  }
+}
