@@ -40,7 +40,6 @@ docker exec dsh dsh --profile web --dump-config-schema   # 校验组合可加载
 | --- | --- |
 | [`dsh-plugin-multi-root-workspace`](plugins/dsh-plugin-multi-root-workspace/README.md) | 把 Workspace 的可写范围从「一个主根」扩展为「主根 + N 个附加根」；不放宽沙箱档位，附加根与主根同权。上游 `cherrchen/dsh-plugin-multi-root-workspace` 的本地 fork，含附加根一次性播种与通用附加根 `commonRoots` 两个本地扩展。 |
 | [`dsh-plugin-git-graph-multi`](plugins/git-graph-multi/README.md) | 单工作区多 git 子仓的分支芯片：仓库枚举、每仓平铺芯片与操作面板、跨仓（组）分支操作，均经 host 侧真实 git 执行并带守卫。`@linxin666/dsh-client-ui-git-graph@0.4.5` 的本地 fork（Apache-2.0）。 |
-| [`hello`](plugins/hello/README.md) | 最小可用的插件模板（纯 ESM 三件套），复制即新插件起点。 |
 
 各插件的长文档留在插件目录内：多根插件的 `docs/` 含架构、ADR、参考与排障全文；git-graph-multi 的行为语义见 [`openspec/specs/dsh-multi-repo-git-graph/spec.md`](openspec/specs/dsh-multi-repo-git-graph/spec.md)（三次变更的规划工件归档在 [`openspec/changes/archive/`](openspec/changes/archive/)）。
 
