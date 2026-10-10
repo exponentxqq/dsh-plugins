@@ -24,6 +24,7 @@
 | 打包 | tsdown（rolldown） | `tsdown.config.ts`：逐入口 ESM bundle 到 `lib/`，`@deepseek-ai/*` 与 cordis 保持 external |
 | Lint | oxlint | `.oxlintrc.json`（与上游仓库同一选择） |
 | 测试 | vitest | `vitest.config.ts`（`tests/**/*.spec.ts`，`pool: forks`） |
+| 测试运行时 vite | `8.3.0`（`devDependencies` 显式精确 pin） | vitest 4 接受 vite `^6||^7||^8`，但同 workspace 的另一插件用 vitest 3（只接受 vite ≤7），pnpm 去重会把本包的 vite 降到 7.x——迁移前本包单独解析为 8.3.0，显式 pin 才能保住同一解析。改动前先跑 `pnpm --filter dsh-plugin-multi-root-workspace test` 确认 jsx 变换行为未变（vite 7 下 `.tsx` 测试因经典 jsx 变换而 `React is not defined`） |
 
 源码里的相对导入写 `.ts` 后缀（`./containment.ts`）：tsc 以 `rewriteRelativeImportExtensions` 重写为 `.js`，tsdown 在打包时直接解析。
 

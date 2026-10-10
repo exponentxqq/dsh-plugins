@@ -190,6 +190,7 @@
     "react-dom": "^18.3.1",
     "tsdown": "^0.22.0",
     "typescript": "^6.0.3",
+    "vite": "8.3.0",
     "vitest": "^4.1.8",
     "yaml": "^2.9.0",
     "@deepseek-ai/dsh-lsp": "0.2.0-rc.2",
