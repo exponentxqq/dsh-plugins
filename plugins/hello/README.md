@@ -13,11 +13,11 @@ dsh 自定义插件的最小可用模板（官方组合包 bundle 形式）。
 
 ## 安装
 
-在 dotfiles 仓库根目录执行（容器内路径与宿主一致）：
+在 `dsh-plugins` 仓库根目录执行（容器内路径与宿主一致）：
 
 ```bash
 cd ~/develop/docker
-docker exec dsh dsh plugin --profile web add /home/xuqinqin/develop/dotfiles/dsh/plugins/my-plugin
+docker exec dsh dsh plugin --profile web add /home/xuqinqin/develop/person/dsh-plugins/plugins/my-plugin
 ```
 
 安装后重启 profile 即生效；之后改 `index.js` 只需重启 profile（link 安装，无需重装）。
@@ -26,4 +26,4 @@ docker exec dsh dsh plugin --profile web add /home/xuqinqin/develop/dotfiles/dsh
 
 - 插件模块为纯 ESM，导出 `name` 与 `apply`（也支持对象、类形式，见官方文档）
 - 需要 `tools`、`llm` 等服务时用 `export const inject = ['tools']` 声明依赖
-- 插件根目录的 `node_modules` 与 `pnpm-lock.yaml` 由 dsh/pnpm 维护，已被 gitignore
+- 依赖由 workspace 统一管理：根目录 `pnpm install` 装齐全部插件，`pnpm-lock.yaml` 归仓库根并入库；各插件目录的 `node_modules/` 与构建产物 `lib/` 不入库

@@ -9,7 +9,10 @@ DSH（DeepSeek Harness）自定义插件仓库。每个插件以官方组合包�
 ## 目录结构
 
 ```
+pnpm-workspace.yaml      # workspace 定义（packages: plugins/*）+ 构建白名单 / 发布年龄豁免
+package.json             # workspace 根：pnpm 版本 pin 与递归脚本
 plugins/<name>/          # 一个插件一个目录（见下文插件结构）
+README.md                # 仓库说明与常用命令
 .dsh/skills/             # OpenSpec 安装的 DSH skill（本地生成，由 openspec 管理，勿手改）
 openspec/                # OpenSpec 规范工作区（spec-driven schema，zh-CN）
 ```
@@ -28,6 +31,18 @@ plugins/<name>/
 ## 开发与验证命令
 
 环境规则：node 族命令走 volta/pnpm 包装脚本（见 dotfiles `CLAUDE.md`），dsh 一律通过容器执行。
+
+```bash
+# workspace 级命令（在仓库根执行；pnpm 版本由 package.json#packageManager 固定为 11.25.0）
+pnpm install             # 装齐全部插件依赖（单包目录内执行同效）；会触发多根插件的 prepare 构建
+pnpm build               # 递归构建全部插件（产物 lib/，不入库）
+pnpm typecheck           # 递归类型检查
+pnpm test                # 递归单测
+pnpm lint                # 递归 lint（无该脚本的插件自动跳过）
+
+# 只跑单个插件
+pnpm --filter dsh-plugin-multi-root-workspace verify:all
+```
 
 ```bash
 # 安装插件到某个 profile（link: 形式，改源码重启 profile 即生效）

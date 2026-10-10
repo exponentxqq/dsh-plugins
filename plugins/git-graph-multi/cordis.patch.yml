@@ -1,7 +1,7 @@
 # dsh-plugin-git-graph-multi bundle patch: inserts the dual-face plugin row
 # into the web profile roster. Applied as a profile bundle layer (the
 # `dsh.bundle.patch` manifest field) over dsh-base; activate with
-# `dsh plugin --profile web add /home/xuqinqin/develop/dotfiles/dsh/plugins/git-graph-multi`.
+# `dsh plugin --profile web add /home/xuqinqin/develop/person/dsh-plugins/plugins/git-graph-multi`.
 #
 # The row is a bare plugin by package name: the node half (exports ".") runs
 # in the host process (git service + /git/* HTTP routes), and the dsh.client

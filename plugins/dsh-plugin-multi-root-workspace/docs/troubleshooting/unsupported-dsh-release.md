@@ -81,17 +81,17 @@ cordis 不会启动 injected service 缺失的行。所以判定失败时这六�
 
 - 短期：把宿主降/升到 `SUPPORTED_DSH_RELEASES` 里的某个版本。
 - 长期（想让插件支持这个新版本）：这是一次人工提升，不能靠 CI 自动完成。
-  1. 在插件仓库里把 pin 指向候选版本并安装：
+  1. 在 `dsh-plugins` workspace 根把 pin 指向候选版本并安装：
 
      ```bash
-     node scripts/upgrade-dsh.mjs 0.1.7-alpha.1
+     node plugins/dsh-plugin-multi-root-workspace/scripts/upgrade-dsh.mjs 0.1.7-alpha.1
      pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0
      ```
 
   2. 用放宽开关跑完整矩阵（见下）：
 
      ```bash
-     DSH_MULTI_ROOT_COMPAT=warn pnpm verify:all
+     DSH_MULTI_ROOT_COMPAT=warn pnpm --filter dsh-plugin-multi-root-workspace verify:all
      ```
 
   3. **全绿之后**才把该版本加入 `SUPPORTED_DSH_RELEASES`，并把每个 `@deepseek-ai/dsh*` 的 `peerDependencies` 改成新的 allowlist 逐项或（例如 `"0.1.5-rc.2 || 0.1.7-alpha.1"`）。

@@ -1,5 +1,5 @@
 /**
- * upgrade-dsh — repoint this repository's DSH pin at one upstream release.
+ * upgrade-dsh — repoint the workspace's DSH pin at one upstream release.
  *
  * The upgrade lane's job is to answer a single question: would this plugin
  * still be correct if the harness were release X? Answering it requires the
@@ -25,7 +25,8 @@
  * DSH_MULTI_ROOT_COMPAT=warn pnpm verify:all
  * ```
  *
- * Reverting is `git checkout -- package.json pnpm-workspace.yaml pnpm-lock.yaml`.
+ * Reverting is `git checkout -- plugins/dsh-plugin-multi-root-workspace/package.json
+ * pnpm-workspace.yaml pnpm-lock.yaml` run from the workspace root.
  * That is safe in CI, which always runs on a clean checkout, and it is the ONLY
  * way back this script offers on purpose — a backup file would be a second
  * source of truth for "what the pin was".
@@ -35,18 +36,50 @@
  * destroyed along with the pin. Commit or stash before running an upgrade probe
  * over dirty manifests.
  *
+ * Layout: this package is one member of the `dsh-plugins` workspace. Its own
+ * `package.json` carries the dev pin, while `pnpm-workspace.yaml` and
+ * `pnpm-lock.yaml` belong to the workspace root (found above by walking up).
+ * The probe's `overrides:` block therefore lands in that shared file and applies
+ * to every plugin in the workspace until the revert above removes it again.
+ *
  * @module scripts/upgrade-dsh
  */
 
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import { npmOutput } from './lib/npm-cli.mjs'
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const MANIFEST = join(REPO_ROOT, 'package.json')
-const WORKSPACE = join(REPO_ROOT, 'pnpm-workspace.yaml')
+
+/**
+ * The pnpm workspace file that owns this package.
+ *
+ * The plugin used to be a single-package checkout, so the workspace file sat
+ * next to the manifest. It is now one member of the `dsh-plugins` workspace,
+ * whose workspace file lives at that repository's root — pnpm rejects a nested
+ * `pnpm-workspace.yaml` (ERR_PNPM_NESTED_WORKSPACE), so there is no plugin-local
+ * copy to fall back on. Walking up finds it without hardcoding how deep this
+ * checkout is nested; failing loudly is deliberate, because silently skipping
+ * the release-age rewrite would leave the allowances pointing at the old
+ * release while the lane still reported success.
+ * @param start - the directory to search from.
+ * @returns the absolute path of the workspace file.
+ */
+function findWorkspaceFile(start) {
+  for (let dir = start; ; dir = dirname(dir)) {
+    const candidate = join(dir, 'pnpm-workspace.yaml')
+    if (existsSync(candidate)) return candidate
+    if (dirname(dir) === dir) {
+      throw new Error(`[upgrade] no pnpm-workspace.yaml found at or above ${start}`)
+    }
+  }
+}
+
+const WORKSPACE = findWorkspaceFile(REPO_ROOT)
+const WORKSPACE_ROOT = dirname(WORKSPACE)
 
 /** Whether a dependency name belongs to the upstream harness. */
 function isDshPackage(name) {
@@ -227,5 +260,5 @@ for (const entry of changed) console.log(`           ${entry}`)
 console.log(`[upgrade] release-age allowances rewritten: ${allowances}`)
 console.log('[upgrade] next: pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0')
 console.log('[upgrade] then: DSH_MULTI_ROOT_COMPAT=warn pnpm verify:all')
-console.log('[upgrade] revert: git checkout -- package.json pnpm-workspace.yaml pnpm-lock.yaml')
+console.log(`[upgrade] revert (from the workspace root): git checkout -- ${relative(WORKSPACE_ROOT, MANIFEST)} pnpm-workspace.yaml pnpm-lock.yaml`)
 console.log('[upgrade]         ^ reverts those files to HEAD entirely — commit or stash first')

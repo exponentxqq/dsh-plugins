@@ -14,7 +14,7 @@ Three things make this plugin worth looking at:
 - **Security does not degrade**: the additional roots are granted through the same mechanisms the harness already uses — the in-process fs fence plus kernel-level runners (Seatbelt on macOS, bwrap / Landlock on Linux) — with the fs side and bash/PTY sharing one and the same scope. It never degenerates into danger-full-access or prompt-level constraints.
 - **Absent when absent**: it replaces the upstream `fs-sandbox` and `sandbox` provider rows through a bundle patch; with no additional root configured its behavior is item-for-item identical to an uninstalled harness, and every misconfiguration fails loudly instead of silently degrading.
 
-**Upstream baseline & local fork**: this repository is a local fork of [`cherrchen/dsh-plugin-multi-root-workspace`](https://github.com/cherrchen/dsh-plugin-multi-root-workspace) (vendored, with the `@dsh-electron` scope dropped from the package name), baseline `f149fa4` (one commit past `v0.1.5`). The upstream MVP (milestones M1–M3), the hardening batch (H1–H4), and the `v0.1.2`–`v0.1.5` support-matrix expansions are all included in that baseline. This fork's deltas (one-shot additional-root seeding, common additional roots via `commonRoots` that apply to every primary root, the package rename, and the removal of the upstream release machinery and project-management documents) are recorded in the dotfiles repository's `dsh/README.md` and its commit history; the upstream-style CHANGELOG, roadmap, and plan documents were removed with the fork.
+**Upstream baseline & local fork**: this repository is a local fork of [`cherrchen/dsh-plugin-multi-root-workspace`](https://github.com/cherrchen/dsh-plugin-multi-root-workspace) (vendored, with the `@dsh-electron` scope dropped from the package name), baseline `f149fa4` (one commit past `v0.1.5`). The upstream MVP (milestones M1–M3), the hardening batch (H1–H4), and the `v0.1.2`–`v0.1.5` support-matrix expansions are all included in that baseline. This fork's deltas (one-shot additional-root seeding, common additional roots via `commonRoots` that apply to every primary root, the package rename, and the removal of the upstream release machinery and project-management documents) are recorded in this `dsh-plugins` repository's commit history, this README, and the reference documents under `docs/reference/`; the upstream-style CHANGELOG, roadmap, and plan documents were removed with the fork.
 
 ## Quick Start
 
@@ -104,7 +104,7 @@ dsh plugin --profile web add github:cherrchen/dsh-plugin-multi-root-workspace#v0
 
 ### Install from a local clone (development & debugging)
 
-This fork is vendored inside dotfiles (`dsh/plugins/dsh-plugin-multi-root-workspace`) and the profile points at that directory with a pnpm `link:` — once `lib/` is built, `dsh plugin --profile web add <that directory>` is all it takes. The generic source path (including cloning upstream):
+This fork is vendored inside the `dsh-plugins` repository (`plugins/dsh-plugin-multi-root-workspace`) and the profile points at that directory with a pnpm `link:` — once `lib/` is built, `dsh plugin --profile web add <that directory>` is all it takes. The generic source path (including cloning upstream):
 
 ```sh
 git clone https://github.com/cherrchen/dsh-plugin-multi-root-workspace.git

@@ -47,20 +47,20 @@ DSH Web GUI 插件：**单工作区多 git 子仓**的分支芯片 —— 仓库
 产物自包含（`link:` 安装不会为被链接包安装依赖，所以 `@deepseek-ai/schemastery` 被打进 host 产物；client 产物自带 CSS 注入）：
 
 ```bash
-cd /home/xuqinqin/develop/dotfiles/dsh/plugins/git-graph-multi
+cd /home/xuqinqin/develop/person/dsh-plugins/plugins/git-graph-multi   # 本包是 dsh-plugins workspace 成员
 pnpm install
 pnpm run typecheck     # tsc -b：host / client 双工程
 pnpm test              # vitest（host 单测）
 pnpm run build         # esbuild → lib/index.js、lib/invariant.js、lib/client.js
 ```
 
-`lib/` 与 `node_modules/` 不入库（见 `.gitignore`），按需构建。
+`lib/` 与 `node_modules/` 不入库（见 `.gitignore`），按需构建。依赖由 workspace 统一安装：根目录 `pnpm install` 一次装齐全部插件。
 
 ## 安装到 profile
 
 ```bash
 cd ~/develop/docker
-docker exec dsh dsh plugin --profile web add /home/xuqinqin/develop/dotfiles/dsh/plugins/git-graph-multi
+docker exec dsh dsh plugin --profile web add /home/xuqinqin/develop/person/dsh-plugins/plugins/git-graph-multi
 docker exec dsh dsh --profile web --dump-config-schema   # 校验 host 半可被 Loader 加载
 ```
 

@@ -14,7 +14,7 @@ DSH（DeepSeek Harness）的外部插件 bundle：把 Workspace 的可写范围�
 - **安全不降级**：多根授权走上游同款机制——进程内 fs fence + 内核级 runner（macOS Seatbelt / Linux bwrap / Landlock），fs 与 bash/PTY 共享同一条 scope；绝不退化为 danger-full-access 或提示词约束。
 - **不装就当不存在**：以 bundle patch 替换上游 `fs-sandbox` 与 `sandbox` 两行 provider；未配置附加根时行为与未装插件逐项一致，misconfiguration 一律响亮报错，从不静默降级。
 
-**上游基线与本地 fork**：本仓库是 [`cherrchen/dsh-plugin-multi-root-workspace`](https://github.com/cherrchen/dsh-plugin-multi-root-workspace) 的本地 fork（vendored，包名已去 `@dsh-electron` 作用域），基线 `f149fa4`（`v0.1.5` 之后一个提交）。上游的 MVP（里程碑 M1–M3）、硬化批次（H1–H4）与 `v0.1.2`–`v0.1.5` 支持矩阵扩展均已包含在基线中。本 fork 的增量（附加根一次性播种、对所有主根生效的通用附加根 `commonRoots`、包名去 scope、清理上游发布机器与项目管理文档）记录在 dotfiles 仓库的 `dsh/README.md` 与提交历史；上游式 CHANGELOG、路线图与计划文档已随 fork 移除。
+**上游基线与本地 fork**：本仓库是 [`cherrchen/dsh-plugin-multi-root-workspace`](https://github.com/cherrchen/dsh-plugin-multi-root-workspace) 的本地 fork（vendored，包名已去 `@dsh-electron` 作用域），基线 `f149fa4`（`v0.1.5` 之后一个提交）。上游的 MVP（里程碑 M1–M3）、硬化批次（H1–H4）与 `v0.1.2`–`v0.1.5` 支持矩阵扩展均已包含在基线中。本 fork 的增量（附加根一次性播种、对所有主根生效的通用附加根 `commonRoots`、包名去 scope、清理上游发布机器与项目管理文档）记录在本仓库（`dsh-plugins`）的提交历史、本 README 与 `docs/reference/` 参考文档；上游式 CHANGELOG、路线图与计划文档已随 fork 移除。
 
 ## 快速开始
 
@@ -106,7 +106,7 @@ dsh plugin --profile web add github:cherrchen/dsh-plugin-multi-root-workspace#v0
 
 ### 从本地源码安装（开发调试）
 
-本 fork 以 vendored 形式存放在 dotfiles（`dsh/plugins/dsh-plugin-multi-root-workspace`），profile 用 `link:` 指向该目录——构建出 `lib/` 后直接 `dsh plugin --profile web add <该目录>` 即可。通用的源码路径（含从上游 clone）：
+本 fork 以 vendored 形式存放在 `dsh-plugins` 仓库（`plugins/dsh-plugin-multi-root-workspace`），profile 用 `link:` 指向该目录——构建出 `lib/` 后直接 `dsh plugin --profile web add <该目录>` 即可。通用的源码路径（含从上游 clone）：
 
 ```sh
 git clone https://github.com/cherrchen/dsh-plugin-multi-root-workspace.git

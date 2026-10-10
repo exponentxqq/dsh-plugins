@@ -13,13 +13,13 @@
 | 运行时门禁 | `multi-root-compat` 行 | 版本不在 allowlist 或核心包混装时，四个安全相关行根本不启动（ADR-0009） |
 | cordis | 基线 `4.0.4`；旧版按 `dsh` 声明的范围下限精确 pin | `upgrade-dsh.mjs` 同步重指，并从精确 release-age 条目派生 workspace-only 的 DSH probe overrides，避免预发布范围导致混装、重复副本导致工具调度 Symbol 不一致。已有自定义 overrides 时拒绝覆盖；探测后恢复保存的 workspace |
 
-**必须精确 pin**：`@deepseek-ai/dsh-*` 的 `latest` dist-tag 指向陈旧的 `0.0.1-rc.1`，真正的新版发布在 `next`；范围依赖会解析到错误版本。`pnpm-workspace.yaml` 里的 `minimumReleaseAgeExclude` 对开发版本的直接与传递 DSH 包、宿主 document tooling 都逐项列出精确版本，供 frozen install 与运行脚本前的依赖自检使用；不使用跨版本通配豁免。它是为此配套的（pnpm 的发布年龄门禁会拦下刚发布的预发布版本）。
+**必须精确 pin**：`@deepseek-ai/dsh-*` 的 `latest` dist-tag 指向陈旧的 `0.0.1-rc.1`，真正的新版发布在 `next`；范围依赖会解析到错误版本。`pnpm-workspace.yaml` 里的 `minimumReleaseAgeExclude` 对开发版本的直接与传递 DSH 包、宿主 document tooling 都逐项列出精确版本，供 frozen install 与运行脚本前的依赖自检使用；不使用跨版本通配豁免。它是为此配套的（pnpm 的发布年龄门禁会拦下刚发布的预发布版本）。该文件与 `pnpm-lock.yaml` 都归 workspace 根（本包是 `dsh-plugins` workspace 成员，不再自持一份——嵌套 `pnpm-workspace.yaml` 会被 pnpm 拒绝）。
 
 ## 2. 工具链
 
 | 用途 | 工具 | 配置 |
 | --- | --- | --- |
-| 包管理 | pnpm `11.25.0` | `package.json#packageManager` |
+| 包管理 | pnpm `11.25.0` | workspace 根的 `package.json#packageManager`（本包是 `dsh-plugins` workspace 的成员，不再自持版本 pin） |
 | 类型检查与声明产出 | TypeScript `6.x` | `tsconfig.host.json`（strict、`exactOptionalPropertyTypes`、`noUncheckedIndexedAccess`、`verbatimModuleSyntax`、`rewriteRelativeImportExtensions`） |
 | 打包 | tsdown（rolldown） | `tsdown.config.ts`：逐入口 ESM bundle 到 `lib/`，`@deepseek-ai/*` 与 cordis 保持 external |
 | Lint | oxlint | `.oxlintrc.json`（与上游仓库同一选择） |
@@ -138,7 +138,7 @@ dsh --profile web --dump-config     # 应看到两行 disabled + 十行 insert
 
 发布形态的 `files` 现在包含 `lib/*.js`（含 `lib/client.js`）与两面的 `lib/types/**/*.d.ts`；client 制品必须在 `pnpm pack` 之前构建好（宿主直接读盘，不做编译）。
 
-**`prepare` 脚本（git 安装入口）**：`package.json` 的 `prepare` 只跑 `pnpm run bundle`（tsdown 直接转译 `src/`，无项目引用、不做类型检查，配置自包含，符合上游 [publish 文档](https://github.com/deepseek-ai/deepseek-harness/blob/main/docs/user/develop/basic/publish.zh.md)对 git 安装的要求）。它的三个触发点：git 方式 `dsh plugin add` 后由 pnpm 现场构建（用户需先授权 profile 的 `allowBuilds`）；`pnpm publish` 打包前保证 `lib/*.js` 新鲜；本仓库根目录 `pnpm install` 也会顺带产出 JS 面（`.d.ts` 仍需 `pnpm build` 的 `build:types`）。CI 里 install 阶段的这次预构建是预期行为，显式 `pnpm build` 保持不变。
+**`prepare` 脚本（git 安装入口）**：`package.json` 的 `prepare` 只跑 `pnpm run bundle`（tsdown 直接转译 `src/`，无项目引用、不做类型检查，配置自包含，符合上游 [publish 文档](https://github.com/deepseek-ai/deepseek-harness/blob/main/docs/user/develop/basic/publish.zh.md)对 git 安装的要求）。它的三个触发点：git 方式 `dsh plugin add` 后由 pnpm 现场构建（用户需先授权 profile 的 `allowBuilds`）；`pnpm publish` 打包前保证 `lib/*.js` 新鲜；workspace 根的 `pnpm install`（在本包目录内执行同效）也会顺带产出 JS 面（`.d.ts` 仍需 `pnpm build` 的 `build:types`）。CI 里 install 阶段的这次预构建是预期行为，显式 `pnpm build` 保持不变。
 
 两种安装形态都已验证（M1）：
 
@@ -158,17 +158,17 @@ dsh --profile web --dump-config     # 应看到两行 disabled + 十行 insert
 - **升级流程**（提升一个候选版本）：
 
   ```sh
-  # 先确认这三个文件没有未提交改动 —— 最后一步会把它们整体退回 HEAD
-  git status --porcelain package.json pnpm-workspace.yaml pnpm-lock.yaml
+  # 在 workspace 根执行。先确认这三个文件没有未提交改动 —— 最后一步会把它们整体退回 HEAD
+  git status --porcelain plugins/dsh-plugin-multi-root-workspace/package.json pnpm-workspace.yaml pnpm-lock.yaml
 
-  node scripts/upgrade-dsh.mjs 0.1.7-alpha.1                         # 重指 devDependencies 与 release-age 条目
+  node plugins/dsh-plugin-multi-root-workspace/scripts/upgrade-dsh.mjs 0.1.7-alpha.1   # 重指 devDependencies 与 release-age 条目
   pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0     # 候选版本的整棵树都是刚发布的
-  DSH_MULTI_ROOT_COMPAT=warn pnpm verify:all                         # 候选按设计还不在 allowlist 上
-  git checkout -- package.json pnpm-workspace.yaml pnpm-lock.yaml    # 回退
+  DSH_MULTI_ROOT_COMPAT=warn pnpm --filter dsh-plugin-multi-root-workspace verify:all   # 候选按设计还不在 allowlist 上
+  git checkout -- plugins/dsh-plugin-multi-root-workspace/package.json pnpm-workspace.yaml pnpm-lock.yaml   # 回退
   pnpm install --frozen-lockfile                                     # 把 node_modules 也退回基线
   ```
 
-  最后两步在 CI 里无所谓（每次都是干净 checkout），在本地则**会连同你对这三个文件的未提交修改一起抹掉**——先提交或 stash。
+  最后两步在 CI 里无所谓（每次都是干净 checkout），在本地则**会连同你对这三个文件的未提交修改一起抹掉**——先提交或 stash。注意 workspace 布局下 `pnpm-workspace.yaml` 与 `pnpm-lock.yaml` 是**全仓共享**的：探测写入的 `overrides:` 块在整个 workspace 生效，直到上面的回退把它一并抹掉。
 
   全绿之后才人工把版本加入 `SUPPORTED_DSH_RELEASES` 并同步 `peerDependencies`，最后 `pnpm compat:check`。**"检查全绿"不等于"支持该版本"**：绿灯是证据，不是授权。
 - 升级脚本不维护手写包名清单：`scripts/upgrade-dsh.mjs` 从 `package.json` 枚举所有直接 `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` 依赖，统一重指并可输出每个包**实际解析到**的版本（`--print-installed`）。新增直接 DSH 依赖不需要另外修工作流。

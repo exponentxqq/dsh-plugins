@@ -1,2 +1,12 @@
 .dsh
 .opencode
+
+# workspace 依赖与运行产物
+node_modules/
+.pnpm-store/
+*.tsbuildinfo
+
+# 插件构建产物（plugins/<name>/lib/；注意各插件内 scripts/lib/ 是源码，不能按名字通配忽略）
+plugins/*/lib/
+dist/
+coverage/
