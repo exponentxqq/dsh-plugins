@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-10-11
+# 该变更把 dsh-web-ux-project-mcp 的最后一条需求整体迁往新能力 dsh-project-mcp，
+# 因此需要显式声明退役：归档时会删除 openspec/specs/dsh-web-ux-project-mcp/。
+retire_capabilities: true
