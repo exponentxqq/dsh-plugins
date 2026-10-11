@@ -1,0 +1,1 @@
+export { t as COMMON_ROOT_ID_PREFIX, n as DOMAIN_NAME, r as MAX_ALIAS_LENGTH, i as MultiRootRegistry, i as default, a as REGISTRY_CONTENDED_MESSAGE, o as TABLE_NAME, s as multiRootDomainSpec } from "./registry-Br93ZNJk.js";

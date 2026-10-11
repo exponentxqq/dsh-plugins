@@ -6,7 +6,8 @@ node_modules/
 .pnpm-store/
 *.tsbuildinfo
 
-# 插件构建产物（plugins/<name>/lib/；注意各插件内 scripts/lib/ 是源码，不能按名字通配忽略）
-plugins/*/lib/
+# 插件构建产物 plugins/<name>/lib/ 自 v1.2.0 起随仓库提交（git 安装免构建授权，
+# release 时由 scripts/release.mjs 递归重建保证新鲜）；dist/、coverage/ 仍不入库。
+# 注意各插件内 scripts/lib/ 是源码，不能按名字通配忽略。
 dist/
 coverage/

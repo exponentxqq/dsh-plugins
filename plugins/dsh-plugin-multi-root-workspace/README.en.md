@@ -50,7 +50,7 @@ The agent can now read, write, and run bash in that directory, with the same rig
 
 | Source | Command | Notes |
 | --- | --- | --- |
-| GitHub (how this fork is used) | `dsh plugin --profile web add "github:exponentxqq/dsh-plugins#<tag>&path:plugins/dsh-plugin-multi-root-workspace"` | This fork's release channel: pulls the source at a tag and builds it on the spot through `prepare` (`&path:` names the subdirectory inside the monorepo, `<tag>` is the current tag); needs **two** `allowBuilds` answers (this package plus `koffi`); always pin a tag |
+| GitHub (how this fork is used) | `dsh plugin --profile web add "github:exponentxqq/dsh-plugins#<tag>&path:plugins/dsh-plugin-multi-root-workspace"` | This fork's release channel: the built `lib/` ships inside the tag and the package has no `prepare` script, so it installs ready to use (`&path:` names the subdirectory inside the monorepo, `<tag>` is the current tag); only the one-time `koffi` `allowBuilds` answer remains; always pin a tag |
 | npm registry (upstream package) | `dsh plugin --profile web add @dsh-electron/dsh-plugin-multi-root-workspace` | Upstream's pre-built artifacts, ready to use; **this fork is not published** under its new name, so this command installs the upstream release |
 | tarball | `dsh plugin --profile web add ./dsh-plugin-multi-root-workspace-<version>.tgz` | Pre-built offline package, handy for air-gapped or offline delivery — with the same one-time `allowBuilds` answer |
 | local path (development & debugging) | `dsh plugin --profile web add /path/to/dsh-plugin-multi-root-workspace` | pnpm `link:` to a local checkout (its dependencies are already installed in this repository); source edits take effect when the profile restarts |
@@ -92,15 +92,9 @@ TAG=$(git describe --tags --abbrev=0)   # current tag (or any historical tag)
 dsh plugin --profile web add "github:exponentxqq/dsh-plugins#${TAG}&path:plugins/dsh-plugin-multi-root-workspace"
 ```
 
-With pnpm ≥10 the first `add` fails: a git install pulls **source code rather than build artifacts**, so the package's self-contained `prepare` script must build it on the spot (a direct transpile of `src/`, no type-checking). With pnpm ≥11 the pending decisions are written into the profile's `pnpm-workspace.yaml` as `allowBuilds` placeholders — set them to `true`; this source has **two**:
+With pnpm ≥10 the first `add` used to fail on two fronts: a git install pulled **source code rather than build artifacts**, so the package's `prepare` script had to build it on the spot — a build script pnpm refuses to run without an explicit answer (and which pnpm 10 hard-fails on with `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`, using an exact dep-path key that carries the commit and expires with every tag bump).
 
-```yaml
-allowBuilds:
-  'dsh-plugin-multi-root-workspace': true
-  koffi: true
-```
-
-**pnpm 10 writes no placeholders**: it fails with `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` and prints the exact dep path (of the form `dsh-plugin-multi-root-workspace@https://codeload.github.com/…/tar.gz/<commit>#path:plugins/dsh-plugin-multi-root-workspace`). Git dependencies are matched exactly, so that line has to be added verbatim to `onlyBuiltDependencies` (use the bare name for `koffi`); the key carries the commit, so refresh it after a tag bump. See [Troubleshooting: the install stops at build approval](./docs/troubleshooting/install-stops-at-build-approval.md) for both pnpm generations.
+Since this repository's `v1.2.0` that authorization is gone: the built `lib/` ships inside the tag, the package carries no `prepare` script, and pnpm 10 and ≥11 behave the same — nothing to answer when the tag changes either. The one remaining decision is the `koffi` `allowBuilds` answer above (matched by bare package name, so it survives tag bumps). Why git-hosted `prepare` used to be a hard failure while registry build scripts only warn, and why the key carries a commit, is recorded in [Troubleshooting: the install stops at build approval](./docs/troubleshooting/install-stops-at-build-approval.md).
 
 Then run `add` again. `#<tag>` is a tag lock, so a later push cannot silently change what actually runs; to follow the same major automatically, write `#semver:^<major>.0.0&path:plugins/dsh-plugin-multi-root-workspace` instead.
 

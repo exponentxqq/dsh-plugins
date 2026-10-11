@@ -8,19 +8,19 @@
 pnpm-workspace.yaml   # workspace 定义（packages: plugins/*）、依赖构建白名单与发布年龄豁免
 package.json          # workspace 根：pnpm 版本 pin（packageManager / volta）与递归脚本
 plugins/<name>/       # 一个插件一个目录（结构见 AGENTS.md）
-scripts/release.mjs   # 发布：同步版本号 → 发布提交 → annotated tag
+scripts/release.mjs   # 发布：同步版本号 → 重建产物 → 发布提交 → annotated tag
 openspec/             # 规范工作区（spec-driven schema，zh-CN）
 ```
 
 ## 常用命令
 
 ```bash
-pnpm install          # 装齐全部插件依赖（workspace 统一安装；会触发各插件的 prepare 构建）
-pnpm build            # 全部插件构建（产物 lib/ 不入库，git 安装时由 prepare 现场构建）
+pnpm install          # 装齐全部插件依赖（workspace 统一安装）
+pnpm build            # 全部插件构建（产物 lib/ 随仓库提交；release 时递归重建保证新鲜）
 pnpm typecheck        # 全部插件类型检查
 pnpm test             # 全部插件单测
 pnpm lint             # 全部插件 lint（无 lint 脚本的插件自动跳过）
-pnpm release <version>  # 发布：同步版本 + 提交 + 打 tag v<version>（详见「发布与版本」）
+pnpm release <version>  # 发布：同步版本 + 重建产物 + 提交 + 打 tag v<version>（详见「发布与版本」）
 ```
 
 只跑单个插件：`pnpm --filter <包名> <脚本>`，例如 `pnpm --filter dsh-plugin-multi-root-workspace verify:all`（含 lint / typecheck / build / 内核探测 / 单测 / 冒烟，需运行中的 dsh 环境）。
@@ -40,7 +40,7 @@ docker exec dsh dsh --profile web --dump-config-schema   # 校验组合可加载
 
 两件必知的事：
 
-- **构建授权**：git 来源没有预构建产物，pnpm 会在安装时跑插件的 `prepare` 现场构建，而 pnpm ≥10 默认拦截依赖的构建脚本，首次安装会以非 0 退出。处置分两代：pnpm ≥11 会把待决项以 `allowBuilds:` 占位写进 profile 的 `pnpm-workspace.yaml`（改成 `true` 重跑）；**pnpm 10 不写任何东西**，只以 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` 失败并打印确切的 dep path，需要把它加进 `onlyBuiltDependencies`——pnpm 10 对 git 依赖只做**精确匹配**，键里带着解析出的 commit，所以每次改 tag 都要按新打印的行刷新；注册表依赖 `koffi`（多根插件的原生依赖）用包名即可。详见 [安装停在构建授权](plugins/dsh-plugin-multi-root-workspace/docs/troubleshooting/install-stops-at-build-approval.md)。
+- **构建授权**：v1.2.0 起各插件的构建产物 `lib/` 随仓库提交且不再带 `prepare` 脚本，git 来源安装**不触发** pnpm 的构建脚本授权（pnpm 10/11 行为一致，改 tag 也无需任何表态）。唯一例外是 multi-root 插件的注册表依赖 `koffi`（原生模块，install 脚本要预编译）：pnpm ≥11 会把 `allowBuilds: koffi:` 占位写进 profile 的 `pnpm-workspace.yaml`，改成 `true` 重跑即可；pnpm 10 会以 `ERR_PNPM_IGNORED_BUILDS` 退出，把 `koffi`（用包名）加进 `onlyBuiltDependencies`——按包名匹配、不随 tag 变化，只需表态一次。背景与机制（为何 git 来源曾是硬失败、为何键里带 commit）见 [安装停在构建授权](plugins/dsh-plugin-multi-root-workspace/docs/troubleshooting/install-stops-at-build-approval.md)。
 - **`insteadOf` 陷阱**：若宿主 `~/.gitconfig` 写了 `url.git@github.com:.insteadOf = https://github.com/`（该文件被只读挂载进 dsh 容器），容器内 `git ls-remote` 会被改写成 ssh 而容器没有 ssh，安装直接失败。解决办法二选一：把该段拆到宿主专属的 include 文件（容器读不到即静默跳过，见 dotfiles `dsh/README.md`），或给这条命令加 `-e GIT_CONFIG_GLOBAL=/dev/null`：`docker exec -e GIT_CONFIG_GLOBAL=/dev/null dsh dsh plugin …`。
 
 升级 = 改 profile `package.json` 里的 tag 后重装（`pnpm install` + 重启 profile）；想自动跟进同主版本也可用范围写法 `#semver:^<major>.0.0&path:plugins/<目录>`。
@@ -53,7 +53,7 @@ docker exec dsh dsh --profile web --dump-config-schema   # 校验组合可加载
 
 ```bash
 pnpm verify                # 1. 发布前自检（递归 verify:all；多根插件的 smoke 需运行中的 dsh）
-pnpm release <version>     # 2. 同步版本 → 提交 chore(release): v<version> → 打 annotated tag
+pnpm release <version>     # 2. 同步版本 → 重建产物 → 提交 chore(release): v<version> → 打 annotated tag
 git push origin main --tags   # 3. 在宿主 push（容器内没有 ssh）
 ```
 

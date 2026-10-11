@@ -73,6 +73,6 @@
     "test": "vitest run",
     "typecheck": "tsc -b --pretty false",
     "verify:all": "pnpm lint && pnpm typecheck && pnpm build && pnpm test",
-    "prepare": "pnpm run build"
+    "prepack": "pnpm run build"
   }
 }

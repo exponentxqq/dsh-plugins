@@ -29,7 +29,7 @@ pnpm build         # esbuild → lib/index.js（空载载体）、lib/client.js�
 pnpm verify:all    # lint + typecheck + build + test
 ```
 
-`lib/` 与 `node_modules/` 不入库（见 `.gitignore`）。依赖由 workspace 统一安装：仓库根 `pnpm install` 一次装齐。
+`lib/` 随仓库提交（release 时递归重建保证新鲜），`node_modules/` 不入库（见 `.gitignore`）。依赖由 workspace 统一安装：仓库根 `pnpm install` 一次装齐。
 
 ## 安装到 profile
 
@@ -52,7 +52,7 @@ docker exec dsh dsh --profile web --dump-config | grep -A2 'id: web-ux'
 两点运维须知：
 
 - **源码改动要重启 profile**：`link:` 安装的插件不在 profile 目录内，dsh-hmr 默认的模块监听根不含它，重建产物不会自动热替换。要免重启，可在 profile patch 里给 hmr 行加模块监听根（`- id: hmr` / `config.root` 指向本包目录）——属开发便利，非必需。
-- git 安装形态的构建授权与 `insteadOf` 陷阱见仓库根 [README](../../README.md#装入-profile)。
+- git 安装形态与 `insteadOf` 陷阱见仓库根 [README](../../README.md#装入-profile)。
 
 ## 非目标（本版本）
 

@@ -50,7 +50,7 @@ pnpm docs:check         # 文档结构检查
 
 `pnpm verify:all` **故意不含** `compat:check`：升级车道需要在一个还不在 allowlist 上的候选版本上跑完整矩阵，而静态门禁按设计会拒绝那棵树。CI 主车道单独跑 `compat:check`，位置在 lint 之前（见 §9）。
 
-**`pnpm test` 必须在 `pnpm build` 之后**：`tests/client-bundle.spec.ts` 断言的是**构建产物** `lib/client.js`（浏览器闭包工厂形态、模块表依赖清单）；`tests/windows-multi-root.spec.ts` 的原生执行用例加载 `lib/sandbox.js`，以便 provider 的 `import.meta.url` 定位同目录的 `lib/windows-runner.js`。从源码加载 provider 会指向不存在的 `src/windows-runner.js`，不能作为发布制品的执行验证。`/lib/` 被 gitignore，`prepare` 只预构建 JS，完整类型产物仍需 `pnpm build`；CI 与升级工作流都按 `lint → typecheck → build → test` 排序。
+**`pnpm test` 必须在 `pnpm build` 之后**：`tests/client-bundle.spec.ts` 断言的是**构建产物** `lib/client.js`（浏览器闭包工厂形态、模块表依赖清单）；`tests/windows-multi-root.spec.ts` 的原生执行用例加载 `lib/sandbox.js`，以便 provider 的 `import.meta.url` 定位同目录的 `lib/windows-runner.js`。从源码加载 provider 会指向不存在的 `src/windows-runner.js`，不能作为发布制品的执行验证。`lib/` 自 v1.2.0 起随仓库提交（release 时递归重建），完整类型产物仍需 `pnpm build`；CI 与升级工作流都按 `lint → typecheck → build → test` 排序。
 
 ## 4. 冒烟机制
 
@@ -140,7 +140,7 @@ dsh --profile web --dump-config     # 应看到两行 disabled + 十行 insert
 dsh plugin --profile web add <本仓库路径>
 ```
 
-`link:` 来源用的是本仓库已装好的依赖，因此不需要 `allowBuilds` 表态；npm / tarball / git 来源都需要（git / tarball 来源还要加上 `koffi`），原因与处置见 [README §安装](../../README.md) 与[故障排查：安装停在构建授权](../troubleshooting/install-stops-at-build-approval.md)。宿主 `~/.gitconfig` 若有 github.com 的 `insteadOf=ssh` 改写，容器内安装要加 `-e GIT_CONFIG_GLOBAL=/dev/null`（容器没有 ssh）。
+`link:` 来源用的是本仓库已装好的依赖，因此不需要 `allowBuilds` 表态。npm / tarball / git 三种来源自 v1.2.0 起也只剩 `koffi` 的一次表态（按包名匹配，不随 tag 变化）；插件自身的 `prepare` 已移除、产物 `lib/` 随 tag 提交，git 来源不再触发构建授权。原因与处置见 [README §安装](../../README.md) 与[故障排查：安装停在构建授权](../troubleshooting/install-stops-at-build-approval.md)。宿主 `~/.gitconfig` 若有 github.com 的 `insteadOf=ssh` 改写，容器内安装要加 `-e GIT_CONFIG_GLOBAL=/dev/null`（容器没有 ssh）。
 
 `dsh plugin` 是 pnpm 的转发器：它在 profile 目录里执行 pnpm，并把解析到 `dsh.bundle` 声明的依赖回填进 `dsh.profile.bundles`。桌面端（Electron）保留自己的 `$DSH_HOME/profiles/desktop`，安装方式同源。
 
@@ -148,7 +148,7 @@ dsh plugin --profile web add <本仓库路径>
 
 发布形态的 `files` 现在包含 `lib/*.js`（含 `lib/client.js`）与两面的 `lib/types/**/*.d.ts`；client 制品必须在 `pnpm pack` 之前构建好（宿主直接读盘，不做编译）。
 
-**`prepare` 脚本（git 安装入口）**：`package.json` 的 `prepare` 只跑 `pnpm run bundle`（tsdown 直接转译 `src/`，无项目引用、不做类型检查，配置自包含，符合上游 [publish 文档](https://github.com/deepseek-ai/deepseek-harness/blob/main/docs/user/develop/basic/publish.zh.md)对 git 安装的要求）。它的三个触发点：git 方式 `dsh plugin add` 后由 pnpm 现场构建（用户需先授权 profile 的构建白名单——pnpm ≥11 的 `allowBuilds` 占位，或 pnpm 10 的 `onlyBuiltDependencies` 精确 dep path，见[故障排查](../troubleshooting/install-stops-at-build-approval.md)）；`pnpm publish` 打包前保证 `lib/*.js` 新鲜；workspace 根的 `pnpm install`（在本包目录内执行同效）也会顺带产出 JS 面（`.d.ts` 仍需 `pnpm build` 的 `build:types`）。CI 里 install 阶段的这次预构建是预期行为，显式 `pnpm build` 保持不变。
+**`prepack` 脚本（npm 发布入口，历史上有过 `prepare`）**：v1.2.0 之前 `package.json` 带 `prepare`（`pnpm run bundle`），git 安装靠它在安装现场构建——代价是 pnpm ≥10 的构建授权硬失败（键带 commit、换 tag 过期，见[故障排查](../troubleshooting/install-stops-at-build-approval.md)）。现在产物 `lib/` 随仓库提交、`prepare` 已移除，取而代之的 `prepack` 只跑 `pnpm run build`（完整两面构建），唯一触发点是将来 `pnpm publish` 打包前保证产物新鲜；pnpm 对 git 依赖看到 `prepack` 但 `main` 文件（`lib/index.js`）已存在时判定"无需构建"，授权门不触发。日常的产物新鲜度由仓库根的 `scripts/release.mjs` 在发布提交前递归重建并入库来构造性保证。
 
 三种安装形态都已验证：
 
@@ -156,7 +156,7 @@ dsh plugin --profile web add <本仓库路径>
 | --- | --- | --- |
 | 本地路径（`link:`，开发调试） | 插件按自身真实路径解析，使用本仓库 pin 的 `@deepseek-ai/*` 副本 | 三行全部挂载，冒烟全绿 |
 | 打包安装（`pnpm pack` + `file:`，即发布形态） | 包内不含 `node_modules`，`@deepseek-ai/*` 由宿主运行时/模块回退目录提供 | 三行全部挂载，provider 身份正确 |
-| git tag 安装（`github:<owner>/<repo>#v<tag>&path:plugins/<目录>`，正式通道） | pnpm 拉 tarball、在 store 里装齐 devDeps 并跑 `prepare` 产出 `lib/`，再按 `files` 打包进 profile | 十行 insert + 两行 disabled 全部就位，`node_modules/<包名>` 为实体目录且版本等于 tag，`--dump-config-schema` 通过（M1 后追加） |
+| git tag 安装（`github:<owner>/<repo>#v<tag>&path:plugins/<目录>`，正式通道） | pnpm 拉 tarball，`lib/` 已随 tag 提交、无 `prepare`，按 `files` 打包进 profile | 十行 insert + 两行 disabled 全部就位，`node_modules/<包名>` 为实体目录且版本等于 tag，`--dump-config-schema` 通过（M1 时验证，当时还由 `prepare` 现场构建；v1.2.0 起免构建授权） |
 
 发布形态的包内容为：`package.json`、`cordis.patch.yml`、`lib/*.js`（含共享 chunk）、`lib/types/**/*.d.ts`、README、LICENSE —— 因此**不要**假设任何 `src/` 路径在安装后存在（见 §6）。
 

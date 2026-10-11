@@ -148,9 +148,9 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
 
-# Plugin build output (produced by `pnpm build`, shipped via package.json `files`).
-# Root-anchored: `scripts/lib/` is source and must stay tracked.
-/lib/
+# Plugin build output is COMMITTED (so a git-source install needs no build
+# authorization and the tag works out of the box); release.mjs rebuilds it for
+# every release. Root-anchored note: `scripts/lib/` is source and stays tracked.
 
 # Local smoke scratch directories (overridable via DSH_SMOKE_HOME)
 .dsh-smoke/

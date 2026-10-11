@@ -4,7 +4,7 @@
  *
  * 用法：
  *   pnpm release <version> [--dry-run]     # 等价于 node scripts/release.mjs <version>
- *   pnpm release <version>                 # 同步版本 → 提交 chore(release): v<version> → 打 tag v<version>
+ *   pnpm release <version>                 # 同步版本 → 重建产物 → 提交 chore(release): v<version> → 打 tag v<version>
  *
  * 约定（见根 README「发布与版本」）：
  * - **仓库级统一版本**：根 `package.json` 与每个插件包的 `package.json`
@@ -13,13 +13,16 @@
  * - tag 是 profile 侧安装的唯一锚点：`github:<owner>/<repo>#v<version>&path:plugins/<目录>`；
  *   `package.json` 的 `version` 与 tag 保持一致，是为了让 DSH 的
  *   `package@version` 版本豁免与排障输出能直接对上发布点。
+ * - **构建产物 `plugins/<name>/lib/` 随仓库提交**（v1.2.0 起）：git 来源安装因此
+ *   不触发 pnpm 的构建脚本授权（无 `prepare` → `packageShouldBeBuilt` 为 false）。
+ *   发布提交前递归重建一次全部产物并连同版本号入库，新鲜度由发布流程构造性保证。
  *
- * 脚本只做本地动作（校验 → 改版本 → 提交 → 打 tag）。容器内没有 ssh，
+ * 脚本只做本地动作（校验 → 改版本 → 重建产物 → 提交 → 打 tag）。容器内没有 ssh，
  * push 请在宿主执行：`git push origin main --tags`；tag 未推送到远程前，
  * profile 无法按 `#v<version>` 解析安装。
  */
 import { execFileSync } from 'node:child_process'
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -137,22 +140,41 @@ if (dryRun) {
 
 const changed = results.filter((result) => result.changed)
 process.stdout.write(`release: 提交身份 ${identity.name} <${identity.email}>（${identity.source}）\n`)
+process.stdout.write('release: 递归重建全部插件产物（lib/ 随仓库提交）…\n')
 try {
+  // 产物新鲜度构造性保证：发布提交里的 lib 一定对应当前源码，不依赖提交纪律。
+  execFileSync('pnpm', ['build'], { cwd: REPO_ROOT, stdio: 'inherit' })
+  const libPaths = pluginDirs
+    .map((name) => `plugins/${name}/lib`)
+    .filter((path) => existsSync(join(REPO_ROOT, path)))
+  if (libPaths.length > 0) git(['add', ...libPaths])
   if (changed.length > 0) {
     git(['add', ...changed.map((result) => result.path)])
+  }
+  // 有任何暂存内容才提交（版本未变且产物字节稳定的重复发布只补 tag）。
+  const staged = git(['status', '--porcelain'])
+    .split('\n')
+    .filter((line) => /^[AM]/.test(line)).length
+  if (staged > 0) {
     git([...identityArgs, 'commit', '-m', `chore(release): ${tag}`])
   }
   git([...identityArgs, 'tag', '-a', tag, '-m', tag])
 } catch (error) {
   for (const [path, original] of backups) writeFileSync(join(REPO_ROOT, path), original)
+  try {
+    // 发布前工作区是干净的，checkout 即可撤销重建出的产物与版本改动。
+    git(['checkout', 'HEAD', '--', 'plugins'])
+  } catch {
+    // 回滚失败不影响版本文件已还原的事实，交由用户处理。
+  }
   if (changed.length > 0) {
     try {
       git(['reset', '-q', 'HEAD', '--', ...changed.map((result) => result.path)])
     } catch {
-      // 回滚暂存区失败不影响文件已还原的事实，交由用户处理。
+      // 同上。
     }
   }
-  fail(`提交或打 tag 失败，已回滚版本改动：${error.message.split('\n')[0]}`)
+  fail(`重建、提交或打 tag 失败，已回滚改动：${error.message.split('\n')[0]}`)
 }
 
 const head = git(['rev-parse', '--short', 'HEAD'])

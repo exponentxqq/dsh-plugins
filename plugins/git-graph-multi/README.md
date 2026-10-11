@@ -44,17 +44,17 @@ DSH Web GUI 插件：**单工作区多 git 子仓**的分支芯片 —— 仓库
 
 ## 构建
 
-产物自包含（`@deepseek-ai/schemastery` 被打进 host 产物；client 产物自带 CSS 注入），所以 `link:` 与 git 两种安装形态都不依赖本包的 `dependencies`——git 安装时由 `prepare`（`pnpm run build`）在安装现场构建 `lib/`：
+产物自包含（`@deepseek-ai/schemastery` 被打进 host 产物；client 产物自带 CSS 注入），所以 `link:` 与 git 两种安装形态都不依赖本包的 `dependencies`。构建命令（本包是 dsh-plugins workspace 成员）：
 
 ```bash
-cd /home/xuqinqin/develop/person/dsh-plugins/plugins/git-graph-multi   # 本包是 dsh-plugins workspace 成员
+cd /home/xuqinqin/develop/person/dsh-plugins/plugins/git-graph-multi
 pnpm install
 pnpm run typecheck     # tsc -b：host / client 双工程
 pnpm test              # vitest（host 单测）
 pnpm run build         # esbuild → lib/index.js、lib/invariant.js、lib/client.js
 ```
 
-`lib/` 与 `node_modules/` 不入库（见 `.gitignore`），按需构建。依赖由 workspace 统一安装：根目录 `pnpm install` 一次装齐全部插件。
+`lib/` 随仓库提交（release 时递归重建保证新鲜），`node_modules/` 不入库（见 `.gitignore`）。依赖由 workspace 统一安装：根目录 `pnpm install` 一次装齐全部插件。
 
 ## 安装到 profile
 
@@ -67,7 +67,7 @@ docker exec dsh dsh plugin --profile web add \
 docker exec dsh dsh --profile web --dump-config-schema   # 校验 host 半可被 Loader 加载
 ```
 
-首次安装会被 pnpm 拦下构建脚本（本包的 `prepare`）：pnpm 10 不写占位，需把它打印的精确 dep path（含解析出的 commit，换 tag 要刷新）加进 profile `pnpm-workspace.yaml` 的 `onlyBuiltDependencies`；pnpm ≥11 则把 `allowBuilds` 占位改成 `true`。若宿主 `~/.gitconfig` 有 github.com 的 `insteadOf=ssh` 改写（容器没有 ssh），命令前加 `docker exec -e GIT_CONFIG_GLOBAL=/dev/null`。本地开发调试可用 `link:`：`dsh plugin --profile web add /home/xuqinqin/develop/person/dsh-plugins/plugins/git-graph-multi`（改源码重启 profile 即生效，无需发布）。
+自本仓 `v1.2.0` 起产物 `lib/` 随 tag 提交且无 `prepare`，安装不触发 pnpm 的构建授权（改 tag 也无需表态）。若宿主 `~/.gitconfig` 有 github.com 的 `insteadOf=ssh` 改写（容器没有 ssh），命令前加 `docker exec -e GIT_CONFIG_GLOBAL=/dev/null`。本地开发调试可用 `link:`：`dsh plugin --profile web add /home/xuqinqin/develop/person/dsh-plugins/plugins/git-graph-multi`（改源码重启 profile 即生效，无需发布）。
 
 > **重要**：本插件与 `@linxin666/dsh-client-ui-git-graph` 使用同一个 slot 条目 id（`git-graph`）和同一段 `/git/*` 路由前缀，**不可同时启用**。替换顺序：先 `remove` 原插件，再 `add` 本插件。
 

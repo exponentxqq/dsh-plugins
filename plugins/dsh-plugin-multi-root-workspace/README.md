@@ -52,7 +52,7 @@ dsh --profile web
 
 | 来源 | 命令 | 说明 |
 | --- | --- | --- |
-| GitHub（本 fork 的用法） | `dsh plugin --profile web add "github:exponentxqq/dsh-plugins#<tag>&path:plugins/dsh-plugin-multi-root-workspace"` | 本 fork 的发布通道：按 tag 拉源码、由 `prepare` 现场构建（`&path:` 指定单仓子目录，`<tag>` 换成当前 tag）；需要两次 `allowBuilds` 回答（本包 + `koffi`），务必锁定 tag |
+| GitHub（本 fork 的用法） | `dsh plugin --profile web add "github:exponentxqq/dsh-plugins#<tag>&path:plugins/dsh-plugin-multi-root-workspace"` | 本 fork 的发布通道：产物 `lib/` 随 tag 提交、无 `prepare`，即装即用（`&path:` 指定单仓子目录，`<tag>` 换成当前 tag）；仅需 `koffi` 一次 `allowBuilds` 表态，务必锁定 tag |
 | npm 注册表（上游包） | `dsh plugin --profile web add @dsh-electron/dsh-plugin-multi-root-workspace` | 上游已发布的预构建产物，即装即用；**本 fork 改名后未发布**，这条命令装到的是上游版本 |
 | tarball | `dsh plugin --profile web add ./dsh-plugin-multi-root-workspace-<version>.tgz` | 预构建离线包，适合内网/离线；同样需要那一次 `allowBuilds` 回答 |
 | 本地路径（开发调试） | `dsh plugin --profile web add /path/to/dsh-plugin-multi-root-workspace` | pnpm `link:` 链接本地 checkout（依赖已在本仓库装好），改源码重启 profile 即生效，适合调试 |
@@ -94,15 +94,7 @@ TAG=$(git describe --tags --abbrev=0)   # 当前 tag（也可填任意历史 tag
 dsh plugin --profile web add "github:exponentxqq/dsh-plugins#${TAG}&path:plugins/dsh-plugin-multi-root-workspace"
 ```
 
-pnpm ≥10 下首次 `add` 会失败：git 安装拉取的是**源码而非构建产物**，包内自包含的 `prepare` 脚本要现场构建（直接转译 `src/`，不做类型检查）。pnpm ≥11 会把待决项写成该 profile `pnpm-workspace.yaml` 里的 `allowBuilds` 占位，改成 `true` 即可——这条来源要回答**两个**：
-
-```yaml
-allowBuilds:
-  'dsh-plugin-multi-root-workspace': true
-  koffi: true
-```
-
-**pnpm 10 不写占位**：它以 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` 失败并打印确切的 dep path（形如 `dsh-plugin-multi-root-workspace@https://codeload.github.com/…/tar.gz/<commit>#path:plugins/dsh-plugin-multi-root-workspace`），git 依赖只做精确匹配，所以要把那一行原样加进 `onlyBuiltDependencies`（`koffi` 用包名）；键里带着 commit，换 tag 后要按新打印的行刷新。两种 pnpm 代的完整处置见[故障排查：安装停在构建授权](./docs/troubleshooting/install-stops-at-build-approval.md)。
+自本仓 `v1.2.0` 起，git 安装**不再需要插件自身的构建授权**：产物 `lib/` 随 tag 提交、包内没有 `prepare` 脚本，pnpm 10/11 一致放行（改 tag 也无需任何表态）。剩下唯一一次表态就是上面 `koffi` 的 `allowBuilds` 回答——按包名匹配、不随 tag 变化。早于此版本（或想沿用 `prepare` 现场构建的包）为何会被 pnpm 10 以 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` 硬拒绝、键里为何带 commit，见[故障排查：安装停在构建授权](./docs/troubleshooting/install-stops-at-build-approval.md)。
 
 然后重新执行 `add` 即可。`#<tag>` 是 tag 锁：推送无法悄悄改变实际运行的内容；想自动跟进同主版本可写成 `#semver:^<major>.0.0&path:plugins/dsh-plugin-multi-root-workspace`。
 

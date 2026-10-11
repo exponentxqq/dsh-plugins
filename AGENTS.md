@@ -12,7 +12,7 @@ DSH（DeepSeek Harness）自定义插件仓库。每个插件以官方组合包�
 pnpm-workspace.yaml      # workspace 定义（packages: plugins/*）+ 构建白名单 / 发布年龄豁免
 package.json             # workspace 根：pnpm 版本 pin 与递归脚本
 plugins/<name>/          # 一个插件一个目录（见下文插件结构）
-scripts/release.mjs      # 发布：同步版本号 → 发布提交 → annotated tag
+scripts/release.mjs      # 发布：同步版本号 → 重建产物 → 发布提交 → annotated tag
 README.md                # 仓库说明与常用命令
 .dsh/skills/             # OpenSpec 安装的 DSH skill（本地生成，由 openspec 管理，勿手改）
 openspec/                # OpenSpec 规范工作区（spec-driven schema，zh-CN）
@@ -35,12 +35,12 @@ plugins/<name>/
 
 ```bash
 # workspace 级命令（在仓库根执行；pnpm 版本由 package.json#packageManager 固定为 11.25.0）
-pnpm install             # 装齐全部插件依赖（单包目录内执行同效）；会触发各插件的 prepare 构建
-pnpm build               # 递归构建全部插件（产物 lib/，不入库）
+pnpm install             # 装齐全部插件依赖（单包目录内执行同效）
+pnpm build               # 递归构建全部插件（产物 lib/ 随仓库提交，release 时递归重建）
 pnpm typecheck           # 递归类型检查
 pnpm test                # 递归单测
 pnpm lint                # 递归 lint（无该脚本的插件自动跳过）
-pnpm release <version>   # 发布：同步版本 + 发布提交 + 打 tag v<version>（--dry-run 只打印）
+pnpm release <version>   # 发布：同步版本 + 重建产物 + 发布提交 + 打 tag v<version>（--dry-run 只打印）
 
 # 只跑单个插件
 pnpm --filter dsh-plugin-multi-root-workspace verify:all
@@ -52,9 +52,9 @@ TAG=$(git describe --tags --abbrev=0)   # 当前 tag（也可填任意历史 tag
 docker exec dsh dsh plugin --profile web add \
   "github:exponentxqq/dsh-plugins#${TAG}&path:plugins/<name>"
 
-# 首次 git 安装会被 pnpm 拦下构建脚本：pnpm 10 不写占位，需把它打印的精确 dep path
-# （含 commit，换 tag 要刷新）加进 profile 的 onlyBuiltDependencies，另加 koffi（用包名）；
-# pnpm ≥11 则把 allowBuilds 占位改成 true。详见插件的「安装停在构建授权」排障文档
+# 插件产物 lib/ 随 tag 提交且无 prepare，git 安装不触发构建授权；仅 multi-root 的
+# koffi（注册表原生依赖）需表态一次：pnpm 10 把 koffi（用包名）加进 onlyBuiltDependencies，
+# pnpm ≥11 则把 allowBuilds 占位改成 true。详见「安装停在构建授权」排障文档
 
 # 若宿主 ~/.gitconfig 有 github.com 的 insteadOf=ssh 改写（容器无 ssh 会失败），加环境覆盖：
 # docker exec -e GIT_CONFIG_GLOBAL=/dev/null dsh dsh plugin --profile web add "github:…#<tag>&path:…"
@@ -77,7 +77,7 @@ DSH 源码与 API 参考位于 `/usr/local/lib/node_modules/@deepseek-ai/dsh/`�
 
 ```bash
 pnpm verify                    # 发布前自检（递归 verify:all）
-pnpm release <version>         # 同步版本 → 提交 chore(release): v<version> → annotated tag（--dry-run 只打印）
+pnpm release <version>         # 同步版本 → 重建产物 → 提交 chore(release): v<version> → annotated tag（--dry-run 只打印）
 git push origin main --tags    # 在宿主执行：容器内没有 ssh，push 不可用
 ```
 

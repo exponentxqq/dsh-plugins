@@ -1,0 +1,1 @@
+export { t as COMMAND_NAME, n as COMMON_MARKER, r as apply, i as inject, a as parseFoldersCommand, o as renderRootsReport, s as resolvePanelPrimaryRoot, c as revealArgv } from "./command-XsWzcNJF.js";

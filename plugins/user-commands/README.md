@@ -113,7 +113,7 @@ pnpm build         # esbuild → lib/index.js
 pnpm verify:all    # lint + typecheck + build + test
 ```
 
-`lib/` 与 `node_modules/` 不入库（见 `.gitignore`）。依赖由 workspace 统一安装：仓库根 `pnpm install` 一次装齐。
+`lib/` 随仓库提交（release 时递归重建保证新鲜），`node_modules/` 不入库（见 `.gitignore`）。依赖由 workspace 统一安装：仓库根 `pnpm install` 一次装齐。
 
 ## 真机验证（验证证据）
 
