@@ -125,8 +125,9 @@ pnpm verify:all    # lint + typecheck + build + test
 
 ```bash
 # 发布后按 tag 装（任何 profile 均可单独安装本包）
+TAG=$(git describe --tags --abbrev=0)   # 当前 tag（也可填任意历史 tag）
 docker exec dsh dsh plugin --profile web add \
-  "github:exponentxqq/dsh-plugins#v1.0.0&path:plugins/project-mcp"
+  "github:exponentxqq/dsh-plugins#${TAG}&path:plugins/project-mcp"
 
 # 本地开发调试（改源码后重建 + 重启 profile 生效）
 docker exec dsh dsh plugin --profile web add \

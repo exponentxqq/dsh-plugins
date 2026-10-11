@@ -21,7 +21,8 @@ Three things make this plugin worth looking at:
 With a DSH runtime at hand (web / Electron desktop / headless all work), the shortest path is two commands — this repository is a **local fork**: the package dropped its `@dsh-electron` scope (it is `dsh-plugin-multi-root-workspace` now) and is not published to npm with upstream; it is installed from this repository's GitHub source, pinned to a tag:
 
 ```sh
-dsh plugin --profile web add "github:exponentxqq/dsh-plugins#v1.0.0&path:plugins/dsh-plugin-multi-root-workspace"
+TAG=$(git describe --tags --abbrev=0)   # current tag (or any historical tag, to reproduce an older release)
+dsh plugin --profile web add "github:exponentxqq/dsh-plugins#${TAG}&path:plugins/dsh-plugin-multi-root-workspace"
 dsh --profile web
 ```
 
@@ -49,7 +50,7 @@ The agent can now read, write, and run bash in that directory, with the same rig
 
 | Source | Command | Notes |
 | --- | --- | --- |
-| GitHub (how this fork is used) | `dsh plugin --profile web add "github:exponentxqq/dsh-plugins#v1.0.0&path:plugins/dsh-plugin-multi-root-workspace"` | This fork's release channel: pulls the source at a tag and builds it on the spot through `prepare` (`&path:` names the subdirectory inside the monorepo); needs **two** `allowBuilds` answers (this package plus `koffi`); always pin a tag |
+| GitHub (how this fork is used) | `dsh plugin --profile web add "github:exponentxqq/dsh-plugins#<tag>&path:plugins/dsh-plugin-multi-root-workspace"` | This fork's release channel: pulls the source at a tag and builds it on the spot through `prepare` (`&path:` names the subdirectory inside the monorepo, `<tag>` is the current tag); needs **two** `allowBuilds` answers (this package plus `koffi`); always pin a tag |
 | npm registry (upstream package) | `dsh plugin --profile web add @dsh-electron/dsh-plugin-multi-root-workspace` | Upstream's pre-built artifacts, ready to use; **this fork is not published** under its new name, so this command installs the upstream release |
 | tarball | `dsh plugin --profile web add ./dsh-plugin-multi-root-workspace-<version>.tgz` | Pre-built offline package, handy for air-gapped or offline delivery — with the same one-time `allowBuilds` answer |
 | local path (development & debugging) | `dsh plugin --profile web add /path/to/dsh-plugin-multi-root-workspace` | pnpm `link:` to a local checkout (its dependencies are already installed in this repository); source edits take effect when the profile restarts |
@@ -87,7 +88,8 @@ Also pre-built (the plugin itself is never compiled here), handy for air-gapped 
 This fork's release channel is the `dsh-plugins` monorepo; `#<tag>&path:<directory>` pins both the version and the subdirectory:
 
 ```sh
-dsh plugin --profile web add "github:exponentxqq/dsh-plugins#v1.0.0&path:plugins/dsh-plugin-multi-root-workspace"
+TAG=$(git describe --tags --abbrev=0)   # current tag (or any historical tag)
+dsh plugin --profile web add "github:exponentxqq/dsh-plugins#${TAG}&path:plugins/dsh-plugin-multi-root-workspace"
 ```
 
 With pnpm ≥10 the first `add` fails: a git install pulls **source code rather than build artifacts**, so the package's self-contained `prepare` script must build it on the spot (a direct transpile of `src/`, no type-checking). With pnpm ≥11 the pending decisions are written into the profile's `pnpm-workspace.yaml` as `allowBuilds` placeholders — set them to `true`; this source has **two**:
@@ -100,7 +102,7 @@ allowBuilds:
 
 **pnpm 10 writes no placeholders**: it fails with `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` and prints the exact dep path (of the form `dsh-plugin-multi-root-workspace@https://codeload.github.com/…/tar.gz/<commit>#path:plugins/dsh-plugin-multi-root-workspace`). Git dependencies are matched exactly, so that line has to be added verbatim to `onlyBuiltDependencies` (use the bare name for `koffi`); the key carries the commit, so refresh it after a tag bump. See [Troubleshooting: the install stops at build approval](./docs/troubleshooting/install-stops-at-build-approval.md) for both pnpm generations.
 
-Then run `add` again. `#v1.0.0` is a tag lock, so a later push cannot silently change what actually runs; to follow the same major automatically, write `#semver:^1.0.0&path:plugins/dsh-plugin-multi-root-workspace` instead.
+Then run `add` again. `#<tag>` is a tag lock, so a later push cannot silently change what actually runs; to follow the same major automatically, write `#semver:^<major>.0.0&path:plugins/dsh-plugin-multi-root-workspace` instead.
 
 > If the host's `~/.gitconfig` rewrites `https://github.com/` to ssh (`insteadOf`) while the container has no ssh, `git ls-remote` fails — add `-e GIT_CONFIG_GLOBAL=/dev/null` to the command (`docker exec -e GIT_CONFIG_GLOBAL=/dev/null dsh …`), or split that section into a host-only include file as the dotfiles documentation describes.
 >

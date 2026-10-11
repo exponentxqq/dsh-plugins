@@ -61,8 +61,9 @@ pnpm run build         # esbuild → lib/index.js、lib/invariant.js、lib/clien
 按 tag 从 GitHub 安装（`#<tag>&path:` 同时指定版本与单仓子目录）：
 
 ```bash
+TAG=$(git describe --tags --abbrev=0)   # 当前 tag（也可填任意历史 tag）
 docker exec dsh dsh plugin --profile web add \
-  "github:exponentxqq/dsh-plugins#v1.0.0&path:plugins/git-graph-multi"
+  "github:exponentxqq/dsh-plugins#${TAG}&path:plugins/git-graph-multi"
 docker exec dsh dsh --profile web --dump-config-schema   # 校验 host 半可被 Loader 加载
 ```
 

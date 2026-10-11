@@ -4,7 +4,7 @@
  *
  * 用法：
  *   pnpm release <version> [--dry-run]     # 等价于 node scripts/release.mjs <version>
- *   pnpm release 1.0.0                     # 同步版本 → 提交 chore(release): v1.0.0 → 打 tag v1.0.0
+ *   pnpm release <version>                 # 同步版本 → 提交 chore(release): v<version> → 打 tag v<version>
  *
  * 约定（见根 README「发布与版本」）：
  * - **仓库级统一版本**：根 `package.json` 与每个插件包的 `package.json`

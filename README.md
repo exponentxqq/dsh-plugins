@@ -20,7 +20,7 @@ pnpm build            # 全部插件构建（产物 lib/ 不入库，git 安装�
 pnpm typecheck        # 全部插件类型检查
 pnpm test             # 全部插件单测
 pnpm lint             # 全部插件 lint（无 lint 脚本的插件自动跳过）
-pnpm release 1.0.0    # 发布：同步版本 + 提交 + 打 tag v1.0.0（详见「发布与版本」）
+pnpm release <version>  # 发布：同步版本 + 提交 + 打 tag v<version>（详见「发布与版本」）
 ```
 
 只跑单个插件：`pnpm --filter <包名> <脚本>`，例如 `pnpm --filter dsh-plugin-multi-root-workspace verify:all`（含 lint / typecheck / build / 内核探测 / 单测 / 冒烟，需运行中的 dsh 环境）。
@@ -30,8 +30,9 @@ pnpm release 1.0.0    # 发布：同步版本 + 提交 + 打 tag v1.0.0（详见
 profile 由 dotfiles 仓库管理（`dsh/profiles/*`）。插件按 **tag 锁定**从 GitHub 装入（`#<tag>&path:plugins/<目录>` 同时指定版本与单仓子目录）：
 
 ```bash
+TAG=$(git describe --tags --abbrev=0)   # 当前 tag（也可填任意历史 tag 复现旧版本）
 docker exec dsh dsh plugin --profile web add \
-  "github:exponentxqq/dsh-plugins#v1.0.0&path:plugins/dsh-plugin-multi-root-workspace"
+  "github:exponentxqq/dsh-plugins#${TAG}&path:plugins/dsh-plugin-multi-root-workspace"
 docker exec dsh dsh --profile web --dump-config-schema   # 校验组合可加载（会 import 插件）
 ```
 
@@ -42,21 +43,21 @@ docker exec dsh dsh --profile web --dump-config-schema   # 校验组合可加载
 - **构建授权**：git 来源没有预构建产物，pnpm 会在安装时跑插件的 `prepare` 现场构建，而 pnpm ≥10 默认拦截依赖的构建脚本，首次安装会以非 0 退出。处置分两代：pnpm ≥11 会把待决项以 `allowBuilds:` 占位写进 profile 的 `pnpm-workspace.yaml`（改成 `true` 重跑）；**pnpm 10 不写任何东西**，只以 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` 失败并打印确切的 dep path，需要把它加进 `onlyBuiltDependencies`——pnpm 10 对 git 依赖只做**精确匹配**，键里带着解析出的 commit，所以每次改 tag 都要按新打印的行刷新；注册表依赖 `koffi`（多根插件的原生依赖）用包名即可。详见 [安装停在构建授权](plugins/dsh-plugin-multi-root-workspace/docs/troubleshooting/install-stops-at-build-approval.md)。
 - **`insteadOf` 陷阱**：若宿主 `~/.gitconfig` 写了 `url.git@github.com:.insteadOf = https://github.com/`（该文件被只读挂载进 dsh 容器），容器内 `git ls-remote` 会被改写成 ssh 而容器没有 ssh，安装直接失败。解决办法二选一：把该段拆到宿主专属的 include 文件（容器读不到即静默跳过，见 dotfiles `dsh/README.md`），或给这条命令加 `-e GIT_CONFIG_GLOBAL=/dev/null`：`docker exec -e GIT_CONFIG_GLOBAL=/dev/null dsh dsh plugin …`。
 
-升级 = 改 profile `package.json` 里的 tag 后重装（`pnpm install` + 重启 profile）；想自动跟进同主版本也可用范围写法 `#semver:^1.0.0&path:plugins/<目录>`。
+升级 = 改 profile `package.json` 里的 tag 后重装（`pnpm install` + 重启 profile）；想自动跟进同主版本也可用范围写法 `#semver:^<major>.0.0&path:plugins/<目录>`。
 
 本地开发调试仍可 `link:` 安装（改源码重启即生效，无需发布）：`dsh plugin --profile web add /home/xuqinqin/develop/person/dsh-plugins/plugins/<name>`。
 
 ## 发布与版本
 
-仓库采用**仓库级统一版本**：根 `package.json` 与每个插件包的 `version` 始终等于当前 tag（风格 `v1.0.0`），tag 是 profile 侧安装的唯一锚点，`package.json#version` 与之对齐便于把 DSH 的 `package@version` 版本豁免和排障输出直接对上发布点。
+仓库采用**仓库级统一版本**：根 `package.json` 与每个插件包的 `version` 始终等于当前 tag（风格 `v<major>.<minor>.<patch>`），tag 是 profile 侧安装的唯一锚点，`package.json#version` 与之对齐便于把 DSH 的 `package@version` 版本豁免和排障输出直接对上发布点。
 
 ```bash
-pnpm verify            # 1. 发布前自检（递归 verify:all；多根插件的 smoke 需运行中的 dsh）
-pnpm release 1.0.0     # 2. 同步版本 → 提交 chore(release): v1.0.0 → 打 annotated tag
+pnpm verify                # 1. 发布前自检（递归 verify:all；多根插件的 smoke 需运行中的 dsh）
+pnpm release <version>     # 2. 同步版本 → 提交 chore(release): v<version> → 打 annotated tag
 git push origin main --tags   # 3. 在宿主 push（容器内没有 ssh）
 ```
 
-`pnpm release --dry-run 1.0.0` 只打印将变更的版本；脚本会拒绝脏工作区、非 main 分支与已存在的 tag。tag 未推到远程前，profile 无法按 `#v1.0.0` 解析安装。
+`pnpm release --dry-run <version>` 只打印将变更的版本；脚本会拒绝脏工作区、非 main 分支与已存在的 tag。tag 未推到远程前，profile 无法按 `#v<version>` 解析安装。
 
 ## 插件一览
 

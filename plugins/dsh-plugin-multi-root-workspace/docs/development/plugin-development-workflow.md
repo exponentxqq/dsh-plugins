@@ -129,7 +129,8 @@ client 测试分两层：`tests/client-bundle.spec.ts` 断言**制品字节**（
 正式通道是按 tag 从本仓库的 GitHub 源安装（`#<tag>&path:` 同时锁定版本与单仓子目录；tag 由仓库根 `scripts/release.mjs` 产出）：
 
 ```sh
-dsh plugin --profile web add "github:exponentxqq/dsh-plugins#v1.0.0&path:plugins/dsh-plugin-multi-root-workspace"
+TAG=$(git describe --tags --abbrev=0)   # 当前 tag（也可填任意历史 tag）
+dsh plugin --profile web add "github:exponentxqq/dsh-plugins#${TAG}&path:plugins/dsh-plugin-multi-root-workspace"
 dsh --profile web --dump-config     # 应看到两行 disabled + 十行 insert
 ```
 

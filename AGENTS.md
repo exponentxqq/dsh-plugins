@@ -40,7 +40,7 @@ pnpm build               # 递归构建全部插件（产物 lib/，不入库）
 pnpm typecheck           # 递归类型检查
 pnpm test                # 递归单测
 pnpm lint                # 递归 lint（无该脚本的插件自动跳过）
-pnpm release 1.0.0       # 发布：同步版本 + 发布提交 + 打 tag v1.0.0（--dry-run 只打印）
+pnpm release <version>   # 发布：同步版本 + 发布提交 + 打 tag v<version>（--dry-run 只打印）
 
 # 只跑单个插件
 pnpm --filter dsh-plugin-multi-root-workspace verify:all
@@ -48,15 +48,16 @@ pnpm --filter dsh-plugin-multi-root-workspace verify:all
 
 ```bash
 # 安装插件到某个 profile（按 tag 从 GitHub 装；#<tag>&path: 同时指定版本与单仓子目录）
+TAG=$(git describe --tags --abbrev=0)   # 当前 tag（也可填任意历史 tag）
 docker exec dsh dsh plugin --profile web add \
-  "github:exponentxqq/dsh-plugins#v1.0.0&path:plugins/<name>"
+  "github:exponentxqq/dsh-plugins#${TAG}&path:plugins/<name>"
 
 # 首次 git 安装会被 pnpm 拦下构建脚本：pnpm 10 不写占位，需把它打印的精确 dep path
 # （含 commit，换 tag 要刷新）加进 profile 的 onlyBuiltDependencies，另加 koffi（用包名）；
 # pnpm ≥11 则把 allowBuilds 占位改成 true。详见插件的「安装停在构建授权」排障文档
 
 # 若宿主 ~/.gitconfig 有 github.com 的 insteadOf=ssh 改写（容器无 ssh 会失败），加环境覆盖：
-# docker exec -e GIT_CONFIG_GLOBAL=/dev/null dsh dsh plugin --profile web add "github:…#v1.0.0&path:…"
+# docker exec -e GIT_CONFIG_GLOBAL=/dev/null dsh dsh plugin --profile web add "github:…#<tag>&path:…"
 
 # 本地开发调试仍可 link: 安装（改源码重启 profile 即生效，无需发布）
 docker exec dsh dsh plugin --profile web add /home/xuqinqin/develop/person/dsh-plugins/plugins/<name>
@@ -72,11 +73,11 @@ DSH 源码与 API 参考位于 `/usr/local/lib/node_modules/@deepseek-ai/dsh/`�
 
 ## 发布与版本
 
-仓库级统一版本：根 `package.json` 与每个插件包的 `version` 恒等于当前 tag（风格 `v1.0.0`），tag 是 profile 侧安装的唯一锚点。
+仓库级统一版本：根 `package.json` 与每个插件包的 `version` 恒等于当前 tag（风格 `v<major>.<minor>.<patch>`），tag 是 profile 侧安装的唯一锚点。
 
 ```bash
 pnpm verify                    # 发布前自检（递归 verify:all）
-pnpm release 1.0.0             # 同步版本 → 提交 chore(release): v1.0.0 → annotated tag（--dry-run 只打印）
+pnpm release <version>         # 同步版本 → 提交 chore(release): v<version> → annotated tag（--dry-run 只打印）
 git push origin main --tags    # 在宿主执行：容器内没有 ssh，push 不可用
 ```
 
