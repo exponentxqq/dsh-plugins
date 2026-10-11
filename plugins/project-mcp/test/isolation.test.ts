@@ -331,6 +331,73 @@ describe('isolation layer', () => {
     expect(errors.some((message) => message.includes('unsupported schema'))).toBe(true)
   })
 
+  it('goes quiet once its own context turns inactive (host teardown)', async () => {
+    const io = fakeTools({ scopeNames: ['mcp__figma__get_figma_data'] })
+    const { log, errors } = recordingLog()
+    let catalogCalls = 0
+    const layer = new IsolationLayer(ports({
+      catalog: () => {
+        catalogCalls += 1
+        throw new Error('cannot get required service "tools" in inactive context')
+      },
+      managedServerNames: () => new Set(['figma']),
+      log,
+    }))
+
+    await layer.attach({}, '/work/b', io.tools)
+    // Teardown is the shutdown itself, not a failure worth an error line.
+    expect(errors).toEqual([])
+    expect(io.restrictions).toEqual([['mcp__figma__get_figma_data']])
+
+    // At host teardown every tool unregistration fires tools/change; after the
+    // first inactive reading none of them reaches the ports again.
+    await layer.refresh()
+    await layer.refresh()
+    expect(catalogCalls).toBe(1)
+  })
+
+  it('reads an inactive agent view as empty, without an error line', async () => {
+    const io = fakeTools({ scopeNames: ['mcp__figma__get_figma_data'] })
+    const { log, errors } = recordingLog()
+    const layer = new IsolationLayer(ports({
+      catalog: () => ['mcp__figma__get_figma_data'],
+      managedServerNames: () => new Set(['figma']),
+      log,
+    }))
+
+    await layer.attach({}, '/work/b', io.tools)
+    expect(io.restrictions).toEqual([['mcp__figma__get_figma_data']])
+
+    // The agent scope is disposed between refreshes: its view becomes an
+    // inactive-context throw, which counts as an empty reading, not a failure,
+    // and must not retire the layer the way the plugin-scope read does.
+    io.tools.visibleNames = () => {
+      throw new Error('cannot get required service "tools" in inactive context')
+    }
+    await layer.refresh()
+
+    expect(errors).toEqual([])
+    expect(io.restrictions).toEqual([['mcp__figma__get_figma_data']])
+  })
+
+  it('still reports an agent view that fails for a real reason', async () => {
+    const io = fakeTools({ scopeNames: ['mcp__figma__get_figma_data'] })
+    const { log, errors } = recordingLog()
+    const layer = new IsolationLayer(ports({
+      catalog: () => ['mcp__figma__get_figma_data'],
+      managedServerNames: () => new Set(['figma']),
+      log,
+    }))
+
+    await layer.attach({}, '/work/b', io.tools)
+    io.tools.visibleNames = () => {
+      throw new Error('view exploded')
+    }
+    await layer.refresh()
+
+    expect(errors.some((message) => message.includes('view exploded'))).toBe(true)
+  })
+
   it('reports the first recompute of an agent and the mask it applied', async () => {
     const io = fakeTools()
     const { log, infos } = recordingLog()

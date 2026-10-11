@@ -195,6 +195,24 @@ function sample(names: readonly string[]): string {
 }
 
 /**
+ * Whether one error is cordis refusing a service access from an inactive
+ * context — the plugin fiber (or one agent scope) is already unloaded.
+ *
+ * At host teardown the tools registry unregisters one tool at a time and every
+ * unregistration fires `tools/change`, which reaches this layer as a refresh
+ * long after the fiber's service snapshot was cleared: each such reading once
+ * cost an error line, and a real restart burst hundreds of them. Those
+ * readings ARE the shutdown, not failures worth reporting, so both readers
+ * below treat this marker as "going away" (see `@deepseek-ai/cordis`
+ * `src/reflect.ts`: `cannot get required service "…" in inactive context`).
+ * @param error - the thrown value.
+ * @returns whether cordis threw it from an inactive context.
+ */
+function isInactiveContextError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('in inactive context')
+}
+
+/**
  * The workspace isolation layer. One instance watches every live agent scope;
  * the host wiring owns the event subscriptions and calls {@link attach} /
  * {@link detach} / {@link refresh}.
@@ -202,6 +220,17 @@ function sample(names: readonly string[]): string {
 export class IsolationLayer {
   /** Tracked agents, keyed by their scope object. */
   private readonly agents = new Map<object, Tracked>()
+
+  /**
+   * Whether the plugin's own context went away (cordis inactive context).
+   *
+   * Set by the first catalog read that fails because the fiber is unloading;
+   * every later recompute is then skipped, so a teardown that fires
+   * `tools/change` per unregistered tool costs one reading instead of one
+   * reading per tool. Only the plugin-scope read may set this: an agent scope
+   * dying alone is transient and must not retire the layer.
+   */
+  private teardown = false
 
   /**
    * @param ports - the facts and effects this layer uses.
@@ -262,6 +291,7 @@ export class IsolationLayer {
    */
   async refresh(): Promise<void> {
     // Materialized: recompute may re-enter this layer through tools/change.
+    if (this.teardown) return
     for (const tracked of Array.from(this.agents.values())) await this.recompute(tracked)
   }
 
@@ -290,6 +320,7 @@ export class IsolationLayer {
    * @param tracked - the agent's state.
    */
   private async recompute(tracked: Tracked): Promise<void> {
+    if (this.teardown) return
     try {
       await this.reconcile(tracked)
     } catch (error) {
@@ -379,6 +410,12 @@ export class IsolationLayer {
     try {
       return this.ports.catalog()
     } catch (error) {
+      // The plugin's own context is gone: this is teardown, not a failed
+      // reading, and nothing will ever read the catalog again.
+      if (isInactiveContextError(error)) {
+        this.teardown = true
+        return []
+      }
       this.ports.log.error(`cannot read the host tool catalog: ${String(error)}`)
       return []
     }
@@ -393,6 +430,11 @@ export class IsolationLayer {
     try {
       return tracked.tools.visibleNames()
     } catch (error) {
+      // One agent scope may already be disposed while the plugin lives on (the
+      // session ended mid-refresh). Transient: the scope's own disposer
+      // removes the agent from this layer, so this stays a quiet empty
+      // reading rather than an error line.
+      if (isInactiveContextError(error)) return []
       this.ports.log.error(`cannot read the tool view of one session: ${String(error)}`)
       return []
     }
