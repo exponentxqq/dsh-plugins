@@ -94,7 +94,7 @@ TAG=$(git describe --tags --abbrev=0)   # 当前 tag（也可填任意历史 tag
 dsh plugin --profile web add "github:exponentxqq/dsh-plugins#${TAG}&path:plugins/dsh-plugin-multi-root-workspace"
 ```
 
-自本仓 `v1.2.0` 起，git 安装**不再需要插件自身的构建授权**：产物 `lib/` 随 tag 提交、包内没有 `prepare` 脚本，pnpm 10/11 一致放行（改 tag 也无需任何表态）。剩下唯一一次表态就是上面 `koffi` 的 `allowBuilds` 回答——按包名匹配、不随 tag 变化。早于此版本（或想沿用 `prepare` 现场构建的包）为何会被 pnpm 10 以 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` 硬拒绝、键里为何带 commit，见[故障排查：安装停在构建授权](./docs/troubleshooting/install-stops-at-build-approval.md)。
+自本仓 `v1.1.1` 起，git 安装**不再需要插件自身的构建授权**：产物 `lib/` 随 tag 提交、包内没有 `prepare` 脚本，pnpm 10/11 一致放行（改 tag 也无需任何表态）。剩下唯一一次表态就是上面 `koffi` 的 `allowBuilds` 回答——按包名匹配、不随 tag 变化。早于此版本（或想沿用 `prepare` 现场构建的包）为何会被 pnpm 10 以 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` 硬拒绝、键里为何带 commit，见[故障排查：安装停在构建授权](./docs/troubleshooting/install-stops-at-build-approval.md)。
 
 然后重新执行 `add` 即可。`#<tag>` 是 tag 锁：推送无法悄悄改变实际运行的内容；想自动跟进同主版本可写成 `#semver:^<major>.0.0&path:plugins/dsh-plugin-multi-root-workspace`。
 

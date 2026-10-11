@@ -11,7 +11,7 @@ Run "pnpm approve-builds" to pick which dependencies should be allowed to run sc
 dsh: pnpm failed in profile directory <$DSH_HOME>/profiles/<name>
 ```
 
-本插件自本仓 `v1.2.0` 起 git 来源**不再**触发插件自身的构建授权（产物 `lib/` 随 tag 提交、无 `prepare`），唯一剩下的表态就是上面 `koffi` 这一次。安装 `v1.1.0` 及更早的 tag 时，git 来源还会先撞上另一条更早的失败——插件自己的 `prepare` 也要授权：
+本插件自本仓 `v1.1.1` 起 git 来源**不再**触发插件自身的构建授权（产物 `lib/` 随 tag 提交、无 `prepare`），唯一剩下的表态就是上面 `koffi` 这一次。安装 `v1.1.0` 及更早的 tag 时，git 来源还会先撞上另一条更早的失败——插件自己的 `prepare` 也要授权：
 
 ```text
 ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED  Failed to prepare git-hosted package fetched from
@@ -37,7 +37,7 @@ pnpm ≥10 **默认不运行任何依赖的生命周期脚本**：未在 profile
 3. **没有通配**。`createAllowBuildFunction` 是纯 `Set.has()` 精确匹配：git 依赖比整串 depPath，注册表依赖比 `name` 或 `name@version`。`*`、前缀匹配都不存在，所以无法写一条一劳永逸的 git 依赖授权。
 4. **注册表依赖按包名匹配**。`koffi` 有 semver 版本，用裸包名即可，版本/tag 变化都不影响这条键。
 
-### 本仓的根治（v1.2.0 起）
+### 本仓的根治（v1.1.1 起）
 
 既然授权门只在"包需要构建"时触发，就让包**不需要构建**：删除全部插件的 `prepare` 脚本、把构建产物 `lib/` 随 tag 提交（`scripts/release.mjs` 在每次发布提交前递归重建并入库，新鲜度由发布流程构造性保证），另补一个 `prepack` 供将来 npm 发布使用。pnpm 对"无 `prepare`，或仅有 `prepack` 但 `main` 文件（`lib/index.js`）已存在"的包判 `packageShouldBeBuilt = false`——授权门根本不被咨询，pnpm 10/11 行为一致。社区同类先例：`dsh-better-input`、`dsh-pocket` 同样把 `lib/` 提交进仓库换取 tag 开箱即用；多数派（官方包、`dsh-context` 等）则以 npm 分发规避（tarball 在发布时构建，仓库不入库）。
 
@@ -80,7 +80,7 @@ onlyBuiltDependencies:
 
 ### 历史 tag（≤ v1.1.0）的 git 安装
 
-安装 `v1.1.0` 及更早 tag 时插件自身还带 `prepare`，git 来源除 `koffi` 外还要多一条**精确 dep path** 的授权：pnpm 10 需把报错原样打印的那一行（`name@<codeload URL 含 commit>#path:<子目录>`）加进 `onlyBuiltDependencies`，且换 tag 后要按新一次失败的输出刷新；pnpm ≥11 则把本包的 `allowBuilds` 占位也改成 `true`。升级到 ≥ `v1.2.0` 的 tag 后这两条插件自身的条目可以删掉，只留 `koffi`。
+安装 `v1.1.0` 及更早 tag 时插件自身还带 `prepare`，git 来源除 `koffi` 外还要多一条**精确 dep path** 的授权：pnpm 10 需把报错原样打印的那一行（`name@<codeload URL 含 commit>#path:<子目录>`）加进 `onlyBuiltDependencies`，且换 tag 后要按新一次失败的输出刷新；pnpm ≥11 则把本包的 `allowBuilds` 占位也改成 `true`。升级到 ≥ `v1.1.1` 的 tag 后这两条插件自身的条目可以删掉，只留 `koffi`。
 
 ## 相关
 

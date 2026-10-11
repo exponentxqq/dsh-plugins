@@ -40,7 +40,7 @@ docker exec dsh dsh --profile web --dump-config-schema   # 校验组合可加载
 
 两件必知的事：
 
-- **构建授权**：v1.2.0 起各插件的构建产物 `lib/` 随仓库提交且不再带 `prepare` 脚本，git 来源安装**不触发** pnpm 的构建脚本授权（pnpm 10/11 行为一致，改 tag 也无需任何表态）。唯一例外是 multi-root 插件的注册表依赖 `koffi`（原生模块，install 脚本要预编译）：pnpm ≥11 会把 `allowBuilds: koffi:` 占位写进 profile 的 `pnpm-workspace.yaml`，改成 `true` 重跑即可；pnpm 10 会以 `ERR_PNPM_IGNORED_BUILDS` 退出，把 `koffi`（用包名）加进 `onlyBuiltDependencies`——按包名匹配、不随 tag 变化，只需表态一次。背景与机制（为何 git 来源曾是硬失败、为何键里带 commit）见 [安装停在构建授权](plugins/dsh-plugin-multi-root-workspace/docs/troubleshooting/install-stops-at-build-approval.md)。
+- **构建授权**：v1.1.1 起各插件的构建产物 `lib/` 随仓库提交且不再带 `prepare` 脚本，git 来源安装**不触发** pnpm 的构建脚本授权（pnpm 10/11 行为一致，改 tag 也无需任何表态）。唯一例外是 multi-root 插件的注册表依赖 `koffi`（原生模块，install 脚本要预编译）：pnpm ≥11 会把 `allowBuilds: koffi:` 占位写进 profile 的 `pnpm-workspace.yaml`，改成 `true` 重跑即可；pnpm 10 会以 `ERR_PNPM_IGNORED_BUILDS` 退出，把 `koffi`（用包名）加进 `onlyBuiltDependencies`——按包名匹配、不随 tag 变化，只需表态一次。背景与机制（为何 git 来源曾是硬失败、为何键里带 commit）见 [安装停在构建授权](plugins/dsh-plugin-multi-root-workspace/docs/troubleshooting/install-stops-at-build-approval.md)。
 - **`insteadOf` 陷阱**：若宿主 `~/.gitconfig` 写了 `url.git@github.com:.insteadOf = https://github.com/`（该文件被只读挂载进 dsh 容器），容器内 `git ls-remote` 会被改写成 ssh 而容器没有 ssh，安装直接失败。解决办法二选一：把该段拆到宿主专属的 include 文件（容器读不到即静默跳过，见 dotfiles `dsh/README.md`），或给这条命令加 `-e GIT_CONFIG_GLOBAL=/dev/null`：`docker exec -e GIT_CONFIG_GLOBAL=/dev/null dsh dsh plugin …`。
 
 升级 = 改 profile `package.json` 里的 tag 后重装（`pnpm install` + 重启 profile）；想自动跟进同主版本也可用范围写法 `#semver:^<major>.0.0&path:plugins/<目录>`。

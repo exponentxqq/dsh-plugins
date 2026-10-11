@@ -13,7 +13,7 @@
  * - tag 是 profile 侧安装的唯一锚点：`github:<owner>/<repo>#v<version>&path:plugins/<目录>`；
  *   `package.json` 的 `version` 与 tag 保持一致，是为了让 DSH 的
  *   `package@version` 版本豁免与排障输出能直接对上发布点。
- * - **构建产物 `plugins/<name>/lib/` 随仓库提交**（v1.2.0 起）：git 来源安装因此
+ * - **构建产物 `plugins/<name>/lib/` 随仓库提交**（v1.1.1 起）：git 来源安装因此
  *   不触发 pnpm 的构建脚本授权（无 `prepare` → `packageShouldBeBuilt` 为 false）。
  *   发布提交前递归重建一次全部产物并连同版本号入库，新鲜度由发布流程构造性保证。
  *
