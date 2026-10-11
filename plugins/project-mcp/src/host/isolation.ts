@@ -21,7 +21,7 @@
  * `tools/change`, so a recompute that re-registered an unchanged deny set
  * would feed itself forever; the diff guard below makes an unchanged set a
  * no-op.
- * @module dsh-plugin-web-ux/host/isolation
+ * @module dsh-plugin-project-mcp/host/isolation
  */
 
 import type { ScanLog } from './types.ts'

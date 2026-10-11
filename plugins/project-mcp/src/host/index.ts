@@ -21,7 +21,7 @@
  * registry, re-scans every root, and hands the complete desired set to the
  * manager, which computes the difference. Two scans racing would only waste
  * work — the later one wins either way.
- * @module dsh-plugin-web-ux/host
+ * @module dsh-plugin-project-mcp/host
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -41,7 +41,7 @@ import type { ScanLog } from './types.ts'
 import { DirectoryWatcher, watchTargets } from './watcher.ts'
 
 /** Cordis plugin name used by loader diagnostics (the bundle's row id). */
-export const name = 'web-ux'
+export const name = 'project-mcp'
 
 /** Required services: the workspace registry to scan and the tool registry to isolate. */
 export const inject = ['workspaceRegistry', 'tools']
@@ -161,7 +161,7 @@ export function apply(ctx: Context): void {
     const cwd = agent.session.header.cwd
     agent.ctx.effect(() => () => {
       isolation.detach(key)
-    }, 'dsh-plugin-web-ux: workspace isolation')
+    }, 'dsh-plugin-project-mcp: workspace isolation')
     return isolation.attach(key, cwd, scopedTools(agent.ctx, key)).then(
       () => undefined,
       (error: unknown) => {
@@ -218,7 +218,7 @@ export function apply(ctx: Context): void {
           return { kind: 'error', text: `重扫失败：${String(error)}` }
         }
       },
-    }), 'dsh-plugin-web-ux: /mcp-reload')
+    }), 'dsh-plugin-project-mcp: /mcp-reload')
   })
 
   // 5. Unload: every effect this plugin installed goes away with the fiber.
@@ -227,7 +227,7 @@ export function apply(ctx: Context): void {
     isolation.dispose()
     for (const dispose of triggers) dispose()
     void manager.dispose()
-  }, 'dsh-plugin-web-ux: teardown')
+  }, 'dsh-plugin-project-mcp: teardown')
 
   // 6. Boot pass: a workspace that already configures servers needs no restart.
   background()

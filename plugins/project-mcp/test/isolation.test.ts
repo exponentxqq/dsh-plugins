@@ -1,5 +1,5 @@
 /**
- * Isolation tests (spec: dsh-web-ux-project-mcp — 工作区可见性隔离 and
+ * Isolation tests (spec: dsh-project-mcp — 工作区可见性隔离 and
  * 隔离的动态刷新).
  *
  * The tool surface is faked, so each case asserts the two decisions that

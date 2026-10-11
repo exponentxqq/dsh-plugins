@@ -16,7 +16,7 @@
  * Nothing here touches `node:fs`, the clock, or the console directly: the
  * filesystem, the environment, and the log arrive as arguments, which is what
  * makes every rule above unit-testable.
- * @module dsh-plugin-web-ux/host/scan
+ * @module dsh-plugin-project-mcp/host/scan
  */
 
 import path from 'node:path'

@@ -13,7 +13,7 @@
  * is what makes a `serverName` collision with a profile-level server visible —
  * the client rejects the second claimant instead of both living happily in
  * separate copies of its namespace bookkeeping.
- * @module dsh-plugin-web-ux/host/plugin-loader
+ * @module dsh-plugin-project-mcp/host/plugin-loader
  */
 
 import type { Context } from '@deepseek-ai/cordis'

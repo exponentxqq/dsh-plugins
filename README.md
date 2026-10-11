@@ -64,7 +64,8 @@ git push origin main --tags   # 3. 在宿主 push（容器内没有 ssh）
 | --- | --- |
 | [`dsh-plugin-multi-root-workspace`](plugins/dsh-plugin-multi-root-workspace/README.md) | 把 Workspace 的可写范围从「一个主根」扩展为「主根 + N 个附加根」；不放宽沙箱档位，附加根与主根同权。上游 `cherrchen/dsh-plugin-multi-root-workspace` 的本地 fork，含附加根一次性播种与通用附加根 `commonRoots` 两个本地扩展。 |
 | [`dsh-plugin-git-graph-multi`](plugins/git-graph-multi/README.md) | 单工作区多 git 子仓的分支芯片：仓库枚举、每仓平铺芯片与操作面板、跨仓（组）分支操作，均经 host 侧真实 git 执行并带守卫。`@linxin666/dsh-client-ui-git-graph@0.4.5` 的本地 fork（Apache-2.0）。 |
-| [`dsh-plugin-web-ux`](plugins/web-ux/README.md) | 双面 Web 体验插件：状态行 provider 徽章 + 项目级 MCP（各工作区根 `.dsh/mcp/` 每文件一台服务器，按工作区隔离工具可见性、热重载、`/mcp-reload` 兜底）。 |
+| [`dsh-plugin-web-ux`](plugins/web-ux/README.md) | Web 界面体验插件（client 半）：状态行 provider 徽章；宿主侧只保留一个空载载体行，供 web 客户端模块扫描定位 `dsh.client` 声明。后续其他 Web 界面体验改动落在本包。 |
+| [`dsh-plugin-project-mcp`](plugins/project-mcp/README.md) | 项目级 MCP（host-only，任何 profile 可单独安装）：各工作区根 `.dsh/mcp/` 每文件一台服务器，自动发现、加载、热重载，按工作区隔离工具可见性，`/mcp-reload` 兜底。自 `dsh-plugin-web-ux` 拆出，行为零变化。 |
 
 各插件的长文档留在插件目录内：多根插件的 `docs/` 含架构、ADR、参考与排障全文；git-graph-multi 的行为语义见 [`openspec/specs/dsh-multi-repo-git-graph/spec.md`](openspec/specs/dsh-multi-repo-git-graph/spec.md)（三次变更的规划工件归档在 [`openspec/changes/archive/`](openspec/changes/archive/)）。
 

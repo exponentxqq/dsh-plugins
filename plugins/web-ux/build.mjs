@@ -1,22 +1,19 @@
 /**
  * Self-contained build for dsh-plugin-web-ux.
  *
- * Two faces, one script:
+ * This package is CLIENT-ONLY since the project-MCP split (change:
+ * split-project-mcp-plugin): the host half moved to `dsh-plugin-project-mcp`.
+ * The one artifact here is the browser half — `src/client/index.ts` becomes a
+ * single CJS bundle wrapped in the `window.__ModuleLoader__.load({ id,
+ * factory })` shell contract, with `react` / `react-dom` /
+ * `react/jsx-runtime` / `@deepseek-ai/dsh-client-ui-primitives` externalized
+ * (the browser shell provides them through the loader's `require`), and CSS
+ * modules compiled into a runtime `<style>` injection so no separate
+ * stylesheet is served.
  *
- * - **host** — `src/index.ts` becomes an ESM entry in `lib/`. Node builtins
- *   stay external; every package dependency is BUNDLED (`yaml` is the only
- *   one) because a `link:` install does not install the linked package's
- *   dependencies — the artifact must be self-contained to load.
- * - **client** — `src/client/index.ts` becomes a single CJS bundle wrapped in
- *   the `window.__ModuleLoader__.load({ id, factory })` shell contract, with
- *   `react` / `react-dom` / `react/jsx-runtime` /
- *   `@deepseek-ai/dsh-client-ui-primitives` externalized (the browser shell
- *   provides them through the loader's `require`), and CSS modules compiled
- *   into a runtime `<style>` injection so no separate stylesheet is served.
- *
- * The MCP client (`@deepseek-ai/dsh-mcp-client`) is deliberately NOT bundled:
- * the host half imports it at runtime through `ctx.loader.import`, so it
- * always matches the installed dsh version instead of freezing a peer copy.
+ * `src/index.ts` is still built because the bundle row keeps inserting this
+ * package by bare name — the client-module scan reads `dsh.client` from that
+ * row — but all it contains is a no-op carrier plugin.
  *
  * No d.ts and no sourcemaps: the plugin is consumed by the dsh runtime, not by
  * other TypeScript.
@@ -93,8 +90,8 @@ function cssModulesPlugin() {
   }
 }
 
-/** Build the host half: one ESM entry, everything but node builtins bundled. */
-async function buildHost() {
+/** Build the no-op host carrier: one ESM entry, node builtins external. */
+async function buildHostCarrier() {
   await build({
     entryPoints: [path.join(ROOT, 'src/index.ts')],
     outdir: OUT_DIR,
@@ -104,16 +101,6 @@ async function buildHost() {
     target: 'node22',
     sourcemap: false,
     external: ['node:*'],
-    // `yaml` ships CommonJS whose code calls `require('process')` /
-    // `require('buffer')`. Bundling CJS into an ESM output turns those into
-    // esbuild's `__require` shim, which throws "Dynamic require of ... is not
-    // supported" the moment the module is evaluated — the row then fails to
-    // import at boot. A real `require` bound to the bundle's own URL lets those
-    // core-module requires resolve while the artifact stays self-contained (no
-    // runtime resolution against this package's node_modules).
-    banner: {
-      js: "import { createRequire as __dshCreateRequire } from 'node:module';\nconst require = __dshCreateRequire(import.meta.url);",
-    },
     logLevel: 'warning',
   })
 }
@@ -150,6 +137,6 @@ async function buildClient() {
 
 await rm(OUT_DIR, { recursive: true, force: true })
 await mkdir(OUT_DIR, { recursive: true })
-await buildHost()
+await buildHostCarrier()
 await buildClient()
-console.log(`built ${PACKAGE_NAME}: lib/index.js, lib/client.js`)
+console.log(`built ${PACKAGE_NAME}: lib/index.js (no-op carrier), lib/client.js`)

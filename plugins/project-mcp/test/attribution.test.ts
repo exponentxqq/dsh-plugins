@@ -1,5 +1,5 @@
 /**
- * Attribution tests (spec: dsh-web-ux-project-mcp — 工作区可见性隔离).
+ * Attribution tests (spec: dsh-project-mcp — 工作区可见性隔离).
  *
  * Canonicalization is faked as a path table, so the cases cover the walk-up
  * rule itself — including the symlink case a real `realpath` exists to solve —

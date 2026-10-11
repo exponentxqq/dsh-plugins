@@ -4,7 +4,7 @@
  * The scanner is written against these narrow interfaces — never against
  * `node:fs` or the console — so every discovery, parsing, arbitration, and
  * attribution rule is exercisable in a unit test with a fake directory tree.
- * @module dsh-plugin-web-ux/host/types
+ * @module dsh-plugin-project-mcp/host/types
  */
 
 /** Filesystem seam: the only directory and file reads the scanner performs. */

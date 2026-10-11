@@ -1,5 +1,5 @@
 /**
- * Rescan trigger tests (spec: dsh-web-ux-project-mcp — 热重载与手动重载;
+ * Rescan trigger tests (spec: dsh-project-mcp — 热重载与手动重载;
  * task 6.2).
  *
  * The triggers are installed through a context slice, so a case can fire each

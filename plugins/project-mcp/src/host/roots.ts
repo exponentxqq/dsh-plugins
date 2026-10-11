@@ -7,7 +7,7 @@
  * takes the additional roots granted to it by the multi-root registry; that
  * service is a SOFT dependency, so its absence (plugin not installed, or not
  * active) degrades to primary-roots-only instead of failing the scan.
- * @module dsh-plugin-web-ux/host/roots
+ * @module dsh-plugin-project-mcp/host/roots
  */
 
 import type { Context } from '@deepseek-ai/cordis'

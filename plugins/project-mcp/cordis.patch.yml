@@ -1,0 +1,14 @@
+# dsh-plugin-project-mcp bundle patch: inserts the host-only plugin row that
+# loads project-level MCP servers (each workspace root's `.dsh/mcp/` directory)
+# with per-workspace tool visibility isolation and hot reload.
+#
+# The row is a bare plugin by package name. No `dsh.client` declaration: this
+# package is host-only, so it is installable on ANY profile (web / acp /
+# headless) without dragging in a browser half. The provider badge that used to
+# ship alongside it lives in `dsh-plugin-web-ux`.
+#
+# No profile-level `config:` section is needed: the plugin reads project
+# configuration from each registered workspace root's `.dsh/mcp/` directory.
+- insert:
+    - id: project-mcp
+      name: 'dsh-plugin-project-mcp'

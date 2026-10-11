@@ -7,7 +7,7 @@
  * for an unset *or empty* variable, matching the shell's own reading of the
  * syntax; a bare reference with no fallback expands to the empty string and
  * warns, so a missing variable is visible in the log instead of silent.
- * @module dsh-plugin-web-ux/host/env-expand
+ * @module dsh-plugin-project-mcp/host/env-expand
  */
 
 import type { ScanLog } from './types.ts'

@@ -12,7 +12,7 @@
  * emitted it, and everything the rescan needs it re-reads from the registry
  * itself. That is also why a `domain/changed` for an unrelated domain is
  * harmless: the rescan is declarative and idempotent.
- * @module dsh-plugin-web-ux/host/triggers
+ * @module dsh-plugin-project-mcp/host/triggers
  */
 
 import type { MultiRootGrant } from './types.ts'

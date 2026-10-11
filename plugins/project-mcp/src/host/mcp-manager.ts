@@ -15,7 +15,7 @@
  *
  * The manager deliberately knows nothing about the host context: it loads
  * through a {@link ServerLoader} seam, so every rule above is unit-testable.
- * @module dsh-plugin-web-ux/host/mcp-manager
+ * @module dsh-plugin-project-mcp/host/mcp-manager
  */
 
 import type { ScanLog, ScannedServer } from './types.ts'

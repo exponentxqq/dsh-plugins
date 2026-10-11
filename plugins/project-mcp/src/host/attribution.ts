@@ -12,7 +12,7 @@
  *
  * Nothing matching means nothing is granted: the caller fails closed and hides
  * every project server.
- * @module dsh-plugin-web-ux/host/attribution
+ * @module dsh-plugin-project-mcp/host/attribution
  */
 
 import path from 'node:path'

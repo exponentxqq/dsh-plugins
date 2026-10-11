@@ -1,5 +1,5 @@
 /**
- * Filesystem-driven reload tests (spec: dsh-web-ux-project-mcp — 热重载与手动重载;
+ * Filesystem-driven reload tests (spec: dsh-project-mcp — 热重载与手动重载;
  * task 6.1).
  *
  * Real temporary directories, the real `fs.watch` seam, the real scanner, and

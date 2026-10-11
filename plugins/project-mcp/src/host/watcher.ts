@@ -14,7 +14,7 @@
  *
  * Events are debounced, because one editor save is several filesystem events
  * and every rescan is a full re-read of every configured root.
- * @module dsh-plugin-web-ux/host/watcher
+ * @module dsh-plugin-project-mcp/host/watcher
  */
 
 import path from 'node:path'

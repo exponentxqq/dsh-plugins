@@ -6,7 +6,7 @@
  * repository (git-graph-multi does the same): the host process is trusted
  * code, and the agent sandbox governs the agent's tools, not this plugin's own
  * configuration reader.
- * @module dsh-plugin-web-ux/host/host-io
+ * @module dsh-plugin-project-mcp/host/host-io
  */
 
 import { promises as fs } from 'node:fs'
@@ -61,7 +61,7 @@ export const nodeWatchIo: WatchIo = {
  * @returns the logging seam, with this plugin's name on every line.
  */
 export function scanLog(ctx: Context): ScanLog {
-  const line = (message: string): string => `dsh-plugin-web-ux: ${message}`
+  const line = (message: string): string => `dsh-plugin-project-mcp: ${message}`
   return {
     info: (message) => {
       ctx.logger.info(line(message))

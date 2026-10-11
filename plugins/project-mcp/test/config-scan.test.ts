@@ -1,5 +1,5 @@
 /**
- * Scan-layer tests (spec: dsh-web-ux-project-mcp — 扫描范围 / 配置文件格式与
+ * Scan-layer tests (spec: dsh-project-mcp — 扫描范围 / 配置文件格式与
  * serverName / 环境变量展开 / serverName 冲突仲裁).
  *
  * Every case drives the real scan pipeline over a fake directory tree, so the
@@ -200,7 +200,7 @@ describe('environment expansion', () => {
 
 describe('documented examples', () => {
   it('parses the README\'s stdio example, expansions and all', async () => {
-    // Copied verbatim from plugins/web-ux/README.md so the documented shape is
+    // Copied verbatim from plugins/project-mcp/README.md so the documented shape is
     // exercised by a test instead of drifting away from the parser.
     const body = [
       'transport: stdio',

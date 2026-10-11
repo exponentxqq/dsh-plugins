@@ -1,5 +1,5 @@
 /**
- * Loaded-server lifecycle tests (spec: dsh-web-ux-project-mcp — 动态加载与失败
+ * Loaded-server lifecycle tests (spec: dsh-project-mcp — 动态加载与失败
  * 隔离; task 4.1/4.2 and the diff rules task 6.1 drives).
  *
  * The loader seam is faked, so these cases assert the manager's decisions —
