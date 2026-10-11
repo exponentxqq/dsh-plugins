@@ -1,0 +1,17 @@
+# dsh-plugin-user-commands bundle patch: inserts the host-only plugin row that
+# registers user-defined slash commands — builtin commands (starting with
+# `/init`), the user-level `$DSH_HOME/commands/` directory, and each workspace
+# root's `.dsh/commands/` directory scoped to that workspace's sessions — with
+# live refresh and the `/commands-reload` fallback.
+#
+# The row is a bare plugin by package name. No `dsh.client` declaration: this
+# package is host-only, so it is installable on ANY profile (web / acp /
+# headless) without dragging in a browser half. A profile without a `commands`
+# service (no interactive command surface) simply registers nothing.
+#
+# No profile-level `config:` section is needed: the plugin reads the user
+# command directory from `$DSH_HOME` and project configuration from each
+# registered workspace root's `.dsh/commands/` directory.
+- insert:
+    - id: user-commands
+      name: 'dsh-plugin-user-commands'

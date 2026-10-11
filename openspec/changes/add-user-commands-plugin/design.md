@@ -36,7 +36,7 @@ Non-Goals:
 
 ### D3: agent 级遮蔽的实现
 
-`agent/created` 时对该会话根集合的项目命令执行 `agent.ctx.inject(['commands'], scope => …register)`；`Map<agent, disposers>` 追踪，随 agent dispose 的 effect 清理。归属判定复用 project-mcp 同思路（cwd 逐级向上找最近登记根，canonical 比较），但**独立实现**（~60 行）——两插件互不依赖、可单独安装。归属失败 fail-closed：该会话只剩用户级+内置。
+`agent/created` 时对该会话根集合的项目命令执行 `agent.ctx.inject(['commands'], scope => …register)`；`Map<agent, disposers>` 追踪，随 agent dispose 的 effect 清理。归属判定复用 project-mcp 同思路（cwd 逐级向上找最近登记根，canonical 比较），但**独立实现**（~60 行）——两插件互不依赖、可单独安装；差别只在共享根认领：MCP 那边 serverName 要在进程里唯一，命令这边**主根拥有者优先**（一个根是哪个工作区的「家」就归谁，授予成附加根只是访问权），无人当家时才按登记顺序，否则「在 `opc/` 里开的会话」会因为别的会话把 `opc/` 授成附加根而换用别人的命令集合。归属失败 fail-closed：该会话只剩用户级+内置。项目层只在 `agent/created` 时挂载，因此**插件激活之前就已存在的会话**拿不到项目级命令（重启 profile 或新开会话即恢复）；全局层不受此限，服务一出现即注册，对所有会话可见。
 
 ### D4: 文件格式与文法
 
@@ -53,9 +53,11 @@ Non-Goals:
 
 执行时**现读文件**（不缓存正文，改文件下次调用即生效；注册表只承载 name/description/hint 供发现菜单）→ 展开 → `agent.steer(createUserMessage({content:[{type:'text',text}], source:{kind:'user'}}))` → 返回 `{kind:'success', text:'已提交 /<name>'}`。文件不可读返回 error 结果且不提交部分内容。v1 不声明 `input.attachments`（适配器自动拒绝带附件调用，错误文案由官方适配器出）。
 
-### D7: 同层冲突仲裁
+### D7: 同层冲突仲裁（作用域 = 单个工作区）
 
-同层同名先到者得：跨工作区按登记顺序、工作区内主根 > 附加根（授予顺序）；后来者 error 日志（含双方来源路径）并跳过；MUST NOT 自动改名。与 project-mcp 的 serverName 仲裁同风格（心智模型统一）。跨层是遮蔽不是冲突，不记错误。
+仲裁只在一个工作区**内部**进行：主根 > 附加根（授予顺序），后来者 error 日志（含双方来源路径）并跳过；MUST NOT 自动改名。**跨工作区不仲裁**——每个工作区各自构成一个独立的项目级命名空间，A 与 B 各有 `deploy.md` 时两份都生效，各工作区会话各用自己那一份；同一物理根被多工作区共享时按工作区各扫一遍。跨层是遮蔽不是冲突，不记错误。
+
+*与 project-mcp 的 serverName 仲裁刻意不同*：那边同名必须在进程里唯一（MCP 服务器名是单进程资源，一份配置顶掉另一份），命令名没有这个约束；提案的「多工作区同名命令互不串扰」优先于心智模型统一，两边不再假装同规则。
 
 ### D8: watcher + `/commands-reload` 双保险
 
