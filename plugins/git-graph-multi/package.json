@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-git-graph-multi",
   "description": "External dsh web GUI plugin: multi-repo git branch selector — workspace repo enumeration, aggregate overview, per-repo drill-down, and cross-repo (group) branch operations, with real host-side git guards",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "icon": "icon.svg",
   "type": "module",
   "engines": {
