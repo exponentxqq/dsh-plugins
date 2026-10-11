@@ -1,0 +1,17 @@
+# dsh-plugin-web-ux bundle patch: inserts the dual-face plugin row into the
+# web profile roster. Applied as a profile bundle layer (the
+# `dsh.bundle.patch` manifest field) over dsh-base; activate with
+# `dsh plugin --profile web add <path-to-this-directory>`.
+#
+# The row is a bare plugin by package name: the node half (exports ".") runs
+# in the host process (project-level `.dsh/mcp/` scan + load + per-workspace
+# tool isolation), and the dsh.client declaration in package.json makes the
+# browser half (exports "./client", served at /plugins/<id>/client.js) load in
+# the web GUI — that half only contributes the provider badge in the composer
+# status row.
+#
+# No profile-level `config:` section is needed: the plugin reads project
+# configuration from each registered workspace root's `.dsh/mcp/` directory.
+- insert:
+    - id: web-ux
+      name: 'dsh-plugin-web-ux'

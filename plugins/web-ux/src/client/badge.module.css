@@ -1,0 +1,45 @@
+/*
+ * The provider badge capsule. Every value mirrors the official StatsPills
+ * capsule in `@deepseek-ai/dsh-client-ui-chat` — same type scale, tertiary
+ * label color, 999px radius, and 1px/8px padding — so the appended entry reads
+ * as part of the same status row instead of a foreign control. The
+ * `--dsh-content-font-*` and `--dsw-alias-*` custom properties are the shell's
+ * own design tokens; the fallbacks keep the capsule legible if a token moves.
+ */
+.root {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  display: inline-flex;
+  font-size: calc(var(--dsh-content-font-size-secondary, 13px) - 1px);
+  line-height: calc(20px + var(--dsh-content-font-delta-secondary, 0px));
+}
+
+.pill {
+  box-sizing: border-box;
+  corner-shape: round;
+  max-width: 100%;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  line-height: inherit;
+  white-space: nowrap;
+  background: 0 0;
+  border: none;
+  border-radius: 999px;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 8px;
+  display: inline-flex;
+}
+
+/*
+ * Width safety: the label is the only elastic part of the capsule, so an
+ * arbitrarily long provider name can never push the status row into
+ * horizontal scrolling — it truncates to an ellipsis instead.
+ */
+.label {
+  min-width: 0;
+  max-width: 10em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
