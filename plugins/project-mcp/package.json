@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-project-mcp",
   "description": "External dsh plugin (host-only, any profile): project-level MCP servers discovered from each workspace root's .dsh/mcp/ directory, with per-workspace tool visibility isolation and hot reload",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "icon": "icon.svg",
   "type": "module",
   "engines": {
