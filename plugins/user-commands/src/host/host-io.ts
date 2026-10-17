@@ -1,7 +1,7 @@
 /**
  * 真实 seam：发现用 `node:fs`，诊断用宿主 logger，用户级目录用 `$DSH_HOME`。
  *
- * 直接读文件系统是本仓库既有的 host 面做法（project-mcp / git-graph-multi 同样）：
+ * 直接读文件系统是本仓库既有的 host 面做法（project-mcp 同样）：
  * host 进程是可信代码，agent 沙箱约束的是 agent 的工具，不是这个插件自己的配置读取。
  *
  * `$DSH_HOME` 的优先级与 `@deepseek-ai/dsh-home-paths` 的 `resolveDshHome` 一致：

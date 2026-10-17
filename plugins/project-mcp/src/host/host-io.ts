@@ -3,7 +3,7 @@
  * for diagnostics.
  *
  * Reading the filesystem directly is the established host-face pattern in this
- * repository (git-graph-multi does the same): the host process is trusted
+ * repository (the other host-only plugins do the same): the host process is trusted
  * code, and the agent sandbox governs the agent's tools, not this plugin's own
  * configuration reader.
  * @module dsh-plugin-project-mcp/host/host-io

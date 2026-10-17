@@ -18,7 +18,6 @@ DSH（DeepSeek Harness）自定义插件仓库：pnpm workspace 单仓多包，�
 ## 插件清单（统一版本，各自独立 bundle）
 
 - `dsh-plugin-multi-root-workspace` — 给沙箱作用域追加 N 个附加工作区根；目录内有独立 `AGENTS.md` 与 `docs/`，改动前先读
-- `git-graph-multi` — web GUI 多仓 git 分支选择器（枚举 / 聚合总览 / 单仓下钻 / 跨仓组操作）
 - `project-mcp` — 从各工作区根 `.dsh/mcp/` 发现项目级 MCP 服务器，工具可见性按工作区隔离、热重载
 - `user-commands` — markdown 定义的用户斜杠命令（builtin / `$DSH_HOME/commands` / 各工作区根 `.dsh/commands` 三层）
 - `web-ux` — Web 界面体验（双端）：composer 状态行的模型提供商徽章 + 侧栏已归档会话的删除入口（宿主半承载 Connection RPC 通道 `/web-ux`）
@@ -27,9 +26,9 @@ DSH（DeepSeek Harness）自定义插件仓库：pnpm workspace 单仓多包，�
 
 - 包名一律 `dsh-plugin-<目录名>`；`package.json` 以 `dsh.bundle.patch` 声明 `cordis.patch.yml`（insert 本包注册行）
 - 源码在 `src/`（TypeScript，入口 `src/index.ts`，导出 `name` / `inject` / `apply`），构建产物在 `lib/`（`main` 指向 `lib/index.js`，随仓库提交）
-- 构建：multi-root-workspace 用 tsc 产类型 + tsdown 打包；其余四个用 `build.mjs`（esbuild）
-- 测试：vitest（multi-root 在 `tests/`，其余在 `test/`）；lint 用 oxlint（git-graph-multi 未提供 lint 脚本）
-- web 侧插件（multi-root-workspace、git-graph-multi、web-ux）在 `dsh.client` 声明 `platform: web` 与 `inject` 列表
+- 构建：multi-root-workspace 用 tsc 产类型 + tsdown 打包；其余三个用 `build.mjs`（esbuild）
+- 测试：vitest（multi-root 在 `tests/`，其余在 `test/`）；lint 用 oxlint
+- web 侧插件（multi-root-workspace、web-ux）在 `dsh.client` 声明 `platform: web` 与 `inject` 列表
 
 ## 开发与验证命令
 

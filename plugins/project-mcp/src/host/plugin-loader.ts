@@ -24,8 +24,8 @@ import type { ScannedServer } from './types.ts'
  * The slice of the running Loader this module uses. Declared locally because
  * this package does not depend on `@deepseek-ai/cordis-plugin-loader`, the
  * package that owns the `ctx.loader` declaration — the running host provides
- * the service either way (the same reasoning as git-graph-multi's event
- * declaration).
+ * the service either way (the same reasoning as the other host-only plugins'
+ * service declarations).
  *
  * `unwrapExports` is typed as returning `any` on purpose: the module comes
  * from the running installation at an unknown version, and `ctx.plugin`
