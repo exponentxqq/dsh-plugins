@@ -19,6 +19,7 @@
     "docs:check": "pnpm -r run docs:check",
     "release": "node scripts/release.mjs",
     "dsh:upgrade": "node scripts/upgrade-dsh.mjs",
+    "dsh:check": "node scripts/check-dsh-baseline.mjs",
     "verify": "pnpm -r run verify:all"
   }
 }

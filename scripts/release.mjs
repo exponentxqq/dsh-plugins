@@ -16,6 +16,8 @@
  * - **构建产物 `plugins/<name>/lib/` 随仓库提交**（v1.1.1 起）：git 来源安装因此
  *   不触发 pnpm 的构建脚本授权（无 `prepare` → `packageShouldBeBuilt` 为 false）。
  *   发布提交前递归重建一次全部产物并连同版本号入库，新鲜度由发布流程构造性保证。
+ * - **发布前置检查**：写版本之前先跑 `pnpm dsh:check`；DSH 基线、软插件范围、
+ *   multi-root 的 allowlist/peers 或发布年龄豁免任一漂移，发布直接拒绝。
  *
  * 脚本只做本地动作（校验 → 改版本 → 重建产物 → 提交 → 打 tag）。容器内没有 ssh，
  * push 请在宿主执行：`git push origin main --tags`；tag 未推送到远程前，
@@ -91,6 +93,17 @@ try {
 } catch (error) {
   // rev-parse --verify 对不存在的 ref 以退出码 1 失败，正是期望路径。
   if (error.status !== 1) throw error
+}
+
+// 发布前置：仓库级 DSH 基线检查。放在写版本之前，失败时工作区仍保持原样。
+process.stdout.write('release: 运行 dsh:check（DSH 基线 / 软插件范围 / multi-root 契约 / 豁免）…\n')
+try {
+  execFileSync(process.execPath, [join(REPO_ROOT, 'scripts', 'check-dsh-baseline.mjs')], {
+    cwd: REPO_ROOT,
+    stdio: 'inherit',
+  })
+} catch {
+  fail('dsh:check 未通过，拒绝发布；按上面的失败项修复后重试')
 }
 
 // 目标清单：workspace 根 + 每个插件目录。

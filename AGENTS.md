@@ -30,6 +30,13 @@ DSH（DeepSeek Harness）自定义插件仓库：pnpm workspace 单仓多包，�
 - 测试：vitest（multi-root 在 `tests/`，其余在 `test/`）；lint 用 oxlint
 - web 侧插件（multi-root-workspace、web-ux）在 `dsh.client` 声明 `platform: web` 与 `inject` 列表
 
+## DSH 基线
+
+- 唯一版本常量在 `scripts/dsh-baseline.mjs`（当前 `0.2.1-rc.2`，Node 工具链 `24.21.0`）。
+- 三个软插件（project-mcp / user-commands / web-ux）的 `engines.dsh` 与 DSH peer 由基线派生为 `>=0.2.1-rc.2 <0.3.0`。
+- multi-root 保留精确 `SUPPORTED_DSH_RELEASES` 与精确 peer 枚举；提升新版本是绿灯后的人工动作（ADR-0009）。
+- `pnpm dsh:upgrade <version> [--probe]` 统一重指 devDeps / cordis / 软插件范围 / 豁免；`pnpm dsh:check` 在发布前守住这些事实，`release` 已自动调用。
+
 ## 开发与验证命令
 
 node 族命令走 volta/pnpm 包装脚本（见 dotfiles `CLAUDE.md`）；dsh 一律 `docker exec dsh dsh …`。
@@ -42,8 +49,10 @@ pnpm typecheck           # 递归类型检查
 pnpm test                # 递归单测
 pnpm lint                # 递归 lint（无该脚本的插件自动跳过）
 pnpm docs:check          # 递归文档检查（仅 multi-root-workspace 实现该脚本）
+pnpm dsh:check           # 仓库级 DSH 基线检查（发布前置）
+pnpm dsh:upgrade <version> [--probe]   # 根级 DSH 升级（重指 pin / 软插件范围 / 豁免）
 pnpm verify              # 发布前自检（递归 verify:all；multi-root 的 smoke 需运行中的 dsh）
-pnpm release <version>   # 发布（--dry-run 只打印）
+pnpm release <version>   # 发布（--dry-run 只打印；会先跑 dsh:check）
 
 # 只跑单个插件
 pnpm --filter dsh-plugin-multi-root-workspace verify:all

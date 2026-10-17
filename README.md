@@ -8,7 +8,10 @@
 pnpm-workspace.yaml   # workspace 定义（packages: plugins/*）、依赖构建白名单与发布年龄豁免
 package.json          # workspace 根：pnpm 版本 pin（packageManager / volta）与递归脚本
 plugins/<name>/       # 一个插件一个目录（结构见 AGENTS.md）
-scripts/release.mjs   # 发布：同步版本号 → 重建产物 → 发布提交 → annotated tag
+scripts/dsh-baseline.mjs          # 唯一 DSH 基线常量（软插件范围由它派生）
+scripts/upgrade-dsh.mjs           # 根级 DSH 升级：重指 pin / 软插件范围 / 豁免（--probe 加临时 overrides）
+scripts/check-dsh-baseline.mjs    # 根级 dsh:check：基线 / 范围 / 安装树 / 豁免 / 已移除插件
+scripts/release.mjs   # 发布：dsh:check → 同步版本号 → 重建产物 → 发布提交 → annotated tag
 openspec/             # 规范工作区（spec-driven schema，zh-CN）
 ```
 
@@ -20,8 +23,13 @@ pnpm build            # 全部插件构建（产物 lib/ 随仓库提交；relea
 pnpm typecheck        # 全部插件类型检查
 pnpm test             # 全部插件单测
 pnpm lint             # 全部插件 lint（无 lint 脚本的插件自动跳过）
-pnpm release <version>  # 发布：同步版本 + 重建产物 + 提交 + 打 tag v<version>（详见「发布与版本」）
+pnpm docs:check       # 文档检查（仅 multi-root-workspace 实现该脚本）
+pnpm dsh:check        # 仓库级 DSH 基线检查（发布前置，release 会自动执行）
+pnpm dsh:upgrade <version> [--probe]   # 根级升级：重指 DSH pin / 软插件范围 / 豁免并同步基线常量
+pnpm release <version>  # 发布：dsh:check → 同步版本 → 重建产物 → 提交 → 打 tag v<version>（详见「发布与版本」）
 ```
+
+当前 DSH 开发基线是 **`0.2.1-rc.2`**，由 `scripts/dsh-baseline.mjs` 单点声明：multi-root 保留精确 allowlist 与精确 peers，其余三个软插件的 `engines.dsh` / DSH peer 统一为 `>=0.2.1-rc.2 <0.3.0`。Node 工具链由根 `package.json#volta.node` 固定在 `24.21.0`（`engines` 仍兼容 22.19+）。升级流程见 [multi-root 开发工作流](plugins/dsh-plugin-multi-root-workspace/docs/development/plugin-development-workflow.md)。
 
 只跑单个插件：`pnpm --filter <包名> <脚本>`，例如 `pnpm --filter dsh-plugin-multi-root-workspace verify:all`（含 lint / typecheck / build / 内核探测 / 单测 / 冒烟，需运行中的 dsh 环境）。
 
@@ -52,12 +60,13 @@ docker exec dsh dsh --profile web --dump-config-schema   # 校验组合可加载
 仓库采用**仓库级统一版本**：根 `package.json` 与每个插件包的 `version` 始终等于当前 tag（风格 `v<major>.<minor>.<patch>`），tag 是 profile 侧安装的唯一锚点，`package.json#version` 与之对齐便于把 DSH 的 `package@version` 版本豁免和排障输出直接对上发布点。
 
 ```bash
+pnpm dsh:check             # 0. 发布前置检查（release 会自动执行，也可单独跑）
 pnpm verify                # 1. 发布前自检（递归 verify:all；多根插件的 smoke 需运行中的 dsh）
-pnpm release <version>     # 2. 同步版本 → 重建产物 → 提交 chore(release): v<version> → 打 annotated tag
+pnpm release <version>     # 2. dsh:check → 同步版本 → 重建产物 → 提交 chore(release): v<version> → 打 annotated tag
 git push origin main --tags   # 3. 在宿主 push（容器内没有 ssh）
 ```
 
-`pnpm release --dry-run <version>` 只打印将变更的版本；脚本会拒绝脏工作区、非 main 分支与已存在的 tag。tag 未推到远程前，profile 无法按 `#v<version>` 解析安装。
+`pnpm release --dry-run <version>` 只打印将变更的版本；脚本会拒绝脏工作区、非 main 分支、已存在的 tag，以及未通过的 `dsh:check`。tag 未推到远程前，profile 无法按 `#v<version>` 解析安装。
 
 ## 插件一览
 
