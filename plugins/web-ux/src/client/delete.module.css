@@ -1,0 +1,89 @@
+/*
+ * 删除确认对话框的最小样式。
+ *
+ * 骨架（遮罩、卡片、标题、关闭按钮、按钮排布）全部由官方 primitives 的 Modal / Button
+ * 提供，这里只补三件事：危险确认按钮的配色（Button 没有 danger variant）、预览摘要与
+ * 警示的文字层级、warnings 清单的可读性。颜色一律取官方 `--dsw-alias-*` 设计令牌并带
+ * 静态兜底，令牌改名时最坏退化成可读的黑白而不是透明。
+ */
+
+/* 危险确认按钮：与官方 primary 同尺寸同圆角，只把填充换成错误色。 */
+.danger {
+  color: var(--dsw-alias-label-primary-foreground, #fff);
+  background: var(--dsw-alias-state-error-primary, #ec1313);
+}
+
+.danger:hover:not(:disabled) {
+  background: var(--dsw-alias-state-error-secondary, #f25a5a);
+}
+
+/* 进行中等过程文案：低调，不与预览摘要抢注意力。 */
+.muted {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary, #7f8287);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+/* 预览摘要：会话数 / 子代理数 / 体积三行。 */
+.summary {
+  margin: 0 0 12px;
+  padding-left: 22px;
+  color: var(--dsw-alias-label-secondary, #545557);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+/* 不可逆警示：用警告色而非错误色——这是必须读到的事实，不是已经发生的错误。 */
+.warning {
+  margin: 0;
+  color: var(--dsw-alias-state-warn-label, #dd8629);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.done {
+  margin: 0;
+  color: var(--dsw-alias-label-primary, #000);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.failure {
+  margin: 0;
+  color: var(--dsw-alias-state-error-primary, #ec1313);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+/* 宿主兜底说明（未本地化）：比失败原因低一层。 */
+.detail {
+  margin: 8px 0 0;
+  color: var(--dsw-alias-label-tertiary, #7f8287);
+  font-size: 12px;
+  line-height: 18px;
+  word-break: break-word;
+}
+
+/* 半失败清单：warnings 是宿主给的 `<路径>: <原因>` 机器可读串，原样列出。 */
+.warnings {
+  margin-top: 14px;
+  color: var(--dsw-alias-label-secondary, #545557);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.warnings p {
+  margin: 0 0 6px;
+}
+
+.warnings ul {
+  margin: 0;
+  padding-left: 22px;
+}
+
+.warnings code {
+  font-family: var(--ds-font-family-code, monospace);
+  font-size: 12px;
+  word-break: break-all;
+}

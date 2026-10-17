@@ -1,19 +1,26 @@
 /**
  * Self-contained build for dsh-plugin-web-ux.
  *
- * This package is CLIENT-ONLY since the project-MCP split (change:
- * split-project-mcp-plugin): the host half moved to `dsh-plugin-project-mcp`.
- * The one artifact here is the browser half — `src/client/index.ts` becomes a
- * single CJS bundle wrapped in the `window.__ModuleLoader__.load({ id,
- * factory })` shell contract, with `react` / `react-dom` /
- * `react/jsx-runtime` / `@deepseek-ai/dsh-client-ui-primitives` externalized
- * (the browser shell provides them through the loader's `require`), and CSS
- * modules compiled into a runtime `<style>` injection so no separate
- * stylesheet is served.
+ * This package is DUAL-HALF since the archived-session-delete change
+ * (add-web-ux-archived-session-delete): the host half stopped being a no-op
+ * carrier and now owns the Connection RPC channel `/web-ux` with the
+ * `preview-delete` / `delete-session` endpoints (pure host work — registry
+ * cleanup plus session log / projection cache removal), while the browser half
+ * adds the sidebar delete entry and its confirmation dialog next to the
+ * provider badge.
  *
- * `src/index.ts` is still built because the bundle row keeps inserting this
- * package by bare name — the client-module scan reads `dsh.client` from that
- * row — but all it contains is a no-op carrier plugin.
+ * Browser half: `src/client/index.ts` becomes a single CJS bundle wrapped in
+ * the `window.__ModuleLoader__.load({ id, factory })` shell contract, with
+ * `react` / `react-dom` / `react/jsx-runtime` /
+ * `@deepseek-ai/dsh-client-ui-primitives` externalized (the browser shell
+ * provides them through the loader's `require`), and CSS modules compiled into
+ * a runtime `<style>` injection so no separate stylesheet is served.
+ *
+ * Host half: `src/index.ts` is built as one self-contained ESM artifact
+ * (`lib/index.js`) with only `node:*` external. It is both the Connection RPC
+ * carrier of the delete endpoints AND the anchor the bundle row needs: the row
+ * keeps inserting this package by BARE NAME, and the web client-module scan
+ * reads `dsh.client` from exactly that row.
  *
  * No d.ts and no sourcemaps: the plugin is consumed by the dsh runtime, not by
  * other TypeScript.
@@ -90,7 +97,11 @@ function cssModulesPlugin() {
   }
 }
 
-/** Build the no-op host carrier: one ESM entry, node builtins external. */
+/**
+ * Build the host half: one self-contained ESM entry holding the `/web-ux`
+ * Connection RPC channel (session-delete) plus the bare-name anchor row, with
+ * node builtins external.
+ */
 async function buildHostCarrier() {
   await build({
     entryPoints: [path.join(ROOT, 'src/index.ts')],
@@ -139,4 +150,4 @@ await rm(OUT_DIR, { recursive: true, force: true })
 await mkdir(OUT_DIR, { recursive: true })
 await buildHostCarrier()
 await buildClient()
-console.log(`built ${PACKAGE_NAME}: lib/index.js (no-op carrier), lib/client.js`)
+console.log(`built ${PACKAGE_NAME}: lib/index.js (host RPC carrier + client-scan anchor), lib/client.js`)

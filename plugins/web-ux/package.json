@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-web-ux",
-  "description": "External dsh web GUI plugin: model-provider badge in the composer status row (client-only; project-level MCP support lives in the standalone dsh-plugin-project-mcp)",
+  "description": "External dsh web GUI plugin: model-provider badge in the composer status row plus irreversible deletion of archived sessions from the sidebar (dual-half: host RPC channel + browser entries; project-level MCP support lives in the standalone dsh-plugin-project-mcp)",
   "version": "1.1.1",
   "icon": "icon.svg",
   "type": "module",
@@ -28,7 +28,12 @@
     "client": {
       "inject": [
         "@deepseek-ai/dsh-client-ui-model-selection",
-        "@deepseek-ai/dsh-client-ui-conversation"
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-workspace",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale"
       ],
       "platform": "web"
     }
@@ -42,19 +47,35 @@
   "license": "Apache-2.0",
   "peerDependencies": {
     "@deepseek-ai/dsh": ">=0.2.0-rc.2",
+    "@deepseek-ai/dsh-session-persistence": ">=0.2.0-rc.2",
+    "@deepseek-ai/dsh-workspace": ">=0.2.0-rc.2",
     "react": "^18.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-session-persistence": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-workspace": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/dsh-api-workspace-controller": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-connection": "0.2.0-rc.2",
     "@deepseek-ai/dsh-client-locale": "0.2.0-rc.2",
     "@deepseek-ai/dsh-client-store": "0.2.0-rc.2",
     "@deepseek-ai/dsh-client-ui-conversation": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-ui-layout": "0.2.0-rc.2",
     "@deepseek-ai/dsh-client-ui-model-selection": "0.2.0-rc.2",
     "@deepseek-ai/dsh-client-ui-primitives": "0.2.0-rc.2",
     "@deepseek-ai/dsh-client-ui-renderer": "0.2.0-rc.2",
     "@deepseek-ai/dsh-client-ui-session": "0.2.0-rc.2",
     "@deepseek-ai/dsh-client-ui-slots": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-ui-workspace": "0.2.0-rc.2",
     "@deepseek-ai/dsh-session": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-session-persistence": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-workspace": "0.2.0-rc.2",
     "@testing-library/react": "^16.3.0",
     "@types/node": "^22.20.0",
     "@types/react": "~18.3.1",

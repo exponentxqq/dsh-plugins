@@ -9,7 +9,7 @@ DSH 插件（**纯宿主面，`exports "."`**）：让 MCP 配置随项目目录
 本包由 [`dsh-plugin-web-ux`](../web-ux/README.md) 拆分而来（变更 `split-project-mcp-plugin`，行为零变化）：项目级 MCP 本是纯宿主能力，与 Web UI 无耦合，此前被 web 化的包名与安装面锁死在 web 场景。拆分后：
 
 - `dsh-plugin-project-mcp`（本包）：项目级 MCP 全部宿主实现——扫描、冲突仲裁、加载管理、工作区隔离、监听、`/mcp-reload`；
-- `dsh-plugin-web-ux`：只留 provider 徽章（client 半）+ 一个 no-op 载体行，后续 Web 界面体验优化仍落在它。
+- `dsh-plugin-web-ux`：Web 界面体验（双端）——provider 徽章 + 侧栏已归档会话的删除入口；其宿主半不只是客户端模块扫描所需的 bare 包名锚点，还承载该能力的 Connection RPC 通道。后续 Web 界面体验优化仍落在它。
 
 两者**互不依赖**，可分别安装；web profile 同时装两个即为拆分前的完整形态。
 

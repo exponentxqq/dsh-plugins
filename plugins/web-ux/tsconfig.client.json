@@ -1,5 +1,15 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": { "composite": true },
-  "include": ["src/client", "src/css-modules.d.ts", "test/**/*.test.tsx"]
+  "include": [
+    "src/client",
+    "src/contract.ts",
+    "src/css-modules.d.ts",
+    "test/**/*.test.tsx",
+    "test/client-apply.test.ts",
+    "test/delete-client.test.ts",
+    "test/delete-store.test.ts",
+    "test/locale-parity.test.ts",
+    "test/stubs/ui-primitives.tsx"
+  ]
 }

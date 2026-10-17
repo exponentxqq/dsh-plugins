@@ -3,12 +3,15 @@
 # `dsh.bundle.patch` manifest field) over dsh-base; activate with
 # `dsh plugin --profile web add <path-to-this-directory>`.
 #
-# The row is a bare plugin by package name, and that shape is REQUIRED even
-# though the node half (exports ".") is a no-op carrier: the web client-module
-# scan reads the `dsh.client` declaration in package.json from this bare-name
-# row, which is what makes the browser half (exports "./client", served at
-# /plugins/<id>/client.js) load in the web GUI. That half contributes the
-# provider badge in the composer status row.
+# The row is a bare plugin by package name, and that shape is REQUIRED: the web
+# client-module scan reads the `dsh.client` declaration in package.json from
+# this bare-name row, which is what makes the browser half (exports "./client",
+# served at /plugins/<id>/client.js) load in the web GUI. That half contributes
+# the provider badge in the composer status row and the archived-session delete
+# entry. The node half (exports ".") is the real host carrier for the delete
+# capability: it mounts the Connection RPC channel `/web-ux`
+# (endpoints `preview-delete` / `delete-session`) and does nothing else — no
+# browser host means no channel, and the badge keeps working on its own.
 #
 # Project-level MCP (`.dsh/mcp/` scan + load + per-workspace tool isolation)
 # used to ride in this package's host half; it now lives in the standalone

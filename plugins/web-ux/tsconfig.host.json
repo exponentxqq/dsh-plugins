@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "composite": true },
+  "include": [
+    "src/contract.ts",
+    "src/delete-session.ts",
+    "src/index.ts",
+    "test/bundle.test.ts",
+    "test/contract.test.ts",
+    "test/delete-session.test.ts",
+    "test/index.test.ts"
+  ]
+}
