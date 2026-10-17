@@ -97,16 +97,22 @@ window.__ModuleLoader__.load({
 		  const [, setMenuOpen] = useMenuOpenState();
 		  const source = (0, import_react2.useRef)(archived);
 		  source.current = archived;
-		  const subscribe = (0, import_react2.useMemo)(() => (onChange) => source.current.subscribe(onChange), []);
+		  const subscribe = (0, import_react2.useMemo)(
+		    () => (onChange) => source.current?.subscribe(onChange) ?? (() => {
+		    }),
+		    []
+		  );
 		  const read = (0, import_react2.useMemo)(() => {
 		    let cached = [];
 		    return () => {
-		      const next = source.current.getSnapshot().archivedSessionIds;
+		      const next = source.current?.getSnapshot().archivedSessionIds;
+		      if (next === void 0) return cached;
 		      if (next.length !== cached.length || next.some((id, index) => id !== cached[index])) cached = next;
 		      return cached;
 		    };
 		  }, []);
 		  const archivedSessionIds = (0, import_react2.useSyncExternalStore)(subscribe, read);
+		  if (archived === void 0) return null;
 		  if (!archivedSessionIds.includes(sessionId)) return null;
 		  return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
 		    import_dsh_client_ui_primitives.MenuItemButton,
@@ -320,6 +326,7 @@ window.__ModuleLoader__.load({
 		}
 		function DeleteSessionDialog({ requests, client, t }) {
 		  const target = (0, import_react3.useSyncExternalStore)(requests.source.subscribe, requests.source.getSnapshot);
+		  if (client === void 0) return null;
 		  if (target === null) return null;
 		  return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
 		    DeleteSessionBody,
@@ -481,16 +488,7 @@ window.__ModuleLoader__.load({
 		      };
 		    }
 		  });
-		  const connection = ctx.get("connection");
-		  const workspaces = ctx.get("workspaces");
-		  if (connection === void 0 || workspaces === void 0) {
-		    ctx.logger.warn(
-		      "web-ux: the connection or workspaces service is missing; the archived-session delete entry stays hidden"
-		    );
-		    return;
-		  }
 		  const requests = createDeleteRequestStore();
-		  const client = createDeleteClient(connection);
 		  ctx.slots.inject("sidebar.workspaces.session.menu.item", () => {
 		    try {
 		      return ctx.slots.register(
@@ -499,7 +497,10 @@ window.__ModuleLoader__.load({
 		          id: DELETE_MENU_ID,
 		          order: DELETE_MENU_ORDER,
 		          locale: NS,
-		          inject: () => ({ requests, archived: workspaces.list, client })
+		          inject: () => {
+		            const workspaces = ctx.get("workspaces");
+		            return { requests, archived: workspaces?.list };
+		          }
 		        },
 		        DeleteSessionMenuItem
 		      );
@@ -516,7 +517,10 @@ window.__ModuleLoader__.load({
 		          id: DELETE_DIALOG_ID,
 		          order: DELETE_DIALOG_ORDER,
 		          locale: NS,
-		          inject: () => ({ requests, client })
+		          inject: () => {
+		            const connection = ctx.get("connection");
+		            return { requests, client: connection === void 0 ? void 0 : createDeleteClient(connection) };
+		          }
 		        },
 		        DeleteSessionDialog
 		      );

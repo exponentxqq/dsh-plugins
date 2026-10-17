@@ -65,13 +65,15 @@ DSH 上游只有「归档」没有删除：持久化层不提供删除接口，�
 | slot `sidebar.workspaces.session.menu.item`（`dsh-client-ui-workspace`） | 会话行 "..." 菜单入口 | 入口不渲染 |
 | slot `shell.overlay`（`dsh-client-ui-layout`） | 预览确认对话框 | 对话框不出现（点入口无反应，删除不会发生） |
 | client 服务 `workspaces`（归档集合快照） | 入口可见性判定 | 入口不出现（宿主端 `not-archived` 防御独立成立） |
-| client 服务 `connection` / `workspaces`（软读，不在 cordis `inject` 名单里） | RPC 调用 / 归档集合快照 | 删除入口与对话框不注册，**既有徽章不受影响**（apply 里只告警一次） |
+| client 服务 `connection` / `workspaces`（**渲染期软读**，不在 cordis `inject` 名单里） | RPC 调用 / 归档集合快照 | 入口与对话框渲染为 `null`（静默不出现），**既有徽章不受影响**；服务晚于插件 `apply` 就绪时也能正常生效 |
 | client 服务 `slots` / `locale` / `modelDirectories`（cordis `inject` 名单） | 座位注册、文案字典、徽章数据 | 客户端半整体不激活（含徽章）；`locale` 缺失时带 `locale: 'webUx'` 的 entry 本就不该渲染，故不注册是正确降级 |
 | host 服务 `workspaceRegistry` / `sessionPersistence` / `dshHomePath`（cordis `inject` 名单） | 引用清理、会话头清单、磁盘定位 | 宿主行不激活、通道不挂载 → 浏览器侧调用得到 `unavailable` |
 | host 服务 `sessions`（软读，未列入 `inject`） | live 判定 | 无该服务时一切会话都按「非 live」处理（archived 且非 live 才可删，归档语义本身已排除运行中的会话） |
 | host 事件 `api-session/removed`（**借用**） | 让运行中 GUI 的会话列表删行 | **删除成功但需手动刷新页面**（见下） |
 
-**注意 `dsh.client.inject` 是模块图顺序依赖，不是运行时 import**：`package.json` 里列的上游客户端包（ui-workspace / ui-layout / ui-renderer / client-connection / client-locale）只用于保证浏览器 boot 图里这些客户端模块先到位（`external` 才表达 bundle 的 `require` 词）。这份声明同时也是**激活面**：web 组合若裁剪掉其中任一个，本插件的客户端半整体不加载，徽章会与删除入口一起消失（而不是 GUI 报错）。已核实 web 组合恒含这几个包，故该分支实际不可达；cordis `inject` 侧同理——`slots` / `locale` / `modelDirectories` 缺失时整半不激活，只有软读的 `connection` / `workspaces` 缺失才只影响删除入口。
+**注意 `dsh.client.inject` 是模块图顺序依赖，不是运行时 import**：`package.json` 里列的上游客户端包（ui-workspace / ui-layout / ui-renderer / client-connection / client-locale）只用于保证浏览器 boot 图里这些客户端模块先到位（`external` 才表达 bundle 的 `require` 词）。这份声明同时也是**激活面**：web 组合若裁剪掉其中任一个，本插件的客户端半整体不加载，徽章会与删除入口一起消失（而不是 GUI 报错）。已核实 web 组合恒含这几个包，故该分支实际不可达；cordis `inject` 侧同理——`slots` / `locale` / `modelDirectories` 缺失时整半不激活。
+
+**`connection` / `workspaces` 必须在 entry 的注入面（渲染期）读取，不能在 `apply` 里读**：真实 web 组合中 `workspaces` 由 `api-workspace-controller` 在 remote 网关就绪后才 `provide`，晚于本插件 `apply`；若在 `apply` 里 `ctx.get('workspaces')`，拿到的是 `undefined`，删除入口会永久丢失（v1.2.0 即此缺陷，v1.2.1 修复）。改为渲染期读取后，服务缺席时两个 entry 各自渲染 `null`，既有徽章完全不受影响。
 
 **关于借用的 `api-session/removed`**：它是官方 Remote Event Selection 里声明可转发（`mode: "emit"`）的事件，client 会话列表模型正是靠它删行——但事件语义归属官方 session controller，我们只是**借用上游内部行为**，本包的类型声明里也没有它。若上游更名或不再转发，降级表现是：**删除本身照常成功，工作区记录与磁盘也已清理，只是当前页面上的行需要手动刷新才消失**（重新打开页面不会复活）。工作区引用清理引发的官方推送不依赖本事件，分组行的消失不受影响。
 

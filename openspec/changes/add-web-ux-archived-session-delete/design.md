@@ -99,7 +99,7 @@ peer 随 v1.2.0 的统一管理收紧为 `>=0.2.1-rc.2 <0.3.0`（设计时为 `>
 
 1. **会话头来源**:`WorkspaceRegistry.listStoredHeaders()` 与 `sessionKnown()` 在上游是 private,改用公开的 `ctx.sessionPersistence.list()` 取 `SessionHeader`(含 `origin`/`parentSession`/`cwd`),存活判定改用 `ctx.get('sessions')`。
 2. **预览不含标题**:`SessionHeader` 无 `title`,已归档会话也没有 `Session` 实例可查标题服务,标题改由对话框取行 props 的 `displayTitle`。
-3. **浏览器半软读服务**:`connection` 与 `workspaces` 用 `ctx.get(...)` 读取而非写进 cordis `inject` 硬名单——缺任一服务只让删除入口消失,不牵连既有的 provider 徽章。`dsh.client.inject` 只声明模块图顺序依赖(ui-workspace / ui-renderer / client-connection / client-locale)。
+3. **浏览器半软读服务**:`connection` 与 `workspaces` 用 `ctx.get(...)` 读取而非写进 cordis `inject` 硬名单——缺任一服务只让删除入口消失,不牵连既有的 provider 徽章。`dsh.client.inject` 只声明模块图顺序依赖(ui-workspace / ui-renderer / client-connection / client-locale)。**5.2 实测修正(v1.2.1)**:真实 web 组合的 `workspaces` 由 `api-workspace-controller` 在 remote 网关就绪后才 `provide`,晚于本插件 `apply`;v1.2.0 在 `apply` 里 `ctx.get` 得到 `undefined` 后直接 `return`,导致两个删除 entry 从未注册(徽章正常,掩盖了问题)。修复为:两个 entry 照常注册,`connection` / `workspaces` 在各自的 `inject` 注入面(渲染期)才读取;服务缺席时 entry 渲染 `null`(静默软降级),徽章不受影响。
 4. **跨 entry 通信**:slot 的 `inject.hooks` 只能由 slot 声明方提供,第三方无法新增,故菜单项与对话框通过插件内一个共享的请求 store(可订阅快照)通信。
 5. **依赖形态**:`@deepseek-ai/dsh-workspace` 与 `@deepseek-ai/dsh-session-persistence` 只作为**可选 peer + devDependency**(类型来源),不做运行时依赖;不引入 zod(契约校验手写,避免给浏览器 bundle 增重)。
 6. **warnings 文案**:宿主侧逐条为 `<路径>: <原因>` 的机器可读串,界面只把标题与状态本地化,warnings 原样列出(与 multi-root 的 `unavailable` 同策略)。

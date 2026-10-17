@@ -30,15 +30,21 @@ import css from './delete.module.css'
 /** 对话框在一次请求内的阶段。 */
 export type DeletePhase = 'previewing' | 'ready' | 'deleting' | 'done' | 'failed'
 
+/**
+ * 本 entry 的注入面。`client` 在渲染期才从 `connection` 解析（该服务可能晚于
+ * 插件 `apply` 就绪）：服务缺席时为 `undefined`，覆盖层静默不渲染。
+ */
+export interface DeleteDialogInjected {
+  /** 跨 entry 的删除请求 store（读取面 + 结束面）。 */
+  readonly requests: Pick<DeleteRequestStore, 'source' | 'settle'>
+  /** 宿主删除端点客户端；服务未就绪时为 `undefined`。 */
+  readonly client: DeleteClient | undefined
+}
+
 /** 完整 props：覆盖层座位的运行时份额 + 本命名空间的 `t` + 注入面。 */
 export type DeleteSessionDialogProps = PropsRuntime<'shell.overlay'>
   & PropsLocale<typeof NS>
-  & {
-    /** 跨 entry 的删除请求 store（读取面 + 结束面）。 */
-    readonly requests: Pick<DeleteRequestStore, 'source' | 'settle'>
-    /** 宿主删除端点客户端。 */
-    readonly client: DeleteClient
-  }
+  & DeleteDialogInjected
 
 /**
  * 把字节数渲染成本地化的体积文案（B / KB / MB，保留一位小数）。
@@ -80,6 +86,8 @@ interface DeleteSessionBodyProps {
  */
 export function DeleteSessionDialog({ requests, client, t }: DeleteSessionDialogProps): ReactNode {
   const target = useSyncExternalStore(requests.source.subscribe, requests.source.getSnapshot)
+  // 服务未就绪（或宿主壳没有 connection）：没有可用的删除客户端，静默不渲染。
+  if (client === undefined) return null
   if (target === null) return null
   return (
     <DeleteSessionBody

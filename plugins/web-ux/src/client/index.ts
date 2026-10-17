@@ -13,11 +13,13 @@
  *   can only be supplied by the slot's declarer and a third-party entry cannot
  *   add one.
  *
- * Everything touching an upstream surface is soft: the badge and the menu item
- * register through `slots.inject` (a shell without the declaration simply never
- * mounts them), and `connection` / `workspaces` are read with `ctx.get` rather
- * than listed in the cordis `inject` contract — a shell missing either service
- * hides the delete entry only and leaves the badge untouched.
+ * Everything touching an upstream surface is soft: the badge and both delete
+ * entries register through `slots.inject` (a shell without the declaration
+ * simply never mounts them), and `connection` / `workspaces` are read with
+ * `ctx.get` **inside the inject faces** — never at apply time, because the web
+ * shell provides `workspaces` after its remote gateway is ready. A shell
+ * missing either service hides the delete entry only and leaves the badge
+ * untouched.
  *
  * @module dsh-plugin-web-ux/client
  */
@@ -38,8 +40,8 @@ import type {} from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { ProviderBadge, type ProviderBadgeInjected } from './ProviderBadge.tsx'
-import { DeleteSessionMenuItem } from './DeleteSessionMenuItem.tsx'
-import { DeleteSessionDialog } from './DeleteSessionDialog.tsx'
+import { DeleteSessionMenuItem, type DeleteMenuItemInjected } from './DeleteSessionMenuItem.tsx'
+import { DeleteSessionDialog, type DeleteDialogInjected } from './DeleteSessionDialog.tsx'
 import { createDeleteClient } from './delete-client.ts'
 import { createDeleteRequestStore } from './delete-store.ts'
 import { NS, en, zh } from './locales.ts'
@@ -90,19 +92,14 @@ export function apply(ctx: ClientContext): void {
     }
   })
 
-  // Soft reads, never hard `inject` entries: a shell without either service
-  // loses the delete entry (and says so once in the log) but keeps the badge.
-  const connection = ctx.get('connection')
-  const workspaces = ctx.get('workspaces')
-  if (connection === undefined || workspaces === undefined) {
-    ctx.logger.warn(
-      'web-ux: the connection or workspaces service is missing; the archived-session delete entry stays hidden',
-    )
-    return
-  }
-
+  // The two delete entries resolve `connection` / `workspaces` in their inject
+  // faces, i.e. at render time, not here: the web shell provides `workspaces`
+  // only after its remote gateway is ready, which is later than this plugin's
+  // `apply`. An apply-time `ctx.get` would therefore read `undefined` and lose
+  // the entries forever, while the badge — unaffected by those services — keeps
+  // working. Reading late also preserves the soft-degradation contract: a shell
+  // that never provides them renders neither entry and nothing breaks.
   const requests = createDeleteRequestStore()
-  const client = createDeleteClient(connection)
 
   ctx.slots.inject('sidebar.workspaces.session.menu.item', () => {
     try {
@@ -112,7 +109,10 @@ export function apply(ctx: ClientContext): void {
           id: DELETE_MENU_ID,
           order: DELETE_MENU_ORDER,
           locale: NS,
-          inject: () => ({ requests, archived: workspaces.list, client }),
+          inject: (): DeleteMenuItemInjected => {
+            const workspaces = ctx.get('workspaces')
+            return { requests, archived: workspaces?.list }
+          },
         },
         DeleteSessionMenuItem,
       )
@@ -130,7 +130,10 @@ export function apply(ctx: ClientContext): void {
           id: DELETE_DIALOG_ID,
           order: DELETE_DIALOG_ORDER,
           locale: NS,
-          inject: () => ({ requests, client }),
+          inject: (): DeleteDialogInjected => {
+            const connection = ctx.get('connection')
+            return { requests, client: connection === undefined ? undefined : createDeleteClient(connection) }
+          },
         },
         DeleteSessionDialog,
       )

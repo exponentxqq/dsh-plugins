@@ -47,15 +47,21 @@ export interface ArchivedSessionsSource {
   subscribe(listener: () => void): () => void
 }
 
+/**
+ * 本 entry 的注入面。`archived` 在渲染期才解析（`workspaces` 服务可能晚于
+ * 插件 `apply` 就绪）：服务缺席时为 `undefined`，菜单行静默不渲染。
+ */
+export interface DeleteMenuItemInjected {
+  /** 跨 entry 的删除请求 store（只用到写入面）。 */
+  readonly requests: Pick<DeleteRequestStore, 'request'>
+  /** client 工作区快照的归档集合；服务未就绪时为 `undefined`。 */
+  readonly archived: ArchivedSessionsSource | undefined
+}
+
 /** 完整 props：菜单项座位的运行时份额 + 本命名空间的 `t` + 注入面。 */
 export type DeleteSessionMenuItemProps = PropsRuntime<'sidebar.workspaces.session.menu.item'>
   & PropsLocale<typeof NS>
-  & {
-    /** 跨 entry 的删除请求 store（只用到写入面）。 */
-    readonly requests: Pick<DeleteRequestStore, 'request'>
-    /** client 工作区快照的归档集合。 */
-    readonly archived: ArchivedSessionsSource
-  }
+  & DeleteMenuItemInjected
 
 /**
  * 菜单行。未归档时不渲染任何 DOM。
@@ -77,20 +83,26 @@ export function DeleteSessionMenuItem({
   // useMemo 不依赖注入面 identity，避免每次渲染退订重订。
   const source = useRef(archived)
   source.current = archived
-  const subscribe = useMemo(() => (onChange: () => void) => source.current.subscribe(onChange), [])
+  const subscribe = useMemo(
+    () => (onChange: () => void) => source.current?.subscribe(onChange) ?? (() => {}),
+    [],
+  )
   // 内容级缓存：useSyncExternalStore 要求快照 identity 稳定，而上游若哪天改成每次
   // 返回新数组，直接用它的数组会让 React 以「快照一直在变」抛 Maximum update depth
   // （整棵侧栏子树崩）。这里按内容比较后复用旧引用，把版本漂移降级成一次普通重渲染。
   const read = useMemo(() => {
     let cached: readonly SessionId[] = []
     return (): readonly SessionId[] => {
-      const next = source.current.getSnapshot().archivedSessionIds
+      const next = source.current?.getSnapshot().archivedSessionIds
+      if (next === undefined) return cached
       if (next.length !== cached.length || next.some((id, index) => id !== cached[index])) cached = next
       return cached
     }
   }, [])
   const archivedSessionIds = useSyncExternalStore(subscribe, read)
 
+  // 服务未就绪（或宿主壳没有这个服务）：静默不渲染，菜单里连分隔线都不留。
+  if (archived === undefined) return null
   if (!archivedSessionIds.includes(sessionId)) return null
 
   return (
