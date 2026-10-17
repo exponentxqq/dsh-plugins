@@ -15,7 +15,7 @@
   },
   "dsh": {
     "engines": {
-      "dsh": ">=0.2.0-rc.2"
+      "dsh": ">=0.2.1-rc.2 <0.3.0"
     },
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -29,18 +29,18 @@
   ],
   "license": "Apache-2.0",
   "peerDependencies": {
-    "@deepseek-ai/dsh": ">=0.2.0-rc.2"
+    "@deepseek-ai/dsh": ">=0.2.1-rc.2 <0.3.0"
   },
   "dependencies": {
     "yaml": "^2.8.0"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "4.0.4",
-    "@deepseek-ai/dsh": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-agent": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-commands": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-workspace": "0.2.0-rc.2",
+    "@deepseek-ai/cordis": "4.0.5",
+    "@deepseek-ai/dsh": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-agent": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-commands": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-workspace": "0.2.1-rc.2",
     "@types/node": "^22.20.0",
     "esbuild": "^0.25.0",
     "oxlint": "^1.42.0",

@@ -160,7 +160,7 @@ docker exec dsh dsh --profile web --dump-config | grep -A2 'id: web-ux'
 
 ### 版本迁移（v1.2.0）
 
-- **升级**：v1.2.0 起本包双端化——新增删除入口与宿主 RPC 通道，provider 徽章行为零变化；`dsh.client.inject` 增补 workspace / connection / locale 依赖，peer 范围维持 `>=0.2.0-rc.2`。按 tag 重装即可：`dsh plugin --profile web add "github:exponentxqq/dsh-plugins#v1.2.0&path:plugins/web-ux"`，重启 web profile 生效。
+- **升级**：v1.2.0 起本包双端化——新增删除入口与宿主 RPC 通道，provider 徽章行为零变化；`dsh.client.inject` 增补 workspace / connection / locale 依赖，peer 范围统一为 `>=0.2.1-rc.2 <0.3.0`。按 tag 重装即可：`dsh plugin --profile web add "github:exponentxqq/dsh-plugins#v1.2.0&path:plugins/web-ux"`，重启 web profile 生效。
 - **回滚**：同一条命令改指 `#v1.1.1` 重装并重启，**只撤掉删除入口与宿主通道**（徽章照旧）；删除是真实写操作，已被删除的会话日志、投影缓存与工作区引用**不可恢复**，回滚不会让它们回来。
 
 两点运维须知：

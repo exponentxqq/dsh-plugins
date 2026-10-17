@@ -68,7 +68,7 @@ detach 引发的工作区推送让分组行消失;`api-session/removed` 让 clie
 
 ### D8 兼容:宽松 peer + 全接触点软降级
 
-peer 维持 `>=0.2.0-rc.2`。slot 注册、channel 挂载、服务注入全部 try/catch 或软注册(badge 已有同款模式):挂不上静默不出现。与 multi-root 的精确版本门差异源于风险属性——multi-root 扩大沙箱授权,失效必须 fail-closed;本功能失效代价仅是入口消失。
+peer 随 v1.2.0 的统一管理收紧为 `>=0.2.1-rc.2 <0.3.0`（设计时为 `>=0.2.0-rc.2`）。slot 注册、channel 挂载、服务注入全部 try/catch 或软注册(badge 已有同款模式):挂不上静默不出现。与 multi-root 的精确版本门差异源于风险属性——multi-root 扩大沙箱授权,失效必须 fail-closed;本功能失效代价仅是入口消失。
 
 ### D9 locale 与样式
 
