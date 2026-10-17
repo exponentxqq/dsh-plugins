@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-web-ux",
   "description": "External dsh web GUI plugin: model-provider badge in the composer status row plus irreversible deletion of archived sessions from the sidebar (dual-half: host RPC channel + browser entries; project-level MCP support lives in the standalone dsh-plugin-project-mcp)",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "icon": "icon.svg",
   "type": "module",
   "engines": {
