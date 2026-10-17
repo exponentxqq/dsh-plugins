@@ -7,11 +7,11 @@
 
 | 项 | 值 | 说明 |
 | --- | --- | --- |
-| 开发目标版本（基线） | `0.2.0-rc.2` | 精确 pin 在 `devDependencies`；升级/回归时用 `DSH_CLI` 逐版本实跑完整检查（上游 CI 矩阵已随 fork 移除） |
+| 开发目标版本（基线） | `0.2.1-rc.2` | 精确 pin 在 `devDependencies`；基线常量在仓库根 `scripts/dsh-baseline.mjs`；升级/回归时用 `DSH_CLI` 逐版本实跑完整检查（上游 CI 矩阵已随 fork 移除） |
 | 支持矩阵 | [`SUPPORTED_DSH_RELEASES`](../../src/compat/dsh-version.ts) | **精确版本 allowlist**；`peerDependencies` 逐项或，不承诺未来版本 |
 | 实测证据 | 本仓库 `pnpm test` / `pnpm smoke`（上游 CI 矩阵记录已随 fork 清理） | 升级与旧版回归都应运行完整检查；升级工具只探测候选，不自动扩大 allowlist |
 | 运行时门禁 | `multi-root-compat` 行 | 版本不在 allowlist 或核心包混装时，四个安全相关行根本不启动（ADR-0009） |
-| cordis | 基线 `4.0.4`；旧版按 `dsh` 声明的范围下限精确 pin | `upgrade-dsh.mjs` 同步重指，并从精确 release-age 条目派生 workspace-only 的 DSH probe overrides，避免预发布范围导致混装、重复副本导致工具调度 Symbol 不一致。已有自定义 overrides 时拒绝覆盖；探测后恢复保存的 workspace |
+| cordis | 基线 `4.0.5`；旧版按 `dsh` 声明的范围下限精确 pin | 根级 `pnpm dsh:upgrade` 同步重指；`--probe` 从各插件直接声明的 DSH 依赖派生 workspace-only 的 probe overrides，避免预发布范围导致混装、重复副本导致工具调度 Symbol 不一致。已有自定义 overrides 时拒绝覆盖；重跑不带 `--probe` 即移除该块 |
 
 **必须精确 pin**：`@deepseek-ai/dsh-*` 的 `latest` dist-tag 指向陈旧的 `0.0.1-rc.1`，真正的新版发布在 `next`；范围依赖会解析到错误版本。`pnpm-workspace.yaml` 里的 `minimumReleaseAgeExclude` 对开发版本的直接与传递 DSH 包、宿主 document tooling 都逐项列出精确版本，供 frozen install 与运行脚本前的依赖自检使用；不使用跨版本通配豁免。它是为此配套的（pnpm 的发布年龄门禁会拦下刚发布的预发布版本）。该文件与 `pnpm-lock.yaml` 都归 workspace 根（本包是 `dsh-plugins` workspace 成员，不再自持一份——嵌套 `pnpm-workspace.yaml` 会被 pnpm 拒绝）。
 
@@ -169,26 +169,26 @@ dsh plugin --profile web add <本仓库路径>
 - **升级流程**（提升一个候选版本）：
 
   ```sh
-  # 在 workspace 根执行。先确认这三个文件没有未提交改动 —— 最后一步会把它们整体退回 HEAD
-  git status --porcelain plugins/dsh-plugin-multi-root-workspace/package.json pnpm-workspace.yaml pnpm-lock.yaml
-
-  node plugins/dsh-plugin-multi-root-workspace/scripts/upgrade-dsh.mjs 0.1.7-alpha.1   # 重指 devDependencies 与 release-age 条目
+  # 在 workspace 根执行。先确认 manifest / workspace / lockfile 没有未提交改动。
+  pnpm dsh:upgrade 0.2.1-rc.2 --probe   # 重指 devDeps / cordis / 软插件范围 / release-age 条目，并写 probe overrides
   pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0     # 候选版本的整棵树都是刚发布的
-  DSH_MULTI_ROOT_COMPAT=warn pnpm --filter dsh-plugin-multi-root-workspace verify:all   # 候选按设计还不在 allowlist 上
-  git checkout -- plugins/dsh-plugin-multi-root-workspace/package.json pnpm-workspace.yaml pnpm-lock.yaml   # 回退
-  pnpm install --frozen-lockfile                                     # 把 node_modules 也退回基线
+  # 容器内跑 warn：宿主的 DSH_MULTI_ROOT_COMPAT 不会自动转发进 docker，必须在容器内层赋值
+  docker-run node 'DSH_MULTI_ROOT_COMPAT=warn pnpm --filter dsh-plugin-multi-root-workspace verify:all'
+  pnpm dsh:upgrade 0.2.1-rc.2            # 移除 probe overrides（不带 --probe 即清理）
+  pnpm install --frozen-lockfile
   ```
 
-  最后两步在 CI 里无所谓（每次都是干净 checkout），在本地则**会连同你对这三个文件的未提交修改一起抹掉**——先提交或 stash。注意 workspace 布局下 `pnpm-workspace.yaml` 与 `pnpm-lock.yaml` 是**全仓共享**的：探测写入的 `overrides:` 块在整个 workspace 生效，直到上面的回退把它一并抹掉。
+  全绿之后才人工把版本加入 `SUPPORTED_DSH_RELEASES` 并同步 `peerDependencies`（20 项 DSH peer 逐项或），再跑 `pnpm --filter dsh-plugin-multi-root-workspace compat:check`，最后在 enforce 模式下重跑一次 `verify:all`。**"检查全绿"不等于"支持该版本"**：绿灯是证据，不是授权。
 
-  全绿之后才人工把版本加入 `SUPPORTED_DSH_RELEASES` 并同步 `peerDependencies`，最后 `pnpm compat:check`。**"检查全绿"不等于"支持该版本"**：绿灯是证据，不是授权。
-- 升级脚本不维护手写包名清单：`scripts/upgrade-dsh.mjs` 从 `package.json` 枚举所有直接 `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` 依赖，统一重指并可输出每个包**实际解析到**的版本（`--print-installed`）。新增直接 DSH 依赖不需要另外修工作流。
+  失败时只改 `src/compat/` 适配；若要放弃探测，`git checkout --` 恢复四个 manifest、`pnpm-workspace.yaml`、`pnpm-lock.yaml` 与 `scripts/dsh-baseline.mjs`，再 `pnpm install --frozen-lockfile`。本地的 `git checkout` 会连同未提交修改一起抹掉——先提交或 stash。
+- 根级工具不维护手写包名清单：`scripts/upgrade-dsh.mjs` 从 `plugins/*/package.json` 动态发现插件，重指所有直接 `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` 依赖，并可输出每个包**实际解析到**的版本（`--print-installed`）。新增或移除插件不需要另外修工作流。
+- 仓库级门禁：`pnpm dsh:check` 校验基线常量、四个插件的 dev pin、三个软插件的统一范围、multi-root 的 `compat:check`、安装树版本、发布年龄豁免与 lockfile 的精确相等，以及 git-graph 不被重新引入；`pnpm release` 在写版本前自动执行它。
 - 支持矩阵回归：`DSH_CLI=<另一受支持版本的 dsh 入口> pnpm smoke`（本地手动执行；上游按周车道已随 fork 移除）。
 - 跨版本编写 smoke/测试时的两处安静坑（`confine` 的 promise、journey 的 agent-step 判据）记在 [Agent Note](../../.agent/note/dsh-compat-contract.md)。
 
 ## 7. CI（上游基线；车道已随 fork 移除）
 
-> **本 fork 注记**：`.github/workflows/`（ci / upgrade / release）、`tests/workflows.spec.ts` 与 `scripts/list-dsh-releases.mjs` 已随 vendored 清理——本目录不是 GitHub 仓库根，这些车道不会运行。下文描述保留为上游基线的历史记录，用以理解各门禁的顺序与理由；本地等价：完整门禁 `pnpm verify:all`（按需加 `kernel:probe`）、逐版本回归 `DSH_CLI=<版本> pnpm smoke`、重指 pin `scripts/upgrade-dsh.mjs`。
+> **本 fork 注记**：`.github/workflows/`（ci / upgrade / release）、`tests/workflows.spec.ts` 与 `scripts/list-dsh-releases.mjs` 已随 vendored 清理——本目录不是 GitHub 仓库根，这些车道不会运行。下文描述保留为上游基线的历史记录，用以理解各门禁的顺序与理由；本地等价：完整门禁 `pnpm --filter dsh-plugin-multi-root-workspace verify:all`（按需加 `kernel:probe`）、逐版本回归 `DSH_CLI=<版本> pnpm smoke`、重指 pin `pnpm dsh:upgrade`。
 
 `.github/workflows/ci.yml` 的 `releases` job 用 `scripts/list-dsh-releases.mjs` 从 `SUPPORTED_DSH_RELEASES` 读取版本轴，`verify` 将该轴与启用的 OS 做笛卡尔积。开发 pin 使用 frozen lockfile，其他版本先用 `upgrade-dsh.mjs` 重指 DSH / cordis 后重新安装；制品名同时含 OS 与 DSH 版本。主车道在 `ubuntu-latest` 与 `macos-latest` 上执行：**`compat:check`** → `lint` → `typecheck` → **`build`** → **`kernel:probe`** → `test` → `smoke:compose` → `smoke:behavior` → `smoke:journey` → `docs:check`。`compat:check` 放在最前，因为后续每一步的结果只有对"契约真正声明的版本"才算证据。探针必须先于单测，否则它导出的方言集无法约束本次单测的 skip。
 

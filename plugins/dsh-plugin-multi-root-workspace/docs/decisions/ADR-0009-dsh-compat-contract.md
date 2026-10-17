@@ -5,6 +5,8 @@
 Accepted
 
 > 本地 fork 注（2026-10-10）：本文决策不变；其依赖的上游升级车道（`upgrade.yml`）与 CI 矩阵已随 vendored 清理，版本探测/重指能力保留在 `scripts/upgrade-dsh.mjs`，本地等价回归是 `DSH_CLI=<版本> pnpm smoke`。
+>
+> 本地 fork 注（2026-10-17）：升级入口已统一到仓库根 `pnpm dsh:upgrade`（`scripts/upgrade-dsh.mjs`，插件内旧路径保留为委托 shim）；`0.2.1-rc.2` 通过完整探测后由人工加入 `SUPPORTED_DSH_RELEASES`，静态契约检查仍由插件内 `pnpm compat:check` 承担。
 
 ## Date
 

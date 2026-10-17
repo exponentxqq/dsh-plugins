@@ -13,15 +13,15 @@ src/compat/dsh-version.ts  →  SUPPORTED_DSH_RELEASES
 It is an array of **exact versions**, not a semver range. Currently:
 
 ```ts
-export const SUPPORTED_DSH_RELEASES = ['0.1.5-rc.2', '0.1.6-alpha.1', '0.1.6-alpha.2', '0.1.7-alpha.1', '0.1.7-alpha.2', '0.1.7-rc.1', '0.1.7-rc.2', '0.2.0-rc.1', '0.2.0-rc.2'] as const
+export const SUPPORTED_DSH_RELEASES = ['0.1.5-rc.2', '0.1.6-alpha.1', '0.1.6-alpha.2', '0.1.7-alpha.1', '0.1.7-alpha.2', '0.1.7-rc.1', '0.1.7-rc.2', '0.2.0-rc.1', '0.2.0-rc.2', '0.2.1-rc.2'] as const
 ```
 
 When you change it, these four must agree or `pnpm compat:check` fails:
 
 ```text
 src/compat/dsh-version.ts   SUPPORTED_DSH_RELEASES   the allowlist
-package.json                peerDependencies         "0.1.5-rc.2 || 0.1.6-alpha.1 || 0.1.6-alpha.2 || 0.1.7-alpha.1 || 0.1.7-alpha.2 || 0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2"
-package.json                devDependencies          one entry of the allowlist (currently 0.2.0-rc.2)
+package.json                peerDependencies         "0.1.5-rc.2 || 0.1.6-alpha.1 || 0.1.6-alpha.2 || 0.1.7-alpha.1 || 0.1.7-alpha.2 || 0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-rc.2"
+package.json                devDependencies          one entry of the allowlist (currently 0.2.1-rc.2)
 node_modules                resolved versions        one entry of the allowlist
 ```
 
@@ -112,34 +112,36 @@ It relaxes exactly **one** verdict: `unsupported` (a coherent tree on a release 
 
 If the gate refuses locally, **do not** use it to carry on developing. The right move is to check whether your host / `node_modules` really is on the allowlist (`pnpm compat:check`). Use it only when you are genuinely promoting a new upstream release; that process is written down in [the troubleshooting entry](../../docs/troubleshooting/unsupported-dsh-release.md).
 
-The local upgrade tool (`scripts/upgrade-dsh.mjs`) sets it during its flow; everyday gates do not.
+The local upgrade tool (`pnpm dsh:upgrade`, backed by the root `scripts/upgrade-dsh.mjs`) sets it during its probe flow; everyday gates do not.
 
 ## 6. The upgrade flow never widens the support matrix
 
-The upgrade probe (now the local `scripts/upgrade-dsh.mjs`; the upstream weekly lane was removed) neither commits nor pushes, and does not touch `SUPPORTED_DSH_RELEASES`. A green run is **evidence**, not authorization. Promotion is a human act.
+The upgrade probe (now the root `pnpm dsh:upgrade`; the upstream weekly lane was removed) neither commits nor pushes, and does not touch `SUPPORTED_DSH_RELEASES`. A green run is **evidence**, not authorization. Promotion is a human act.
 
-`compat:check` does **not** run in the upgrade flow: the candidate is by design not on the allowlist.
+`compat:check` does **not** run inside the upgrade probe: the candidate is by design not on the allowlist. After promotion and before release, the root `pnpm dsh:check` and an enforce-mode `verify:all` guard the result.
 
 For upgrading and probing:
 
 ```bash
-node scripts/upgrade-dsh.mjs 0.1.7-alpha.1          # repoint the pin
-node scripts/upgrade-dsh.mjs --latest-prerelease     # pin the newest pre-release
-node scripts/upgrade-dsh.mjs --print-latest-prerelease
-node scripts/upgrade-dsh.mjs --print-installed       # what actually resolved
+pnpm dsh:upgrade 0.2.1-rc.2 --probe     # repoint pin / soft ranges / allowances, add probe overrides
+pnpm dsh:upgrade --latest-prerelease --probe   # pin the newest pre-release
+pnpm dsh:upgrade --print-latest-prerelease
+pnpm dsh:upgrade --print-installed      # what each plugin actually resolved
 pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0
-git checkout -- package.json pnpm-workspace.yaml pnpm-lock.yaml   # revert
-pnpm install --frozen-lockfile                                     # bring node_modules back too
+# Inside the container, set warn on the inner command; host env vars are not forwarded into docker:
+docker-run node 'DSH_MULTI_ROOT_COMPAT=warn pnpm --filter dsh-plugin-multi-root-workspace verify:all'
+pnpm dsh:upgrade 0.2.1-rc.2             # remove the probe overrides
+pnpm install --frozen-lockfile
 ```
 
-Installing a candidate **requires** `--config.minimumReleaseAge=0`. Without it pnpm's release-age gate makes it append two hundred-odd lines of the fresh tree into `minimumReleaseAgeExclude` in `pnpm-workspace.yaml` — which a throwaway probe has no business leaving behind.
+Installing a candidate **requires** `--config.minimumReleaseAge=0`. Without it pnpm's release-age gate rejects the lockfile. After the probe, the root `pnpm dsh:check` compares `minimumReleaseAgeExclude` with the exact lockfile resolution set; fix the missing/stale entries it lists.
 
-`0.1.7-alpha.1`'s `dsh` depends on cordis `^4.0.3`; `0.1.7-alpha.2`, `0.1.7-rc.1`, and `0.1.7-rc.2` depend on `~4.0.4`. `upgrade-dsh.mjs` repoints the `@deepseek-ai/cordis` dev pin and the cordis release-age line in `pnpm-workspace.yaml` to the exact version inside that range. Do not leave `4.0.2` in the same tree: pnpm then installs two copies of `@deepseek-ai/dsh-tools`, the `TOOL_RUNTIME_SCHEDULER` symbol `dsh-agent-loop` holds is local to its module, and it misses the ToolRuntime the other copy constructed. Tool calls then die on the first step with `Cannot read properties of undefined (reading 'prepare')`. Restoring the baseline pin puts cordis back at `4.0.2`.
+`0.2.1-rc.2`'s `dsh` depends on cordis `~4.0.5` and exact-pins every internal package to `0.2.1-rc.2`; `upgrade-dsh.mjs` repoints the cordis dev pin and its allowance line to `4.0.5`. The probe also surfaced a cross-version constraint: multi-root's production `zod` dependency must align with `@deepseek-ai/dsh-storage-domain`'s exact `zod@4.4.3`, or `defineDomain`'s types and runtime both fork (`^4.6.2` installs a second zod copy).
 
 Two traps that only bite locally (CI always starts from a clean checkout):
 
-- **That `git checkout` reverts all three files to HEAD wholesale**, taking any uncommitted edit of yours with them. Commit or stash before probing over dirty manifests.
-- Once the candidate is installed, pnpm's **pre-run dependency check** decides the tree is out of sync — over the very same release-age gate — and triggers a reinstall that also fails, leaving `node_modules` half torn down (no `.bin`, a one-entry `.package-map.json`). At that point `pnpm install` cheerfully reports "Already up to date" without repairing anything, and the only way out is `rm -rf node_modules` followed by a fresh install. To avoid it, step around pnpm's script wrapper while probing: `PATH="$PWD/node_modules/.bin:$PATH"` and then run `oxlint` / `tsc` / `vitest` / `node scripts/*.mjs` directly.
+- A `git checkout --` of the four manifests / workspace / lockfile / baseline file discards uncommitted edits with them; commit or stash first. The current flow does not need that revert: rerunning without `--probe` only removes the overrides.
+- After a candidate install, pnpm's **pre-run dependency check** still runs a `pnpm install` against the release-age policy. Once the allowances exactly match the lockfile (`pnpm dsh:check`), that check passes. If you see `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` before reconciling, fix the allowances rather than bypassing the policy.
 
 ## 7. The journey smoke's model endpoint speaks both wire dialects
 
@@ -176,13 +178,13 @@ It **deliberately excludes** `compat:check`, because the upgrade lane runs it ag
 
 ## 9. DSH 0.2 and the new development baseline
 
-The development pin is `0.2.0-rc.2`, with cordis `4.0.4`. Restoring the baseline no longer means restoring `0.1.5-rc.2` / `4.0.2`; the earlier probes are historical records. Restore the manifest, workspace, and lockfile saved before a probe, then reinstall the tree. Never discard uncommitted support declarations by restoring HEAD.
+The development pin is `0.2.1-rc.2`, with cordis `4.0.5`; the baseline constant lives in the root `scripts/dsh-baseline.mjs`. Restoring the baseline no longer means restoring `0.1.5-rc.2` / `4.0.2`; the earlier probes are historical records. Treat the four manifests, the workspace file, the lockfile, and the baseline file separately when recovering from a probe, and never discard uncommitted support declarations by restoring HEAD.
 
 `0.2.0-rc.1` and `rc.2` retain the seams handled by the existing adapters. The 0.2 agent loop records conservative failure `tool/result` events before closing a failed step: `message.isError: true`, plain-text content, and `data.error`. These must never count as successful file touches. `tests/instructions.spec.ts` covers old block-level failures, message-level failures, and recovery events. The inherited Windows provider softly registers the new ACL diagnosis skill; this plugin still does not promise Windows kernel multi-root grants.
 
-The upstream CI once read its version axis from the allowlist through (the now-removed) `scripts/list-dsh-releases.mjs`; the local equivalent is per-release `DSH_CLI=<version> pnpm smoke`. `pnpm-workspace.yaml` lists exact release-age exceptions for transitive DSH packages and LibreOffice host tooling: pnpm 11 rejects version-qualified package-name wildcards and verifies the entire lockfile before running scripts. Candidate installs still use `--config.minimumReleaseAge=0`; restore temporary pins and exceptions afterwards.
+`0.2.1-rc.2` added no new adapter branch: `dsh-fs` / `dsh-sandbox` / `dsh-sandbox-local` types are unchanged, session format is still 4, and `HostConnectionRpc.handle`, the slots in use, and the primitives exports all remain. The real work was the dependency tree: every internal package is exact-pinned, `zod` must align on `4.4.3`, and `dsh-invariants` is no longer published on this line (which is why the git-graph plugin was removed entirely). The `pnpm-workspace.yaml` allowances are kept exactly equal to the lockfile by `pnpm dsh:check`.
 
-The repointing script also derives workspace-only DSH / cordis `overrides` from those DSH entries, preventing old prerelease ranges from producing a mixed tree under runtime resolution. It refuses to replace custom overrides. This block belongs to the probe and is not shipped with the plugin; restore the saved workspace afterwards.
+The root `scripts/check-dsh-baseline.mjs` (`pnpm dsh:check`) guards the baseline constant, the four plugins' dev pins, the three soft plugins' unified range, multi-root's `compat:check`, the installed tree, and the allowances before a release; `scripts/release.mjs` runs it as a precondition. The candidate-repoint script's overrides block still belongs to the probe only; rerunning without `--probe` removes it.
 
 On Windows, Node cannot start `npm.cmd` with `execFileSync('npm')`; old-version matrix jobs fail before repointing with `spawnSync npm ENOENT`. The upgrade script uses `scripts/lib/npm-cli.mjs`: Windows runs the installation’s `node_modules/npm/bin/npm-cli.js` through the current Node executable, while POSIX still executes npm directly. No shell command is assembled; regression tests cover paths with spaces and argument boundaries.
 

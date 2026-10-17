@@ -13,15 +13,15 @@ src/compat/dsh-version.ts  →  SUPPORTED_DSH_RELEASES
 是**精确版本数组**，不是 semver 范围。当前：
 
 ```ts
-export const SUPPORTED_DSH_RELEASES = ['0.1.5-rc.2', '0.1.6-alpha.1', '0.1.6-alpha.2', '0.1.7-alpha.1', '0.1.7-alpha.2', '0.1.7-rc.1', '0.1.7-rc.2', '0.2.0-rc.1', '0.2.0-rc.2'] as const
+export const SUPPORTED_DSH_RELEASES = ['0.1.5-rc.2', '0.1.6-alpha.1', '0.1.6-alpha.2', '0.1.7-alpha.1', '0.1.7-alpha.2', '0.1.7-rc.1', '0.1.7-rc.2', '0.2.0-rc.1', '0.2.0-rc.2', '0.2.1-rc.2'] as const
 ```
 
 改它的时候，下面四处必须同时一致，否则 `pnpm compat:check` 失败：
 
 ```text
 src/compat/dsh-version.ts   SUPPORTED_DSH_RELEASES   allowlist
-package.json                peerDependencies         "0.1.5-rc.2 || 0.1.6-alpha.1 || 0.1.6-alpha.2 || 0.1.7-alpha.1 || 0.1.7-alpha.2 || 0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2"
-package.json                devDependencies          allowlist 中的某一项（当前 0.2.0-rc.2）
+package.json                peerDependencies         "0.1.5-rc.2 || 0.1.6-alpha.1 || 0.1.6-alpha.2 || 0.1.7-alpha.1 || 0.1.7-alpha.2 || 0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-rc.2"
+package.json                devDependencies          allowlist 中的某一项（当前 0.2.1-rc.2）
 node_modules                实际解析到的版本          allowlist 中的某一项
 ```
 
@@ -112,34 +112,36 @@ await mountCompat(ctx)
 
 如果你在本地遇到门禁拒绝，**不要**用它绕过去继续开发。正确做法是确认宿主/`node_modules` 是否真的在 allowlist 上（`pnpm compat:check`）。只有在你确实在做"提升一个新上游版本"这件事时才用它，流程写在[故障排查条目](../../docs/troubleshooting/unsupported-dsh-release.md)。
 
-本地升级工具 `scripts/upgrade-dsh.mjs` 的流程设置它，日常门禁不设置。
+本地升级工具 `pnpm dsh:upgrade`（根脚本 `scripts/upgrade-dsh.mjs`）的探测流程设置它，日常门禁不设置。
 
 ## 6. 升级流程不会自动扩大支持矩阵
 
-升级探测（现为本地 `scripts/upgrade-dsh.mjs`；上游按周车道已移除）不提交不推送，也不碰 `SUPPORTED_DSH_RELEASES`。绿灯是**证据**，不是授权。提升版本是人工动作。
+升级探测（现为仓库根 `pnpm dsh:upgrade`；上游按周车道已移除）不提交不推送，也不碰 `SUPPORTED_DSH_RELEASES`。绿灯是**证据**，不是授权。提升版本是人工动作。
 
-`compat:check` **不**在升级流程里跑：候选版本按设计就不在 allowlist 上。
+`compat:check` **不**在升级探测里跑：候选版本按设计就不在 allowlist 上；提升之后、发布之前由根级 `pnpm dsh:check` 与 enforce 模式的 `verify:all` 守住。
 
 升级/探测用：
 
 ```bash
-node scripts/upgrade-dsh.mjs 0.1.7-alpha.1          # 重指 pin
-node scripts/upgrade-dsh.mjs --latest-prerelease     # 指向最新 pre-release
-node scripts/upgrade-dsh.mjs --print-latest-prerelease
-node scripts/upgrade-dsh.mjs --print-installed       # 实际解析到的版本
+pnpm dsh:upgrade 0.2.1-rc.2 --probe     # 重指 pin / 软插件范围 / 豁免，并写 probe overrides
+pnpm dsh:upgrade --latest-prerelease --probe   # 指向最新 pre-release
+pnpm dsh:upgrade --print-latest-prerelease
+pnpm dsh:upgrade --print-installed      # 每个插件实际解析到的版本
 pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0
-git checkout -- package.json pnpm-workspace.yaml pnpm-lock.yaml   # 回退
-pnpm install --frozen-lockfile                                     # node_modules 也回基线
+# 容器内跑 warn（宿主环境变量不会自动转发进 docker）：
+docker-run node 'DSH_MULTI_ROOT_COMPAT=warn pnpm --filter dsh-plugin-multi-root-workspace verify:all'
+pnpm dsh:upgrade 0.2.1-rc.2             # 移除 overrides
+pnpm install --frozen-lockfile
 ```
 
-安装候选版本时**必须**加 `--config.minimumReleaseAge=0`。否则 pnpm 会因为 release-age 门禁把整棵新树往 `pnpm-workspace.yaml` 的 `minimumReleaseAgeExclude` 里追加两百多行——那是一次性探测不该留下的东西。
+安装候选版本时**必须**加 `--config.minimumReleaseAge=0`。否则 pnpm 会因为 release-age 门禁拒绝 lockfile。探测结束后根级 `pnpm dsh:check` 会核对 `minimumReleaseAgeExclude` 与 lockfile 的实际解析集合是否精确相等；缺项/陈旧项都按它列出的清单修。
 
-`0.1.7-alpha.1` 的 `dsh` 依赖 cordis `^4.0.3`；`0.1.7-alpha.2`、`0.1.7-rc.1` 与 `0.1.7-rc.2` 依赖 `~4.0.4`。`upgrade-dsh.mjs` 会把 `@deepseek-ai/cordis` 的开发 pin 和 `pnpm-workspace.yaml` 里那一行 release-age 改到这个范围中的精确版本。不要在同一棵树里留下 `4.0.2`：pnpm 会拆出两份 `@deepseek-ai/dsh-tools`，agent-loop 持有的 `TOOL_RUNTIME_SCHEDULER` 是模块局部 `Symbol`，对不上另一份构造的 ToolRuntime，工具调用在第一步抛 `Cannot read properties of undefined (reading 'prepare')`。回基线时 cordis 随开发 pin 回到 `4.0.2`。
+`0.2.1-rc.2` 的 `dsh` 依赖 cordis `~4.0.5`，内部子包全部精确 pin 到 `0.2.1-rc.2`；`upgrade-dsh.mjs` 会把 cordis 开发 pin 与那一行豁免改到 `4.0.5`。这次探测还暴露了一个跨版本约束：multi-root 的 `zod` 生产依赖必须与 `@deepseek-ai/dsh-storage-domain` 的精确 `zod@4.4.3` 对齐，否则 `defineDomain` 的类型与运行时都会分叉（`^4.6.2` 会装出第二份 zod）。
 
 两个只在本地咬人的坑（CI 每次都是干净 checkout，碰不到）：
 
-- **那句 `git checkout` 会把三个文件整体退回 HEAD**，连同你对它们的未提交修改。在脏的 manifest 上跑探测之前先提交或 stash。
-- 候选版本装上之后，`pnpm <script>` 的**依赖自检**会因为同一个 release-age 门禁判定"依赖不同步"并触发一次重装，而那次重装同样会失败，把 `node_modules` 撕成半截（`.bin` 消失、`.package-map.json` 只剩一条）。这时 `pnpm install` 会说 "Already up to date" 却修不好，唯一出路是 `rm -rf node_modules` 重装。要避免它，探测期间绕开 pnpm 的脚本包装，直接用 `PATH="$PWD/node_modules/.bin:$PATH"` 跑 `oxlint` / `tsc` / `vitest` / `node scripts/*.mjs`。
+- `git checkout --` 恢复四个 manifest / workspace / lockfile / 基线文件时会把未提交修改一起抹掉；先提交或 stash。当前流程默认不要求回退，重跑不带 `--probe` 只清理 overrides。
+- 候选版本装上之后，`pnpm <script>` 的**依赖自检**仍会跑一次 `pnpm install` 对照 release-age 策略；只要豁免已按 lockfile 精确补齐（`pnpm dsh:check` 通过），这次自检就会通过。若在补齐前看到 `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`，先补豁免而不是绕开策略。
 
 ## 7. journey smoke 的模型端点同时说两套 wire 协议
 
@@ -176,13 +178,13 @@ pnpm verify:all   # lint → typecheck → build → test → kernel:probe → s
 
 ## 9. DSH 0.2 与新的开发基线
 
-开发 pin 是 `0.2.0-rc.2`，cordis 是 `4.0.4`。回到开发基线不再表示回到 `0.1.5-rc.2` / `4.0.2`；前文的旧版探测记录是历史事实。恢复探测前保存的 manifest / workspace / lockfile，并重装安装树，绝不把未提交的支持声明退回 HEAD。
+开发 pin 是 `0.2.1-rc.2`，cordis 是 `4.0.5`；基线常量在仓库根 `scripts/dsh-baseline.mjs`。回到开发基线不再表示回到 `0.1.5-rc.2` / `4.0.2`；前文的旧版探测记录是历史事实。恢复探测时按 manifest / workspace / lockfile / `scripts/dsh-baseline.mjs` 四处分步处理，绝不把未提交的支持声明退回 HEAD。
 
 `0.2.0-rc.1` / `rc.2` 保留了现有适配器的接缝。0.2 的 agent-loop 异常恢复会在关闭 step 前补保守的失败 `tool/result`：`message.isError: true`、纯文本 content，并带 `data.error`。它绝不能算成功文件 touch；`tests/instructions.spec.ts` 同时钉住旧 content block、新 message 与恢复事件三种失败形状。Windows 新增 ACL diagnosis skill 由继承的上游 provider 自动软注册，本插件仍不承诺 Windows 内核多根授权。
 
-上游 CI 曾用（已移除的）`scripts/list-dsh-releases.mjs` 从 allowlist 读取版本轴做全矩阵 enforce；本地等价是逐版本 `DSH_CLI=<版本> pnpm smoke`。`pnpm-workspace.yaml` 对开发版本的传递 DSH 包与 LibreOffice host tooling 逐项使用精确发布年龄豁免：pnpm 11 不接受带版本的包名通配模式，而且运行脚本前也会校验整棵锁文件。安装候选仍使用 `--config.minimumReleaseAge=0`，临时 pin 与临时豁免必须恢复。
+`0.2.1-rc.2` 没有引入新的适配器分支：`dsh-fs` / `dsh-sandbox` / `dsh-sandbox-local` 的类型零变化，session format 仍为 4，`HostConnectionRpc.handle` 与所用槽位 / primitives 导出保留。真正需要处理的是依赖树：内部子包全部精确 pin，`zod` 对齐 `4.4.3`，`dsh-invariants` 在该线不再发布（git-graph 插件因此整体移除）。`pnpm-workspace.yaml` 的豁免清单由 `pnpm dsh:check` 与 lockfile 精确对齐。
 
-候选重指脚本还从这些 DSH 条目派生一个 workspace-only 的 DSH / cordis `overrides` 块，确保旧版的宽预发布范围不会在 runtime resolution 下变成混装；已有自定义 overrides 时脚本拒绝覆盖。这个块是探测产物，不随插件发布，探测结束恢复保存的 workspace 文件。
+根级 `scripts/check-dsh-baseline.mjs`（`pnpm dsh:check`）在发布前守住基线常量、四个插件的 dev pin、三个软插件的统一范围、multi-root 的 `compat:check`、安装树与豁免；`scripts/release.mjs` 已把它设为发布前置。候选重指脚本生成的 overrides 块仍只属于探测，重跑不带 `--probe` 即清理。
 
 Windows 的 Node 不能直接 `execFileSync('npm')` 启动 `npm.cmd`，旧版矩阵会在重指前报 `spawnSync npm ENOENT`。升级脚本统一走 `scripts/lib/npm-cli.mjs`：Windows 用当前 Node 执行其安装目录的 `node_modules/npm/bin/npm-cli.js`，POSIX 继续直接执行 npm；不拼 shell 命令，带空格的路径与参数边界由回归测试覆盖。
 

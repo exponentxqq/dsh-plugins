@@ -28,7 +28,7 @@
  * the upgrade smoke passed on that exact version — a green CI run on an
  * unlisted release is evidence, not authorization (ADR-0009).
  */
-export declare const SUPPORTED_DSH_RELEASES: readonly ["0.1.5-rc.2", "0.1.6-alpha.1", "0.1.6-alpha.2", "0.1.7-alpha.1", "0.1.7-alpha.2", "0.1.7-rc.1", "0.1.7-rc.2", "0.2.0-rc.1", "0.2.0-rc.2"];
+export declare const SUPPORTED_DSH_RELEASES: readonly ["0.1.5-rc.2", "0.1.6-alpha.1", "0.1.6-alpha.2", "0.1.7-alpha.1", "0.1.7-alpha.2", "0.1.7-rc.1", "0.1.7-rc.2", "0.2.0-rc.1", "0.2.0-rc.2", "0.2.1-rc.2"];
 /** One release this plugin claims to support. */
 export type SupportedDshRelease = typeof SUPPORTED_DSH_RELEASES[number];
 /**

@@ -38,9 +38,9 @@ dsh --profile web
 
 ## 环境要求
 
-- **使用本源码构建的插件**：需要一个受支持的 DSH 运行时 —— 当前是 **`0.1.5-rc.2`、`0.1.6-alpha.1`、`0.1.6-alpha.2`、`0.1.7-alpha.1`、`0.1.7-alpha.2`、`0.1.7-rc.1`、`0.1.7-rc.2`、`0.2.0-rc.1` 与 `0.2.0-rc.2`**，别的版本装不上也不会跑（见下）。`dsh plugin` 会把包装进对应 profile，无需本地 Node 工具链
+- **使用本源码构建的插件**：需要一个受支持的 DSH 运行时 —— 当前是 **`0.1.5-rc.2`、`0.1.6-alpha.1`、`0.1.6-alpha.2`、`0.1.7-alpha.1`、`0.1.7-alpha.2`、`0.1.7-rc.1`、`0.1.7-rc.2`、`0.2.0-rc.1`、`0.2.0-rc.2` 与 `0.2.1-rc.2`**，别的版本装不上也不会跑（见下）。`dsh plugin` 会把包装进对应 profile，无需本地 Node 工具链
 - **从源码构建 / 参与**：**Node.js** `^22.19.0 || >=24`（仓库 `engines` 钉住）、**Git**、**pnpm 11**（`packageManager` 钉 `pnpm@11.25.0`，建议经 corepack 启用）
-- **DSH 运行时**：开发依赖精确 pin 在 `0.2.0-rc.2`（受支持版本里的基线）；升级流程见[开发工作流](./docs/development/plugin-development-workflow.md)
+- **DSH 运行时**：开发依赖精确 pin 在 `0.2.1-rc.2`（受支持版本里的基线）；升级流程见[开发工作流](./docs/development/plugin-development-workflow.md)
 - **平台支持**：macOS Seatbelt / Linux bwrap、Landlock；另实现 Windows root-set ACL runner（覆盖 fs 写路径与 ACL 授予，受限 bash/PTY 的多根不在其范围）。
 - 运行冒烟测试**不需要模型凭据**：e2e 的模型轮次由内联的脚本化模型端点提供
 

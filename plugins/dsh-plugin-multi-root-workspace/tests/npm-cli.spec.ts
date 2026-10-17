@@ -9,7 +9,7 @@ describe('npm subprocess invocation', () => {
 
   it('runs the bundled npm CLI with Node on Windows, preserving argument boundaries', () => {
     const node = 'C:\\Program Files\\nodejs\\node.exe'
-    const args = ['view', '@deepseek-ai/dsh@0.2.0-rc.2', 'dependencies.@deepseek-ai/cordis', '--json']
+    const args = ['view', '@deepseek-ai/dsh@0.2.1-rc.2', 'dependencies.@deepseek-ai/cordis', '--json']
     expect(npmInvocation(args, 'win32', node)).toEqual({
       file: node,
       args: ['C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js', ...args],

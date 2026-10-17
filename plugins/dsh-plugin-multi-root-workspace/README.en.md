@@ -36,9 +36,9 @@ The agent can now read, write, and run bash in that directory, with the same rig
 
 ## Requirements
 
-- **Using a plugin built from this checkout**: you need a *supported* DSH runtime — currently **`0.1.5-rc.2`, `0.1.6-alpha.1`, `0.1.6-alpha.2`, `0.1.7-alpha.1`, `0.1.7-alpha.2`, `0.1.7-rc.1`, `0.1.7-rc.2`, `0.2.0-rc.1`, and `0.2.0-rc.2`**, and nothing else will install or run (see below). `dsh plugin` installs the package into the matching profile, and no local Node toolchain is required
+- **Using a plugin built from this checkout**: you need a *supported* DSH runtime — currently **`0.1.5-rc.2`, `0.1.6-alpha.1`, `0.1.6-alpha.2`, `0.1.7-alpha.1`, `0.1.7-alpha.2`, `0.1.7-rc.1`, `0.1.7-rc.2`, `0.2.0-rc.1`, `0.2.0-rc.2`, and `0.2.1-rc.2`**, and nothing else will install or run (see below). `dsh plugin` installs the package into the matching profile, and no local Node toolchain is required
 - **Building from source / contributing**: **Node.js** `^22.19.0 || >=24` (pinned by the repository's `engines`), **Git**, and **pnpm 11** (`packageManager` pins `pnpm@11.25.0`; corepack recommended)
-- **DSH runtime**: the dev pin is exactly `0.2.0-rc.2`, the baseline among the supported releases; the upgrade procedure lives in the [development workflow](./docs/development/plugin-development-workflow.md)
+- **DSH runtime**: the dev pin is exactly `0.2.1-rc.2`, the baseline among the supported releases; the upgrade procedure lives in the [development workflow](./docs/development/plugin-development-workflow.md)
 - **Platforms**: macOS Seatbelt and Linux bwrap/Landlock; a Windows root-set ACL runner is also implemented (it covers the fs write path and ACL grants; multi-root for confined bash/PTY is out of its scope).
 - Running the smoke tests needs **no model credentials**: the e2e model turns are served by an inline scripted model endpoint
 
