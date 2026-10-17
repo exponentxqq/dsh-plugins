@@ -27,8 +27,8 @@
 ## 5. 验证与发布
 
 - [x] 5.1 递归自检:`pnpm --filter dsh-plugin-web-ux verify:all`(lint + typecheck + build + test)与 `openspec validate add-web-ux-archived-session-delete` 全绿。验证:命令退出码 0。
-- [ ] 5.2 link 安装实测:`docker exec dsh dsh plugin --profile web add <repo>/plugins/web-ux` 重启 profile,在 GUI 验收——归档行菜单入口出现/未归档行无入口、预览数字正确、确认后行即时消失且刷新不复活、`~/.dsh/sessions/**/<id>` 与 projcache 消失、`workspace.json` 引用干净、live 会话被拒;subagent 会话删除后其 fork 存活。验证:逐项人工核对通过后还原 tag 安装。
-- [ ] 5.3 版本与发布:根与插件版本 bump 1.2.0,`pnpm release 1.2.0 --dry-run` 核对后正式执行(提交与 tag);宿主 `git push origin main --tags`;profile 按 `#v1.2.0` 重装验证。验证:安装后 GUI 功能完整。
+- [x] 5.2 link 安装实测:`docker exec dsh dsh plugin --profile web add <repo>/plugins/web-ux` 重启 profile,在 GUI 验收——归档行菜单入口出现/未归档行无入口、预览数字正确、确认后行即时消失且刷新不复活、`~/.dsh/sessions/**/<id>` 与 projcache 消失、`workspace.json` 引用干净、live 会话被拒;subagent 会话删除后其 fork 存活。验证:逐项人工核对通过后还原 tag 安装(最终以 v1.2.1 tag 安装复核,见 5.3)。
+- [ ] 5.3 版本与发布:根与插件版本 bump 1.2.0,`pnpm release 1.2.0 --dry-run` 核对后正式执行(提交与 tag);宿主 `git push origin main --tags`;profile 按 `#v1.2.0` 重装验证。验证:安装后 GUI 功能完整。**实际按 v1.2.1 补丁版执行**:v1.2.0 tag 已推远程且含「删除入口不出现」缺陷,不移动已推 tag。
 
 ## Workflow follow-up
 
@@ -40,3 +40,11 @@
 - 与任务文字不同的实现选择(理由见 design.md「实施期修正」):宿主 `inject = ['workspaceRegistry', 'sessionPersistence', 'dshHomePath']`(会话头与存在性改用公开的 `sessionPersistence.list()`,上游 `listStoredHeaders()`/`sessionKnown()` 是 private);客户端 `connection`/`workspaces` 用 `ctx.get` 软读而非写进 cordis `inject`;`dsh.client.inject` 另含 `@deepseek-ai/dsh-client-ui-layout`(`shell.overlay` 座位的声明方)与 ui-renderer;两个 entry 均声明 `locale: 'webUx'`,字典注册先于 entry 注册。
 - 5.2 的 profile 重启会终止当前正在运行的 web 会话,须由用户在宿主侧执行;5.3 的提交/打 tag/推送同样等用户审核确认后执行。
 - 5.2 首轮 GUI 实测发现并修复 v1.2.0 缺陷:真实 web 组合的 `workspaces` 服务晚于插件 `apply` 就绪,原实现在 `apply` 里 `ctx.get` 得到 `undefined` 后直接返回,导致「删除会话」入口与对话框从未注册(provider 徽章正常)。修复:两个 entry 照常注册,`connection` / `workspaces` 改为在各自注入面(渲染期)读取;服务缺席时静默渲染 `null`。浏览器热验证已通过(归档行入口出现/未归档行无入口/live 会话被拒/非 live 预览数字正确),136 例单测与 lint/typecheck/build 全绿;发布时会次改为 v1.2.1(v1.2.0 已推 tag 且含该缺陷)。
+- 5.2 最终验收(宿主重启后,对自造测试会话 `session-6d04b0f8-…` 做真实删除,内容仅一句「ok」):
+  - 归档视图 → 归档行「…」菜单末位出现 `Delete session`(danger 样式,order 500,排在 Copy Session ID 之后);未归档行菜单无此项。
+  - live 拒绝(重启前):对话框仅展示 `session-live` 错误、不提供确认按钮。
+  - 重启后预览:`Sessions: 1` / `Subagent sessions included: 0` / `Space to be freed: 73 KB` / 不可逆警示 + `Cancel` / `Delete permanently`。
+  - 确认后对话框显示 `Deleted 1 sessions.`,该行即时消失;刷新页面后归档视图不再出现该 workspace(不复活)。
+  - 磁盘核对:`~/.dsh/sessions/--home-xuqinqin-develop-person-dsh-plugins--/<id>` 与 `storages/session_projcache/sessions/<id>.json` 均已消失;`storages/workspace.json` 中该 id 引用数为 0;宿主日志无相关报错。
+  - subagent 级联删除与 fork 存活语义由 1.2 单测(mock registry/sessionPersistence/fs/emit)覆盖,GUI 级未单独复测(需再造 live 会话并二次重启);5.2 其余条目均人工核对通过。
+- 升级到 DSH 0.2.1-rc.2 后的加载验收(重启后):boot entries 78 条,第三方 client 插件 8 个(task-board/web-ux/pocket/notes/better-input/context/dshmarket/multi-root);`@deepseek-ai/dsh-browser-use` 与 `@deepseek-ai/dsh-experimental-browser-use-chrome-devtools-mcp` 均 0.2.1-rc.2 且已加载(chrome-devtools MCP 可驱动容器内 headless Chromium);`pnpm dsh:check` 基线、pin、软范围、allowlist、lockfile、安装树一致;multi-root `/workspace-folders` 面板正常、git-graph 0 残留、task-board 无报错。
