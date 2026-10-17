@@ -28,7 +28,7 @@
 
 - [x] 5.1 递归自检:`pnpm --filter dsh-plugin-web-ux verify:all`(lint + typecheck + build + test)与 `openspec validate add-web-ux-archived-session-delete` 全绿。验证:命令退出码 0。
 - [x] 5.2 link 安装实测:`docker exec dsh dsh plugin --profile web add <repo>/plugins/web-ux` 重启 profile,在 GUI 验收——归档行菜单入口出现/未归档行无入口、预览数字正确、确认后行即时消失且刷新不复活、`~/.dsh/sessions/**/<id>` 与 projcache 消失、`workspace.json` 引用干净、live 会话被拒;subagent 会话删除后其 fork 存活。验证:逐项人工核对通过后还原 tag 安装(最终以 v1.2.1 tag 安装复核,见 5.3)。
-- [ ] 5.3 版本与发布:根与插件版本 bump 1.2.0,`pnpm release 1.2.0 --dry-run` 核对后正式执行(提交与 tag);宿主 `git push origin main --tags`;profile 按 `#v1.2.0` 重装验证。验证:安装后 GUI 功能完整。**实际按 v1.2.1 补丁版执行**:v1.2.0 tag 已推远程且含「删除入口不出现」缺陷,不移动已推 tag。
+- [x] 5.3 版本与发布:根与插件版本 bump 1.2.0,`pnpm release 1.2.0 --dry-run` 核对后正式执行(提交与 tag);宿主 `git push origin main --tags`;profile 按 `#v1.2.0` 重装验证。验证:安装后 GUI 功能完整。**实际按 v1.2.1 补丁版执行**:v1.2.0 tag 已推远程且含「删除入口不出现」缺陷,不移动已推 tag。实际执行:`pnpm release 1.2.1` 产出提交 `1b56db6` + annotated tag `v1.2.1`;宿主 `git push origin main --tags` 后远程 tag(`40f79b9`)与本地一致;profile 四个插件按 `#v1.2.1` 重装(全部 1.2.1,`--dump-config` EXIT=0);GUI 复验与最终重启后的启动验收均通过;dotfiles 提交 `0ff8c4f` 记录 profile tag 升级。
 
 ## Workflow follow-up
 
@@ -48,3 +48,4 @@
   - 磁盘核对:`~/.dsh/sessions/--home-xuqinqin-develop-person-dsh-plugins--/<id>` 与 `storages/session_projcache/sessions/<id>.json` 均已消失;`storages/workspace.json` 中该 id 引用数为 0;宿主日志无相关报错。
   - subagent 级联删除与 fork 存活语义由 1.2 单测(mock registry/sessionPersistence/fs/emit)覆盖,GUI 级未单独复测(需再造 live 会话并二次重启);5.2 其余条目均人工核对通过。
 - 升级到 DSH 0.2.1-rc.2 后的加载验收(重启后):boot entries 78 条,第三方 client 插件 8 个(task-board/web-ux/pocket/notes/better-input/context/dshmarket/multi-root);`@deepseek-ai/dsh-browser-use` 与 `@deepseek-ai/dsh-experimental-browser-use-chrome-devtools-mcp` 均 0.2.1-rc.2 且已加载(chrome-devtools MCP 可驱动容器内 headless Chromium);`pnpm dsh:check` 基线、pin、软范围、allowlist、lockfile、安装树一致;multi-root `/workspace-folders` 面板正常、git-graph 0 残留、task-board 无报错。
+- 最终发布与重装验收(2026-10-18):`pnpm release 1.2.1` → 提交 `1b56db6`(5 个 package.json 版本号)+ annotated tag `v1.2.1`;宿主 push 后远程 `refs/tags/v1.2.1` = `40f79b9` 与本地一致;profile 四插件 spec 由 `#v1.2.0` 改为 `#v1.2.1` 并重装(全部 1.2.1,安装产物 hash `c6336717…` 与已验证版本一致);`dsh --profile web --dump-config` EXIT=0;页面重载后归档行菜单仍有 `Delete session`;最终重启后验收:DSH 0.2.1-rc.2、四插件 1.2.1、boot entries 78(第三方 8 个)、启动日志无 error/warn、GUI 归档行删除入口仍在(仅打开菜单核对,未删除用户数据)。
