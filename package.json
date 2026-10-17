@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugins",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "description": "DSH（DeepSeek Harness）自定义插件单仓：以 pnpm workspace 统一管理 plugins/* 下的官方组合包（bundle）插件",
   "packageManager": "pnpm@11.25.0",
