@@ -1,6 +1,6 @@
 # 本仓库为 pnpm workspace 根：plugins/* 下每个目录是一个 DSH 组合包（bundle）插件。
 # 下面的 allowBuilds 与 minimumReleaseAgeExclude 原样上移自
-# plugins/dsh-plugin-multi-root-workspace（该插件此前自持一份 pnpm-workspace.yaml，
+# plugins/multi-root-workspace（该插件此前自持一份 pnpm-workspace.yaml，
 # 嵌套 workspace 会被 pnpm 拒绝，故统一收归根）。
 packages:
   - "plugins/*"

@@ -466,13 +466,18 @@ interface ResolvedSearchConfig {
 
 ```bash
 test ! -e plugins/dsh-plugin-multi-root-workspace
-grep -rn 'plugins/dsh-plugin-multi-root-workspace' --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=lib . \
-  | grep -v 'openspec/changes/archive/'          # 预期 0（仅归档可有历史引用）
+# 口径 R1（执行期实测修正）：除归档外还需排除两类合法历史引用源——
+# ① 本变更工件自指（proposal Why/tasks 验证句/code-design 触达面必然写出旧路径）；
+# ② `.dsh-smoke/`（git-ignored 冒烟产物，design 触达面明确「不改」）。
+grep -rn 'plugins/dsh-plugin-multi-root-workspace' --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=lib --exclude-dir=.dsh-smoke . \
+  | grep -v 'openspec/changes/archive/' | grep -v 'openspec/changes/multi-root-at-mention-and-rename/'   # 预期 0
 pnpm install --frozen-lockfile                   # 预期 exit 0（lockfile 已含新 importer key）
 pnpm build && pnpm typecheck && pnpm test && pnpm lint && pnpm docs:check
 ```
 
 > 断言写法：`grep` 命中数必须为 `0`，不是「看起来没了」；`--frozen-lockfile` 通过才证明 lockfile 与目录一致。
+
+**组 1 实测终形态（2026-10-19，全绿）**：`install --frozen-lockfile` Already up to date（lockfile 仅 importer key 互换，200 文件全 R rename）；build 四插件过（multi-root `lib/` 21 文件重建）；typecheck 四过；test 386 passed + 5 skipped（既有条件跳过：parity-matrix 3 / windows 1 / compat 1）+ project-mcp 61 + user-commands 96 + web-ux 136；lint 全部 0 errors（project-mcp / user-commands 各 19、web-ux 3 个既有 `lib/` 产物警告，非本次引入）；docs:check 10 项 PASS。清零口径修正见 **R1**（tasks.md 留痕）。两处偏差裁决：① `AGENTS.md:90` 与 `architecture:48` 各自然融入「目录名不带前缀、包名不变」说明句（design 原文只点名后者，前者同款措辞防后续混淆，保留）；② README 双语「本地路径（开发调试）」占位 `/path/to/dsh-plugin-multi-root-workspace` → `/path/to/multi-root-workspace`（主会话裁决：该行语义为本地 checkout 目录路径，非包名形态——同表格 npm 行/tarball 行为真包名，未动）。
 
 ### 批次 B（G1 兼容契约三处同步）——对应 explore B4
 
@@ -482,6 +487,8 @@ pnpm build && pnpm typecheck && pnpm test && pnpm lint && pnpm docs:check
 2. B2–B4 `package.json` 三处一次改完（peers 逐字等于 allowlist 拼接串；meta optional；devDeps 同 pin）→ `pnpm install`。
 3. 同步 B6–B9 的行数/行清单叙事（本批可留到 D，但 B 结束前至少改掉会与 `compat:check` 同屏矛盾的「六行」）。
 4. 不需要动 `pnpm-workspace.yaml` 的 release-age 豁免（两包已在清单）。
+
+**组 2 实测终形态（2026-10-19，全绿）**：`compat:check` 输出 `allowlist, peerDependencies, development pin and installed tree agree`（exit 0）；`dsh:check` 输出 `baseline, pins, soft ranges, allowlist, lockfile and installed tree agree`（45 包全 0.2.1-rc.2、豁免 308=308、无 declared-but-not-installed）。peers range 由 `SUPPORTED_DSH_RELEASES` 现读 `join(' || ')` 生成后 node 比对逐字一致。两处裁决：① en 版 compat note L32 引导句历史漂移（"these four" 实列六行）→ 改为无计数的 "the following rows"（对齐中文 canonical，防再次漂移）；② `AGENTS.md` 标题「Ten invariants」**未**提前改「Eleven」——标题计数与不变量 11 正文强绑定，归组 4 E5 一并改（避免标题 11 vs 正文 10 自相矛盾）；本任务只改不变量 7 行清单。lockfile 累积 diff（+7/-1）= 组 1 importer key + 组 2 devDeps 两包新增，归因见各批次。
 
 **验证映射**
 
@@ -513,12 +520,16 @@ node -e "const m=require('./plugins/multi-root-workspace/package.json');console.
 
 ```bash
 pnpm --filter dsh-plugin-multi-root-workspace build
-grep -n 'await import("@deepseek-ai/dsh-file-reference-local")' \
+# 口径 R2（执行期实测修正）：源码为 `memoizedOutcome ??= import(...).then(...)` 记忆化形态，
+# 无 `await` 前缀（语义等价且更优：缺席/装坏不重试），字面断言去掉 `await ` 前缀。
+grep -n 'import("@deepseek-ai/dsh-file-reference-local")' \
   plugins/multi-root-workspace/lib/file-references.js   # 预期命中 1 行
 grep -c 'WorkspaceFileSearch = class' plugins/multi-root-workspace/lib/file-references.js  # 预期 0（未被内联）
 ```
 
 **测试（C7）**——具体断言：
+
+> **组 3 实测终形态（2026-10-19，全绿）**：3.1 两新文件 typecheck 0（oxlint 亦 0）；3.2 三处接线 build 0，产物 `lib/file-references.js` L45 恰 1 处动态导入、零内联零静态化（口径 R2）；3.3 新 spec 18 用例（file-references 8 + file-reference-search 10）全绿——**绝对钻入走真上游 WorkspaceFileSearch 不 mock**（真实验证 `resolveDisplayDirectory` 逃逸检查）；3.4 后 patch.spec 10 + optional-peers 3 全绿，smoke-compose 真实 dsh CLI 链路 46/46（含 11 行全序插入断言）。两处实现口径记录：① 桩 provider 以 `new Stub(ctx)` 直接挂载而非 `ctx.get`——cordis traceable 代理会 shadow 方法属性，`Object.is` 级断言必须落原始实例（wrap/restore 经代理描述符转发行为等价）；② C7-3 的「含 pkg/a.txt 绝对形式」用深钻 `repoB/pkg/` 断言（真包目录查询只列 displayDirectory 直接子项），根钻 `repoB/` 断言目录候选，两条均带全前缀断言。一轮修复：3.3 首轮 oxlint 1 error（未用类型导入）+1 warning（不安全可选链），修复子代理一轮清零（非空断言替代可选链，未用 eslint-disable）。optional-peers 断言形态为 vi.mock 工厂置位 + 动态 import 后断言未触发（llm-message 模板同款，标志 `fileReferenceLocalLoaded`），非任务书设想的源码导出标志——加载期零依赖意图完整保留。
 
 `tests/file-references.spec.ts`
 1. `expect(stub.calls[0]).toEqual({ agent, query, signal })` + `expect(result).toBe(stub.result)`：无附加根时字节级透传（同一数组引用、同参调用）。
@@ -555,8 +566,12 @@ pnpm --filter dsh-plugin-multi-root-workspace typecheck
 
 **顺序依赖**：必须在 C 之后（文档描述的是已实现形状）；冒烟必须在 `pnpm build` 之后（smoke-compose 读 `lib/`）。
 
+> **组 4 实测终形态（2026-10-19，文档半部全绿；D9 冒烟归组 5）**：三文档任务（4.1 ADR / 4.2 架构 / 4.3 README+AGENTS）并行（写范围不相交）后统一 docs:check 10 项 PASS 0 errors。ADR-0012 七章节 113 行（Alternatives 12 行被否方案表；初稿围栏缩进被 check-docs 剥离正则拒绝，顶格后过）。architecture §6.2 六行行为矩阵（「绝对 query」按 spec 拆钻入/根前缀/无关三行，全覆盖 9 需求场景）+ §1 图行 + §3 注释补链。双语 README 六处对称（含组 2 残留的「插入 10 行→11 行」同步）；AGENTS「Eleven invariants」+ 不变量 11 正文。**主会话收尾补链**：并行期按稳妥约定写成反引号纯文本的 ADR-0012/architecture 引用（architecture:216、双语 README 各 :166/:213），目标文件确认落盘后由主会话升级为 markdown 相对链接，docs:check 复验过。README smoke 计数为推算预期值（compose 42 / journey 60）带「待组 5 冒烟实跑回填」占位标记。
+
 1. **D8 文档**：E1 ADR-0012 → E2 索引 → E3 架构 §6.2/§1/§3 → E4 双语 README → E5 AGENTS 不变量 → E6 计数一致性。ADR 里的绝对路径示例放代码围栏（`docs:check` CHECK 6）。
 2. **D9 冒烟**：在 `scripts/smoke-journey.mjs` 的 web leg 里加两段，**顺序要紧**：非破坏性的候选断言放在 `observed.granted = ctx.multiRootScope.scopeOf(primaryRepo)`（L397）之后；撤销断言必须放在既有面板 HTTP 断言（`observed.channelView` 赋值）**之后**，否则现有断言「channel view lists the registered additional root」（judge 脚本 L~520）会因为根已被移除而失败。
+
+> **组 5 实测终形态（2026-10-19/20，全绿）**：5.1 journey +42 行两段断言（候选段 @ granted 后、撤销段 @ channelView 后，顺序红线遵守）+ check 段 5 条（fileRootCandidate / fileDrilledAbsolute / fileFuzzyExcludes / fileRevoked / fileCandidateGone，消息用本设计 D9 五条文案原样；`removed?.result?.kind` 形态按脚本实际返回对齐，非模板的 `removed?.kind`）。实测 **compose 46/46、journey 60/60**（5 新 + 55 既有无一变红）——组 4 README 预填 compose 推算值 42 与实测不符，5.2 已回填 46。5.2 回填 + 迁移说明（根 README 升级句 + 插件 README「从 v1.2.x 升级」段含完整新 path 命令，旧 tag 旧 path 可装旧版本）。5.3 仓根 `pnpm verify` exit 0（26s；四插件 405+61+96+136 tests；干净窗口两步过；verify:all 实际构成为 lint→typecheck→build→kernel:probe→test→smoke，**不含 docs:check**——后者为独立脚本已单独绿，任务原文表述与脚本构成的出入在此更正）。人工核对（真实 profile 验收）经用户拍板以**脚本级等效验收**替代（journey 全链路断言与人工清单一一对应），决策记录见 `verification.md`。环境留痕 R3（node v22.18.0 engine warning，非本变更引入）。
    第一段（L397 之后，同一个 `agent` 与 `additionalRepo`；比较用 `canonical(additionalRepo)`，scope 返回的是 canonical 路径）：
    ```js
    const refsSignal = new AbortController().signal

@@ -96,7 +96,7 @@ argument-hint: [环境]
 ## 软依赖与降级
 
 - **`commands` 服务**：缺席的部署（无命令适配器的 acp / headless）中 `ctx.inject(['commands'])` 的回调根本不运行——零注册、零报错、无副作用。
-- **[`dsh-plugin-multi-root-workspace`](../dsh-plugin-multi-root-workspace/README.md)**：软依赖。其 registry 在就扫描「主根 + 附加根」，缺席则静默降级为只看各主根，其余行为不变。
+- **[`dsh-plugin-multi-root-workspace`](../multi-root-workspace/README.md)**：软依赖。其 registry 在就扫描「主根 + 附加根」，缺席则静默降级为只看各主根，其余行为不变。
 - **workspace registry 不在**：没有项目级命令，用户级与内置照常工作。
 
 ## 构建

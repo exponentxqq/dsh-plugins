@@ -1,0 +1,239 @@
+# dsh-plugin-multi-root-workspace
+
+[中文](./README.md) | English
+
+## What & Why
+
+An out-of-tree plugin bundle for DSH (DeepSeek Harness) that widens the Workspace write scope from a single canonical directory to "**one primary root + N additional roots**" — **without modifying any package in the upstream repository**.
+
+The problem it solves: a real development project is usually several independent Git repositories, while DSH natively treats only the session working directory as the writable root, so working across repositories means juggling sessions.
+
+Three things make this plugin worth looking at:
+
+- **Zero learning cost for the agent**: it keeps using the native `read` / `write` / `edit` / `bash` tools. The plugin adds no `workspace_*` tools at all; it only widens the answer to the one question "which directories belong to this workspace".
+- **Security does not degrade**: the additional roots are granted through the same mechanisms the harness already uses — the in-process fs fence plus kernel-level runners (Seatbelt on macOS, bwrap / Landlock on Linux) — with the fs side and bash/PTY sharing one and the same scope. It never degenerates into danger-full-access or prompt-level constraints.
+- **Absent when absent**: it replaces the upstream `fs-sandbox` and `sandbox` provider rows through a bundle patch; with no additional root configured its behavior is item-for-item identical to an uninstalled harness, and every misconfiguration fails loudly instead of silently degrading.
+
+**Upstream baseline & local fork**: this repository is a local fork of [`cherrchen/dsh-plugin-multi-root-workspace`](https://github.com/cherrchen/dsh-plugin-multi-root-workspace) (vendored, with the `@dsh-electron` scope dropped from the package name), baseline `f149fa4` (one commit past `v0.1.5`). The upstream MVP (milestones M1–M3), the hardening batch (H1–H4), and the `v0.1.2`–`v0.1.5` support-matrix expansions are all included in that baseline. This fork's deltas (one-shot additional-root seeding, common additional roots via `commonRoots` that apply to every primary root, the package rename, and the removal of the upstream release machinery and project-management documents) are recorded in this `dsh-plugins` repository's commit history, this README, and the reference documents under `docs/reference/`; the upstream-style CHANGELOG, roadmap, and plan documents were removed with the fork.
+
+## Quick Start
+
+With a DSH runtime at hand (web / Electron desktop / headless all work), the shortest path is two commands — this repository is a **local fork**: the package dropped its `@dsh-electron` scope (it is `dsh-plugin-multi-root-workspace` now) and is not published to npm with upstream; it is installed from this repository's GitHub source, pinned to a tag:
+
+```sh
+TAG=$(git describe --tags --abbrev=0)   # current tag (or any historical tag, to reproduce an older release)
+dsh plugin --profile web add "github:exponentxqq/dsh-plugins#${TAG}&path:plugins/multi-root-workspace"
+dsh --profile web
+```
+
+Once it is up, the **Folders** action (`🗂`) appears at the sidebar foot — or, straight in a session:
+
+```text
+/workspace-folders add ~/code/another-repo
+```
+
+The agent can now read, write, and run bash in that directory, with the same rights as this session's workspace. Other install sources (the upstream npm package / the GitHub repository / a local clone) and the command differences of running DSH from a source checkout are covered under [Installation](#installation).
+
+## Requirements
+
+- **Using a plugin built from this checkout**: you need a *supported* DSH runtime — currently **`0.1.5-rc.2`, `0.1.6-alpha.1`, `0.1.6-alpha.2`, `0.1.7-alpha.1`, `0.1.7-alpha.2`, `0.1.7-rc.1`, `0.1.7-rc.2`, `0.2.0-rc.1`, `0.2.0-rc.2`, and `0.2.1-rc.2`**, and nothing else will install or run (see below). `dsh plugin` installs the package into the matching profile, and no local Node toolchain is required
+- **Building from source / contributing**: **Node.js** `^22.19.0 || >=24` (pinned by the repository's `engines`), **Git**, and **pnpm 11** (`packageManager` pins `pnpm@11.25.0`; corepack recommended)
+- **DSH runtime**: the dev pin is exactly `0.2.1-rc.2`, the baseline among the supported releases; the upgrade procedure lives in the [development workflow](./docs/development/plugin-development-workflow.md)
+- **Platforms**: macOS Seatbelt and Linux bwrap/Landlock; a Windows root-set ACL runner is also implemented (it covers the fs write path and ACL grants; multi-root for confined bash/PTY is out of its scope).
+- Running the smoke tests needs **no model credentials**: the e2e model turns are served by an inline scripted model endpoint
+
+**The supported DSH versions are an exact list, not a range.** This plugin replaces `ctx.fs` and `ctx.sandbox` — the security boundary itself — and it recognizes kernel sandbox dialects from argv shapes measured against specific upstream releases. So `peerDependencies` names only the releases that have actually been through the full verification, and startup checks again: if the host's release is not on the list, or several `@deepseek-ai/dsh-*` packages disagree about which release they are, the fs / sandbox / registry / instructions / lsp / workspace-files / file-references rows **do not start**, the composition degrades to "this plugin is not installed", and one explanatory line is logged. To diagnose, see [troubleshooting: unsupported DSH release](./docs/troubleshooting/unsupported-dsh-release.md); for the reasoning, [ADR-0009](./docs/decisions/ADR-0009-dsh-compat-contract.md).
+
+## Installation
+
+`dsh plugin` supports four install sources. All commands below use the web profile as the example; for the Electron desktop swap `--profile web` for `--profile desktop` — the install method is the same.
+
+| Source | Command | Notes |
+| --- | --- | --- |
+| GitHub (how this fork is used) | `dsh plugin --profile web add "github:exponentxqq/dsh-plugins#<tag>&path:plugins/multi-root-workspace"` | This fork's release channel: the built `lib/` ships inside the tag and the package has no `prepare` script, so it installs ready to use (`&path:` names the subdirectory inside the monorepo, `<tag>` is the current tag); only the one-time `koffi` `allowBuilds` answer remains; always pin a tag |
+| npm registry (upstream package) | `dsh plugin --profile web add @dsh-electron/dsh-plugin-multi-root-workspace` | Upstream's pre-built artifacts, ready to use; **this fork is not published** under its new name, so this command installs the upstream release |
+| tarball | `dsh plugin --profile web add ./dsh-plugin-multi-root-workspace-<version>.tgz` | Pre-built offline package, handy for air-gapped or offline delivery — with the same one-time `allowBuilds` answer |
+| local path (development & debugging) | `dsh plugin --profile web add /path/to/multi-root-workspace` | pnpm `link:` to a local checkout (its dependencies are already installed in this repository); source edits take effect when the profile restarts |
+
+**Every install source needs one `allowBuilds` answer the first time.** The plugin carries a native dependency that must be built, `koffi` (the FFI wrapper behind Registry Authority on Windows; installed but unused elsewhere), and pnpm ≥10 runs no dependency lifecycle script by default. So the first `dsh plugin add` fails with `[ERR_PNPM_IGNORED_BUILDS]` and leaves the pending decision in that profile's `pnpm-workspace.yaml`:
+
+```yaml
+allowBuilds:
+  koffi: true          # the placeholder dsh leaves is "set this to true or false"
+```
+
+Set it to `true` and run `add` again. Read that line as **letting the dependency's install script run on your machine** (outside any sandbox the agent runs in) — `koffi`'s script only precompiles locally. Diagnosis steps: [Troubleshooting: the install stops at build approval](./docs/troubleshooting/install-stops-at-build-approval.md).
+
+### Install from the npm registry (upstream package)
+
+```sh
+dsh plugin --profile web add @dsh-electron/dsh-plugin-multi-root-workspace
+```
+
+This installs **upstream's** pre-built artifacts (the plugin itself is never compiled), and the first install still needs the `allowBuilds` answer above. This fork renamed the package and does not publish to npm; to run this fork's code, use the GitHub install above.
+
+### Install from a tarball
+
+```sh
+pnpm pack dsh-plugin-multi-root-workspace
+# or download the tgz from the upstream GitHub Release assets (upstream asset names still carry the scope), e.g.:
+# https://github.com/cherrchen/dsh-plugin-multi-root-workspace/releases/download/v0.1.5/dsh-electron-dsh-plugin-multi-root-workspace-0.1.5.tgz
+dsh plugin --profile web add ./dsh-plugin-multi-root-workspace-0.1.5.tgz
+```
+
+Also pre-built (the plugin itself is never compiled here), handy for air-gapped or offline delivery — and the first `add` needs the same `allowBuilds` answer.
+
+### Install from GitHub
+
+This fork's release channel is the `dsh-plugins` monorepo; `#<tag>&path:<directory>` pins both the version and the subdirectory:
+
+```sh
+TAG=$(git describe --tags --abbrev=0)   # current tag (or any historical tag)
+dsh plugin --profile web add "github:exponentxqq/dsh-plugins#${TAG}&path:plugins/multi-root-workspace"
+```
+
+With pnpm ≥10 the first `add` used to fail on two fronts: a git install pulled **source code rather than build artifacts**, so the package's `prepare` script had to build it on the spot — a build script pnpm refuses to run without an explicit answer (and which pnpm 10 hard-fails on with `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`, using an exact dep-path key that carries the commit and expires with every tag bump).
+
+Since this repository's `v1.1.1` that authorization is gone: the built `lib/` ships inside the tag, the package carries no `prepare` script, and pnpm 10 and ≥11 behave the same — nothing to answer when the tag changes either. The one remaining decision is the `koffi` `allowBuilds` answer above (matched by bare package name, so it survives tag bumps). Why git-hosted `prepare` used to be a hard failure while registry build scripts only warn, and why the key carries a commit, is recorded in [Troubleshooting: the install stops at build approval](./docs/troubleshooting/install-stops-at-build-approval.md).
+
+Then run `add` again. `#<tag>` is a tag lock, so a later push cannot silently change what actually runs; to follow the same major automatically, write `#semver:^<major>.0.0&path:plugins/multi-root-workspace` instead.
+
+**Upgrading from v1.2.x (the directory-rename migration)**: from v1.3.0 this plugin's directory inside the monorepo is renamed from `plugins/dsh-plugin-multi-root-workspace` to `plugins/multi-root-workspace` (package name unchanged). A pnpm git dependency's anchor carries the `&path:` part inside the profile's `package.json`, and a tag bump does not switch the path by itself — a profile installed with an old tag must run `add` once more with the new path to reach v1.3.0+:
+
+```sh
+dsh plugin --profile web add "github:exponentxqq/dsh-plugins#v1.3.0&path:plugins/multi-root-workspace"
+```
+
+An old tag with the old path (`#v1.2.1&path:plugins/dsh-plugin-multi-root-workspace`) still installs the old versions; the two anchors do not interfere.
+
+> If the host's `~/.gitconfig` rewrites `https://github.com/` to ssh (`insteadOf`) while the container has no ssh, `git ls-remote` fails — add `-e GIT_CONFIG_GLOBAL=/dev/null` to the command (`docker exec -e GIT_CONFIG_GLOBAL=/dev/null dsh …`), or split that section into a host-only include file as the dotfiles documentation describes.
+>
+> To run **upstream** source instead, the command is different (its package name still carries the scope; clone the tag yourself): `dsh plugin --profile web add github:cherrchen/dsh-plugin-multi-root-workspace#v0.1.5`.
+
+### Install from a local clone (development & debugging)
+
+This fork is vendored inside the `dsh-plugins` repository (`plugins/multi-root-workspace`) and the profile points at that directory with a pnpm `link:` — once `lib/` is built, `dsh plugin --profile web add <that directory>` is all it takes. The generic source path (including cloning upstream):
+
+```sh
+git clone https://github.com/cherrchen/dsh-plugin-multi-root-workspace.git
+cd dsh-plugin-multi-root-workspace
+export CI=true    # without a TTY, pnpm's dependency self-check aborts; see the development workflow §8
+pnpm install
+pnpm build        # produces lib/ (not tracked by Git); the artifact test and installation both need it
+dsh plugin --profile web add "$PWD"
+```
+
+> **Tip**: if your DSH comes from a source checkout (rather than `npm install -g @deepseek-ai/deepseek-harness`), the `dsh` binary is not on the global PATH — replace `dsh` with `pnpm dsh` in the commands above, e.g. `pnpm dsh plugin --profile web add ...` and `pnpm dsh --profile web`.
+
+## Running
+
+Development gates, with the result each step should produce:
+
+```sh
+pnpm lint && pnpm typecheck   # expect: 0 warnings, 0 errors; both tsconfigs pass
+pnpm test                     # expect: all pass; dialect cases without a local kernel runner skip explicitly, with a reason
+pnpm kernel:probe             # expect: reports the kernel runners this host has (seatbelt / bwrap / landlock)
+pnpm smoke                    # expect: compose 46/46, behavior 99/99, journey 60/60
+pnpm docs:check               # expect: 0 errors, 0 warnings
+```
+
+Install into a DSH runtime and verify the composition:
+
+```sh
+dsh plugin --profile web add "$PWD"
+dsh --profile web --dump-config
+```
+
+Expected: **only** the `fs-sandbox` and `sandbox` rows are replaced by the plugin's `multi-root-fs` / `multi-root-sandbox`, with eleven rows inserted (`multi-root-compat` / `fs` / `sandbox` / `scope` / `registry` / `instructions` / `lsp` / `workspace-files` / `file-references` / `command`, plus the client carrier row `multi-root-client`); `bash-sandbox` stays upstream (bash and the PTY backend take their roots from `ctx.sandbox`). After starting `dsh --profile web`, the Folders action appears at the sidebar foot.
+
+## Usage
+
+**The command** (the text entry point; also available headless):
+
+```text
+/workspace-folders                       # list the primary root and the additional roots
+/workspace-folders add <absolute path>   # with no path, opens the OS directory chooser
+/workspace-folders alias 1 payments      # name the first additional root
+/workspace-folders remove 1              # by ordinal or by path
+/workspace-folders reveal 1              # show it in the file manager
+```
+
+After an `add`, `list` prints:
+
+```text
+Workspace root (primary; access follows the current sandbox mode): /home/me/monorepo
+  1 /home/me/payments-service [payments]
+  2 /home/me/website
+Writable additional roots: 2 of 2.
+```
+
+**The panel** (Web GUI): the **Folders** dialog at the sidebar foot lists the primary root and the additional roots, and offers add (through the composed directory picker or a typed path), remove, alias, copy path, reveal in the file manager, and move up/down. Its copy is bilingual and follows the interface language. A root's state is shown honestly: `missing` (absent right now) and `redirected` (replaced by a symlink pointing elsewhere) keep their registration but are **not granted**; once the directory is back, a `list` or a panel refresh grants it again — no restart.
+
+**The model side**: the additional-root topology reaches the model through a `systemPrompt.context` snapshot attached to every request (same workspace, cwd unchanged) — no introspection tool needed. The full authorization semantics (canonicalization, `recordedPath` against symlink transplants, conflict rejection) live in the [architecture document](./docs/architecture/multi-root-workspace.md).
+
+**`@` file mentions** (the composer): once an additional root is granted, an empty `@` query appends **one directory candidate per additional root** after the primary root's own results; typing the prefix of an additional root's absolute path selects it, and once the completion carries the `root/` prefix you can drill down through that root; a bare fuzzy search (`@` plus a file-name fragment) still searches only the primary root — additional roots tend to be large directories whose first full index would stall the query, and ranking results across roots carries no meaning. Both are deliberate trade-offs. The full behavior matrix lives in the "`@` file-mention completion" section of the [architecture document](./docs/architecture/multi-root-workspace.md); the decisions and the reasoning behind the trade-offs, in [ADR-0012](./docs/decisions/ADR-0012-additional-root-file-references.md).
+
+## Project Structure
+
+```text
+src/
+  roots.ts        pure rules: canonicalization, conflict validation, record classification (available/missing/redirected/invalid)
+  registry.ts     the root registry: dsh-storage-domain persistence, mutations of one primary root serialized in one queue
+  registry-lease.ts / registry-lease-win32.ts
+                  cross-process Registry Authority: POSIX flock and a Windows named semaphore (the kernel releases it on process death)
+  scope.ts        ctx.multiRootScope: the single authorization source, plus the model-visible topology snapshot
+  fs.ts           the multi-root filesystem provider (in-process fence, extends the upstream LocalFileSystem)
+  sandbox.ts      the multi-root kernel-sandbox provider (extends the upstream LocalSandboxProvider)
+  dialects.ts     Seatbelt / bwrap / Landlock profile recognition and additional-grant assembly (unrecognized shapes fail loudly)
+  containment.ts  path containment (lexical fast path plus a dev/ino alias fallback)
+  instructions.ts discovery, incremental delivery, budget and revocation for an additional root's AGENTS.md / CLAUDE.md (top level plus the subdirectories this session touched, injected from agent/pre-step)
+  file-references.ts the multi-root-file-references row: additively wraps ctx.fileReferences.list so additional roots appear in @ mention completion (one candidate per root on an empty query, absolute-path drilling and prefix matching; bare fuzzy stays single-root)
+  compat.ts       the multi-root-compat startup gate (version allowlist and mixed-install detection)
+  compat/         the adapters: version differences (dsh-version / sandbox-confine / agent-instructions / llm-message) and the @ search vehicle (file-reference-search); optional peers are all loaded on demand
+  command.ts      the /workspace-folders command and the host half of the panel RPC
+  contract.ts     the panel wire protocol (zod-validated on both ends, inlinable into the browser bundle)
+  client/         the browser half: sidebar action, dialog, bilingual dictionaries
+tests/            differential parity, real-execution dialect matrix, contract round-trips, component and locale gates, cross-process lease e2e, instruction injection
+scripts/          smoke batteries (compose / behavior / journey) plus the docs, kernel-runner, compatibility-contract and upgrade checks
+docs/             requirements, architecture, decision records (ADRs), plans, development workflow
+```
+
+## Contributing
+
+Issues and PRs are welcome:
+
+1. Read [`AGENTS.md`](./AGENTS.md) (repository-wide rules) and the [development workflow](./docs/development/plugin-development-workflow.md) (environment, commands, the runtime support matrix, the upgrade procedure) first.
+2. Branch from `main`; follow conventional commits (`feat` / `fix` / `perf` / `refactor` + scope) — see the existing history.
+3. All of these must pass locally before a PR: `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm test`, `pnpm docs:check`, `pnpm smoke` (CI runs the same order, build before test).
+4. Behavior changes update the matching document under `docs/` in the same change; keep the README bilingual pair in sync; record engineering decisions that involve trade-offs as ADRs.
+5. Hard constraint: **never modify any package of the upstream repository (deepseek-harness)**; the plugin stays an out-of-tree extension.
+
+## Known Limitations
+
+- An additional root's instruction files arrive as they become relevant: the one at the root's top level is injected before the session's first step, and a subdirectory's is injected once the session has **successfully** worked in that directory. A nested file is re-examined only when its directory is examined (the root's own every step; a subdirectory's because it was delivered from, or because of a fresh touch), delivery state is in-process (so a resumed session may be told again), and only the `read` / `write` / `edit` tool names count. The primary root's chain and the user-global file remain upstream's job, and this plugin does not inject them a second time ([ADR-0010](./docs/decisions/ADR-0010-additional-root-instruction-scope.md)).
+- Single writer per store: only one DSH process at a time may hold the root registry for a given `$DSH_HOME`; another process reports the registry as unavailable (`registry-contended`) and takes over on refresh once the holder exits or crashes. That is deliberate fail-closed behavior, not a race waiting to be fixed ([ADR-0007](./docs/decisions/ADR-0007-registry-authority-lease.md)).
+- The supported matrix is an exact-version allowlist: on a host whose release is not on the list, or whose core packages disagree about the release, the `fs` / `sandbox` / `registry` / `instructions` / `lsp` / `workspace-files` / `file-references` rows **do not start** and the composition degrades to "the plugin is not installed" ([ADR-0009](./docs/decisions/ADR-0009-dsh-compat-contract.md)).
+- The Windows multi-root runner inherits upstream partial enforcement, caller-owned directory requirements, and private-temp isolation. Running processes retain their initial roots; later processes use the updated set ([ADR-0011](./docs/decisions/ADR-0011-multi-root-workspace-consumers.md)).
+- An additional root has the same rights as the primary root (no per-root read-only), and cannot become the default working directory of bash/PTY (session cwd semantics are unchanged).
+- Browse additional roots in the Workspace Folders dialog with manual refresh, expandable directories, and previews of up to 200 text lines. The native primary-root Files tab remains and offers a dialog action where supported. LSP uses the containing additional root as its own workspace; the host must configure the relevant language server ([ADR-0011](./docs/decisions/ADR-0011-multi-root-workspace-consumers.md)).
+- The candidate breadcrumbs of an `@` mention cannot jump back to an intermediate directory inside an additional root: upstream breadcrumbs split paths under the primary root's relative semantics, and an absolute-path candidate's levels sit outside that frame, so clicking a middle segment does not navigate there (this heals itself once upstream fixes it).
+- When an additional root's own absolute path contains an excluded directory segment (a segment named `build`, `node_modules`, and so on), drilling into that root yields nothing: the search vehicle skips such directories per the upstream exclusion table, and this plugin deliberately does not bypass it — a hand-rolled directory listing would drift from the upstream exclusion semantics.
+- Bare fuzzy search does not cross roots: additional roots participate in `@` completion only as root-directory candidates and through absolute-path drilling; an `@` plus a file-name fragment still searches only the primary root (the first full index of a large additional root stalls the query, and cross-root ranking carries no meaning). The trade-offs are recorded in [ADR-0012](./docs/decisions/ADR-0012-additional-root-file-references.md).
+- The command's own output text is English (a host-side handler has no active locale to consult); the panel is bilingual.
+- The Workspace Folders panel is a sidebar footer action plus a dialog rather than a full panel: `sidebar.footer.action` is offered by every supported release, whereas `sidebar.panellist` / `main` are not.
+
+## Documentation
+
+Long-term project documentation lives in [`docs/`](./docs/README.md):
+
+- [Target architecture](./docs/architecture/multi-root-workspace.md)
+- [Upstream research](./docs/reference/multi-root-workspace-research.md)
+- [Decision records (ADRs)](./docs/decisions/README.md)
+- [Development workflow](./docs/development/plugin-development-workflow.md)
+- [Troubleshooting](./docs/troubleshooting/README.md)
+
+Repository-wide rules for Coding Agents are defined in [`AGENTS.md`](./AGENTS.md).
+
+## License
+
+[MIT](./LICENSE)

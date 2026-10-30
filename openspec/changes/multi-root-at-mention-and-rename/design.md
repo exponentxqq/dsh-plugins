@@ -37,6 +37,7 @@
 - **D11 候选 path 用显示形式**：`/` 分隔、目录不带尾斜杠（`formatFileMention` 自动补 `/`，自带则 `//`；`fileCandidate` 按 `lastIndexOf("/")` 切 label/parent）。win32 把 `\` 换 `/`。
 - **D12 发布 `v1.3.0`，新开 ADR-0012**（Q4/Q5 已定；被否：v2.0.0——单用户私有仓 major 号无消费者收益；ADR-0011 增补——一 ADR 一主题）。
 - **D13 测试分层**：行行为（真 scope + 桩 provider）/ 适配层（结构探针 + 缓存）/ 加载时刻（`optional-peers.spec.ts` 扩展）/ 组合不变量（`patch.spec.ts` + `smoke-compose.mjs`）四个文件，不混 mock。
+- **执行环境**：直用主工作区。判据：衔接点核查主工作区干净（0 脏文件）、仅 `main` 分支检出、无并行变更 worktree、`feature/multi-root-at-mention-and-rename` 未被占用——隔离四判据全不命中；本变更唯一触达仓即根仓自身（工件仓＝代码仓）。装配：无（主检出 `pnpm install` 依赖已就绪）；环境错开：无。创建于 2026-10-19（衔接决策：模式 auto / 引擎 subagent）
 
 ## 触达面清单（①，全部在根仓 dsh-plugins）
 

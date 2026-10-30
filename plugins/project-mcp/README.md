@@ -70,7 +70,7 @@ env:
 
 ## 软依赖与降级
 
-[`dsh-plugin-multi-root-workspace`](../dsh-plugin-multi-root-workspace/README.md) 是**软依赖**：它的 registry 服务在就扫描「主根 + 附加根」，缺席（未安装或未激活）则**静默降级为只扫各主根**，其余行为不变，不报错。
+[`dsh-plugin-multi-root-workspace`](../multi-root-workspace/README.md) 是**软依赖**：它的 registry 服务在就扫描「主根 + 附加根」，缺席（未安装或未激活）则**静默降级为只扫各主根**，其余行为不变，不报错。
 
 ## 隔离冒烟记录（验证证据）
 
