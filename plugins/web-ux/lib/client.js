@@ -51,9 +51,7 @@ window.__ModuleLoader__.load({
 		var import_jsx_runtime = require("react/jsx-runtime");
 		function badgeLabel(state) {
 		  const current = state.current;
-		  if (current === null) return null;
-		  const name = state.groups.find((group) => group.id === current.provider)?.name;
-		  return name !== void 0 && name !== "" ? name : current.provider;
+		  return current === null ? null : `${current.provider}/${current.model}`;
 		}
 		function badgeTooltip(state) {
 		  const current = state.current;

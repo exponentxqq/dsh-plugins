@@ -1,23 +1,23 @@
 # dsh-web-ux-provider-badge Specification
 
 ## Purpose
-会话状态行（输入框下方，与缓存命中率、上下文用量指示同一行）的模型 provider 归属展示：让用户在任意时刻直观确认当前会话运行的模型 provider，无需打开模型选择器。
+会话状态行（输入框下方，与缓存命中率、上下文用量指示同一行）的模型路由展示：让用户在任意时刻直观确认当前会话运行的模型路由（`provider/model` 原始标识符），无需打开模型选择器。
 
 ## Requirements
 
 ### Requirement: Provider 徽章显示
 
-Web GUI 会话状态行 SHALL 追加一枚静态胶囊徽章，展示当前会话所选模型的 provider 显示名。显示名取自模型目录中与当前选择的 provider 标识符匹配的 provider 分组名称；匹配不到时 SHALL 回退显示 provider 标识符原文。徽章为纯展示元素，不提供点击交互。悬停徽章 SHALL 以提示（tooltip）显示 provider 标识符与模型标识符。
+Web GUI 会话状态行 SHALL 追加一枚静态胶囊徽章，以 `provider/model` 格式展示当前会话所选模型的原始标识符（取自选择本身，不依赖模型目录的加载状态或显示名）。徽章为纯展示元素，不提供点击交互。悬停徽章 SHALL 以提示（tooltip）显示 provider 标识符与模型标识符。
 
 #### Scenario: 会话已选定模型
 
 - **WHEN** 会话存在持久的模型选择（provider + model）
-- **THEN** 状态行显示该 provider 的显示名胶囊
+- **THEN** 状态行显示 `provider/model` 原始标识符胶囊，即使目录里存在显示名也不使用显示名
 
 #### Scenario: provider 不在已加载目录中
 
 - **WHEN** 当前选择的 provider 标识符不在已加载的 provider 分组里
-- **THEN** 徽章显示 provider 标识符原文
+- **THEN** 徽章照常显示 `provider/model` 原始标识符（标签不依赖目录）
 
 #### Scenario: 会话尚无模型选择
 
@@ -36,15 +36,15 @@ Web GUI 会话状态行 SHALL 追加一枚静态胶囊徽章，展示当前会�
 #### Scenario: 切换模型
 
 - **WHEN** 用户在会话内切换到另一 provider 的模型
-- **THEN** 徽章更新为新 provider 的显示名
+- **THEN** 徽章更新为新选择的 `provider/model` 路由
 
 ### Requirement: 宽度安全
 
 徽章 MUST NOT 使对话区或状态行出现横向滚动：显示宽度 MUST 有上限，超长文本截断为省略号。
 
-#### Scenario: provider 名过长
+#### Scenario: 路由过长
 
-- **WHEN** provider 显示名超过徽章宽度上限
+- **WHEN** `provider/model` 路由超过徽章宽度上限
 - **THEN** 徽章截断显示省略号，页面不出现横向滚动
 
 ### Requirement: 与官方控件共存

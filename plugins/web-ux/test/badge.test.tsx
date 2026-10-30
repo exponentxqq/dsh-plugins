@@ -68,22 +68,23 @@ function renderBadge(state: ModelDirectoryState) {
 }
 
 describe('provider badge', () => {
-  it('shows the provider display name of the current selection', () => {
+  it('shows the raw provider/model route even when display names are available', () => {
     renderBadge(directoryState({
       current: { provider: 'deepseek', model: 'deepseek-chat' },
-      groups: [{ id: 'deepseek', name: 'DeepSeek 官方', models: [] }],
+      groups: [{ id: 'deepseek', name: 'DeepSeek 官方', models: [{ id: 'deepseek-chat', name: 'DeepSeek 对话' }] }],
     }))
 
-    expect(screen.getByText('DeepSeek 官方')).toBeDefined()
+    expect(screen.getByText('deepseek/deepseek-chat')).toBeDefined()
+    expect(screen.queryByText('DeepSeek 官方')).toBeNull()
   })
 
-  it('falls back to the provider identifier when no loaded group claims it', () => {
+  it('shows the route verbatim when no loaded group claims the provider', () => {
     renderBadge(directoryState({
       current: { provider: 'acme-internal', model: 'acme-1' },
       groups: [{ id: 'deepseek', name: 'DeepSeek 官方', models: [] }],
     }))
 
-    expect(screen.getByText('acme-internal')).toBeDefined()
+    expect(screen.getByText('acme-internal/acme-1')).toBeDefined()
   })
 
   it('renders nothing while the session has no durable selection', () => {
@@ -101,18 +102,18 @@ describe('provider badge', () => {
     expect(container.querySelector('[title]')?.getAttribute('title')).toBe('deepseek · deepseek-chat')
   })
 
-  it('caps the label with the truncating class so a long name cannot scroll the row', () => {
-    const longName = 'Extremely Long Provider Display Name That Must Be Truncated'
+  it('caps the label with the truncating class so a long route cannot scroll the row', () => {
+    const longModel = 'extremely-long-model-identifier-that-must-be-truncated-in-the-capsule'
     renderBadge(directoryState({
-      current: { provider: 'long', model: 'long-1' },
-      groups: [{ id: 'long', name: longName, models: [] }],
+      current: { provider: 'long', model: longModel },
+      groups: [{ id: 'long', name: 'Long Provider', models: [] }],
     }))
 
     // The ellipsis rule itself lives in badge.module.css (`max-width` +
     // `overflow: hidden` + `text-overflow: ellipsis`); jsdom applies no
     // stylesheets, so what is asserted here is the structural contract that
     // the label element carries that module's truncating class.
-    expect(screen.getByText(longName).className).toMatch(/label/)
+    expect(screen.getByText(`long/${longModel}`).className).toMatch(/label/)
   })
 
   it('follows a model switch to another provider without a reload', () => {
@@ -123,7 +124,7 @@ describe('provider badge', () => {
         { id: 'zai', name: '智谱 AI', models: [] },
       ],
     }))
-    expect(screen.getByText('DeepSeek 官方')).toBeDefined()
+    expect(screen.getByText('deepseek/deepseek-chat')).toBeDefined()
 
     // The publish is the store notification a model switch makes; React only
     // processes external-store updates synchronously inside act().
@@ -137,7 +138,7 @@ describe('provider badge', () => {
       }))
     })
 
-    expect(screen.getByText('智谱 AI')).toBeDefined()
-    expect(screen.queryByText('DeepSeek 官方')).toBeNull()
+    expect(screen.getByText('zai/glm-5.3')).toBeDefined()
+    expect(screen.queryByText('deepseek/deepseek-chat')).toBeNull()
   })
 })

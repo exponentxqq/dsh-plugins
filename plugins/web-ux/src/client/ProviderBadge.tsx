@@ -1,9 +1,9 @@
 /**
  * The provider badge: one static capsule appended to the composer status row
- * (`conversation.composer.dock`) showing which model provider the session is
- * running on. The display name is resolved from the session's model directory;
- * hovering shows the provider and model identifiers. The badge owns no click
- * interaction — the model selector itself remains the only switch surface.
+ * (`conversation.composer.dock`) showing which model route the session is
+ * running on, as the raw `provider/model` identifiers the selection actually
+ * names. The badge owns no click interaction — the model selector itself
+ * remains the only switch surface.
  *
  * Nothing here is stored: the component renders from the shared
  * {@link ModelDirectoryState} snapshot, so a model switch made in the official
@@ -43,17 +43,15 @@ export interface ProviderBadgeInjected {
 export type ProviderBadgeProps = PropsRuntime<'conversation.composer.dock'> & ProviderBadgeInjected
 
 /**
- * The provider label for one directory snapshot: the matching provider group's
- * display name, or the provider identifier itself when no loaded group claims
- * it (an unloaded or retired provider still deserves an honest label).
+ * The provider label for one directory snapshot: the raw `provider/model`
+ * route of the selection — identifiers exactly as the selection names them,
+ * independent of whether the catalog has loaded (or still claims) them.
  * @param state - the model directory snapshot.
  * @returns the label, or null when the session has no durable selection.
  */
 export function badgeLabel(state: ModelDirectoryState): string | null {
   const current = state.current
-  if (current === null) return null
-  const name = state.groups.find((group) => group.id === current.provider)?.name
-  return name !== undefined && name !== '' ? name : current.provider
+  return current === null ? null : `${current.provider}/${current.model}`
 }
 
 /**

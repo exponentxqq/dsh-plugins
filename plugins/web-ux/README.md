@@ -1,13 +1,13 @@
 # dsh-plugin-web-ux
 
-DSH Web GUI 插件（**双端**，`exports "."` 宿主 + `exports "./client"` 浏览器）：浏览器半在输入框下方状态行（`conversation.composer.dock`）追加一枚静态胶囊，显示当前会话所用模型的 provider；并在侧栏会话行的 "..." 菜单里为**已归档会话**提供「删除会话」入口与两步确认框。宿主半不再是空壳——它承载删除能力的 Connection RPC 通道 `/web-ux`（预览与执行两个端点），同时继续充当 web 客户端模块扫描读取 `dsh.client` 声明的锚点。
+DSH Web GUI 插件（**双端**，`exports "."` 宿主 + `exports "./client"` 浏览器）：浏览器半在输入框下方状态行（`conversation.composer.dock`）追加一枚静态胶囊，以 `provider/model` 原始标识符显示当前会话所选模型路由；并在侧栏会话行的 "..." 菜单里为**已归档会话**提供「删除会话」入口与两步确认框。宿主半不再是空壳——它承载删除能力的 Connection RPC 通道 `/web-ux`（预览与执行两个端点），同时继续充当 web 客户端模块扫描读取 `dsh.client` 声明的锚点。
 
 本包自 `split-project-mcp-plugin` 变更起**只做 Web 界面体验**——原先同包的「项目级 MCP」宿主能力已拆为独立插件 [`dsh-plugin-project-mcp`](../project-mcp/README.md)（纯宿主面，任何 profile 可单独安装）。自 `add-web-ux-archived-session-delete`（v1.2.0）起宿主半因「删除已归档会话」重新变成实载体：文件系统与工作区注册表只有宿主碰得到，这与拆出去的 MCP 能力互不相干；后续其他 Web 界面体验优化仍落在本包。
 
 ## Provider 徽章
 
 - 数据来自会话共享的模型目录快照（`ctx.modelDirectories.directoryFor(sessionId).store`），切换模型（官方选择器或 `/model` 弹层）后徽章**无需刷新**即跟随；组件只读该快照，不改动任何官方座位。
-- 显示名取模型目录中与当前 provider 标识符匹配的分组名；匹配不到时回退显示标识符原文；会话没有持久模型选择时**不渲染**。
+- 标签为 `provider/model` **原始标识符**（`deepseek/deepseek-chat` 风格），直接取自选择本身，不依赖目录加载状态、不使用显示名；会话没有持久模型选择时**不渲染**。
 - 样式对齐官方胶囊（同一套 `--dsh-content-font-*` / `--dsw-alias-*` 变量、`999px` 圆角、`1px 8px` 内边距）；标签有 `max-width` 上限并截断为省略号，不会把状态行撑出横向滚动。
 - 空白会话期上游本就不渲染状态行，徽章随之缺席，不产生错误。
 
