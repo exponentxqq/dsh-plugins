@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "composite": true },
+  "include": [
+    "src/index.ts",
+    "src/host",
+    "src/contract.ts",
+    "vitest.config.ts",
+    "test/address.test.ts",
+    "test/bundle.test.ts",
+    "test/commands.test.ts",
+    "test/control.test.ts",
+    "test/defaults.test.ts",
+    "test/mask.test.ts",
+    "test/panel.test.ts",
+    "test/record-store.test.ts",
+    "test/rpc.test.ts",
+    "test/session-layer.test.ts",
+    "test/state.test.ts",
+    "test/wire-contract.test.ts"
+  ]
+}

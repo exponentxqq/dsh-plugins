@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "composite": true },
+  "include": [
+    "src/client",
+    "src/contract.ts",
+    "src/css-modules.d.ts",
+    "test/**/*.test.tsx",
+    "test/stubs/**/*.tsx",
+    "test/client-index.test.ts",
+    "test/locale-parity.test.ts",
+    "test/panel-client.test.ts",
+    "test/panel-controller.test.ts"
+  ]
+}

@@ -324,6 +324,7 @@ export class SessionLayer {
 - **I3** `restrict` 抛错（名字在读与写之间消失）→ 抬掉旧掩码、从活读数重推一次、重试一次；仍失败则保持无掩码（guard 仍拦）+ error 日志（照抄 `isolation.ts:339-384`）。
 - **I4** section 的 name 恒为 `mcp:<server>`，`order = sectionOrder('MCP_SERVERS')`，`text: ''`，`interpolate: false`。
 - **I5** `detach` 里每步各自 try/catch，`inactive context` 静默（沿用 `isolation.ts:211-213`）。
+- **I6** `restrict()` 可能**同步**触发 `tools/change`（`dsh-scope` 的 `ScopedLayers.effect` 在返回 disposer 之前就广播），`reconcile()` 必须对该重入幂等（入口 `reconciling` 闸，重入直接返回），否则 `restrict → change → refresh → reconcile` 无限递归（R26）。
 
 ### 3.5 宿主模块解析与身份断言（`src/host/host-runtime.ts`）
 
@@ -519,6 +520,33 @@ export interface Config {
 
 > tasks.md 落档时以本表为骨架；每组给「落点 / 要点 / 验证（具体命令或断言）/ 估时」。估时含测试与文档，单位人日。
 
+### 执行实测总览（2026-10-30/31 · 终形态）
+
+> 全部 25 任务完成、25/25 勾选；17 测试套件 **637 tests** 全绿；`pnpm verify` 0。逐组终形态与实测偏差见下（细节锚 = 本文件 `diff-matrix.md` 的 R1–R29 留痕）。
+
+| 组 | 任务 | 终形态交付 | 实测结论 / 偏差 |
+|---|---|---|---|
+| 1 脚手架 | 1.1/1.2 | 双端骨架 18 文件 + lib 双产物 + 根仓文档补行 | 五条验证句全绿；devDeps 27 项（R4）；icon.svg 补齐（R3） |
+| 2 地址/状态 | 2.1/2.2 | `address.ts` 382 / `state.ts` 339 + 55/43 tests | `PROTECTED_BASELINE` 7 项含 `pwsh`（R7）；`updatedAt` 由调用方打（R8） |
+| 3 掩码 | 3.1 | `mask.ts` 218 + 33 tests | 三读并集/0 命中保留键/整组才遮蔽段；`sameDeny` 归 layer（R10） |
+| 4 每 agent 层 | 4.1 | `session-layer.ts` 689 + 25 tests | **I6 同步重入幂等**（R26 修复 P0 递归）；`snapshot` 报已生效集（R11） |
+| 5 持久化 | 5.1 | `host-runtime.ts` 275 / `record-store.ts` 404 + 29 tests | v1 只 `record`+`memory` 两通道（R12）；写失败进程级降级（R13） |
+| 6 默认档 | 6.1 | `defaults.ts` 352 + 29 tests | `createNodeDefaultsIo` + 原子写 0600/0700；**播种 `disabled = snapshot`**（R16①） |
+| 7 命令面 | 7.1/9.1 | `control.ts` 734 / `commands.ts` 608 + 53 tests | 业务内核抽 `control.ts`；`catalog` 并入 `ControlDeps`（R15/R17） |
+| 8 装配 + 通道 | 8.1/9.5 | `index.ts` 758（含 RPC 挂载）+ /tmp 自检 4 用例 | `ctx.root.get('connection')` 坑位；`descriptions` 接入（R19/R20） |
+| 9 契约/面板/RPC | 9.2/9.3/9.4 | `contract.ts` 1224 / `panel.ts` 509 / `rpc.ts` 722 + 172/30/34 tests | 手写 strict parser；`shadowed = catalog \ (scoped ∪ carried)`（R18）；rpc 自行预检失败码（R17） |
+| 10 client 半 | 10.1–10.5 | locales 260 / panel-client 232 / controller 469 / 3 组件 976 / css 357 / index 164 + 152 tests | 注册级 `inject` 面投递（R24）；`Switch` 开=可用（R23） |
+| 11 验证 | 11.1–11.3 | 五道仓库门禁 + artifacts（冒烟/省量/截图/操作记录） | **D1 修复后 ①⑥⑨ 全 PASS**；真实省量 **−19,497 token/请求（−39.04%）**；2 张真实 UI 截图 |
+| 12 文档与发布 | 12.1/12.2 | `README.md` 172 行；`pnpm verify` 0 | 用户文档 9 条预期管理 + Web 面板节；verify 含 multi-root smoke 99/99 + 60/60 |
+
+**实测规模**（终形态，含测试）：
+- 宿主半 `src/host/` 13 文件、`src/contract.ts`、`src/client/` 9 文件 + CSS/d.ts ≈ **6,200 行**
+- 测试 17 套件 ≈ **7,300 行 / 637 tests**
+- 产物 `lib/index.js` ≈ 703 KB（内联 zod+schemastery）、`lib/client.js` ≈ 89 KB
+- 证据 `artifacts/`：`smoke-record.md` 453 行、`token-savings.md` 203 行、`browser-demo.md`、2 张 1440×900 PNG
+- 执行期留痕：`diff-matrix.md` **R1–R29**（含 1 个 P0 缺陷 D1 的发现-修复-复测全链）
+
+
 ### T1 提案与落档（openspec）
 
 - **落点**：`openspec/changes/session-tool-toggle/{proposal.md,design.md,tasks.md,specs/dsh-session-tool-toggle/spec.md}` + `artifacts/` 四份材料副本。
@@ -536,6 +564,11 @@ export interface Config {
   - `docker exec dsh dsh plugin --profile web add /home/xuqinqin/develop/person/dsh-plugins/plugins/session-tool-toggle` 后 `docker exec dsh dsh --profile web --dump-config-schema` 退出码 0 且输出含 `session-tool-toggle`；
   - 会话内 `/tools status` 回执含 `本会话开关`。
 - **估时** 1.0。
+- **执行实测（2026-10-30 完成 · tasks 1.1/1.2）**：
+  - 交付：双端骨架 18 个文件（含 `icon.svg`）+ 产物 `lib/index.js`（13 行）/ `lib/client.js`（39 行）+ `pnpm-lock.yaml` importer 块；根仓 `README.md` 插件表加行、`AGENTS.md` 插件清单加条并同步「四个软插件」/「其余四个 build.mjs」/ web 侧插件枚举三处计数。
+  - 验收数据：五条验证句全绿（install 0 / build 0 / 两产物真 / `"platform": "web"` 计数 1）；额外 typecheck 0、lint 0（3 条 warning 全在 `lib/*.js` 构建产物，与 web-ux 同形）、`pnpm dsh:check` 0、`node import(lib/index.js)` → `function session-tool-toggle`、`npm pack --dry-run` 11 文件。
+  - 实测偏差（均已裁定接受）：devDeps 27 项而非附录 14 项（含宿主半基线 7 包，见 diff-matrix R4）；骨架期 `test` 红属预期过渡态（R2）；`icon.svg` 由主会话补齐（R3）。
+  - 被否方案：无（照设计执行）。
 
 ### T3 地址文法 + 状态模型 + 掩码引擎（核心）
 

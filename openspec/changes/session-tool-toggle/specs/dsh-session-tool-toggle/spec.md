@@ -46,7 +46,7 @@
 
 ### Requirement: 内置工具开关与保护名单
 
-`tool:<name>` 地址 SHALL 适用于内置工具，但存在硬保护名单（自救与文件操作基础工具，基线：bash/read/edit/write/glob/grep，只可追加不可移除），名单内工具 SHALL 拒绝关闭并返回保护理由；该拒绝 SHALL 由宿主在解析期统一执行，命令面与 Web 配置界面 SHALL 得到同一结果；Web 配置界面 SHALL 将名单内工具呈现为不可切换。名单外内置工具（如任务板、便签、日程、团队任务等大 schema 系列）SHALL 可关闭。
+`tool:<name>` 地址 SHALL 适用于内置工具，但存在硬保护名单（自救与文件操作基础工具，基线：bash/pwsh/read/write/edit/glob/grep，只可追加不可移除），名单内工具 SHALL 拒绝关闭并返回保护理由；该拒绝 SHALL 由宿主在解析期统一执行，命令面与 Web 配置界面 SHALL 得到同一结果；Web 配置界面 SHALL 将名单内工具呈现为不可切换。名单外内置工具（如任务板、便签、日程、团队任务等大 schema 系列）SHALL 可关闭。
 
 #### Scenario: 保护名单拒关
 
@@ -98,7 +98,7 @@
 
 ### Requirement: Web 配置界面
 
-插件 SHALL 在 Web 组合下提供会话级工具面的图形化配置界面：入口 SHALL 注册在会话主视图头部工具区插槽 `conversation.session.header.utilities`（list、scope session、无专属 owner props），面板 SHALL 提供工具清单（MCP 服务器整组/单工具、skill、内置工具分组）、会话级开关切换、用户级默认档编辑与关闭集展示。面板的读与写 SHALL 走 Connection RPC 通道（`/session-tool-toggle`），SHALL NOT 在浏览器半另建状态存储：面板与 `/tools` 命令面 SHALL 共用同一 per-session 状态、同一掩码层与同一持久化记录。面板 SHALL NOT 提供插件配置键（如 `persistence`、`protectedTools`）的编辑面。全部 UI 文案 SHALL 来自插件自有 locale 命名空间；宿主响应 SHALL 只携带稳定失败码与结构化事实，SHALL NOT 作为唯一文案来源。
+插件 SHALL 在 Web 组合下提供会话级工具面的图形化配置界面：入口 SHALL 注册在会话主视图头部工具区插槽 `conversation.session.header.utilities`（list、scope session、无专属 owner props），面板 SHALL 提供工具清单（MCP 服务器整组/单工具、skill、内置工具分组）、会话级开关切换、用户级默认档编辑与关闭集展示。面板的读与写 SHALL 走 Connection RPC 通道（`/session-tool-toggle`），SHALL NOT 在浏览器半另建状态存储：面板与 `/tools` 命令面 SHALL 共用同一 per-session 状态、同一掩码层与同一持久化记录。面板 SHALL NOT 提供插件配置键（如 `storage`、`protectedTools`）的编辑面。全部 UI 文案 SHALL 来自插件自有 locale 命名空间；宿主响应 SHALL 只携带稳定失败码与结构化事实，SHALL NOT 作为唯一文案来源。
 
 #### Scenario: 入口在会话头部渲染
 

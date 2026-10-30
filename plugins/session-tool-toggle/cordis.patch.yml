@@ -1,0 +1,17 @@
+# dsh-plugin-session-tool-toggle bundle patch：把本插件的注册行插进 profile 名单。
+# 应用方式：作为 profile 的 bundle 层（package.json 的 `dsh.bundle.patch` 字段）叠加在
+# dsh-base 之上；`dsh plugin --profile web add <本目录>` 即可激活。
+#
+# 该行以「裸包名」（不给路径、不给 config）插入，这一形态是 REQUIRED：Web 侧的
+# client-module scan 正是从这一行读取 package.json 里的 `dsh.client` 声明，浏览器半
+# （`exports "./client"` → `/plugins/<id>/client.js`）才会进入启动图。同一个包同时是：
+#   - 宿主半（`exports "."`）：`/tools` 命令面、会话级掩码层、默认档，以及 Connection
+#     RPC 通道 `/session-tool-toggle`（Web 面板的四个端点）；
+#   - 浏览器半（`exports "./client"`）：会话头部工具区（`conversation.session.header.utilities`）
+#     的配置面板入口。
+# 去掉裸包名行 = 浏览器半静默消失，面板入口不再出现。
+#
+# profile 级不带 `config:` 段：全部配置键可选（--dump-config-schema 可见）。
+- insert:
+    - id: session-tool-toggle
+      name: 'dsh-plugin-session-tool-toggle'

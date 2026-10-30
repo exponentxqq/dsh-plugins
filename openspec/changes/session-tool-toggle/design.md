@@ -34,7 +34,7 @@
 
 **栈识别结论（writer skill）**：本仓为 TypeScript/pnpm workspace 的 DSH(Cordis) 插件仓，聚合层无对应 writer skill（仅 spring-writer/nuxt-writer，分属 Java/Vue 栈）——**用户已于 2026-10-30 拍板豁免本次加载**（仅本次有效，如实标注）。替代硬约束 = 仓库 AGENTS.md「插件结构约定」「DSH 基线」「开发与验证命令」+ project-mcp 先例。
 
-- **D0 持久化双实现**（P1=c 拍板）：默认 `appendPluginRecord`（type `plugin:session-tool-toggle/state`，整值事件）+ host-only 投影 key `sessionToolToggle`（stateVersion 1）；`ctx.storageDomain` 自有域为同一 `StateStore` 端口第二实现（配置键 `persistence: 'record' | 'storage-domain' | 'memory'`）。被否：仅记录通道（官方 README 明写仓外不得调用，无退路）；仅自有域（丢 fork/resume 免费语义、要 GC）。
+- **D0 持久化双实现**（P1=c 拍板）：默认 `appendPluginRecord`（type `plugin:session-tool-toggle/state`，整值事件）+ host-only 投影 key `sessionToolToggle`（stateVersion 1）；`ctx.storageDomain` 自有域原设计为同一 `StateStore` 端口第二实现，**实现期按 R12 收窄**：v1 只做 `record` + `memory` 两条通道（配置键 `storage: 'auto' | 'memory'`），storage-domain 降为 v2 候选。被否：仅记录通道（官方 README 明写仓外不得调用，无退路）；仅自有域（丢 fork/resume 免费语义、要 GC）。
 - **D1 宿主模块身份断言**：`appendPluginRecord` 写入是类静态块私有钩子（`dsh-session/lib/index.js:1540-1548`）——只有宿主那一份 `dsh-session` 能写，bundle 自带副本 brand 失败。设计：`realpath(process.argv[1])` → dsh 包根 → `createRequire` 解析 → 动态 `import()` + `mod.Session === session.constructor` 身份断言（已 spike 实证）。**禁止**用 `session.append` 伪造记录：写不出 `ignorable: true`，而缺失该标记的未知事件会令旧读者拒绝重建会话日志。
 - **D2 命令面单命令**（P2=a 拍板）：单一 `/tools` + 子文法 `off/on/status/default`，`input.hint` 给文法；被否：四独立命令（解析与文案四份）。
 - **D3 地址文法**：`mcp:<server>` / `mcp:<server>::<tool|尾部*>` / `tool:<name>`（`skill` 解析期归一 `tool:skill`；单工具匹配打在 public name `mcp__<server>__<raw>` 上，serverName 文法不含 `::` 故无歧义）。
@@ -56,11 +56,13 @@
 - **D19 批量开关全有或全无**：同一请求内文法/保护/reserved 一次判完，任一非法整单拒绝不写状态；被否：部分成功 + 逐地址回执（与命令面「一条命令一个结果」分叉，UI 多一层渲染）。
 - **D20 端点集 4 个**：`panel`/`toggle`/`reset`/`defaults` 四种成功值形状（reset 与 toggle 共享 ToggleValue 形状）；通道 `/session-tool-toggle`（包名即通道名的 web-ux 约定，安装树内无官方占用，同名 route 撞车是启动期显式失败）；被否：单写端点 + op 判别字段、默认档读拆第五端点。
 
+**执行环境（2026-10-30 衔接点拍板）**：直用主工作区——隔离判据均不命中（工作区干净 `git status --porcelain` 空、当前分支 `main`、无并行变更 worktree）。布局：无 worktree，代码与工件同落 `/home/xuqinqin/develop/person/dsh-plugins` @ `main`；装配：仓库根 `pnpm install`（node 族命令走容器包装脚本）；环境错开：不适用；创建于 2026-10-30。执行模式 `auto`、引擎 `subagent`（映射默认）、apply 主路由覆盖为 `deepseek-official/deepseek-flash`（`--model` 参数；fallback 保持映射文件 `opencode-go/deepseek-v4.1-flash`）。
+
 ## 触达面与接口形状（映射 code-design ①③）
 
 **新增**（根仓 `plugins/session-tool-toggle/`，全部新建，**双端**）：`package.json`（`exports "."` + `"./client"`、`dsh.client` web 声明）/ `cordis.patch.yml`（仅 insert 一行，零配置可跑）/ `build.mjs`（宿主 + client 两次构建）/ tsconfig×4 / `vitest.config.ts`（jsdom 面）/ `.gitignore` / `src/index.ts`（形状转发）/ `src/host/{index,types,address,state,mask,session-layer,host-runtime,record-store,defaults,commands,control,panel,rpc}.ts`（宿主 13 个）/ `src/contract.ts`（两端共享线上契约，零 import）/ `src/client/`（8 个：index/panel-client/panel-controller/ToolPanelAction.tsx/ToolPanelGroups.tsx/DefaultsEditor.tsx/locales/panel.module.css）+ `src/css-modules.d.ts`——合计 ≈3,660–4,590 行 / `test/*`×17（≈2,350 行，含 jsdom 组件套件、locale parity、bundle 纯度）/ `README.md`。
 **修改**（根仓）：`README.md` 插件清单表 + `AGENTS.md` 插件清单与「四个软插件」计数；`pnpm-workspace.yaml` 仅当 zod 被发布年龄门拦截时追加豁免（条件项）。
-**核心接口**：`SessionToolState{version,disabled,snapshot,seeded,updatedAt}`（整值）；记录 type `plugin:session-tool-toggle/state`；端口在原六端口（`ScopedSurface/StateStore/HostSessionApi/SpecLog/DefaultsFile/Config`）上增 `ControlDeps`/`PanelInputs`/`LayerHandle`；Web wire 契约：通道 `/session-tool-toggle`、4 端点（panel/toggle/reset/defaults）、宿主失败码 7（bad-request/bad-address/protected/reserved/session-not-live/defaults-unwritable/internal）+ 传输码 2（unavailable/bad-response）；配置键 `persistence` / `protectedTools` / `defaultsPath?` / `maxRetries?`。关键不变量在原 10 条上增 2 条（「面板与命令面共用同一状态与同一写入路径」「web 契约零外部依赖、两端各内联一份」），见 code-design ③.9 与其附录增量设计。
+**核心接口**：`SessionToolState{version,disabled,snapshot,seeded,updatedAt}`（整值）；记录 type `plugin:session-tool-toggle/state`；端口在原六端口（`ScopedSurface/StateStore/HostSessionApi/SpecLog/DefaultsFile/Config`）上增 `ControlDeps`/`PanelInputs`/`LayerHandle`；Web wire 契约：通道 `/session-tool-toggle`、4 端点（panel/toggle/reset/defaults）、宿主失败码 7（bad-request/bad-address/protected/reserved/session-not-live/defaults-unwritable/internal）+ 传输码 2（unavailable/bad-response）；配置键 `storage: 'auto' | 'memory'` / `protectedTools` / `defaultsFile?` / `hostModuleBase?`（实现期定稿，见 diff-matrix R5）。关键不变量在原 10 条上增 2 条（「面板与命令面共用同一状态与同一写入路径」「web 契约零外部依赖、两端各内联一份」），见 code-design ③.9 与其附录增量设计。
 
 ## Risks / Trade-offs
 

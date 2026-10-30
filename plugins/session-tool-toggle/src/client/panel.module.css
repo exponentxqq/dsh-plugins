@@ -1,0 +1,357 @@
+/*
+ * 会话工具面面板的层级样式（设计附录 §1.1 的 `panel.module.css` 行）。
+ *
+ * 骨架（遮罩、卡片、标题、关闭按钮、按钮、开关、输入框）全部由官方 primitives 提供，本文件
+ * 只补 Modal 骨架之外的层级：分区标题、行高、徽标、禁用态、折叠箭头、chip。颜色一律取官方
+ * `--dsw-alias-*` 设计令牌并带静态兜底——令牌改名时最坏退化成可读的黑白而不是透明。
+ *
+ * 两处与官方组件同名的覆盖（`.trigger` 压 Button 的尺寸与配色）沿用仓内先例
+ * （`plugins/web-ux/src/client/delete.module.css` 的 `.danger`）：primitives 的样式同样是
+ * 单类选择器，插件样式在其后注入即生效。
+ */
+
+/* —— 会话头部的入口按钮：28px 圆形，视觉与同座位的官方触发器一致（设计 §3.1） —— */
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--dsw-alias-label-tertiary, #7f8287);
+  border-radius: 28px;
+}
+
+.trigger:hover:not(:disabled) {
+  color: var(--dsw-alias-label-primary, #000);
+  background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 6%));
+}
+
+/* —— 面板卡片与滚动区：宽 min(760px, 100vw - 32px)，正文区自己滚（设计 §3.2） —— */
+.dialog {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: min(760px, calc(100vw - 32px));
+  max-width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 96px);
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* —— 分区与分区标题（四段自上而下） —— */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sectionTitle {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary, #545557);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  letter-spacing: 0.01em;
+}
+
+/* —— 状态摘要：四计数一行 + 三条事实行 —— */
+.counters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 18px;
+  margin: 0;
+  padding: 0;
+  color: var(--dsw-alias-label-secondary, #545557);
+  font-size: 13px;
+  line-height: 20px;
+  list-style: none;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary, #7f8287);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.muted {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary, #7f8287);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* 变更代价形状（`mutation.kv`）：信息性提示，用业务蓝而不是警告色。 */
+.notice {
+  margin: 0;
+  color: var(--dsw-alias-state-business-primary, #1a67e0);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* 降级提示（`persistence-degraded`）与默认档损坏：必须读到的坏消息。 */
+.warning {
+  margin: 0;
+  color: var(--dsw-alias-state-warn-primary, #dd8629);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* —— 失败行：主文案本地化，宿主原文只作二级灰字（设计 §3.5） —— */
+.error {
+  margin: 0;
+  color: var(--dsw-alias-state-error-primary, #ec1313);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.detail {
+  margin: 4px 0 0;
+  color: var(--dsw-alias-label-tertiary, #7f8287);
+  font-size: 12px;
+  line-height: 18px;
+  word-break: break-word;
+}
+
+/* 不可用降级：没有快照时独占正文区，给这块占位一点内边距。 */
+.failureBlock {
+  padding: 10px 0;
+}
+
+.loading {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary, #7f8287);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+/* —— 分组清单 —— */
+.groups {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-top: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));
+}
+
+.group:first-child {
+  border-top: none;
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+}
+
+/* 标题区是折叠目标：铺满剩余宽度，开关在右侧独立成命中区（点开关不折叠）。 */
+.groupToggle {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 6px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: 8px;
+}
+
+.groupToggle:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 6%));
+}
+
+.groupTitle {
+  color: var(--dsw-alias-label-primary, #000);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.groupName {
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary, #545557);
+  font-family: var(--ds-font-family-code, monospace);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.groupCounts {
+  color: var(--dsw-alias-label-tertiary, #7f8287);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* 内置工具分区的本地过滤输入（只影响展示）。 */
+.filterRow {
+  padding: 0 6px 6px;
+}
+
+.filter {
+  display: inline-flex;
+  width: 100%;
+}
+
+.filter input {
+  width: 100%;
+}
+
+/* 组内工具行：一行一个开关，行高对齐 Switch 的 28px 命中区。 */
+.rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0 0 6px;
+  padding: 0 6px 0 26px;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 30px;
+}
+
+.rowName {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.name {
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary, #000);
+  font-family: var(--ds-font-family-code, monospace);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 行级锁定短标签（`entry.protected` / `entry.reserved` / `entry.shadowed`）。 */
+.tag {
+  flex: none;
+  padding: 0 6px;
+  color: var(--dsw-alias-label-tertiary, #7f8287);
+  font-size: 11px;
+  line-height: 16px;
+  border: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 12%));
+  border-radius: 999px;
+}
+
+/* 「正在应用…」：与行标签同级，不抢注意力。 */
+.pending {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary, #7f8287);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.empty {
+  padding: 2px 0 6px;
+  color: var(--dsw-alias-label-tertiary, #7f8287);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* —— 关闭集 / 默认档共用的 chip 列表 —— */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 4px 2px 8px;
+  background: var(--dsw-alias-bg-layer-2, #f7f7f8);
+  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));
+  border-radius: 999px;
+}
+
+.address {
+  font-family: var(--ds-font-family-code, monospace);
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary, #545557);
+  word-break: break-all;
+}
+
+/* `intent` 徽标：该地址当前 0 匹配，意图已记录（设计 §3.2 第 4 段）。 */
+.badge {
+  flex: none;
+  padding: 0 6px;
+  color: var(--dsw-alias-label-primary-inverted, #fff);
+  font-size: 11px;
+  line-height: 16px;
+  background: var(--dsw-alias-state-business-primary, #1a67e0);
+  border-radius: 999px;
+}
+
+/* —— 默认档编辑区 —— */
+.path {
+  color: var(--dsw-alias-label-secondary, #545557);
+  font-family: var(--ds-font-family-code, monospace);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.addRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.addInput {
+  display: inline-flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.addInput input {
+  width: 100%;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+/* 「已保存（本会话不变）」：保存成功的瞬时确认，用成功色。 */
+.saved {
+  color: var(--dsw-alias-state-success-primary, #16955f);
+  font-size: 12px;
+  line-height: 18px;
+}
