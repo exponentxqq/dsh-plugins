@@ -2,13 +2,13 @@
 
 ## Purpose
 
-会话级工具面开关能力：让每个 DSH 会话能独立关闭不需要的模型可见工具（MCP 服务器整组/单工具、内置工具、skill 整档），即时降低每步请求的工具 schema 与指令段 token 成本，且开关状态随会话日志持久并在 fork/resume 时保持。
+会话级工具面开关能力：让每个 DSH 会话能独立关闭不需要的模型可见工具（MCP 服务器整组/单工具、内置工具、skill 整档），即时降低每步请求的工具 schema 与指令段 token 成本，且开关状态随会话日志持久并在 fork/resume 时保持。交互面包含零 token 的命令通道与 Web 组合下的图形化配置面板，两者共享同一状态与同一持久化记录。
 
 ## ADDED Requirements
 
 ### Requirement: 会话级开关语义
 
-插件 SHALL 在每个会话（agent）上独立维护一组关闭集（组地址列表），关闭的对象在该会话后续每次模型步骤中不可见（schema 被掩蔽）且被调用时拒绝（守卫返回可读理由）；开关变更 SHALL 在下一次模型步骤生效。开关 SHALL 只影响本会话的作用域，不影响同 profile 的其他会话。与其他掩码机制（如 project-mcp 的工作区隔离）SHALL 取交集组合：被其他机制隔离掉的工具，本能力 SHALL NOT 使其重新可见。
+插件 SHALL 在每个会话（agent）上独立维护一组关闭集（组地址列表），关闭的对象在该会话后续每次模型步骤中不可见（schema 被掩蔽）且被调用时拒绝（守卫返回可读理由）；开关变更 SHALL 在下一次模型步骤生效。开关 SHALL 只影响本会话的作用域，不影响同 profile 的其他会话。与其他掩码机制（如 project-mcp 的工作区隔离）SHALL 取交集组合：被其他机制隔离掉的工具，本能力 SHALL NOT 使其重新可见。Web 配置界面与 `/tools` 命令面 SHALL 共用同一 per-session 关闭集、同一掩码层与同一持久化记录；两个入口的一次变更 SHALL 在下一次模型步骤同时生效。
 
 #### Scenario: 会话内关闭 MCP 服务器组
 
@@ -46,7 +46,7 @@
 
 ### Requirement: 内置工具开关与保护名单
 
-`tool:<name>` 地址 SHALL 适用于内置工具，但存在硬保护名单（自救与文件操作基础工具，基线：bash/read/edit/write/glob/grep，只可追加不可移除），名单内工具 SHALL 拒绝关闭并返回保护理由；名单外内置工具（如任务板、便签、日程、团队任务等大 schema 系列）SHALL 可关闭。
+`tool:<name>` 地址 SHALL 适用于内置工具，但存在硬保护名单（自救与文件操作基础工具，基线：bash/read/edit/write/glob/grep，只可追加不可移除），名单内工具 SHALL 拒绝关闭并返回保护理由；该拒绝 SHALL 由宿主在解析期统一执行，命令面与 Web 配置界面 SHALL 得到同一结果；Web 配置界面 SHALL 将名单内工具呈现为不可切换。名单外内置工具（如任务板、便签、日程、团队任务等大 schema 系列）SHALL 可关闭。
 
 #### Scenario: 保护名单拒关
 
@@ -60,7 +60,7 @@
 
 ### Requirement: 用户级默认档
 
-插件 SHALL 提供用户级默认档文件（`$DSH_HOME/session-tool-toggle/defaults.json`，内容为组地址数组），`/tools default` 子命令 SHALL 支持查看与增删（写入原子替换，损坏文件降级为空档并告警）。新会话（含子代理与队友会话）创建时 SHALL 对默认档拍快照作为初始关闭集；默认档后续变更 SHALL NOT 追溯已存在会话。主会话的会话级开关 SHALL NOT 传播给其派生的子代理/队友（各会话独立快照）。
+插件 SHALL 提供用户级默认档文件（`$DSH_HOME/session-tool-toggle/defaults.json`，内容为组地址数组），`/tools default` 子命令 SHALL 支持查看与增删（写入原子替换，损坏文件降级为空档并告警）；Web 配置界面 SHALL 提供同一默认档的查看与增删，SHALL 走同一校验与原子写路径；面板对默认档的任何修改 SHALL NOT 追溯已存在会话。新会话（含子代理与队友会话）创建时 SHALL 对默认档拍快照作为初始关闭集；默认档后续变更 SHALL NOT 追溯已存在会话。主会话的会话级开关 SHALL NOT 传播给其派生的子代理/队友（各会话独立快照）。
 
 #### Scenario: 新会话按默认档初始化
 
@@ -95,3 +95,37 @@
 
 - **WHEN** 会话日志插件记录通道写入失败（身份断言失败或写入抛错）
 - **THEN** 开关在本会话内继续生效（内存态），命令回执或日志明示「本会话状态不会跨 resume 保持」
+
+### Requirement: Web 配置界面
+
+插件 SHALL 在 Web 组合下提供会话级工具面的图形化配置界面：入口 SHALL 注册在会话主视图头部工具区插槽 `conversation.session.header.utilities`（list、scope session、无专属 owner props），面板 SHALL 提供工具清单（MCP 服务器整组/单工具、skill、内置工具分组）、会话级开关切换、用户级默认档编辑与关闭集展示。面板的读与写 SHALL 走 Connection RPC 通道（`/session-tool-toggle`），SHALL NOT 在浏览器半另建状态存储：面板与 `/tools` 命令面 SHALL 共用同一 per-session 状态、同一掩码层与同一持久化记录。面板 SHALL NOT 提供插件配置键（如 `persistence`、`protectedTools`）的编辑面。全部 UI 文案 SHALL 来自插件自有 locale 命名空间；宿主响应 SHALL 只携带稳定失败码与结构化事实，SHALL NOT 作为唯一文案来源。
+
+#### Scenario: 入口在会话头部渲染
+
+- **WHEN** Web 组合加载了本插件的浏览器半，且会话主视图头部已挂载
+- **THEN** 头部工具区出现本插件的图标按钮（`order` 位于官方三项之后），带可读的 `aria-label` 与 `aria-expanded`；点击后打开面板，面板标题与分区文案来自本插件 locale
+
+#### Scenario: 面板切换等效命令面
+
+- **WHEN** 用户在面板里关闭 MCP 服务器 `yunxiao` 的整组开关
+- **THEN** 宿主按 `mcp:yunxiao` 地址写入关闭集（与 `/tools off mcp:yunxiao` 同一状态与同一记录），响应带回变更后的快照与新可见计数；下一次模型步骤该服务器工具不可见且指令段消失；随后在命令面执行 `/tools status` 显示同一关闭集
+
+#### Scenario: 保护名单在面板上不可切换
+
+- **WHEN** 面板渲染内置工具清单，其中含 `bash`
+- **THEN** `bash` 行的开关为禁用态并给出保护理由的 `title`，点击不发出任何 RPC 请求；即便伪造请求，宿主也以 `protected` 拒绝且不改变状态
+
+#### Scenario: 默认档编辑不追溯当前会话
+
+- **WHEN** 会话 A 已创建，用户在面板的默认档区添加 `mcp:figma` 并保存
+- **THEN** 宿主写入默认档文件、返回新的默认档视图，会话 A 的关闭集与可见工具面**不变**；面板显示「只影响之后新建的会话」，且新会话按新默认档初始化
+
+#### Scenario: RPC 不可用时的降级表现
+
+- **WHEN** 浏览器半加载但通道不可达（宿主半未挂载 / 非 Web 组合 / 传输失败）
+- **THEN** 入口按钮仍渲染；打开后显示「无法连接到 dsh 主进程」的降级状态且不展示任何开关；命令面能力不受影响；会话与界面均不崩溃
+
+#### Scenario: 会话不在宿主中运行
+
+- **WHEN** 用户打开一个已归档（或已结束）会话的头部按钮
+- **THEN** 面板以 `session-not-live` 的解释性状态呈现（不提供开关），不发修改类请求，界面不报错

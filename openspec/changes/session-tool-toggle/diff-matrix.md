@@ -102,3 +102,17 @@
 4. **默认档**：`$DSH_HOME` 下用户级文件，命令可写（`/tools-default` 类），会话创建时快照生效，不追溯。
 5. **命令面**：`/tools`（查当前 + 默认 + 两态区分）、会话级开关、默认档读写；回执含 KV 缓存重建提示（对称）。
 6. **v2 候选池**：per-skill 开关、子代理继承、Web 面板、工作区级默认档、上游化。
+
+---
+
+## 扩展轮收敛记录（2026-10-30 · Web 配置面板）
+
+- **需求输入**：用户「我还想要一个配置界面，入口就放到会话的...的菜单项中」。
+- **Lead 侦察事实**（落档前已核实）：两处现成注入口——侧栏会话行 `sidebar.workspaces.session.menu.item`（list，官方 pin/rename/fork/archive 占 order 100–400，web-ux 先例 order 500）与会话主视图头部 `conversation.session.header.utilities`（list、scope session、owner 无专属值，官方 schedule/open-in-app 在此注入）；web-ux 双端工程先例全套（exports 双入口 / ModuleLoader 壳 / css modules 内联 / bare-name 锚行）；Connection RPC 通道形态（宿主 `connection.rpc.handle` + client `connection.rpc.call`，`ctx.root` 读取坑位）。
+- **用户拍板（四问四答）**：① 入口 = 会话主视图头部工具区（utilities 插槽，非侧栏菜单）；② 归属 = 扩入现有变更（修订四件套，不新开变更）；③ 面板能力 = 完整管理面板（工具清单分组 + 会话级开关 + 默认档编辑 + 关闭集展示）；④ 配置键编辑 = 不包含。
+- **编排拍板**：轻量增量（Lead 定增量要点 + 单设计线 subagent 深化 + Lead 落档修订），不重走并行双线 team——理由：需求已由四项拍板收敛、底座已有 685 行 code-design、增量集中在三块（Web 组件 / RPC 通道 / 双端工程）。
+- **设计线**：fresh subagent（deepseek-official/deepseek-flash 路由，同阶段 1.7 既定 design 路由），产物 `/tmp/spec-flow/session-tool-toggle/web-panel-design.md`（736 行，7 章 + 附录 A 修订索引；所有 DSH 断言带 file:line，未核实项标注「待实现期实测」）→ 全文并入 `code-design.md` 附录。
+- **关键新结论**：架构支点 `src/host/control.ts` 单一控制内核（commands.ts 降为文本前端，面板 RPC 与命令共用同一 StateStore/SessionLayer，无第二份状态）；通道 `/session-tool-toggle` 4 端点；入口 order 20；面板组件内自渲染 Modal（不借 shell.overlay）；host-only 投影不加 wire（拉取 + 四类刷新触发）；线上契约手写 parser（zod 草案仅形状权威）；批量开关全有或全无；决策 D12–D20、风险 R1–R8、未决 U1–U8。
+- **Lead 裁定（对设计线建议的一处裁剪）**：spec 增量落档**不设** `## MODIFIED Requirements` 段——`dsh-session-tool-toggle` 是本 change 新增 capability（delta 全为 ADDED、尚未部署），直接修改 ADDED 段内对应 Requirement 文本即可；MODIFIED 段语法适用于已部署 capability 的修订。其余设计线建议全部采纳。
+- **落档动作**：proposal（What/Impact/Capabilities 双端化）、spec（Purpose 补句 + 3 个既有 Requirement 补句 + 新增「Web 配置界面」Requirement 含 6 Scenario）、design（D12–D20 + 触达面更新 + R1–R8 + Migration 重启说明 + U1–U8）、tasks（新组 9「共享控制内核与 Web RPC 通道」5 任务 + 新组 10「client 半」5 任务，原 9/10 顺延为 11/12 含 11.3 截图证据，1.1/8.1/follow-up 修订）、code-design 附录并入、本记录。
+- **分歧复算**：0 条（设计线与既有规划无冲突；唯一裁量点即上述 MODIFIED 段处理）。

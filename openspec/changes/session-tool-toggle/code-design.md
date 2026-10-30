@@ -3,6 +3,7 @@
 > **本文只回答四件事**：动哪些文件、每个文件怎么改、接口与数据形状长什么样、为什么这么定。需求级论证见 `line-a.md` / `line-b.md`，已定结论见 `diff-matrix.md`（本文视其为硬约束，**不复读、不推翻**）。
 > **事实来源**：本机 DSH `0.2.1-rc.2` 安装包（`/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/*`，下称 `dsh/`）、本仓 4 个插件源码、`~/.dsh/profiles/web/` 实配、`/home/xuqinqin/develop/company/opc/.dsh/mcp/`。文中每个判断都挂了 `file:line`；查不到的一律进 ⑥。
 > **本轮实测基线**（可复现，见 ⑤ T7）：本会话可见工具 **214** 个，其中 MCP **139**（yunxiao 70、chrome-devtools-mcp 32、dbx 18、codebase-memory 17、figma 2），非 MCP 75。测量面 = Host Inspect Provider `Tool.listTools`（「Tools visible to the requesting Agent」）。
+> **2026-10-30 扩展修订**：用户追加 Web 配置面板需求（入口=会话头部 utilities 插槽，四项拍板见文末附录引言），增量设计全文见**附录「Web 配置面板扩展增量设计」**；原文 ①–⑥ + P1–P3 结构不动，凡附录覆盖处（触达面、决策 D12–D20、任务组 T9/T10、假设 A12/A13、未决 U8）以附录为准，逐节对应关系见附录 A 修订索引。
 
 ---
 
@@ -683,3 +684,746 @@ export interface Config {
   - c) 套用「服务器组」类默认项，不套用「单工具/内置工具」类（保守折中，实现多一层过滤）。
 - **我的推荐**：**a**。理由：默认档是用户对「我这个部署默认不要什么」的表达，与「某个会话的选择」无关；不套用会让最重的 token 场景（agent team）完全免税。这不是推翻 C6——C6 约束的是**主会话状态**，默认档是另一条机制。
 - **影响面**：`agent/created` 的快照分支是否按 `origin/delegationDepth` 过滤、README 的语义声明、T8 冒烟是否加一条子代理用例。
+
+---
+
+# 附录 · Web 配置面板扩展增量设计（2026-10-30）
+
+> **本轮扩展的输入与编排**：用户追加需求「配置界面，入口放到会话头部的 "..." 工具区」；四项拍板（① 入口=`conversation.session.header.utilities`；② 归属=扩入本变更、插件变双端；③ 能力=完整管理面板；④ 不含配置键编辑）+ 编排拍板（轻量增量：Lead 事实核查与要点 + 单设计线 fresh subagent（deepseek-official/deepseek-flash 路由）深化 + Lead 落档修订）。以下为设计线产物全文（原文未改，其「本文」指本附录；与正文 ①–⑥ 的关系见文末附录 A 修订索引）。
+
+# session-tool-toggle · Web 配置面板扩展设计（增量修订）
+
+> **本文是 `code-design.md`（685 行）的增量修订，不是重写。** 未在本文出现的判断（地址文法、掩码引擎、持久化、默认档语义、命令面、六端口、10 条不变量）一律沿用 `code-design.md`，本文只回答「加一个 Web 面板要动什么」。
+>
+> **本次扩展的用户拍板（不可更改）**：① 入口 = `conversation.session.header.utilities`；② 归属 = 扩入本变更、插件从纯宿主变双端；③ 能力 = 完整管理面板（工具清单 + 会话级开关 + 用户级默认档编辑 + 关闭集展示）；④ 不含配置键编辑。
+>
+> **事实来源**：本机 DSH `0.2.1-rc.2` 安装包（`/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/*`，下称 `dsh/`）、本仓双端先例 `plugins/web-ux/`、仓内 `node_modules` 里的 client 包（`plugins/web-ux/node_modules/@deepseek-ai/*`，下称 `repo/`）。每条关键断言都带 `file:line`；查不到或未实测的一律标 **「待实现期核实」** 并收进 §6.2。
+>
+> **规模总览**：新增 12 个 src 文件（共享契约 1 + 宿主 3 + client 8，≈2,260–2,890 行含注释）、10 个测试文件 + 1 个 primitives 替身（≈1,450 行）、7 处既有文件改写（含 `cordis.patch.yml` 仅注释）；端点 4 个、失败码 7 个（宿主侧）+ 2 个（传输侧）；新任务组 2 个（组 9、10），既有任务改动 6 条；新增决策 D12–D20 共 9 条。
+
+---
+
+## 1. 触达面增量
+
+### 1.1 新增文件清单
+
+> 「code-design 锚」列指明该文件在 `code-design.md` §1.1 表中**追加**在哪一行之后；`—` 表示本次扩展新增、原文无对应概念。
+
+#### 共享（两端各内联一份，不共享运行时身份）
+
+| 路径 | 改动意图 | 关键改动点 | 规模估 | code-design 锚 |
+|---|---|---|---|---|
+| `src/contract.ts` | **网上契约唯一事实来源**：通道名、端点集、失败码、请求/响应形状、边界 parser | 纯数据模块，**零 import**（不 `node:*`、不 `@deepseek-ai/*`、不 `zod`）；4 端点各一对请求/响应 parser；失败码常量表 + `isFailureCode`；地址长度/数量上限；`strict` 语义（未知字段视为越界） | 220–260 | 新增（无对应行；与 web-ux `src/contract.ts` 同构） |
+
+#### 宿主半（新增 3 个）
+
+| 路径 | 改动意图 | 关键改动点 | 规模估 | code-design 锚 |
+|---|---|---|---|---|
+| `src/host/control.ts` | **命令面与 Web RPC 的唯一用例内核**（本扩展的架构支点） | `toggleSession` / `resetSession` / `readPanel` / `writeDefaults` 四个 typed 用例；依赖注入 `ControlDeps`（StateStore + `layerFor(sessionId)` + defaults io + 保护名单 + log）；**校验-全有或全无**、`withToggled` → `store.write` → `layer.setState` 的固定顺序；回执字段（applied/matched/hiddenTools/visibleBefore/After/kvRebuild/notices） | 260–320 | 在 `src/host/commands.ts` 行**之前**插入；`commands.ts` 由「实现者」降级为「文本前端」 |
+| `src/host/panel.ts` | 面板快照的**纯函数**构建器（可单测、无 IO） | `buildPanelSnapshot(inputs): PanelSnapshot`；三读并集 → 名字集合 → 分组（`mcp:<server>` / `skill` / builtin）→ 每条目的 `disabled/protected/reserved/shadowed` 标记；描述截断 160 字符、**不携带 parameters**；`stats` 四计数；`notices` 汇总 | 220–280 | 在 `src/host/mask.ts` 行后插入（复用 `planMask` 的读数面语义） |
+| `src/host/rpc.ts` | Connection RPC 通道装配与 dispatcher | `CHANNEL`/端点派发；请求先过 `contract.ts` parser；异常与业务拒绝统一映射为 `ConnectionRpcResult`；`signal`/`peer` 透传但**不信任 payload** | 200–260 | 在 `src/host/host-runtime.ts` 行后插入（宿主侧外部入口） |
+
+#### client 半（新增 8 个）
+
+| 路径 | 改动意图 | 关键改动点 | 规模估 | code-design 锚 |
+|---|---|---|---|---|
+| `src/client/index.ts` | client 插件 `apply`：文案注册 + 座位注册 + 命令事件桥 | `inject: ['slots','locale']`（`connection` 渲染期软读，不进 `inject`）；`ctx.effect(() => ctx.locale.register(NS, {zh,en}))`；`ctx.slots.inject('conversation.session.header.utilities', …)` + `try/catch` 软注册；`ctx.effect(() => ctx.on('command/executed', …))` 生产跨 entry 的订阅面 | 120–150 | 新增目录 `src/client/`（原文纯宿主，§1.1 无该目录） |
+| `src/client/panel-client.ts` | Connection RPC 客户端封装 | `createPanelClient(connection)`；`connection.rpc.call(CHANNEL, endpoint, payload)`；响应过 `contract.ts` parser；失败归一 `PanelError{code}`；`command/executed` 订阅面 | 130–170 | — |
+| `src/client/panel-controller.ts` | 面板状态机（**可脱离 React 单测**） | `idle→loading→ready/failed`；`pending: Set<address>`、`savingDefaults`；`open/close/refresh/toggle/reset/writeDefaults`；快照 identity 稳定（喂 `useSyncExternalStore`）；stale-while-revalidate（保留上一份快照渲染新一次加载） | 220–280 | — |
+| `src/client/ToolPanelAction.tsx` | 头部**入口按钮 + 面板容器** | 28px 圆形图标按钮（`aria-label`/`title`/`aria-expanded`）；`Modal`（primitives）承载面板；四段布局（状态摘要 / 分组清单 / 默认档 / 关闭集）；不借 `shell.overlay` | 260–340 | — |
+| `src/client/ToolPanelGroups.tsx` | 分组清单与开关 | MCP 服务器行（可折叠到单工具）、skill 行、内置工具分区（本地过滤输入）；`Switch` 受控，`pending` 期间禁用；保护/reserved/shadowed 三态禁用 + `title` 理由；行级"意图已记录（0 匹配）"徽标 | 180–240 | — |
+| `src/client/DefaultsEditor.tsx` | 用户级默认档编辑区 | 条目列表 + 删除；自由文本输入（文法提示）+ 添加；文件路径与「只影响之后新建的会话」；当前会话快照来源（创建时间 + 快照条目数）；保存后只刷新 defaults 视图 | 140–190 | — |
+| `src/client/locales.ts` | 双语文案（NS `sessionToolToggle`） | 扁平 `Record<Key,string>`；`en` 用 `satisfies Record<Key,string>` 钉住；`declare module` 注册 `LocaleNamespaceMap`；失败码 → 文案键映射 | 160–200 | — |
+| `src/client/panel.module.css` | 面板样式 | 仅补 Modal 骨架之外的层级（分区标题、行高、徽标、禁用态、折叠箭头）；颜色一律 `--dsw-alias-*` 令牌 + 静态兜底 | 150–200 | — |
+
+**client 半文件数与行数**：8 个文件、≈1,360–1,770 行；宿主半 3 个文件、≈680–860 行；共享契约 1 个、≈220–260 行。
+
+#### 测试（新增 10 个 + 2 处扩展）
+
+| 路径 | 覆盖 | 规模估 |
+|---|---|---|
+| `test/wire-contract.test.ts` | 4 端点请求/响应的边界表：越界字段、超长地址、`reset` 带 addresses、空数组、未知端点 | 120 |
+| `test/control.test.ts` | 共享内核：保护名单整体拒绝（不写盘）、0 匹配仍记意图、无变化返回同引用、写失败降级内存态、`reset` 回快照 | 150 |
+| `test/panel.test.ts` | 分组纯函数：`mcp__x__y` 归属、`_` 与 `__` 歧义、skill/内置分区、shadowed 标记、描述截断、stats 四计数 | 180 |
+| `test/rpc.test.ts` | dispatcher：端点派发、parser 失败 → `bad-request`、业务码透传、抛错 → `internal`、`session-not-live` | 160 |
+| `test/panel-client.test.ts` | 传输失败 → `unavailable`、坏信封/坏响应 → `bad-response`、宿主码原样保留 | 100 |
+| `test/panel-controller.test.ts` | 状态机：打开即拉取、并发 toggle 的 pending 集、失败后保留旧快照、`command/executed` 触发刷新（仅本会话 + `tools`） | 160 |
+| `test/tool-panel.test.tsx` | jsdom：入口按钮存在且带 `aria-label`；保护名单 Switch `disabled` 且不发请求；切组开关发出 `mcp:<server>`；默认档添加/删除；`unavailable` 降级文案 | 220 |
+| `test/client-index.test.ts` | `apply` 只注册一次座位、`locale.register` 被调用、`connection` 缺席时入口仍注册 | 80 |
+| `test/locale-parity.test.ts` | zh/en 键集合一致（照抄 web-ux 同名套件） | 60 |
+| `test/bundle.test.ts` | 双端产物纯度：client 只 require 平台表词；host 只 import `node:*`；client 内联了通道/端点字面量 | 90 |
+| `test/stubs/ui-primitives.tsx`（新文件） | `Modal`/`Switch`/`Button` 的 DOM 形状替身（扩展 web-ux stub 的三个组件） | 90 |
+| `test/commands.test.ts`（扩展） | 命令面改走 control 内核后：回执字段与既有断言仍成立（防回归） | +40 |
+
+### 1.2 工程文件改动点
+
+| 文件 | 现状（code-design 规划） | 本次改写 |
+|---|---|---|
+| `package.json` | 纯宿主：`exports {".": lib/index.js}`、无 `dsh.client`、无 react peer | ① `exports` 增 `"./client": {default: "./lib/client.js"}`（形状照 web-ux `plugins/web-ux/package.json:11-20`）；② 增 `dsh.client: { inject: [...], platform: "web" }`；③ `peerDependencies` 增 `react: ^18.2.0`；④ `devDependencies` 增 client 侧包（下表）；⑤ `files` 不变（`lib/**/*.js` 已覆盖 `client.js`） |
+| `cordis.patch.yml` | 仅一行 bare-name insert | **形状不变**（bare-name 是 REQUIRED：web client-module scan 从该行读 `dsh.client`，见 `plugins/web-ux/cordis.patch.yml:6-10`），只改注释说明该行现在同时是浏览器半的锚点 |
+| `build.mjs` | 单次 esbuild（ESM、`external:['node:*']`、banner 注入 `createRequire`） | 改为**两次构建**：`buildHostCarrier()`（同现状）+ `buildClient()`（CJS + `window.__ModuleLoader__.load({id,factory})` 壳、`CLIENT_EXTERNALS` 外置、CSS modules 运行时 `<style>` 注入），整段照抄 `plugins/web-ux/build.mjs:100-152`；`PACKAGE_NAME = 'dsh-plugin-session-tool-toggle'` |
+| `tsconfig.*` | `tsconfig.base/host.json` + 根 solution 引用 | 增 `tsconfig.client.json`（include `src/client`、`src/contract.ts`、`src/css-modules.d.ts`、client 测试），根 solution 引用 host+client 两个 project；`src/css-modules.d.ts` 新文件（照 web-ux 同名文件） |
+| `vitest.config.ts` | `environment:'node'`、`include:['test/**/*.test.ts']` | ① `include` 增 `test/**/*.test.tsx`；② `esbuild.jsx: 'automatic'`；③ `resolve.alias` 指向 `test/stubs/ui-primitives.tsx`（三处均照 `plugins/web-ux/vitest.config.ts:22-31`）；④ jsdom 由各 `.tsx` 套件的 `// @vitest-environment jsdom` 文件头按需开启 |
+| `.gitignore` | `node_modules/`、`*.tsbuildinfo` | 不变（`lib/` 随仓库提交，双端产物同目录） |
+| `src/host/index.ts` | `inject:['agents','tools']` + agent 生命周期 + 命令注册 + 投影注册 | 增：① `ctx.inject(['connection','webServer'], …)` 挂载 RPC（**`webServer` 必须在 inject 名单、`connection` 必须从 `ctx.root.get` 读**，坑位说明见 `plugins/web-ux/src/index.ts:74-99`）；② 构造 `ControlDeps` 并交给 `commands.ts` 与 `rpc.ts`（同一份层注册表，禁止第二份状态） |
+| `src/host/types.ts` | 六端口 + `SessionEventLike`/`AgentLike`/`SpecLog` | 增 `ControlDeps`、`PanelInputs`、`LayerHandle`（`setState`/`snapshot`/`visibleNames`）三个端口型声明；不新增第七个「持久化端口」 |
+
+#### devDeps 增量（版本对齐仓内先例，全部已在 `pnpm-lock.yaml` 内）
+
+| 包 | 版本 | 用途 | 先例 |
+|---|---|---|---|
+| `@deepseek-ai/dsh-client-connection` | `0.2.1-rc.2` | `connection.rpc.call` / `ConnectionRpcResult` / `ConnectionHandle` 类型 | web-ux devDep 同名同版本 |
+| `@deepseek-ai/dsh-client-ui-conversation` | `0.2.1-rc.2` | `SlotMap` 里 `conversation.session.header.utilities` 的声明方 | 同上 |
+| `@deepseek-ai/dsh-client-ui-session` | `0.2.1-rc.2` | session 标准 props 合并（`sessionId`、`useSession`） | 同上 |
+| `@deepseek-ai/dsh-client-ui-renderer` | `0.2.1-rc.2` | `ctx.slots` 服务合并 | 同上 |
+| `@deepseek-ai/dsh-client-ui-primitives` | `0.2.1-rc.2` | `Modal`/`Switch`/`Button`/图标 | 同上 |
+| `@deepseek-ai/dsh-client-ui-slots` | `0.2.1-rc.2` | `PropsRuntime`/`PropsLocale`/`InjectFace` | 同上 |
+| `@deepseek-ai/dsh-client-locale` | `0.2.1-rc.2` | `ctx.locale.register` | 同上 |
+| `@deepseek-ai/dsh-client-ui-commands` | `0.2.1-rc.2` | `command/executed` 事件类型（`Events` 合并） | 锁内已有（`pnpm-lock.yaml:9266` 为某 importer 的依赖），本包新增直接 devDep |
+| `react` / `react-dom` | `^18.3.1` | 组件运行时 | web-ux devDeps |
+| `@types/react` / `@types/react-dom` | `~18.3.1` / `^18.3.5` | — | 同上 |
+| `@testing-library/react` | `^16.3.0` | jsdom 组件套件 | 同上 |
+| `jsdom` | `^26.1.0` | 同上 | 同上 |
+
+**`dsh.client.inject` 精确清单**（形状照 `plugins/web-ux/package.json:28-39`）：
+
+```json
+"client": {
+  "inject": [
+    "@deepseek-ai/dsh-client-ui-conversation",
+    "@deepseek-ai/dsh-client-ui-renderer",
+    "@deepseek-ai/dsh-client-connection",
+    "@deepseek-ai/dsh-client-locale",
+    "@deepseek-ai/dsh-client-ui-commands"
+  ],
+  "platform": "web"
+}
+```
+
+- 前四项与 web-ux 完全一致（它已在本仓验证过「座位 + 文案 + RPC」三条链一起工作）。
+- 第五项 `ui-commands` 是本扩展新增：面板要订阅 `command/executed`（`dsh/dsh-client-ui-commands/lib/types/client/service.d.ts:40`），列进 `inject` 以保证 boot 图里该 client 模块先到位。
+- **不列** `dsh-client-ui-primitives`（平台静态模块表已含，`react` 同理由走 `external`）、`ui-slots` 与 `ui-session`（类型合并面由 conversation / renderer 间接满足；web-ux 也未列）。
+- `inject` 是**模块图顺序依赖 + 激活面**（列了但组合里被裁掉 → 整个浏览器半不加载，见 `plugins/web-ux/README.md:64-70`），因此「能少列就少列」：每多列一项就多一个「入口整半消失」的失败模式。
+
+**零新增解析节点**：以上包全部已在 `pnpm-lock.yaml` 出现（`dsh-client-ui-conversation@0.2.1-rc.2` 等，lock 行 928–1043 / 7011–7109），`pnpm dsh:check` 的「发布年龄豁免 = 锁内实际集合」检查（`scripts/check-dsh-baseline.mjs:228-247`）因此不需要改 `pnpm-workspace.yaml`；`scripts/upgrade-dsh.mjs` 的 devDeps 重指是通用循环（`:148-165`），也不需改脚本。
+
+### 1.3 与 `code-design.md` §1.1/§1.2 的逐行关系
+
+- **§1.1 追加 12 行**（上表 12 个 src 文件），其中 `src/host/control.ts` 插在 `src/host/commands.ts` 之前、`src/host/panel.ts` 插在 `src/host/mask.ts` 之后。
+- **§1.1 改写 7 行**：`package.json`（双端字段）、`build.mjs`（两次构建）、`tsconfig.*`（拆三件→四件）、`vitest.config.ts`（jsdom 面）、`src/host/index.ts`（RPC 挂载）、`src/host/commands.ts`（降级为文本前端）、`src/host/types.ts`（端口增补）。
+- **§1.1 追加 1 行新文件** `src/css-modules.d.ts`（照 `plugins/web-ux/src/css-modules.d.ts`）。
+- **§1.1 追加测试 10 行 + 扩展 2 行**（见上表）。
+- **§1.2 不改**：根仓 `README.md`/`AGENTS.md` 的补行方式不变，只是 README 描述从「纯宿主」改为「双端（Web 面板 + 命令面）」。
+- **规模重估**：原估「11 src ≈1,400–1,700 行 + 7 测试 ≈900 行」→ **「23 src（含 css / d.ts 各 1）≈3,660–4,590 行 + 17 测试 ≈2,350 行」**；人日从 9.5 抬到 **≈14.5**（面板 client 半 +3.0、宿主 RPC/内核 +1.5、双端工程链 +0.5）。
+
+---
+
+## 2. RPC 通道契约
+
+### 2.1 通道与端点集
+
+**通道名 `/session-tool-toggle`**（论证）：
+
+- 合法：`CHANNEL_PATTERN = /^\/[A-Za-z0-9._~-]+$/`（`dsh/dsh-client-connection/lib/index.js:689`），单段、允许连字符；`/api` 是保留通道，注册即抛（同文件 `:970-972`）。
+- 不撞车：安装树内**没有任何官方包**调用 `connection.rpc.handle`（`grep -rn "rpc\.handle" dsh/*/lib/` 仅命中 `dsh-tool-cordis` 的 Inspect 目录文本），本仓 web-ux 是唯一占用者，通道 `/web-ux`。两通道互不干扰：各注册一条 **prefix route**（`register()` 走 `webServer.register({kind:'prefix', path: channel})`，同文件 `:855-871`），路径前缀不同即隔离。
+- 为什么不用 `/tools`：与命令名 `tools` 同形但语义是「通道」不是「命令」，且后续若加 `/tools-*` 命令面扩展容易混淆；包名即通道名是 web-ux 的既有约定（`/web-ux`）。
+- 物理路由：`<channel>/<endpoint>`（`endpointFromPath`，同文件 `:926-931`），即 `POST /session-tool-toggle/panel`；端点段文法 `^[A-Za-z0-9_$.-]+$`（同文件 `:690`）→ **端点必须单段、不能带 `/`**。
+
+**端点集（4 个）**：
+
+| 端点 | 语义 | 等效命令 |
+|---|---|---|
+| `panel` | 读面板快照（清单 + 关闭集 + 保护名单 + 默认档 + 统计 + 降级提示） | `/tools status` |
+| `toggle` | 批量开/关（`on:boolean` + `addresses[]`），返回**变更后的新快照** | `/tools off\|on <addr…>` |
+| `reset` | 本会话回到创建时快照 | `/tools reset` |
+| `defaults` | 默认档写（`set\|off\|on\|reset`），返回默认档视图 | `/tools default …` |
+
+> 「默认档读」不单开端点：`panel.defaults` 已经带回最新默认档视图（同一次事务内读，避免两段式漂移）。
+
+### 2.2 请求 / 响应形状（zod 草案 = 形状权威）
+
+```ts
+import { z } from 'zod'
+
+/** 组地址：文法校验在宿主由 address.ts 负责，线上只做长度/数量护栏。 */
+const AddressSchema = z.string().min(1).max(200)
+const SessionIdSchema = z.string().min(1).max(255)
+
+/** panel：只读。 */
+export const PanelRequestSchema = z.object({
+  sessionId: SessionIdSchema,
+}).strict()
+
+/** toggle：批量开/关；全有或全无（任一地址非法 → 整单拒绝）。 */
+export const ToggleRequestSchema = z.object({
+  sessionId: SessionIdSchema,
+  on: z.boolean(),
+  addresses: z.array(AddressSchema).min(1).max(64),
+}).strict()
+
+/** reset：回创建时快照。 */
+export const ResetRequestSchema = PanelRequestSchema
+
+/** defaults：默认档写；reset 不带地址，其余三种必须带非空地址。 */
+export const DefaultsRequestSchema = z.object({
+  action: z.enum(['set', 'off', 'on', 'reset']),
+  addresses: z.array(AddressSchema).max(64).optional(),
+}).strict().superRefine((value, ctx) => {
+  if (value.action === 'reset') {
+    if (value.addresses !== undefined) ctx.addIssue({ code: 'custom', message: 'reset 不接受 addresses' })
+    return
+  }
+  if (value.addresses === undefined || value.addresses.length === 0) {
+    ctx.addIssue({ code: 'custom', message: `${value.action} 需要非空 addresses` })
+  }
+})
+```
+
+```ts
+/** 一条工具条目。宿主给**事实**，本地化文案由 client 用 t() 组合。 */
+export const ToolEntrySchema = z.object({
+  /** 注册名（MCP 是 public name `mcp__<server>__<suffix>`）。 */
+  name: z.string().min(1),
+  /** 展示用短名（MCP 为 public 后缀；builtin 与 name 相同）。 */
+  shortName: z.string().min(1),
+  /** 该条目自己的规范形地址（`mcp:<s>::<suffix>` / `tool:<name>`）。 */
+  address: z.string().min(1),
+  /** 命中当前关闭集。 */
+  disabled: z.boolean(),
+  /** 在生效保护名单内（拒关）。 */
+  protected: z.boolean(),
+  /** 保留名（如 `run_code`，restrict 拒绝）。 */
+  reserved: z.boolean(),
+  /** 全局层有、本会话看不见（被别的作用域隐藏）。 */
+  shadowed: z.boolean(),
+  /** 描述首 160 字符（已截断），缺省表示无描述。 */
+  description: z.string().max(160).optional(),
+})
+
+export const ToolGroupSchema = z.object({
+  /** 来源：MCP 服务器 / skill 整档 / 内置工具。 */
+  kind: z.enum(['mcp', 'skill', 'builtin']),
+  /** 分组键：MCP = serverName；skill = 'skill'；builtin = 'builtin'。 */
+  key: z.string().min(1),
+  /** 整组地址；builtin 分组不可整组关 → null。 */
+  address: z.string().nullable(),
+  toolCount: z.number().int().nonnegative(),
+  disabledCount: z.number().int().nonnegative(),
+  /** 整组地道的关闭状态（address !== null 且命中关闭集）。 */
+  disabled: z.boolean(),
+  tools: z.array(ToolEntrySchema),
+})
+
+export const StateViewSchema = z.object({
+  /** 已排序去重的规范形关闭集。 */
+  disabled: z.array(z.string()),
+  /** 创建时快照（默认档拍下的那一份）。 */
+  snapshot: z.array(z.string()),
+  /** 是否已由一条日志记录建立。 */
+  seeded: z.boolean(),
+  updatedAt: z.number().int().nonnegative(),
+  /** 持久化通道实际形态（降级可观测）。 */
+  storeKind: z.enum(['record', 'memory']),
+})
+
+export const DefaultsViewSchema = z.object({
+  version: z.literal(1),
+  disabled: z.array(z.string()),
+  /** 绝对路径（面板展示，便于手编）。 */
+  path: z.string().min(1),
+  /** 文件可读（false = 不存在，按空档处理）。 */
+  readable: z.boolean(),
+  /** 文件存在但损坏/半写（已降级空档）。 */
+  corrupt: z.boolean(),
+})
+
+export const NoticeCodeSchema = z.enum([
+  'persistence-degraded',   // 记录通道不可用，内存态
+  'defaults-corrupt',       // 默认档损坏，已按空档
+  'session-subagent',       // 子代理会话：不继承父会话开关
+])
+
+export const PanelSnapshotSchema = z.object({
+  sessionId: z.string().min(1),
+  /** 会话创建时间（epoch ms），面板用它讲「快照来源」。 */
+  createdAt: z.number().int().nonnegative(),
+  state: StateViewSchema,
+  groups: z.array(ToolGroupSchema),
+  /** 生效保护名单（基线 ∪ config 追加）。 */
+  protectedNames: z.array(z.string()),
+  defaults: DefaultsViewSchema,
+  /** 全局层有、本会话看不到的名字（两态区分的第二态）。 */
+  hiddenByOthers: z.array(z.string()),
+  /** 关闭集里当前命中 0 个注册名的地址（"意图已记录、暂无匹配"）。 */
+  intentOnly: z.array(z.string()),
+  stats: z.object({
+    /** 本会话当前可见工具数（掩码后）。 */
+    visible: z.number().int().nonnegative(),
+    /** 全局层（不受任何 agent 限制）名字数。 */
+    catalog: z.number().int().nonnegative(),
+    /** 当前 deny 名字数（= 掩码实际生效量）。 */
+    denied: z.number().int().nonnegative(),
+    /** hiddenByOthers.length 的镜像，省一次客户端计算。 */
+    shadowed: z.number().int().nonnegative(),
+  }),
+  notices: z.array(NoticeCodeSchema),
+})
+
+export const MutationSchema = z.object({
+  /** 逐地址回执：matched = 当前命中注册名数（0 = 意图已记、暂无匹配）。 */
+  applied: z.array(z.object({
+    address: z.string().min(1),
+    on: z.boolean(),
+    matched: z.number().int().nonnegative(),
+  })),
+  /** deny 集合的变化量（可为负）。 */
+  hiddenTools: z.number().int(),
+  visibleBefore: z.number().int().nonnegative(),
+  visibleAfter: z.number().int().nonnegative(),
+  /** 是否提示「前缀缓存将从第一个变化的 schema token 起重建一次」。 */
+  kvRebuild: z.boolean(),
+  notices: z.array(NoticeCodeSchema),
+})
+
+/** toggle / reset 的成功值：变更后的新快照 + 变更回执（一次往返拿全）。 */
+export const ToggleValueSchema = z.object({
+  snapshot: PanelSnapshotSchema,
+  mutation: MutationSchema,
+})
+
+/** defaults 的成功值。 */
+export const DefaultsValueSchema = z.object({
+  defaults: DefaultsViewSchema,
+  /** 实际写入的规范形地址（已归一、排序、去重）。 */
+  changed: z.array(z.string()),
+})
+```
+
+**端点 → 请求/响应表**：
+
+| endpoint | request | success value | 备注 |
+|---|---|---|---|
+| `panel` | `PanelRequestSchema` | `PanelSnapshotSchema` | 每次打开/刷新都全量读（不缓存跨窗口） |
+| `toggle` | `ToggleRequestSchema` | `ToggleValueSchema` | 成功值内含新快照 → 一次往返 |
+| `reset` | `ResetRequestSchema` | `ToggleValueSchema` | 语义=回到 `state.snapshot` |
+| `defaults` | `DefaultsRequestSchema` | `DefaultsValueSchema` | **不返回会话快照**（默认档本来就不追溯，返回反而误导） |
+
+### 2.3 稳定失败码表（宿主侧 7 个）
+
+信封是既有的 `ConnectionRpcResult<T> = {ok:true, value} | {ok:false, error:{code, message, details}}`（`dsh/dsh-client-connection/lib/types/rpc.d.ts:19-25`）。`details` 是 `Record<string, unknown>`（同文件 `:13-17`）。
+
+| code | 触发条件 | `details` | client 文案键 |
+|---|---|---|---|
+| `bad-request` | 端点未知 / payload 不合 §2.2 形状 / 未知 `action` | `{issues?: string}` | `error.bad-request` |
+| `bad-address` | 地址文法解析失败（`code` 取 `address.ts` 的 `ParseErrorCode`） | `{address, parseCode}` | `error.bad-address` |
+| `protected` | 命中保护名单（**整单拒绝，不写任何状态**） | `{names: string[]}` | `error.protected` |
+| `reserved` | 保留名（`run_code` 等，restrict 会抛） | `{names: string[]}` | `error.reserved` |
+| `session-not-live` | `ctx.agents.get(sessionId)` 为 undefined，或 `agent.session.id !== sessionId` | `{sessionId}` | `error.session-not-live` |
+| `defaults-unwritable` | `writeDefaults` 抛错（权限/磁盘/目录不可建） | `{path, reason}` | `error.defaults-unwritable` |
+| `internal` | 未预期抛错（已 `logger.warn`） | `{}` | `error.internal` |
+
+**传输侧（client 合成，非宿主码）**：`unavailable`（`rpc.call` 抛错 / 通道未挂载）、`bad-response`（信封不可读或响应过不了 parser）。未知码一律走 `error.fallback`（web-ux 同构做法，`plugins/web-ux/src/client/delete-client.ts:63-66`）。
+
+**为什么 `protected`/`reserved` 不做部分成功**：面板的 Switch 已按 `protected`/`reserved` 置灰，这两个码是**防御性路径**；若允许部分成功，界面会出现「一半生效」的不可解释状态，且与 `/tools` 命令面的「一条命令一个结果」不齐。见 D19。
+
+### 2.4 会话寻址与防错会话
+
+- **sessionId 来源**：client 侧 `sessionId` 是 session-scope 座位的**标准 prop**（`repo/dsh-client-ui-session/lib/types/client/index.d.ts:80-89`），注册期 `inject` 也会收到它（`repo/dsh-client-ui-slots/lib/types/index.d.ts:487` 的 `InjectParams`：session scope 的首参恒为 `sessionId`）。**不**从 URL / localStorage / DOM 猜。
+- **每个请求都带 `sessionId`**，宿主侧三步校验：
+  1. 形状（parser）；
+  2. `const agent = ctx.agents.get(sessionId)` —— `get(id: SessionId): Agent | undefined`（`dsh/dsh-agent/lib/types/index.d.ts:343`；启动补挂用的 `list(): Agent[]` 在同文件 `:357`）；
+  3. 身份对账 `agent.session.id === sessionId`（`Session.id` 由 header 派生，`dsh/dsh-session/lib/types/index.d.ts:154`）。
+- **状态永远按 `sessionId` 现读**：不缓存、不跨会话复用（对照 `code-design` 不变量 1/7）。路由里的 `sessionId` 只用于定位，不承担权限语义。
+- **跨窗口/跨标签**：两个窗口对同一会话各有自己的 client 快照，但写入都落到同一 `StateStore` + 同一 `SessionLayer`；后写者覆盖，先写者在下次刷新时收敛。**没有**「会话锁」——见风险 R1。
+
+### 2.5 工具面清单的数据来源（宿主侧推导）
+
+**读数面沿用掩码引擎的三读并集**（`code-design` ③.3 / project-mcp `isolation.ts:322-384`）：
+
+```
+catalog  = ctx.tools.schemas()              // 插件根 ctx：全局层、不受任何 agent 限制
+scoped   = layer.visibleNames()             // 该 agent 视角（本插件上一轮掩码已生效 → 缺名字）
+carried  = layer.snapshot().deny            // 上一轮仍受管的名字（防第二读缩小导致掩码被抬掉）
+candidates = sort(unique(catalog ∪ scoped ∪ carried))
+```
+
+- `catalog` 的取法直接照抄 project-mcp：`ctx.tools.schemas().map(s => s.name)`（`plugins/project-mcp/src/host/index.ts:92`；`schemas(scope?)` 的签名见 `dsh/dsh-tools/lib/types/index.d.ts:712`）。
+- `scoped` 用层已有的 `visibleNames()`（`code-design` ③.4 `ScopedSurface`），**不是**面板新开的读取路径。
+- 归属判定复用 `toolServerOf` 的**首个 `__` 切分**规则（`plugins/project-mcp/src/host/isolation.ts:112-117`）：`mcp__<server>__<suffix>` → `server = rest.slice(0, rest.indexOf('__'))`。这条规则的已知歧义（serverName 本身含 `__`）收进 `code-design` §6.1 的假设 A12，并在 `panel.ts` 里对「`planMask.matched[address]` 之和 vs 该组 `tools.length`」做一次自检（不一致只记一条 warn，仅影响展示，不影响开关语义——地址匹配本身不看分组）。
+
+**每个条目的字段形状**（对应 `ToolEntrySchema`）：
+
+| 字段 | mcp-server 组 | mcp 单工具 | skill 组 | builtin 组 |
+|---|---|---|---|---|
+| `kind` | `'mcp'` | （属于 mcp 组） | `'skill'` | `'builtin'` |
+| `key` | serverName | — | `'skill'` | `'builtin'` |
+| `address`（组） | `mcp:<server>` | — | `tool:skill` | `null` |
+| `tools[].name` | — | `mcp__<server>__<suffix>` | `skill` | 注册名 |
+| `tools[].shortName` | — | `<suffix>` | `skill` | 注册名 |
+| `tools[].address` | — | `mcp:<server>::<suffix>` | `tool:skill` | `tool:<name>` |
+| `protected` | — | false | 由名单定 | `PROTECTED_BASELINE ∪ config` 命中 |
+| `reserved` | — | false | false | `run_code` 等（`restrict` 拒绝，`dsh/dsh-tools/lib/index.js:3001`） |
+| `shadowed` | — | `catalog 有 ∧ scoped 无` | 同 | 同 |
+| `description` | — | schema.description 首 160 字 | 同 | 同 |
+
+**关于 `displayName`**：任务清单里点名的这个字段被拆成两处——① **工具**用 `shortName`（MCP 的 public 后缀 / 内置工具注册名），即模型面真正看到的名字，不另造「友好名」（造名要维护映射表，且必然与 `/tools status` 的输出漂移）；② **服务器**用 `key`（`serverName` 本身），不做美化。**分组标题**（「MCP 服务器」「技能」「内置工具」）由 client 用 `t('group.*')` 渲染——宿主只给数据与 `kind`，不给中文。
+
+**MCP 服务器列表从哪来（重要，别臆造）**：DSH 没有公开的「MCP 服务器注册表」服务——`dsh/dsh-mcp-client` 只逐行注册工具与 `mcp:<server>` 指令段（`code-design` ② 表：`dsh-mcp-client/lib/index.js:731-741`），`apply` 未提供枚举面；Host Service 目录（`Service.listService`）里也没有 mcp 相关服务。因此**服务器分组只能从 public name 前缀推导**，与 project-mcp 的 `toolServerOf` 同规则。这是本扩展最明确的一条「不得再找服务」的结论。
+
+---
+
+## 3. client 半设计
+
+### 3.1 入口组件（`ToolPanelAction` 的按钮部分）
+
+- **座位**：`{ name: 'conversation.session.header.utilities', id: 'session-tool-toggle-panel', order: 20, locale: NS }`。
+  - 插槽声明：list、scope `session`、owner props = `ConversationHeaderActionOwnerProps`（**无专属值**，唯一字段是 `children?: never` 标记）——`dsh/dsh-client-ui-conversation/lib/types/client/contract/slots.d.ts:236-241` + `:440-443`。
+  - **order 取值论证**：官方占位是 `-10`（open-in-app，`dsh/dsh-client-ui-open-in-app/lib/client.js:846-852`）、`-5`（schedule，`dsh/dsh-client-ui-schedule/lib/client.js:7509-7513`）、缺省 `0`（session-log-export，`dsh/dsh-session-log-export/lib/client.js:291-295`；`order` 缺省为 0，见 `dsh-cordis-client-runner/lib/client.js:4004-4016` 的 registerOptions 说明）。取 **20** 的意图：① 与官方三项保持「越靠右越大」的单调关系；② 与最大官方值留 20 的间隔，未来官方再加一项也不易插到我们右边；③ 不用 0 是因为 0 会与缺省项并列，顺序依赖注册时序（不稳定）。
+- **形态**：28×28 圆形图标按钮（`IconSlidersTwoOutlineRegular` 或 `IconInspectOutlineRegular`，两者都在 `repo/dsh-client-ui-primitives/lib/types/icons/index.d.ts`），视觉参数照官方同座位触发器（`ui-schedule` 的 `.trigger`：28px、`border-radius:28px`、`color: var(--dsw-alias-label-tertiary)`、hover 用 `--dsw-alias-interactive-bg-hover`），保证不破坏头部行高。
+- **可观测/可达性**：`aria-label={t('action.label')}`、`title={t('action.tooltip')}`、`aria-expanded={open}`、`aria-haspopup="dialog"`；图标按钮**不做文字胶囊**（头部横向空间是稀缺资源，且官方同座位的三个入口都是纯图标）。
+- **渲染条件**：座位本身保证有会话（scope `session`）；按钮**恒渲染**，不因 `connection` 缺席而隐藏——入口是唯一发现面，隐藏比"点开看到不可用"更糟（与 web-ux 菜单项「静默不渲染」不同，理由见 D13）。
+- **模态挂在组件内**：`Modal` 是 body portal（`repo/dsh-client-ui-primitives/lib/types/Modal.d.ts`：「Render a centered, body-portaled modal」），因此按钮组件自己渲染 `Modal` 即可，**不需要** `shell.overlay` 座位，也不需要跨 entry 的请求 store（web-ux 需要是因为菜单项会随菜单关闭而卸载）。
+
+### 3.2 面板容器与分区
+
+单个 `Modal`（`title` + `description` + `contentClassName` 滚动区 + `footer` 关闭/刷新），宽 `min(760px, 100vw - 32px)`，四个分区（自上而下）：
+
+1. **状态摘要**：`本会话可见 {visible} / 全局 {catalog} / 已关 {denied} / 被其它作用域隐藏 {shadowed}`；`notices` 逐条渲染为提示行（`persistence-degraded` 用警告色）。
+2. **本会话开关**：分组清单（§3.3）。
+3. **用户级默认档**：`DefaultsEditor`（§3.4）。
+4. **关闭集**：已关闭地址的 chip 列表（`state.disabled` 原样），每枚带「开启」按钮；`intentOnly` 的 chip 额外带 `intent` 徽标；空集给一行「当前没有关闭项」。这一区是「关闭集状态展示」的唯一集中落点（分组清单里不重复标）。
+
+**footer**：左「刷新」（`IconRefreshOutlineRegular` + `t('panel.refresh')`，`aria-label` 同文），右「关闭」。刷新按钮的意义是把「跨窗口/命令面改过但我这窗口旧了」变成一次显式动作（R1 的兜底）。
+
+### 3.3 分组列表交互
+
+```
+[MCP 服务器]  yunxiao            70 个工具 · 已关        [Switch]
+   ⌄ （展开）
+      get_current_user         [Switch]
+      list_projects            [Switch]
+      ...
+[技能]        skill              1 个工具                [Switch]
+[内置工具]    （本地过滤输入框）
+      task_board_create  [保护]                        [Switch disabled]
+      run_code           [不可关闭]                     [Switch disabled]
+```
+
+- **组行**：标题（`serverName` / `t('group.skill')` / `t('group.builtin')`）+ 计数（`t('group.summary')`）+ `Switch`（`checked = group.disabled`）。组行点击标题区折叠/展开（`aria-expanded`），点击开关**不**触发折叠。
+- **单工具行**：`shortName`（等宽字体）+ `description` 作为 `title`（不占版面）+ `Switch`。
+- **三态禁用**：`protected` → `disabled` + `title={t('badge.protected')}`；`reserved` → 同上；`shadowed` → `disabled` + `t('badge.shadowed')`（交集语义：本插件不能把被别的作用域藏起来的工具"开回来"，`code-design` spec「开关不越界工作区隔离」）。
+- **pending**：请求在途时该地址的 `Switch` `disabled`（`Switch` 的 `disabled` 契约里明写「owners also set it while a write is in flight」，`repo/dsh-client-ui-primitives/lib/types/Switch.d.ts`）。
+- **可访问性**：每个 `Switch` 必传 `label`（`t('switch.label', {name})`，`Switch` 的 `label` 是必填 a11y 名称）；禁用时 `title` 给理由，读屏与悬停都能得到同一句解释。
+- **`intent` 徽标**：`panel` 快照的 `intentOnly`（关闭集里 `planMask.matched === 0` 的地址）在「关闭集」区渲染 `t('badge.intent')`。数据由宿主算好（`panel.ts` 从 `MaskPlan.matched` 过滤），client 不做二次推导。
+- **不做的**：搜索整个清单、按 token 成本排序、拖拽、批量选择（v1 保持"看得到就点得到"）。
+
+### 3.4 默认档编辑区
+
+- **展示**：文件路径（`defaults.path`，等宽 + 可选中）+ 条目列表（每条一个「移除」）+ 空态文案；底部两行事实：
+  - `t('defaults.scope')`：只影响之后新建的会话；
+  - `t('defaults.snapshot', {time, count})`：本会话创建于 `<本地时间>`，快照 `<N>` 项 —— 来自 `panel.createdAt` + `state.snapshot.length`。
+- **添加**：一个 `Input`（`placeholder = t('defaults.addPlaceholder')`）+「添加」`Button`。提交时把输入按空白/逗号切成多地址交给 `defaults` 端点（`action:'off'`），**不做客户端文法校验**（文法唯一权威在宿主 `address.ts`；客户端猜文法必然与宿主漂移）。
+- **删除**：`action:'on'` + 该地址。
+- **整份清空**：`action:'reset'`（二次确认用 `Button` 文案变化实现，不上 `RiskConfirmation`——不可逆性低：清空默认档只影响新会话）。
+- **与当前会话无关性明示**：保存成功后**不**重拉 panel 快照（默认档不追溯），只更新 `defaults` 与 `changed`；顶部保留一行「已保存（本会话不变）」。
+
+### 3.5 失败码 → 文案键表
+
+| 码 | 文案键（zh 文案） |
+|---|---|
+| `bad-request` | `error.bad-request`：「请求不合法，宿主拒绝了本次调用。」 |
+| `bad-address` | `error.bad-address`：「地址不合法：{address}。语法见 `/tools` 帮助（`mcp:<server>`、`mcp:<server>::<工具>`、`tool:<名字>`、`skill`）。」 |
+| `protected` | `error.protected`：「{names} 在保护名单内，不能关闭。」 |
+| `reserved` | `error.reserved`：「{names} 是保留工具，不能关闭。」 |
+| `session-not-live` | `error.session-not-live`：「该会话未在宿主中运行（可能已归档或已结束），无法调整工具面。」 |
+| `defaults-unwritable` | `error.defaults-unwritable`：「默认档写入失败：{path}。」 |
+| `internal` | `error.internal`：「宿主内部错误，本次操作未完成。」 |
+| `unavailable`（传输） | `error.unavailable`：「无法连接到 dsh 主进程。」 |
+| `bad-response`（传输） | `error.bad-response`：「宿主返回了无法识别的响应。」 |
+| 未知码 | `error.fallback`：「操作失败。」 |
+
+**渲染规则**：主文案走 `t(errorKeyOf(code))`；宿主的 `error.message` / `details` 只作为二级灰字 detail（不参与本地化），与 web-ux 对话框一致（`plugins/web-ux/src/client/DeleteSessionDialog.tsx:217-222`）。
+
+### 3.6 client 侧数据流
+
+```
+ToolPanelAction（React）
+  ├─ Button ── onClick: controller.open()
+  └─ Modal（open=controller.phase !== 'idle'）
+        ├─ 摘要 / 分组 / 默认档 / 关闭集  ← useSyncExternalStore(controller.source)
+        └─ 动作 → controller.toggle/reset/writeDefaults → panel-client → connection.rpc.call
+```
+
+- **`panel-client.ts`**：`createPanelClient(connection)` → `{ panel(sessionId), toggle(sessionId, on, addresses), reset(sessionId), writeDefaults(action, addresses) }`。每次调用：`connection.rpc.call(CHANNEL, endpoint, payload)` → 拆信封 → `contract.ts` parser → 失败抛 `PanelError(code, message)`。传输/坏响应归一为 `unavailable` / `bad-response`（照 `plugins/web-ux/src/client/delete-client.ts:73-107`）。
+- **`panel-controller.ts`**：每会话一个实例（`useMemo` 按 `sessionId` 缓存，避免每次渲染重建）。构造参数是 **`resolveClient: () => PanelClient | undefined`** 而**不是**一个固定的 client：`connection` 可能晚于插件 `apply` 就绪（web-ux v1.2.0 的踩坑，`plugins/web-ux/README.md:76`），所以每次调用都现取；`undefined` 时控制器直接进 `failed('unavailable')` 而不发请求。
+  - 状态：`{ phase: 'idle'|'loading'|'ready'|'failed', snapshot, error, pending: ReadonlySet<string>, savingDefaults, defaultsError }`。
+  - `open()`：`idle → loading`（保留旧快照用于即时渲染）→ `panel` → `ready`；失败 → `failed` 但**保留旧快照**（stale-while-revalidate）。
+  - `toggle(addresses, on)`：地址进 `pending` → `toggle` 成功则用响应里的 `snapshot` 整体替换（一次往返，不额外拉）→ `pending` 清空。失败：`pending` 清空 + 顶部错误行（不销毁面板）。
+  - `reset()` / `writeDefaults()` 同构。
+  - `refresh()`：显式重拉 `panel`。
+- **刷新触发（四类）**：
+  1. 面板从关闭 → 打开（`open()` 必拉）；
+  2. 每次成功 mutation（吃响应里的新快照）；
+  3. client 事件 `command/executed(sessionId, name, result)` 且 `sessionId === 本会话` 且 `name === 'tools'` → `refresh()`。事件声明见 `dsh/dsh-client-ui-commands/lib/types/client/service.d.ts:40`（`@mode emit`，只在本窗口本地提交时触发）；消费先例：`dsh/dsh-session-log-export/lib/client.js:288-290`；
+  4. 手动「刷新」按钮 + `window` 的 `focus` 事件（面板打开时挂一次监听，关闭即摘）。
+- **与 `/tools` 命令的一致性**：两者**共用宿主同一份状态**（同一 `StateStore`、同一 `SessionLayer`、同一 `control.ts` 内核），因此不存在「面板状态」与「命令状态」两份。面板操作后的提示文案与命令回执取同一组字段（`hiddenTools` / `visibleBefore→After` / `kvRebuild`），即 `code-design` D7 的「只报计数与代价形状」在 Web 侧的等价表达：摘要区显示 `t('mutation.kv', {hidden})`。
+- **不做乐观更新**：`Switch` 是受控组件，翻转以宿主返回的快照为准；在途期间该行 `disabled`。理由：工具面的真相在宿主注册表（服务器可能断线、被其它作用域掩码），本地先翻会制造"看起来关了其实没关"的错觉。
+
+---
+
+## 4. spec 增量草案
+
+> 落档到 `specs/dsh-session-tool-toggle/spec.md`；结构标题与 SHALL 保留英文，正文 zh-CN。
+
+### 4.1 新增 Requirement（追加到 `## ADDED Requirements` 末尾）
+
+```markdown
+### Requirement: Web 配置界面
+
+插件 SHALL 在 Web 组合下提供会话级工具面的图形化配置界面：入口 SHALL 注册在会话主视图头部工具区插槽 `conversation.session.header.utilities`（list、scope session、无专属 owner props），面板 SHALL 提供工具清单（MCP 服务器整组/单工具、skill、内置工具分组）、会话级开关切换、用户级默认档编辑与关闭集展示。面板的读与写 SHALL 走 Connection RPC 通道（`/session-tool-toggle`），SHALL NOT 在浏览器半另建状态存储：面板与 `/tools` 命令面 SHALL 共用同一 per-session 状态、同一掩码层与同一持久化记录。面板 SHALL NOT 提供插件配置键（如 `persistence`、`protectedTools`）的编辑面。全部 UI 文案 SHALL 来自插件自有 locale 命名空间；宿主响应 SHALL 只携带稳定失败码与结构化事实，SHALL NOT 作为唯一文案来源。
+
+#### Scenario: 入口在会话头部渲染
+
+- **WHEN** Web 组合加载了本插件的浏览器半，且会话主视图头部已挂载
+- **THEN** 头部工具区出现本插件的图标按钮（`order` 位于官方三项之后），带可读的 `aria-label` 与 `aria-expanded`；点击后打开面板，面板标题与分区文案来自本插件 locale
+
+#### Scenario: 面板切换等效命令面
+
+- **WHEN** 用户在面板里关闭 MCP 服务器 `yunxiao` 的整组开关
+- **THEN** 宿主按 `mcp:yunxiao` 地址写入关闭集（与 `/tools off mcp:yunxiao` 同一状态与同一记录），响应带回变更后的快照与新可见计数；下一次模型步骤该服务器工具不可见且指令段消失；随后在命令面执行 `/tools status` 显示同一关闭集
+
+#### Scenario: 保护名单在面板上不可切换
+
+- **WHEN** 面板渲染内置工具清单，其中含 `bash`
+- **THEN** `bash` 行的开关为禁用态并给出保护理由的 `title`，点击不发出任何 RPC 请求；即便伪造请求，宿主也以 `protected` 拒绝且不改变状态
+
+#### Scenario: 默认档编辑不追溯当前会话
+
+- **WHEN** 会话 A 已创建，用户在面板的默认档区添加 `mcp:figma` 并保存
+- **THEN** 宿主写入默认档文件、返回新的默认档视图，会话 A 的关闭集与可见工具面**不变**；面板显示「只影响之后新建的会话」，且新会话按新默认档初始化
+
+#### Scenario: RPC 不可用时的降级表现
+
+- **WHEN** 浏览器半加载但通道不可达（宿主半未挂载 / 非 Web 组合 / 传输失败）
+- **THEN** 入口按钮仍渲染；打开后显示「无法连接到 dsh 主进程」的降级状态且不展示任何开关；命令面能力不受影响；会话与界面均不崩溃
+
+#### Scenario: 会话不在宿主中运行
+
+- **WHEN** 用户打开一个已归档（或已结束）会话的头部按钮
+- **THEN** 面板以 `session-not-live` 的解释性状态呈现（不提供开关），不发修改类请求，界面不报错
+```
+
+### 4.2 既有 Requirement 的微调（`## MODIFIED Requirements`，落档时复写整段）
+
+| Requirement | 插入句（原文补句） | 理由 |
+|---|---|---|
+| **会话级开关语义** | 在该段末追加：「Web 配置界面与 `/tools` 命令面 SHALL 共用同一 per-session 关闭集、同一掩码层与同一持久化记录；两个入口的一次变更 SHALL 在下一次模型步骤同时生效。」 | 让「第二消费者」成为规范事实，防止实现期另起状态（D17） |
+| **内置工具开关与保护名单** | 在「名单内工具 SHALL 拒绝关闭并返回保护理由」之后追加：「该拒绝 SHALL 由宿主在解析期统一执行，命令面与 Web 配置界面 SHALL 得到同一结果；Web 配置界面 SHALL 将名单内工具呈现为不可切换。」 | 保护名单只有一个执行点（D19） |
+| **用户级默认档** | 在「`/tools default` 子命令 SHALL 支持查看与增删」之后追加：「Web 配置界面 SHALL 提供同一默认档的查看与增删，SHALL 走同一校验与原子写路径；面板对默认档的任何修改 SHALL NOT 追溯已存在会话。」 | 默认档的第二个写入方与不追溯语义 |
+
+### 4.3 Purpose 段补一句
+
+> 在 `## Purpose` 末追加：「交互面包含零 token 的命令通道与 Web 组合下的图形化配置面板，两者共享同一状态与同一持久化记录。」
+
+---
+
+## 5. tasks 增量
+
+### 5.1 插入位置论证
+
+**结论**：新组插在**现组 8（装配整合）之后**，即新组 **9（共享控制内核 + Web RPC 通道，宿主半）** 与 **10（client 半面板）**；原组 9（验证矩阵）→ **11**、原组 10（文档与发布准备）→ **12**。
+
+理由（三条，按权重）：
+1. **依赖方向**：组 9 的内核重构必须先有组 7（命令面）与组 8（装配接线：层注册表 + `ControlDeps` 构造）才能落地；放在组 7 与组 8 之间会导致「内核先于装配存在」，组 8 还得回头改一次内核依赖注入。
+2. **验证顺序**：组 11 的静态门禁（`pnpm build`）现在包含 client 半产物，组 11.2 的冒烟矩阵要加面板断言；若把面板组排在验证之后，验证就是「验证一个不存在的面」。
+3. **文档顺序**：组 12.1 的 README 需要写「Web 面板与降级矩阵」，同样必须在面板实现之后。
+
+代价：两个组重编号（9→11、10→12），任务号引用需同步（本文与 `code-design.md` ⑤ 的 T 号不受影响，因为 T 号是设计分组号）。
+
+### 5.2 新组 9 · 共享控制内核与 Web RPC 通道（宿主半）
+
+- [ ] **9.1** 抽取 `src/host/control.ts` 并把 `src/host/commands.ts` 降级为文本前端（触达面 1.1：`control.ts` 新增、`commands.ts` 改写、`types.ts` 增 `ControlDeps`）。要点：`toggleSession`/`resetSession`/`readPanel`/`writeDefaults` 四用例；全有或全无校验（保护/reserved/文法一次判完再落盘）；固定顺序 `写入 StateStore → layer.setState → 组装回执`；`withToggled` 无变化返回同引用。验证：`pnpm --filter dsh-plugin-session-tool-toggle test` 退出码 0，control 套件覆盖「保护命中整单拒绝且 `store.write` 调用数 0」「0 匹配地址仍进关闭集且 `matched:0`」「无变化时返回快照与旧对象同引用」；**结构性断言**：`commands.test.ts` 改为注入假 control 内核（类型上不再持有 `StateStore`），因此「命令面绕过内核直读 store」会编译失败；补充弱断言 `grep -rn "\.write(session" plugins/session-tool-toggle/src/host --include=*.ts | grep -v "control.ts" | wc -l` 输出 `0`
+- [ ] **9.2** 写 `src/contract.ts` 与 `test/wire-contract.test.ts`（触达面 1.1：`contract.ts` 新增）。要点：通道 `'/session-tool-toggle'`、端点 `panel|toggle|reset|defaults`、7 个宿主失败码 + 2 个传输码、4 对 parser（strict：未知字段即越界）、地址数量/长度上限。验证：`pnpm --filter dsh-plugin-session-tool-toggle test` 退出码 0；`grep -cE "^(import|export .* from) " plugins/session-tool-toggle/src/contract.ts` 输出 `0`（零外部依赖，可安全内联进 client bundle）
+- [ ] **9.3** 写 `src/host/panel.ts` 与 `test/panel.test.ts`（触达面 1.1：`panel.ts` 新增）。要点：三读并集 → 分组（`toolServerOf` 首 `__` 切分）→ 四标记（disabled/protected/reserved/shadowed）→ `stats` 四计数 → `notices`；描述截断 160 字；不携带 `parameters`。验证：`pnpm --filter dsh-plugin-session-tool-toggle test` 退出码 0，panel 套件覆盖「`mcp__a__x` 归 a 组」「`mcp__a__b__c` 归 a 组（记录歧义）」「被其它作用域隐藏的名字进 `hiddenByOthers` 且对应条目 `shadowed:true`」「`run_code` → `reserved:true`」
+- [ ] **9.4** 写 `src/host/rpc.ts` 与 `test/rpc.test.ts`（触达面 1.1：`rpc.ts` 新增）。要点：端点派发 → contract parser → control 内核 → 信封映射；未知端点 `bad-request`；抛错 `internal` 并 `logger.warn`；`session-not-live` 判定（`agents.get` + `session.id` 对账）。验证：`pnpm --filter dsh-plugin-session-tool-toggle test` 退出码 0，rpc 套件覆盖「未知端点 → `bad-request`」「parser 拒绝超长地址 → `bad-request`」「control 抛 → `internal`」「不存在 sessionId → `session-not-live`」
+- [ ] **9.5** 在 `src/host/index.ts` 挂载通道（触达面 1.1：`src/host/index.ts` 改写行）。要点：`ctx.inject(['connection','webServer'], c => { const connection = c.root.get('connection'); … connection.rpc.handle(CHANNEL, dispatcher) })`——`webServer` 必须在注入名单、`connection` 必须从 `ctx.root` 读（`plugins/web-ux/src/index.ts:74-99` 的完整说明）；`connection` 解析为空只 warn 不抛。验证：`docker exec dsh dsh --profile web --dump-config-schema` 退出码 0 且输出含 `session-tool-toggle`；隔离实例中 `curl` 直调返回 `ok:true`（完整命令见 §5.5）
+
+### 5.3 新组 10 · client 半：入口与面板
+
+- [ ] **10.1** 写 `src/client/locales.ts` 与 `test/locale-parity.test.ts`（触达面 1.1：`locales.ts` 新增）。要点：NS `sessionToolToggle`；zh canonical + `en satisfies Record<Key,string>`；失败码键与 §3.5 表逐条对齐；`declare module` 注册 `LocaleNamespaceMap`。验证：`pnpm --filter dsh-plugin-session-tool-toggle test` 退出码 0（parity 套件）；`node -e "const z=require('fs').readFileSync('plugins/session-tool-toggle/src/client/locales.ts','utf8');const k=(z.match(/'[a-z][a-z0-9.-]*':/g)||[]).length;process.exit(k>60?0:1)"` 退出码 0（键数下限护栏，阈值实现期按实际填）
+- [ ] **10.2** 写 `src/client/panel-client.ts` 与 `test/panel-client.test.ts`（触达面 1.1：`panel-client.ts` 新增）。要点：`connection.rpc.call(CHANNEL, endpoint, payload)`；信封拆解；parser 失败 → `bad-response`；`PanelError{code,message}`。验证：`pnpm --filter dsh-plugin-session-tool-toggle test` 退出码 0，套件覆盖「传输抛 → `unavailable`」「坏信封 → `bad-response`」「宿主码原样保留」
+- [ ] **10.3** 写 `src/client/panel-controller.ts` 与 `test/panel-controller.test.ts`（触达面 1.1：`panel-controller.ts` 新增）。要点：`idle→loading→ready/failed`；`pending` 集；mutation 直接吃响应快照；`command/executed` 触发刷新（仅本会话 + `tools`）；`focus` 监听可摘。验证：`pnpm --filter dsh-plugin-session-tool-toggle test` 退出码 0，套件覆盖「并发 toggle 两地址 → `pending` 同时含两者」「toggle 失败保留旧快照且 `pending` 清空」「`command/executed` 他会话/他命令不触发」
+- [ ] **10.4** 写 `src/client/ToolPanelAction.tsx`、`ToolPanelGroups.tsx`、`DefaultsEditor.tsx`、`panel.module.css` 与 `test/tool-panel.test.tsx` + `test/stubs/ui-primitives.tsx`（触达面 1.1：4 个新文件 + stub）。要点：28px 图标按钮 + `Modal`；组行折叠；三态禁用；`intent` 徽标；默认档增删；失败码文案。验证：`pnpm --filter dsh-plugin-session-tool-toggle test` 退出码 0，jsdom 套件断言「按钮带 `aria-label`」「保护行 `disabled` 且点击后 `client.toggle` 调用数 0」「切组开关发出的地址是 `mcp:<server>`」「`unavailable` 时渲染降级文案且无 `Switch`」
+- [ ] **10.5** 写 `src/client/index.ts` + `test/client-index.test.ts` + `test/bundle.test.ts`（触达面 1.1：`client/index.ts` 新增、`build.mjs` 双构建、`package.json` 双端字段）。要点：`inject:['slots','locale']`；`locale.register` 用 `ctx.effect`；座位 `register` 包 `try/catch`；`ctx.on('command/executed')` 桥接到订阅面；`connection` 在 inject 面渲染期软读。验证：`pnpm --filter dsh-plugin-session-tool-toggle build` 退出码 0 且 `test -f plugins/session-tool-toggle/lib/client.js`；`pnpm --filter dsh-plugin-session-tool-toggle test` 退出码 0（bundle 纯度套件：client 只 require `['@deepseek-ai/dsh-client-ui-primitives','react','react/jsx-runtime']`，host 只 import `node:*`）
+
+### 5.4 既有任务改动（逐条）
+
+| 任务 | 改动 | 影响 |
+|---|---|---|
+| **1.1** 工程骨架 | `package.json` 增双端字段（`exports./client`、`dsh.client`、react peer、client devDeps）；`build.mjs` 改双构建；新增 `tsconfig.client.json`、`src/css-modules.d.ts`、`src/client/index.ts`（空 apply）、`src/contract.ts`（常量骨架）；`vitest.config.ts` 加 tsx/jsdom/alias | 验证追加：`test -f lib/client.js` 为真；`grep -c '"platform": "web"' package.json` 为 1 |
+| **8.1** 装配整合 | 除原有接线外，构造 `ControlDeps`（层注册表 + StateStore + defaults io + 保护名单 + log）并交给 `commands.ts`；层注册表从 `Map<SessionId, SessionLayer>` 单点持有（面板与命令共用） | 验证不变（`--dump-config-schema`）；追加断言：`grep -c "control" src/host/index.ts` ≥ 1 |
+| **9.1 → 11.1** 静态门禁 | 递归脚本不变；新增两项隐式依赖：`build` 必须产出 `lib/client.js`、`typecheck` 必须覆盖 client project | 验证追加：`test -f plugins/session-tool-toggle/lib/client.js`；`pnpm --filter dsh-plugin-session-tool-toggle typecheck` 退出码 0 |
+| **9.2 → 11.2** 冒烟矩阵 | 七条断言不变；追加第八~十条：⑧ 面板端点直调返回 `ok:true` 且 `stats.catalog` ≈ 实测基线；⑨ 面板关闭 `mcp:yunxiao` 后与 `/tools status` 关闭集一致、`request/header.tools` 计数与命令面结果相等；⑩ 面板默认档写入后 `$DSH_HOME/session-tool-toggle/defaults.json` 含新地址且既有会话不变 | 验证：artifacts 下冒烟记录表新增三行实测值 |
+| **9.2 → 11.3**（新增） | 浏览器侧演示证据：隔离实例里用 chrome-devtools MCP 打开面板、截图、切一个组开关再截图 | 验证：`artifacts/` 下存在两张截图 + 一段操作记录 |
+| **10.1 → 12.1** README | 预期管理段追加「Web 面板」一节：入口座位、与命令面同一状态、默认档不追溯、降级矩阵补 3 行（RPC 通道 / 座位 / client 服务）、「面板不提供配置键编辑」明示 | 验证：`grep -c "不是安全边界\|实验性\|Web 面板" plugins/session-tool-toggle/README.md` ≥ 3 |
+| **10.2 → 12.2** 发布自检 | 不变（`pnpm verify` 已递归含新包） | — |
+| **Workflow follow-up** | 追加一句：profile 安装/升级后必须**重启 web profile**（浏览器半的 bundle 由宿主在启动图里提供，热装不生效） | 文档项 |
+
+### 5.5 面板冒烟命令（第三者可复现，供 9.5 / 11.1 / 11.2 的 ⑧ 引用）
+
+> 与 `code-design` ⑤ T8 的隔离实例方法同源（临时 `DSH_HOME` + `profiles/web` 符号链接 + 拷 `storages/`，见 `plugins/user-commands/README.md:138`）；解析出 token 后先换 cookie，再直调自定义通道。通道的物理路由是 `<channel>/<endpoint>`，请求体是 Connection 的 client-request 信封（`{type,rpcId,method,payload}`，见 `dsh/dsh-client-connection/lib/types/rpc.d.ts:62-68`），且 `register()` 内部先过 `admit()` 的浏览器信任围栏（cookie + Host/Origin），所以必须带 cookie。
+
+```bash
+# 0) 隔离实例（端口自定），日志里会打印一次性 token
+DSH_HOME=/tmp/stt-home dsh web --port 3099 --no-open &
+# 1) token 换 cookie（token 从启动日志/首页链接里取）
+TOKEN=<token-from-log>
+COOKIE=$(curl -sS -D - -o /dev/null "http://127.0.0.1:3099/?token=${TOKEN}" \
+  | awk 'tolower($1)=="set-cookie:" {print $2}' | tr -d '\r' | paste -sd'; ' -)
+# 2) 建会话（agentId 就是 sessionId）
+SID=$(curl -sS -X POST "http://127.0.0.1:3099/api/session/create" \
+  -H 'content-type: application/json' -b "$COOKIE" \
+  -d '{"cwd":"/home/xuqinqin/develop/person/dsh-plugins"}' | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')
+#    注：create 的响应字段名以实测为准（会话 id 也可能在 sessionId/agentId 名下，取可用的那个）
+# 3) 读面板快照（本扩展的主断言面）
+curl -sS -X POST "http://127.0.0.1:3099/session-tool-toggle/panel" \
+  -H 'content-type: application/json' -b "$COOKIE" \
+  -d "{\"type\":\"client-request\",\"rpcId\":\"smoke-1\",\"method\":\"panel\",\"payload\":{\"sessionId\":\"${SID}\"}}"
+#    期望：{"type":"server-response",...,"result":{"ok":true,"value":{...,"stats":{"catalog":<实测基线>,...}}}}
+# 4) 面板关闭整组 → 期望 ok:true、mutation.applied[0].matched = 该服务器工具数
+curl -sS -X POST "http://127.0.0.1:3099/session-tool-toggle/toggle" \
+  -H 'content-type: application/json' -b "$COOKIE" \
+  -d "{\"type\":\"client-request\",\"rpcId\":\"smoke-2\",\"method\":\"toggle\",\"payload\":{\"sessionId\":\"${SID}\",\"on\":false,\"addresses\":[\"mcp:yunxiao\"]}}"
+# 5) 与命令面对账：同一关闭集
+curl -sS -X POST "http://127.0.0.1:3099/api/commands/execute" \
+  -H 'content-type: application/json' -b "$COOKIE" \
+  -d "{\"agentId\":\"${SID}\",\"line\":\"/tools status\",\"submittedAttachments\":[]}"
+```
+
+- ⑧ 断言：第 3 步 `ok:true` 且 `stats.catalog` ≈ 本部署实测基线（`code-design` 基线 214 中含 MCP 139）。
+- ⑨ 断言：第 4 步 `mutation.applied[0].matched` 等于该服务器工具数（yunxiao 实测 70），第 5 步回执的关闭集含 `mcp:yunxiao`。
+- 负路径：`toggle` 发 `{"addresses":["tool:bash"]}` → `ok:false` 且 `code:"protected"`；`panel` 发不存在的 `sessionId` → `code:"session-not-live"`。
+- 若第 2/3 步被 401/403 挡住 → 抄 U4 的备用路径（页面内 `fetch` 直调，页面已带 cookie）。
+
+---
+
+## 6. 风险与未决
+
+### 6.1 风险与缓解（8 条）
+
+| # | 风险 | 缓解 |
+|---|---|---|
+| **R1** | **多窗口并发开关不一致**：两窗口对同一会话各持一份快照，A 关 `yunxiao`、B 仍显示开；B 再点开 → 覆盖 A 的意图 | ① 每次 mutation 返回**新快照**，写者立即收敛；② `command/executed` + `focus` + 手动刷新三触发让旁观窗口收敛；③ 关闭集在面板里集中展示（用户能看到"其实已经关了"）；④ 明确不做乐观更新。**语义上后写者胜**（与命令面一致：命令也是最后一条生效） |
+| **R2** | **插槽渲染时机与无会话期**：`conversation.session.header.utilities` 只在 `conversation.session.header` 条目挂载期间存在（`dsh-cordis-client-runner/lib/client.js:3992` 的 declaredBy）；无会话时座位不存在 | scope `session` 已由框架保证有会话；`sessionId` 用标准 prop（`repo/dsh-client-ui-session/lib/types/client/index.d.ts:84`），组件不猜；座位缺席时 `register` 抛错被 `try/catch` 吞掉（web-ux 同做法），最坏是入口不出现 |
+| **R3** | **RPC 通道与 web-ux 通道并存**：两个 prefix route，若将来有人用同一前缀会撞 | 通道名取包名（唯一）；`register()` 对同名 route 抛错（`dsh-host-webserver/lib/index.js:326-329`）→ 撞车是**启动期显式失败**而不是静默覆盖；README 记录占用事实 |
+| **R4** | **client bundle 体积**：面板引入 Modal/Switch/Button（已是 `external`，不进 bundle）+ CSS modules 内联 + controller 逻辑 | 预计 client.js 增量 ≈25–40 KB（未压缩）；primitive/react 全外置（`CLIENT_EXTERNALS`）；`bundle.test.ts` 卡住"多打一个裸包名"的回归；不引入 zod/i18n 库（见 D16） |
+| **R5** | **面板快照与 `tools/change` 的刷新策略**：面板打开期间 MCP 服务器可能重载/断线，清单陈旧 → 用户点一个已消失的工具 → `restrict` 抛「unknown tool」 | ① 掩码层已有「restrict 抛错 → 重推一次重试」的不变量（`code-design` I3），单次开关不会把整层打挂；② 面板每次 mutation 后吃新快照，陈旧条目自动消失；③ 每次 mutation 前**不**强制重拉（一次往返的代价换不到正确性，重试已兜底）；④ 打开即拉 |
+| **R6** | **i18n**：宿主 `guardReason`/命令回执是 zh-CN 硬文案，若被面板直接展示，英文界面会混中文 | 面板只展示 `t()` 键；宿主文本仅作为 `error.message` 二级 detail（不参与本地化，与 web-ux 一致）；`notice`/失败码全部是稳定码 |
+| **R7** | **双端构建链对 CI 的影响**：`verify:all` 原有顺序是 lint→typecheck→build→test，`bundle.test.ts` 依赖构建产物；`typecheck` 现在有两个 project；`lib/` 产物翻倍 | 沿用 web-ux 的既定顺序（其 `verify:all` 就是 lint→typecheck→build→test，`plugins/web-ux/package.json:96`）；`.gitignore` 已忽略 `*.tsbuildinfo`；`release.mjs` 递归重建产物无需改 |
+| **R8** | **大快照体积**：214 个工具 × description，若带 `parameters` 会是数百 KB/次 | 宿主**不**返回 `parameters`；description 截断 160 字符；`panel` 只在打开/刷新/变更后调用（不是首屏）；预计单次响应 < 60 KB |
+
+**已核实、不列为风险的两条事实**（避免实现期重复排查）：
+- 自定义 RPC 通道**有**浏览器信任围栏：`connection.rpc.handle` 在 `register()` 内部先 `this.admit(req)`，失败返回 401/403（`dsh/dsh-client-connection/lib/index.js:855-871`、`:744-749`），与 `/api` 同一套 cookie/Host 校验 → 通道不是"本机无认证 API"。
+- `zod` **在** 平台模块表里（`dsh-web-frontend/dist/assets/index-*.js` 的 `SZ()` 返回表含 `zod`），官方 `dsh-client-ui-conversation/lib/client.js` 也确实 `require("zod")` → 若将来想让契约复用 zod 是可行的（本次不采用，见 D16）。
+
+### 6.2 「实现期实测回填」未决点
+
+| # | 未决 | 回填方式 |
+|---|---|---|
+| U1 | `Modal` 内嵌 `Switch` 与 `useModalLayer`/Escape 的交互（面板内是否有第二个 `Modal` 层、焦点返回） | 10.4 的 jsdom 套件 + 隔离实例人工点检；必要时改 `headless` 或换 `SegmentedTabs` |
+| U2 | 头部图标按钮的最终视觉（28px 圆形 vs `Pill` 胶囊）与图标选择 | 11.3 截图对照官方三项；不改契约 |
+| U3 | `command/executed` 是否真的覆盖「面板打开时用户用斜杠命令改开关」（`@mode emit` 只在本窗口触发；跨窗口不广播） | 11.2 的 ⑨ 断言；若跨窗口不覆盖，靠 `focus` + 手动刷新兜底（R1） |
+| U4 | 自定义通道的 curl 冒烟是否被 `admit` 挡住（需要 `GET /?token=…` 换 cookie；Host 头必须是 loopback） | 11.2 的 ⑧ 实跑；失败则改用浏览器内 `fetch` 直调（页面已带 cookie） |
+| U5 | 分组歧义（serverName 含 `__`）在真实部署的命中情况 | 11.2 打印一次 `panel.groups` 的 server 集合，与本部署 5 台（yunxiao / chrome-devtools-mcp / dbx / codebase-memory / figma）对照 |
+| U6 | 面板打开时切换会话（`sessionId` 变化）的重挂行为 | 10.3 单测 + 人工点检：`useMemo` 按 `sessionId` 键控 controller，切换即重建并重拉 |
+| U7 | `defaults` 写入时目录不存在（`$DSH_HOME/session-tool-toggle/` 首次）的 `dirMode` 生效情况 | 既有任务 6.1（用户级默认档）已覆盖 `writeFileAtomic` 的 dirMode；面板侧只断言 `defaults-unwritable` 的错误面 |
+| U8 | 快照体积实测（若 > 200 KB 需分页或按组懒加载） | 11.2 记录 `panel` 响应字节数；超阈值时改为「先返回分组摘要、展开时再取单组」 |
+
+---
+
+## 7. 决策记录（D12–D20）
+
+### D12 入口选 `conversation.session.header.utilities`，不用 `header.actions` / `header.corner`
+
+- **决策**：注册到 `conversation.session.header.utilities`，`order: 20`，id `session-tool-toggle-panel`。
+- **依据**：插槽语义就是「Right-aligned Session utilities in ascending order」（`dsh/dsh-client-ui-conversation/lib/types/client/contract/slots.d.ts:236-241`）；官方三例（open-in-app `-10`、schedule `-5`、session-log-export 缺省 `0`）都是"工具性"入口，与本面板同类；`owner props` 无专属值（`:440-443`）说明该座位刻意不传父级语义，正好适合"自己从标准 Session props 取会话"。
+- **被否 1：`conversation.session.header.actions`**（同为 list/scope session）。理由：语义是「Title-adjacent Session actions」，官方占位的是会话级动作（fork/rename 类）；把"工具面配置"塞进去会让"动作"与"设置"混在一起，且 order 空间已被官方占满。
+- **被否 2：`conversation.session.header.corner`**（single）。理由：single 座位只容一个占用者，占用即**抢走**官方角落控件（`replaceRisk: shadows-shipped-ui`），代价远大于收益。
+- **被否 3：侧栏/设置页常驻入口**。理由：工具面是**会话级**开关，脱离会话上下文会诱导"全局生效"的误解；且设置页属于官方 `dsh-client-ui-settings` 的座位体系（需再引入一个 client 依赖）。
+- **反例**：若官方将来把 utilities 语义收紧为"只放会话内小动作"，本入口可能显得越界；届时改 `order` 或迁到 `actions`（`corner` 是 single 座位，迁过去会顶掉官方控件，**不是**可行的迁移目标）。
+
+### D13 面板用组件内自渲染的 `Modal`，不借 `shell.overlay`
+
+- **决策**：入口按钮组件内直接渲染 `Modal`（body portal），不注册 `shell.overlay`，不建跨 entry 请求 store。
+- **依据**：`Modal` 本身就是 body portal（`repo/dsh-client-ui-primitives/lib/types/Modal.d.ts`：「Render a centered, body-portaled modal over a blurred page mask」）；入口按钮常驻（座位不随交互卸载）。
+- **被否：照抄 web-ux 的 `shell.overlay` + 请求 store**。理由：web-ux 需要它是因为**菜单项会随菜单关闭而卸载**（`plugins/web-ux/src/client/index.ts:11-14` 明确写了这个约束）；本场景没有这个约束，抄过来只增加一个 client 依赖（`dsh-client-ui-layout`）与一份跨 entry 状态。
+- **第二个被否：`drawer`/侧栏页**。理由：面板要"就地看、就地改"，抽屉会把会话内容挤出视野；且官方右侧栏 tab 体系是 `ctx.sidebarRight.openTab` 的领地（消费先例 `dsh/dsh-client-ui-schedule/lib/client.js:7501`），第三方没有稳定座位。
+
+### D14 单一控制内核 `control.ts`，`commands.ts` 退为文本前端
+
+- **决策**：把「读状态 / 改状态 / 读写默认档」的全部用例收进 `src/host/control.ts`（依赖注入），`commands.ts` 只做「解析 argv + 拼 zh-CN 回执」，`rpc.ts` 只做「校验 wire + 映射失败码」。
+- **依据**：用户拍板 ③ 要求面板与命令等效；`code-design` 不变量 1/2/5/9 都是"状态与校验只有一处"。让两个消费者直接调用同一内核，比"两份实现 + 一张对照测试"更可靠。
+- **被否 1：面板直接复用 `ctx.commands.execute(agent, '/tools off …')`**。理由：`execute` 的返回是 `CommandExecution`（面向人类回执的文本），面板需要结构化数据（`matched`/`hiddenTools`/`visibleAfter`）与 i18n 键；把中文回执再解析一遍是反向工程（`dsh/dsh-commands/lib/types/index.d.ts:142` 的签名只给 `CommandExecution`）。
+- **被否 2：面板与命令各写一份实现，用契约测试对齐**。理由：两份实现必然在两处漂移——保护名单判定顺序、0 匹配的容忍语义、`reset` 的快照来源；这些都是"半年后才会被发现"的差异。
+- **反例**：`commands.ts` 重构会让既有 7.1 的单测基线变动（回执拼装与内核分离后，部分断言从 `commands` 移到 `control`）。这是**一次性成本**，换来的是「第二个消费者零复制」；若不接受，代价是永久双写。
+
+### D15 保持 host-only 投影（不加 `wire`），面板用 RPC 拉取 + 四类刷新触发
+
+- **决策**：`sessionToolToggle` 投影单元**不加 `wire` view**（维持 `code-design` D1/③.2 的 host-only 结论）；面板状态一律由 `panel` 端点拉取；刷新靠「打开 / mutation 回执 / `command/executed` / focus+手动」四类触发。
+- **依据**：`ProjectionDefinition.wire` 是可选字段，host-only 单元「Omit for host-only units」（`dsh/dsh-session-projection/lib/types/index.d.ts:39-70`）；`useProjection` 只能读 client-visible 键（`repo/dsh-client-ui-session/lib/types/client/index.d.ts:85-86`）。改 wire 会同时动持久化面、视图 schema 与 client 类型表，超出本次扩展必要范围。
+- **被否 1：加 `wire` 用 `useProjection` 做实时推送**。好处是跨窗口零延迟一致；代价：① 状态形状变成 client 可见契约（多一份 `viewSchema` 与兼容义务）；② 仍不能解决"清单"（工具注册表事实）的实时性，面板还得拉 RPC；③ 与用户拍板 ④「不含配置键编辑」无冲突但也无收益。**保留为 v2 候选**（若 R1 在实测中成为真实痛点，加 wire 是最小改动路径）。
+- **被否 2：面板里轮询 `panel` 端点**。理由：无谓的定时请求 + 电池/CPU 成本，且 `command/executed` + `focus` 已覆盖绝大多数陈旧场景。
+- **反例**：面板打开时用另一个窗口改了开关，本窗口不会自动变；靠「关闭集」区与刷新按钮可见性兜底（R1 的接受边界）。
+
+### D16 线上契约用**共享手写 parser**（`src/contract.ts`），zod 草案只作形状权威
+
+- **决策**：`src/contract.ts` 零 import，手写 4 对 parser；§2.2 的 zod 草案作为**本设计的形状权威**（评审与测试的字段清单），不进入代码。
+- **依据**：① web-ux 的既定结论与理由——「本模块不得 import `node:*` 或 `@deepseek-ai/*`（会被内联进浏览器 bundle），因此校验为手写实现，不引入 zod」（`plugins/web-ux/src/contract.ts:13-15`）；② 该模块同时被打进宿主（bundled zod）与浏览器（`external` 之外的一切都会进 bundle），手写让两端都零额外依赖；③ 既有 `test/bundle.test.ts` 断言的是**精确 external 词表**，新增 `zod` 会放宽这条护栏。
+- **被否 1：共享 zod schema，client 侧 extern `zod`（平台表已验证含 `zod`）**。可行（见 §6.1 事实），但把「面板可用」耦合到"未来 shell 的模块表仍含 zod"这一实现细节上；一旦移除，client bundle 在物化期抛错、整个浏览器半消失（含入口），比手写 parser 的"多几行代码"更贵。
+- **被否 2：宿主用 zod、client 用手写，两套并存**。理由：两份校验必然漂移，且 zod 的 `strict`/`superRefine` 语义与手写实现不会自动对齐。
+- **反例**：手写 parser 在嵌套结构上更啰嗦，且新增字段时要同时改 TS 类型、parser、zod 草案三处；缓解 = `wire-contract.test.ts` 用表驱动覆盖每个字段的"缺/坏/多"，并把 zod 草案留在本文当 checklist。
+
+### D17 面板**不新增状态存储**：直接读写同一 `StateStore` 与同一 `SessionLayer`
+
+- **决策**：`panel` 的读 = `store.read(session)` + `layer.snapshot()` + `ctx.tools.schemas()`；`toggle` 的写 = `store.write` + `layer.setState`。client 侧只有"快照缓存"，没有第二份业务状态。
+- **依据**：用户要求面板「等效 /tools」；`code-design` 的 10 条不变量全部围绕"单一状态源"。
+- **被否：面板侧维护一份 `panelState` 作为 UI 真相，异步回写宿主**。理由：两份状态的收敛问题（谁赢？）会把一个简单的开关变成分布式一致性问题；且 resume/fork 后宿主状态可能变化，UI 侧缓存无意义。
+- **反例**：每次操作都要一次网络往返才看到结果（约 5–30 ms，本地 loopback）；可接受。若实测有卡顿，只在该行加 spinner，**不**改状态源。
+
+### D18 默认档编辑不追溯，面板也不提供「应用到本会话」
+
+- **决策**：`defaults` 端点只写文件并回视图；不提供"把新默认档套到当前会话"的按钮。
+- **依据**：`code-design` D9 / spec「默认档变更不追溯」是用户 Q5-a 拍板；提供"应用到本会话"等价于把默认档变成可变引用，破坏快照语义。
+- **被否：加一个「同时应用到本会话」复选框**。理由：一旦存在，用户就无法从界面上判断"我这个会话到底按哪份默认档"；`/tools reset` 已经是"回到创建时快照"的正确入口。
+- **反例**：用户想"以后默认这样，现在也这样"时需要两步（保存默认档 + 面板里手动关同样几项）。这是刻意的摩擦；README 写明。
+
+### D19 批量开关「全有或全无」
+
+- **决策**：`toggle` 的多个地址在同一请求内校验（文法 / 保护 / reserved），任一非法 → 整单拒绝，不写任何状态、不动掩码。
+- **依据**：命令面是"一条命令一个结果"（`CommandResult` 只有 success/error，`dsh/dsh-commands/lib/types/types.d.ts:33-41`）；面板若允许部分成功，会与命令面的语义分叉。
+- **被否：部分成功 + 逐地址回执**。理由：多出的回执结构（每地址 outcome）会让 UI 多一层"哪些成了"的渲染，而这两个失败码本来就是防御性路径（开关已置灰）。
+- **反例**：用户一次多选 10 个地址、其中 1 个拼错 → 全部失败、需要重来。缓解：面板的地址来自清单点击（不是自由输入），只有默认档区是自由输入，且那里失败会回显具体地址（`details.address`）。
+
+### D20 端点集 4 个（`panel` / `toggle` / `reset` / `defaults`），不做"一个写端点 + 一个 op 字段"
+
+- **决策**：四个端点、四种成功值形状；`reset` 与 `toggle` 共享 `ToggleValueSchema`（因为语义都是"变更会话状态"），`defaults` 独立（不改会话）。
+- **依据**：web-ux 的契约原则——「一个端点一种响应形状（预览返回 `DeletePreview`，执行返回 `DeleteOutcome`），调用方不可能把 A 端点的答案当 B 端点解码」（`plugins/web-ux/src/contract.ts:6-11`）。
+- **被否 1：单写端点 `mutate` + `op` 判别字段**。理由：调用方要按 op 分派解码，等于把两种形状塞进一个 `oneOf`，正好是上面那条原则禁止的。
+- **被否 2：把 `defaults` 的读拆成第五个端点**。理由：`panel` 已返回默认档视图；多一个读端点就多一处"两个来源不一致"的可能（且默认档写入后本来就不影响会话快照）。
+- **反例**：`reset` 与 `toggle` 共用 `ToggleValueSchema` 意味着 `applied` 语义要能表达"回滚到 N 项"；实现上 `reset` 返回 `applied` 为"被移除的关闭项（`on:true`）"，字段语义在 README 与测试里写明。
+
+---
+
+## 附录 A：本文相对 `code-design.md` 的修订索引
+
+| code-design 位置 | 修订 |
+|---|---|
+| §1.1 表 | 追加 12 个 src 行（本文 §1.1）+ 1 个 `css-modules.d.ts` 行；改写 7 行（package.json/build.mjs/tsconfig×3→×4/vitest/index.ts/commands.ts/types.ts） |
+| §1.2 表 | 不变（README 描述改「双端」） |
+| ③ 类型面 | 增 `ControlDeps` / `PanelInputs` / `PanelSnapshot` / `Mutation` / `DefaultsView` / `NoticeCode`（本文 §2.2、§1.2） |
+| ③.9 不变量 | 增第 11 条「面板与命令面共用同一状态与同一写入路径」、第 12 条「web 契约零外部依赖、两端各内联一份」 |
+| ④ 决策 | 续 D12–D20（本文 §7） |
+| ⑤ 任务组 | T1–T8 保持；新增 T9（宿主内核 + RPC）、T10（client 半），人日 9.5 → ≈14.5 |
+| ⑥.1 假设 | 增 A12（`toolServerOf` 首 `__` 切分在面板分组上的歧义与自检）、A13（自定义通道走 Connection 的 `admit` 围栏） |
+| ⑥.2 未决 | 增 U8（面板专用，见本文 §6.2） |
+| P1/P2/P3 | 不变（面板不改变持久化/命令面/子代理默认档的结论） |
