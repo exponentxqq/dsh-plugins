@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-user-commands",
   "description": "External dsh plugin (host-only, any profile): user-defined slash commands from markdown files — three layers (builtin / $DSH_HOME/commands / each workspace root's .dsh/commands), per-session shadowing, live refresh, and a builtin /init",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "icon": "icon.svg",
   "type": "module",
   "engines": {
