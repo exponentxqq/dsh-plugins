@@ -140,7 +140,7 @@ dsh --profile web --dump-config     # 应看到两行 disabled + 十一行 inser
 dsh plugin --profile web add <本仓库路径>
 ```
 
-`link:` 来源用的是本仓库已装好的依赖，因此不需要 `allowBuilds` 表态。npm / tarball / git 三种来源自 v1.1.1 起也只剩 `koffi` 的一次表态（按包名匹配，不随 tag 变化）；插件自身的 `prepare` 已移除、产物 `lib/` 随 tag 提交，git 来源不再触发构建授权。原因与处置见 [README §安装](../../README.md) 与[故障排查：安装停在构建授权](../troubleshooting/install-stops-at-build-approval.md)。宿主 `~/.gitconfig` 若有 github.com 的 `insteadOf=ssh` 改写，容器内安装要加 `-e GIT_CONFIG_GLOBAL=/dev/null`（容器没有 ssh）。
+`link:` 来源用的是本仓库已装好的依赖，因此不需要 `allowBuilds` 表态。npm / tarball / git 三种来源自 v1.1.1 起也只剩 `koffi` 的一次表态（按包名匹配，不随 tag 变化）；插件自身的 `prepare` 已移除、产物 `lib/` 随 tag 提交，git 来源不再触发构建授权。原因与处置见 [README §安装](../../README.md) 与[故障排查：安装停在构建授权](../troubleshooting/install-stops-at-build-approval.md)。宿主 `~/.gitconfig` 若有 github.com 的 `insteadOf=ssh` 改写，dsh 容器现挂载宿主 `~/.ssh`、钥匙可用时 ssh 直连正常；仅当认证不可用时才需加 `-e GIT_CONFIG_GLOBAL=/dev/null`。
 
 `dsh plugin` 是 pnpm 的转发器：它在 profile 目录里执行 pnpm，并把解析到 `dsh.bundle` 声明的依赖回填进 `dsh.profile.bundles`。桌面端（Electron）保留自己的 `$DSH_HOME/profiles/desktop`，安装方式同源。
 

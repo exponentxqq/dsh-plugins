@@ -19,9 +19,9 @@
  * - **发布前置检查**：写版本之前先跑 `pnpm dsh:check`；DSH 基线、软插件范围、
  *   multi-root 的 allowlist/peers 或发布年龄豁免任一漂移，发布直接拒绝。
  *
- * 脚本只做本地动作（校验 → 改版本 → 重建产物 → 提交 → 打 tag）。容器内没有 ssh，
- * push 请在宿主执行：`git push origin main --tags`；tag 未推送到远程前，
- * profile 无法按 `#v<version>` 解析安装。
+ * 脚本只做本地动作（校验 → 改版本 → 重建产物 → 提交 → 打 tag）。dsh 容器已挂载
+ * 宿主 ~/.ssh，push 可直接在容器内执行：`git push origin main --tags`；
+ * tag 未推送到远程前，profile 无法按 `#v<version>` 解析安装。
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -192,6 +192,6 @@ try {
 
 const head = git(['rev-parse', '--short', 'HEAD'])
 process.stdout.write(`\nrelease: 完成（提交 ${head}，tag ${tag}）\n`)
-process.stdout.write('下一步（容器内没有 ssh，请在宿主执行）：\n')
+process.stdout.write('下一步（容器已挂载宿主 ~/.ssh，可直接 push）：\n')
 process.stdout.write('  git push origin main --tags\n')
 process.stdout.write(`推送后 profile 才能按 #${tag} 解析安装；升级 profile 时把 spec 里的 tag 改成 ${tag} 再重装\n`)

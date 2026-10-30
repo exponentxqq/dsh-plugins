@@ -106,7 +106,7 @@ dsh plugin --profile web add "github:exponentxqq/dsh-plugins#v1.3.0&path:plugins
 
 An old tag with the old path (`#v1.2.1&path:plugins/dsh-plugin-multi-root-workspace`) still installs the old versions; the two anchors do not interfere.
 
-> If the host's `~/.gitconfig` rewrites `https://github.com/` to ssh (`insteadOf`) while the container has no ssh, `git ls-remote` fails — add `-e GIT_CONFIG_GLOBAL=/dev/null` to the command (`docker exec -e GIT_CONFIG_GLOBAL=/dev/null dsh …`), or split that section into a host-only include file as the dotfiles documentation describes.
+> If the host's `~/.gitconfig` rewrites `https://github.com/` to ssh (`insteadOf`), the dsh container now mounts the host's `~/.ssh`, so the ssh route works whenever the key authenticates with GitHub; `git ls-remote` only fails when the key is unusable — then add `-e GIT_CONFIG_GLOBAL=/dev/null` to the command (`docker exec -e GIT_CONFIG_GLOBAL=/dev/null dsh …`), or split that section into a host-only include file as the dotfiles documentation describes.
 >
 > To run **upstream** source instead, the command is different (its package name still carries the scope; clone the tag yourself): `dsh plugin --profile web add github:cherrchen/dsh-plugin-multi-root-workspace#v0.1.5`.
 

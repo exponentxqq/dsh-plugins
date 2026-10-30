@@ -49,7 +49,7 @@ docker exec dsh dsh --profile web --dump-config-schema   # 校验组合可加载
 两件必知的事：
 
 - **构建授权**：v1.1.1 起各插件的构建产物 `lib/` 随仓库提交且不再带 `prepare` 脚本，git 来源安装**不触发** pnpm 的构建脚本授权（pnpm 10/11 行为一致，改 tag 也无需任何表态）。唯一例外是 multi-root 插件的注册表依赖 `koffi`（原生模块，install 脚本要预编译）：pnpm ≥11 会把 `allowBuilds: koffi:` 占位写进 profile 的 `pnpm-workspace.yaml`，改成 `true` 重跑即可；pnpm 10 会以 `ERR_PNPM_IGNORED_BUILDS` 退出，把 `koffi`（用包名）加进 `onlyBuiltDependencies`——按包名匹配、不随 tag 变化，只需表态一次。背景与机制（为何 git 来源曾是硬失败、为何键里带 commit）见 [安装停在构建授权](plugins/multi-root-workspace/docs/troubleshooting/install-stops-at-build-approval.md)。
-- **`insteadOf` 陷阱**：若宿主 `~/.gitconfig` 写了 `url.git@github.com:.insteadOf = https://github.com/`（该文件被只读挂载进 dsh 容器），容器内 `git ls-remote` 会被改写成 ssh 而容器没有 ssh，安装直接失败。解决办法二选一：把该段拆到宿主专属的 include 文件（容器读不到即静默跳过，见 dotfiles `dsh/README.md`），或给这条命令加 `-e GIT_CONFIG_GLOBAL=/dev/null`：`docker exec -e GIT_CONFIG_GLOBAL=/dev/null dsh dsh plugin …`。
+- **`insteadOf` 改写**：若宿主 `~/.gitconfig` 写了 `url.git@github.com:.insteadOf = https://github.com/`（该文件被只读挂载进 dsh 容器），容器内 `git ls-remote` 会被改写成 ssh——dsh 容器现已挂载宿主 `~/.ssh`，钥匙对 GitHub 可用时 ssh 直连照常工作，不再是坑；仅当宿主没有可用的 GitHub 钥匙时才会失败，届时把该段拆到宿主专属的 include 文件（见 dotfiles `dsh/README.md`），或给这条命令加 `-e GIT_CONFIG_GLOBAL=/dev/null`：`docker exec -e GIT_CONFIG_GLOBAL=/dev/null dsh dsh plugin …`。
 
 升级 = 改 profile `package.json` 里的 tag 后重装（`pnpm install` + 重启 profile）；想自动跟进同主版本也可用范围写法 `#semver:^<major>.0.0&path:plugins/<目录>`。multi-root-workspace 是个例外：自 v1.3.0 起其目录改名为 `plugins/multi-root-workspace`（包名不变），而 pnpm 的 git 依赖锚点含 `&path:`、不随 tag 自动切换，已装旧版的 profile 需按新 path 重新 `add`（旧 tag 配旧 path 仍可装回旧版本，详见[插件 README](plugins/multi-root-workspace/README.md)）。
 
@@ -63,7 +63,7 @@ docker exec dsh dsh --profile web --dump-config-schema   # 校验组合可加载
 pnpm dsh:check             # 0. 发布前置检查（release 会自动执行，也可单独跑）
 pnpm verify                # 1. 发布前自检（递归 verify:all；多根插件的 smoke 需运行中的 dsh）
 pnpm release <version>     # 2. dsh:check → 同步版本 → 重建产物 → 提交 chore(release): v<version> → 打 annotated tag
-git push origin main --tags   # 3. 在宿主 push（容器内没有 ssh）
+git push origin main --tags   # 3. push（容器已挂载宿主 ~/.ssh，可直接执行）
 ```
 
 `pnpm release --dry-run <version>` 只打印将变更的版本；脚本会拒绝脏工作区、非 main 分支、已存在的 tag，以及未通过的 `dsh:check`。tag 未推到远程前，profile 无法按 `#v<version>` 解析安装。

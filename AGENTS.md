@@ -65,7 +65,7 @@ docker exec dsh dsh plugin --profile web add \
   "github:exponentxqq/dsh-plugins#${TAG}&path:plugins/<name>"
 # 仅 multi-root 的 koffi（注册表原生依赖）需表态一次：pnpm ≥11 把 allowBuilds 占位改 true，
 # pnpm 10 把 koffi（用包名）加进 onlyBuiltDependencies——详见其 docs/troubleshooting 排障文档
-# 宿主 ~/.gitconfig 有 github.com insteadOf=ssh 改写时加 -e GIT_CONFIG_GLOBAL=/dev/null
+# 宿主 ~/.gitconfig 的 insteadOf=ssh 改写现已无害（dsh 容器挂载了宿主 ~/.ssh）；ssh 认证不可用时再加 -e GIT_CONFIG_GLOBAL=/dev/null
 # 本地调试可 link: 安装（改源码重启 profile 即生效）：docker exec dsh dsh plugin --profile web add <本仓>/plugins/<name>
 docker exec dsh dsh --profile web --dump-config-schema   # 校验配置可加载（会 import 插件）
 docker exec dsh dsh --profile web --dump-config          # 查看合成后的配置树
@@ -75,7 +75,7 @@ DSH 源码与 API 参考位于 `/usr/local/lib/node_modules/@deepseek-ai/dsh/`�
 
 ## 发布与版本
 
-仓库级统一版本：根 `package.json` 与各插件的 `version` 恒等于当前 tag（`v<major>.<minor>.<patch>`），tag 是 profile 侧安装的唯一锚点。`scripts/release.mjs` 拒绝脏工作区、非 main 分支与已存在的 tag；push 须在宿主执行（容器内无 ssh）：`git push origin main --tags`；tag 未推远程前 profile 无法按 `#v<version>` 解析安装。
+仓库级统一版本：根 `package.json` 与各插件的 `version` 恒等于当前 tag（`v<major>.<minor>.<patch>`），tag 是 profile 侧安装的唯一锚点。`scripts/release.mjs` 拒绝脏工作区、非 main 分支与已存在的 tag；push 可直接在容器内执行（dsh 容器已挂载宿主 `~/.ssh`）：`git push origin main --tags`；tag 未推远程前 profile 无法按 `#v<version>` 解析安装。
 
 ## Codebase Memory 索引
 

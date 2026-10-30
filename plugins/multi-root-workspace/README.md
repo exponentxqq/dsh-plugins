@@ -106,7 +106,7 @@ dsh plugin --profile web add "github:exponentxqq/dsh-plugins#v1.3.0&path:plugins
 
 旧 tag 配旧 path（`#v1.2.1&path:plugins/dsh-plugin-multi-root-workspace`）仍可安装旧版本，两套锚点互不影响。
 
-> 若宿主 `~/.gitconfig` 把 `https://github.com/` 改写成了 ssh（`insteadOf`），而容器里没有 ssh，`git ls-remote` 会失败——给命令加 `-e GIT_CONFIG_GLOBAL=/dev/null`（`docker exec -e GIT_CONFIG_GLOBAL=/dev/null dsh …`），或按 dotfiles 说明把该段拆到宿主专属的 include 文件。
+> 若宿主 `~/.gitconfig` 把 `https://github.com/` 改写成了 ssh（`insteadOf`）——dsh 容器现已挂载宿主 `~/.ssh`，钥匙对 GitHub 可用时 ssh 直连正常；仅当认证不可用时 `git ls-remote` 才会失败，届时给命令加 `-e GIT_CONFIG_GLOBAL=/dev/null`（`docker exec -e GIT_CONFIG_GLOBAL=/dev/null dsh …`），或按 dotfiles 说明把该段拆到宿主专属的 include 文件。
 >
 > 想跑**上游**源码则是另一条命令（包名仍带 scope，且需自行 clone tag）：`dsh plugin --profile web add github:cherrchen/dsh-plugin-multi-root-workspace#v0.1.5`。
 
