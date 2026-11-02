@@ -24,9 +24,12 @@ import {
   DELETE_DIALOG_ORDER,
   DELETE_MENU_ID,
   DELETE_MENU_ORDER,
+  NOTICE_ID,
+  NOTICE_ORDER,
   apply,
   inject,
 } from '../src/client/index.ts'
+import type { CommandNoticeCardProps } from '../src/client/CommandNoticeCard.tsx'
 
 /** 一次 `slots.register` 调用（注入面也一并记下，供渲染期解析断言）。 */
 interface Registration {
@@ -40,6 +43,7 @@ interface Registration {
 /** 客户端半会去找的座位：未声明的座位不会被 `slots.inject` 回调访问。 */
 const DECLARED_SLOTS = [
   'conversation.composer.dock',
+  'conversation.input.overlay',
   'sidebar.workspaces.session.menu.item',
   'shell.overlay',
 ] as const
@@ -48,17 +52,19 @@ const DECLARED_SLOTS = [
 interface Services {
   connection?: unknown
   workspaces?: unknown
+  sessions?: unknown
 }
 
 /**
  * 造一个最小的 client context：够 `apply` 走完注册路径，并把动作记进调用日志。
- * @param initial - `connection` / `workspaces` 两个软读服务的初始就位状态。
- * @returns fake context 与观测到的注册、日志、以及「服务随后就绪」的入口。
+ * @param initial - `connection` / `workspaces` / `sessions` 三个软读服务的初始就位状态。
+ * @returns fake context 与观测到的注册、日志、事件监听、以及「服务随后就绪」的入口。
  */
 function fakeClient(initial: Services) {
   const log: string[] = []
   const registrations: Registration[] = []
   const slotInjections: string[] = []
+  const eventListeners = new Map<string, Array<(...args: never[]) => void>>()
   const services: Services = { ...initial }
 
   const ctx = {
@@ -84,27 +90,52 @@ function fakeClient(initial: Services) {
         return () => {}
       },
     },
+    on: (name: string, listener: (...args: never[]) => void) => {
+      log.push(`on:${name}`)
+      const bucket = eventListeners.get(name) ?? []
+      bucket.push(listener)
+      eventListeners.set(name, bucket)
+      return () => {}
+    },
     modelDirectories: {
       directoryFor: () => ({
         store: { getSnapshot: () => ({}), subscribe: () => () => {} },
       }),
     },
-    get: (name: string) => (name === 'connection' ? services.connection : name === 'workspaces' ? services.workspaces : undefined),
+    get: (name: string) =>
+      name === 'connection'
+        ? services.connection
+        : name === 'workspaces'
+          ? services.workspaces
+          : name === 'sessions'
+            ? services.sessions
+            : undefined,
   }
 
   /** 模拟服务在 `apply` 之后才 provide。 */
   const provideLater = (next: Required<Services>): void => {
     services.connection = next.connection
     services.workspaces = next.workspaces
+    services.sessions = next.sessions
   }
 
-  return { ctx: ctx as never, log, registrations, slotInjections, provideLater }
+  return { ctx: ctx as never, log, registrations, slotInjections, eventListeners, provideLater }
 }
 
-/** 一个够用的 connection / workspaces 假实现（注入面只持有引用）。 */
+/** 一次 `command/executed` 派发（走 apply 注册的监听器）。 */
+function emitExecuted(fake: ReturnType<typeof fakeClient>, sessionId: unknown, commandName: unknown, result: unknown): void {
+  for (const listener of fake.eventListeners.get('command/executed') ?? []) {
+    ;(listener as (s: unknown, c: unknown, r: unknown) => void)(sessionId, commandName, result)
+  }
+}
+
+/** 一次够用的 connection / workspaces / sessions 假实现（注入面只持有引用）。 */
 const READY_SERVICES = {
   connection: { rpc: { call: async () => ({ ok: true, value: {} }) } },
   workspaces: { list: { getSnapshot: () => ({ archivedSessionIds: [] }), subscribe: () => () => {} } },
+  sessions: {
+    retainInfo: () => ({ getSnapshot: () => ({ referenceCount: 1, retainedBy: { mainView: 1 } }), subscribe: () => () => {} }),
+  },
 }
 
 /** 按座位名取注册项。 */
@@ -115,11 +146,11 @@ function bySlot(registrations: readonly Registration[], name: string): Registrat
 }
 
 describe('客户端半的注册契约', () => {
-  it('硬依赖只有座位、字典与模型目录，connection / workspaces 是渲染期软读', () => {
+  it('硬依赖只有座位、字典与模型目录，connection / workspaces / sessions 是渲染期软读', () => {
     expect(inject).toEqual(['slots', 'locale', 'modelDirectories'])
   })
 
-  it('两个服务已就绪时：字典先注册，随后是徽章、菜单项（order 500）与覆盖层对话框', () => {
+  it('全部服务就绪时：字典先注册，随后是徽章、通知卡（order 10）、菜单项（order 500）与覆盖层对话框，并挂上事件监听', () => {
     const fake = fakeClient(READY_SERVICES)
     apply(fake.ctx)
 
@@ -127,24 +158,63 @@ describe('客户端半的注册契约', () => {
       'effect',
       'locale:webUx',
       'register:conversation.composer.dock',
+      'on:command/executed',
+      'register:conversation.input.overlay',
       'register:sidebar.workspaces.session.menu.item',
       'register:shell.overlay',
     ])
 
     const badge = bySlot(fake.registrations, 'conversation.composer.dock')
     expect(badge).toMatchObject({ id: 'web-ux-provider', order: BADGE_ORDER })
+    const notice = bySlot(fake.registrations, 'conversation.input.overlay')
+    expect(notice).toMatchObject({ id: NOTICE_ID, order: NOTICE_ORDER, locale: 'webUx' })
     const menu = bySlot(fake.registrations, 'sidebar.workspaces.session.menu.item')
     expect(menu).toMatchObject({ id: DELETE_MENU_ID, order: DELETE_MENU_ORDER, locale: 'webUx' })
     const dialog = bySlot(fake.registrations, 'shell.overlay')
     expect(dialog).toMatchObject({ id: DELETE_DIALOG_ID, order: DELETE_DIALOG_ORDER, locale: 'webUx' })
+    expect(NOTICE_ORDER).toBeGreaterThan(1)
     expect(DELETE_MENU_ORDER).toBeGreaterThan(400)
 
     // 注入面在渲染期解析到真实服务。
     expect(menu.inject?.()).toMatchObject({ archived: READY_SERVICES.workspaces.list })
     expect(dialog.inject?.()).toMatchObject({ client: expect.objectContaining({ preview: expect.any(Function) }) })
+
+    // 通知卡注入面：store 读取/关闭面（运行时传全 store，类型收敛为读取面）
+    // + 可见性源解析到计数 1。
+    const noticeInjected = notice.inject?.() as unknown as CommandNoticeCardProps
+    expect(Object.keys(noticeInjected.notices).sort()).toEqual(['dismiss', 'offer', 'source'])
+    const visibility = noticeInjected.visibilityFor?.('session-1')
+    expect(visibility?.getSnapshot()).toBe(1)
   })
 
-  it('服务尚未就绪时三个 entry 仍全部注册；注入面解析为 undefined（静默降级）', () => {
+  it('事件监听把命令结果送进通知 store；不合格载荷被丢弃', () => {
+    const fake = fakeClient(READY_SERVICES)
+    apply(fake.ctx)
+
+    const notice = bySlot(fake.registrations, 'conversation.input.overlay')
+    const { notices } = notice.inject?.() as unknown as CommandNoticeCardProps
+
+    emitExecuted(fake, 'session-1', 'inventory', { kind: 'success', text: '清单' })
+    expect(notices.source.noticeOf('session-1')).toMatchObject({ commandName: 'inventory', kind: 'success' })
+
+    emitExecuted(fake, 'session-1', 'inventory', { kind: 'success' })
+    expect(notices.source.noticeOf('session-1')).toMatchObject({ text: '清单' })
+
+    // dismiss 共用同一 store 面（卡片关闭按钮的路径）。
+    notices.dismiss('session-1')
+    expect(notices.source.noticeOf('session-1')).toBeNull()
+  })
+
+  it('sessions 服务缺席时通知卡注入面软降级：可见性源为 undefined', () => {
+    const fake = fakeClient({})
+    apply(fake.ctx)
+
+    const notice = bySlot(fake.registrations, 'conversation.input.overlay')
+    const injected = notice.inject?.() as unknown as CommandNoticeCardProps
+    expect(injected.visibilityFor?.('session-1')).toBeUndefined()
+  })
+
+  it('服务尚未就绪时四个 entry 仍全部注册；注入面解析为 undefined（静默降级）', () => {
     const fake = fakeClient({})
     expect(() => { apply(fake.ctx) }).not.toThrow()
 
@@ -152,6 +222,8 @@ describe('客户端半的注册契约', () => {
       'effect',
       'locale:webUx',
       'register:conversation.composer.dock',
+      'on:command/executed',
+      'register:conversation.input.overlay',
       'register:sidebar.workspaces.session.menu.item',
       'register:shell.overlay',
     ])
@@ -175,6 +247,10 @@ describe('客户端半的注册契约', () => {
 
     expect(menu.inject?.()).toMatchObject({ archived: READY_SERVICES.workspaces.list })
     expect(dialog.inject?.()).toMatchObject({ client: expect.objectContaining({ preview: expect.any(Function) }) })
+
+    const notice = bySlot(fake.registrations, 'conversation.input.overlay')
+    const injected = notice.inject?.() as unknown as CommandNoticeCardProps
+    expect(injected.visibilityFor?.('session-1')?.getSnapshot()).toBe(1)
   })
 
   it('只在声明了的座位上注册（未声明的座位不会凭空出现 entry）', () => {

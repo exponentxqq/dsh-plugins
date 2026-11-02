@@ -29,6 +29,8 @@ window.__ModuleLoader__.load({
 		  DELETE_DIALOG_ORDER: () => DELETE_DIALOG_ORDER,
 		  DELETE_MENU_ID: () => DELETE_MENU_ID,
 		  DELETE_MENU_ORDER: () => DELETE_MENU_ORDER,
+		  NOTICE_ID: () => NOTICE_ID,
+		  NOTICE_ORDER: () => NOTICE_ORDER,
 		  apply: () => apply,
 		  inject: () => inject
 		});
@@ -215,6 +217,12 @@ window.__ModuleLoader__.load({
 		  "format.bytes": "{value} B",
 		  "format.kb": "{value} KB",
 		  "format.mb": "{value} MB",
+		  // —— 命令结果通知卡 ——
+		  "notice.success.title": "\u547D\u4EE4\u6267\u884C\u6210\u529F",
+		  "notice.error.title": "\u547D\u4EE4\u6267\u884C\u5931\u8D25",
+		  "notice.expand": "\u5C55\u5F00\u5168\u6587",
+		  "notice.collapse": "\u6536\u8D77",
+		  "notice.close": "\u5173\u95ED\u901A\u77E5",
 		  // —— 失败码 → 文案（未知码回退 error.fallback） ——
 		  "error.not-found": "\u8BE5\u4F1A\u8BDD\u5DF2\u4E0D\u5B58\u5728\uFF0C\u53EF\u80FD\u5DF2\u5728\u522B\u5904\u5220\u9664\u3002",
 		  "error.not-archived": "\u8BE5\u4F1A\u8BDD\u5DF2\u4E0D\u518D\u5904\u4E8E\u5F52\u6863\u72B6\u6001\uFF1B\u8BF7\u5237\u65B0\u540E\u91CD\u8BD5\u3002",
@@ -244,6 +252,11 @@ window.__ModuleLoader__.load({
 		  "format.bytes": "{value} B",
 		  "format.kb": "{value} KB",
 		  "format.mb": "{value} MB",
+		  "notice.success.title": "Command succeeded",
+		  "notice.error.title": "Command failed",
+		  "notice.expand": "Show full text",
+		  "notice.collapse": "Collapse",
+		  "notice.close": "Dismiss notice",
 		  "error.not-found": "That session no longer exists; it may have been deleted elsewhere.",
 		  "error.not-archived": "That session is no longer archived; refresh and try again.",
 		  "error.session-live": "That session is still live in the host; try again later.",
@@ -428,6 +441,179 @@ window.__ModuleLoader__.load({
 		  );
 		}
 
+		// src/client/CommandNoticeCard.tsx
+		var import_react4 = require("react");
+
+		// src/client/notice.module.css
+		var cssText3 = "/* \u547D\u4EE4\u7ED3\u679C\u901A\u77E5\u5361\u7684\u6837\u5F0F\uFF08CommandNoticeCard.wux_tsx_7bf2b1\uFF09\u3002\n *\n * \u6302\u5728 composer \u4E0A\u65B9\u7684\u6D6E\u5C42\u91CC\uFF08`conversation.wux_input_7bf2b1.wux_overlay_7bf2b1`\uFF09\uFF0C\u5B98\u65B9\u547D\u4EE4\u8865\u5168\n * \u5F39\u5C42\u540C\u4F4D\uFF08order 1 \u5728\u524D\uFF09\uFF1B\u5361\u7247\u53D6\u6709\u9650\u5BBD\u5EA6\u3001\u4E0D\u62E6\u622A\u6D6E\u5C42\u4EE5\u5916\u7684\u70B9\u51FB\u3002\u6784\u5EFA\u65F6\n * \u7C7B\u540D\u4F1A\u88AB build.wux_mjs_7bf2b1 \u7684 cssModulesPlugin \u91CD\u5199\u4E3A `wux_<local>_<hash>`\u3002 */\n\n.wux_card_7bf2b1 {\n  display: flex;\n  flex-direction: column;\n  gap: 4px;\n  max-width: 560px;\n  padding: 8px 10px;\n  margin: 4px 12px;\n  border: 1px solid var(--dsh-border, rgba(127, 127, 127, 0.35));\n  border-radius: 8px;\n  background: var(--dsh-bg-elevated, rgba(127, 127, 127, 0.08));\n  font-size: 12px;\n  line-height: 1.5;\n  text-align: left;\n}\n\n/* \u9519\u8BEF\u5361\uFF1A\u9519\u8BEF\u8272\u8FB9\u6846 + \u8F7B\u5FAE\u7740\u8272\uFF0C\u4E0E\u6210\u529F\u5361\u4E00\u773C\u53EF\u5206\u3002 */\n.wux_error_7bf2b1 {\n  border-color: var(--dsh-danger, #d5455c);\n  background: color-mix(in srgb, var(--dsh-danger, #d5455c) 8%, transparent);\n}\n\n.wux_head_7bf2b1 {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  min-width: 0;\n}\n\n.wux_title_7bf2b1 {\n  flex: none;\n  font-weight: 600;\n}\n\n.wux_command_7bf2b1 {\n  flex: none;\n  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;\n  opacity: 0.85;\n}\n\n/* \u6458\u8981\uFF1A\u5355\u884C\u622A\u65AD\uFF08\u914D\u5408\u7EC4\u4EF6\u4FA7\u9996\u884C + \u7701\u7565\u53F7\u903B\u8F91\uFF0C\u8FD9\u91CC\u662F\u89C6\u89C9\u515C\u5E95\uFF09\u3002 */\n.wux_summary_7bf2b1 {\n  flex: 1 1 auto;\n  min-width: 0;\n  overflow: hidden;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  opacity: 0.75;\n}\n\n.wux_spring_7bf2b1 {\n  flex: 1 1 auto;\n}\n\n.wux_action_7bf2b1 {\n  flex: none;\n  padding: 0 4px;\n  border: none;\n  background: none;\n  color: inherit;\n  font: inherit;\n  line-height: 1.5;\n  cursor: pointer;\n  opacity: 0.65;\n}\n\n.wux_action_7bf2b1:hover {\n  opacity: 1;\n}\n\n/* \u5168\u6587\uFF1A\u9650\u9AD8\u6EDA\u52A8\u3001\u4FDD\u7559\u6362\u884C\uFF08\u957F\u6E05\u5355\u4E0D\u4E22\u5931\uFF09\u3002 */\n.wux_full_7bf2b1 {\n  max-height: 240px;\n  margin: 0;\n  overflow: auto;\n  white-space: pre-wrap;\n  word-break: break-word;\n  font-family: inherit;\n  border-top: 1px dashed var(--dsh-border, rgba(127, 127, 127, 0.35));\n  padding-top: 4px;\n}\n";
+		if (typeof document !== "undefined" && document.querySelector('style[data-dsh-plugin="dsh-plugin-web-ux"]') === null) {
+		  const style = document.createElement("style");
+		  style.setAttribute("data-dsh-plugin", "dsh-plugin-web-ux");
+		  style.textContent = cssText3;
+		  document.head.appendChild(style);
+		}
+		var notice_default = { "tsx": "wux_tsx_7bf2b1", "input": "wux_input_7bf2b1", "overlay": "wux_overlay_7bf2b1", "mjs": "wux_mjs_7bf2b1", "card": "wux_card_7bf2b1", "error": "wux_error_7bf2b1", "head": "wux_head_7bf2b1", "title": "wux_title_7bf2b1", "command": "wux_command_7bf2b1", "summary": "wux_summary_7bf2b1", "spring": "wux_spring_7bf2b1", "action": "wux_action_7bf2b1", "full": "wux_full_7bf2b1" };
+
+		// src/client/CommandNoticeCard.tsx
+		var import_jsx_runtime4 = require("react/jsx-runtime");
+		var SUCCESS_TTL_MS = 1e4;
+		var SUMMARY_MAX_CHARS = 80;
+		function noticeSummary(text, max = SUMMARY_MAX_CHARS) {
+		  const firstLine = text.split("\n").find((line) => line.trim() !== "") ?? "";
+		  const trimmed = firstLine.trim();
+		  return trimmed.length > max ? `${trimmed.slice(0, max)}\u2026` : trimmed;
+		}
+		function CommandNoticeCard({ sessionId, notices, visibilityFor, t }) {
+		  const notice = (0, import_react4.useSyncExternalStore)(notices.source.subscribe, () => notices.source.noticeOf(sessionId));
+		  const visibility = (0, import_react4.useMemo)(() => visibilityFor(sessionId), [visibilityFor, sessionId]);
+		  const readCount2 = (0, import_react4.useMemo)(
+		    () => () => visibility?.getSnapshot() ?? 0,
+		    [visibility]
+		  );
+		  const subscribeCount = (0, import_react4.useMemo)(
+		    () => (onChange) => visibility === void 0 ? () => {
+		    } : visibility.subscribe(onChange),
+		    [visibility]
+		  );
+		  const mainViewCount = (0, import_react4.useSyncExternalStore)(subscribeCount, readCount2);
+		  if (mainViewCount > 0) return null;
+		  if (notice === null) return null;
+		  return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+		    CommandNoticeBody,
+		    {
+		      notice,
+		      notices,
+		      t
+		    },
+		    notice.seq
+		  );
+		}
+		function CommandNoticeBody({ notice, notices, t }) {
+		  const [expanded, setExpanded] = (0, import_react4.useState)(false);
+		  const dismissRef = (0, import_react4.useRef)(notices.dismiss);
+		  dismissRef.current = notices.dismiss;
+		  const budget = (0, import_react4.useRef)({ remaining: SUCCESS_TTL_MS });
+		  (0, import_react4.useEffect)(() => {
+		    if (notice.kind !== "success" || expanded) return;
+		    const remaining = budget.current.remaining;
+		    if (remaining <= 0) {
+		      dismissRef.current(notice.sessionId);
+		      return;
+		    }
+		    const startedAt = Date.now();
+		    const timer = setTimeout(() => {
+		      dismissRef.current(notice.sessionId);
+		    }, remaining);
+		    return () => {
+		      clearTimeout(timer);
+		      budget.current.remaining = Math.max(0, remaining - (Date.now() - startedAt));
+		    };
+		  }, [notice.kind, notice.sessionId, expanded]);
+		  const summary = noticeSummary(notice.text);
+		  const titleKey = notice.kind === "error" ? "notice.error.title" : "notice.success.title";
+		  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: `${notice_default.card} ${notice.kind === "error" ? notice_default.error : ""}`, role: "status", children: [
+		    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: notice_default.head, children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: notice_default.title, children: t(titleKey) }),
+		      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: notice_default.command, children: `/${notice.commandName}` }),
+		      !expanded && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: notice_default.summary, children: summary }),
+		      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: notice_default.spring }),
+		      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+		        "button",
+		        {
+		          type: "button",
+		          className: notice_default.action,
+		          onClick: () => {
+		            setExpanded((value) => !value);
+		          },
+		          "aria-expanded": expanded,
+		          "aria-label": expanded ? t("notice.collapse") : t("notice.expand"),
+		          children: expanded ? t("notice.collapse") : t("notice.expand")
+		        }
+		      ),
+		      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+		        "button",
+		        {
+		          type: "button",
+		          className: notice_default.action,
+		          onClick: () => {
+		            notices.dismiss(notice.sessionId);
+		          },
+		          "aria-label": t("notice.close"),
+		          children: "\xD7"
+		        }
+		      )
+		    ] }),
+		    expanded && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("pre", { className: notice_default.full, children: notice.text })
+		  ] });
+		}
+
+		// src/client/notice-store.ts
+		function createNoticeStore(warn = (message) => {
+		  console.warn(`[web-ux] ${message}`);
+		}) {
+		  const notices = /* @__PURE__ */ new Map();
+		  const listeners = /* @__PURE__ */ new Set();
+		  let seq = 0;
+		  const publish = () => {
+		    for (const listener of Array.from(listeners)) listener();
+		  };
+		  const parse = (sessionId, commandName, result) => {
+		    if (typeof sessionId !== "string" || sessionId === "") return "sessionId \u975E\u975E\u7A7A\u5B57\u7B26\u4E32";
+		    if (typeof commandName !== "string" || commandName === "") return "commandName \u975E\u975E\u7A7A\u5B57\u7B26\u4E32";
+		    if (result === null || typeof result !== "object") return "result \u4E0D\u662F\u5BF9\u8C61";
+		    const kind = result.kind;
+		    if (kind !== "success" && kind !== "error") return "result.kind \u4E0D\u662F success/error";
+		    const text = result.text;
+		    if (typeof text !== "string" || text.trim() === "") {
+		      return kind === "error" ? "\u9519\u8BEF\u7ED3\u679C\u7F3A text" : "\u6210\u529F\u7ED3\u679C\u65E0\u6587\u672C\uFF08\u5BCC\u5448\u73B0\u8D70 sourceEventSeq\uFF0C\u4E0D\u901A\u77E5\uFF09";
+		    }
+		    seq += 1;
+		    return { sessionId, commandName, kind, text, at: Date.now(), seq };
+		  };
+		  return {
+		    source: {
+		      noticeOf: (sessionId) => notices.get(sessionId) ?? null,
+		      subscribe: (listener) => {
+		        listeners.add(listener);
+		        return () => {
+		          listeners.delete(listener);
+		        };
+		      }
+		    },
+		    offer: (sessionId, commandName, result) => {
+		      const parsed = parse(sessionId, commandName, result);
+		      if (typeof parsed === "string") {
+		        warn(`\u4E22\u5F03 command/executed \u8F7D\u8377\uFF1A${parsed}`);
+		        return;
+		      }
+		      notices.set(parsed.sessionId, parsed);
+		      publish();
+		    },
+		    dismiss: (sessionId) => {
+		      if (!notices.delete(sessionId)) return;
+		      publish();
+		    }
+		  };
+		}
+
+		// src/client/notice-visibility.ts
+		function mainViewCountOf(info) {
+		  if (info === null || typeof info !== "object") return 0;
+		  const retainedBy = info.retainedBy;
+		  if (retainedBy === null || typeof retainedBy !== "object") return 0;
+		  const mainView = retainedBy.mainView;
+		  return typeof mainView === "number" && Number.isFinite(mainView) && mainView > 0 ? mainView : 0;
+		}
+		function projectCountSource(raw) {
+		  if (raw === null || typeof raw !== "object") return null;
+		  const holder = raw;
+		  if (typeof holder.getSnapshot !== "function" || typeof holder.subscribe !== "function") return null;
+		  return {
+		    getSnapshot: () => mainViewCountOf(holder.getSnapshot()),
+		    subscribe: (listener) => holder.subscribe(listener)
+		  };
+		}
+
 		// src/client/delete-store.ts
 		function createDeleteRequestStore() {
 		  let snapshot = null;
@@ -466,6 +652,16 @@ window.__ModuleLoader__.load({
 		var DELETE_MENU_ORDER = 500;
 		var DELETE_DIALOG_ID = "web-ux-delete-session-dialog";
 		var DELETE_DIALOG_ORDER = 500;
+		var NOTICE_ID = "web-ux-command-notice";
+		var NOTICE_ORDER = 10;
+		function readService(ctx, name) {
+		  const reader = ctx;
+		  try {
+		    return reader.get(name);
+		  } catch {
+		    return void 0;
+		  }
+		}
 		function apply(ctx) {
 		  ctx.effect(() => ctx.locale.register(NS, { zh, en }), "web-ux: dictionaries");
 		  ctx.slots.inject("conversation.composer.dock", () => {
@@ -480,6 +676,47 @@ window.__ModuleLoader__.load({
 		          })
 		        },
 		        ProviderBadge
+		      );
+		    } catch {
+		      return () => {
+		      };
+		    }
+		  });
+		  const notices = createNoticeStore((message) => {
+		    try {
+		      ctx.logger?.warn(`web-ux: ${message}`);
+		    } catch {
+		    }
+		  });
+		  try {
+		    ctx.on("command/executed", (sessionId, commandName, result) => {
+		      notices.offer(sessionId, commandName, result);
+		    });
+		  } catch {
+		  }
+		  ctx.slots.inject("conversation.input.overlay", () => {
+		    try {
+		      return ctx.slots.register(
+		        {
+		          name: "conversation.input.overlay",
+		          id: NOTICE_ID,
+		          order: NOTICE_ORDER,
+		          locale: NS,
+		          inject: () => ({
+		            notices,
+		            // 可见性源在渲染期解析：sessions 服务按 unknown 软读（同 multi-root
+		            // 的 readService），形状不符返回 undefined，卡片跳过隐藏检查。
+		            visibilityFor: (sessionId) => {
+		              try {
+		                const sessions = readService(ctx, "sessions");
+		                return projectCountSource(sessions?.retainInfo?.(sessionId)) ?? void 0;
+		              } catch {
+		                return void 0;
+		              }
+		            }
+		          })
+		        },
+		        CommandNoticeCard
 		      );
 		    } catch {
 		      return () => {

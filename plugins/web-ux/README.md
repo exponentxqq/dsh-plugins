@@ -1,6 +1,12 @@
 # dsh-plugin-web-ux
 
-DSH Web GUI 插件（**双端**，`exports "."` 宿主 + `exports "./client"` 浏览器）：浏览器半在输入框下方状态行（`conversation.composer.dock`）追加一枚静态胶囊，以 `provider/model` 原始标识符显示当前会话所选模型路由；并在侧栏会话行的 "..." 菜单里为**已归档会话**提供「删除会话」入口与两步确认框。宿主半不再是空壳——它承载删除能力的 Connection RPC 通道 `/web-ux`（预览与执行两个端点），同时继续充当 web 客户端模块扫描读取 `dsh.client` 声明的锚点。
+DSH Web GUI 插件（**双端**，`exports "."` 宿主 + `exports "./client"` 浏览器），承载三项 Web 界面体验：
+
+1. **Provider 徽章**——输入框下方状态行（`conversation.composer.dock`）追加一枚静态胶囊，以 `provider/model` 原始标识符显示当前会话所选模型路由；
+2. **删除已归档会话**——侧栏已归档会话行的 "..." 菜单入口 + 两步确认框，宿主半承载 Connection RPC 通道 `/web-ux`（预览与执行两个端点）；
+3. **命令结果通知**——命令结果在当前视图无处渲染时（典型：空会话首屏），composer 上方弹一张可展开全文的临时通知卡。
+
+宿主半不再是空壳——它承载删除能力的 Connection RPC 通道 `/web-ux`，同时继续充当 web 客户端模块扫描读取 `dsh.client` 声明的锚点。
 
 本包自 `split-project-mcp-plugin` 变更起**只做 Web 界面体验**——原先同包的「项目级 MCP」宿主能力已拆为独立插件 [`dsh-plugin-project-mcp`](../project-mcp/README.md)（纯宿主面，任何 profile 可单独安装）。自 `add-web-ux-archived-session-delete`（v1.2.0）起宿主半因「删除已归档会话」重新变成实载体：文件系统与工作区注册表只有宿主碰得到，这与拆出去的 MCP 能力互不相干；后续其他 Web 界面体验优化仍落在本包。
 
@@ -100,13 +106,37 @@ rm -f  ~/.dsh/storages/session_projcache/sessions/<会话id>.json
 - **附件/图片 GC**：上游没有安全回收路径，见上。
 - **多 DSH 版本精确兼容门**：接触点全部软降级，不引入版本 allowlist（与 multi-root 插件的 fail-closed 策略差异源于风险属性——本功能失效的代价只是入口消失）。
 
+## 命令结果通知
+
+DSH 的命令结果只渲染为会话 transcript 里的持久 flow node（composer 从不回显命令结果），而**空会话首屏没有 transcript 容器**——在欢迎视图执行 `/inventory` 这类命令时，结果尽管已正确返回，界面上却无处呈现。本能力给这种「无处渲染」的场景兜底：composer 上方弹一张临时通知卡（`conversation.input.overlay`，order 10，排在官方命令补全弹层之后），展示命令名 + 结果首行摘要，可展开滚动全文。
+
+### 触发与隐藏规则
+
+- **事件源**：浏览器本地公共事件 `command/executed`（`dsh-session-log-export` 同款消费先例）；只有本页面发起的命令执行会广播，跨标签页天然互不干扰。
+- **只在结果不可见时弹**：卡片按会话订阅 `sessions.retainInfo` 的主视图引用计数（`retainedBy.mainView`，框架判定主视图会话的同一信号）——计数为正说明会话视图（transcript）已打开、结果已作为 flow node 可见，不打扰；计数为正的跳变即「视图挂载」，卡片立即自动隐藏（prompt 型命令如 `/init` 提交后模型轮次一启动，卡片随之消失，不分成败）。
+- **prompt 型与宿主求值型统一适用**：两类命令走同一条 execute → 广播通道，负载无类型标记，无法也不必区分——「视图挂载即隐藏」规则天然化解 prompt 型命令的卡片残留。
+- **无文本的成功不通知**：富呈现结果（`sourceEventSeq` 指针型）有自己的专用渲染，`success` 且无 `text` 的事件被直接丢弃；不合格载荷（命令名非字符串、结果缺 kind/text 结构）一律丢弃并记 `console.warn` 诊断，最坏情况是「回到现状」，绝不影响命令执行本身。
+
+### 消失路径（按结果类型分治）
+
+- **成功卡**：10 秒自动消失；**展开期间冻结计时、收起后从剩余时间恢复**——读长清单不被打断；
+- **错误卡**：不自动消失，仅手动关闭（错误提示常需照着改输入）；错误色边框区分。
+
+每会话至多一张卡，新命令替换旧卡（旧结果已在会话流落盘）；store 不持久化，刷新即空。卡片不持久、不排队、不跨标签页协调——它是兜底反馈，不是归档。
+
+### 非目标（本能力）
+
+- **不改变**命令结果在 transcript 中的既有 flow node 渲染（那是结果的持久家）；
+- **不解决**「flow node 折叠态不显眼」的通用可读性问题（高亮/滚动定位属后续独立变更）；
+- 准入未命中（unknown command）不广播事件，无卡可弹，属预期。
+
 ## 双端结构
 
 ```text
 src/index.ts           宿主半：挂 Connection RPC 通道 /web-ux（session-delete 载体）
 src/contract.ts        双端共享契约：通道/端点/失败码 + 手写边界校验（不引入 zod）
 src/delete-session.ts  宿主删除流程：DI 纯流程 + 文件操作工厂（可 mock 单测）
-src/client/            浏览器半：provider 徽章 + 删除入口/确认框 + locale + CSS module
+src/client/            浏览器半：provider 徽章 + 删除入口/确认框 + 命令通知卡 + locale + CSS module
 test/                  单测：宿主 *.test.ts（node 环境）与浏览器 *.test.tsx（jsdom）
 ```
 

@@ -70,6 +70,13 @@ describe('浏览器半产物', () => {
     expect(source).toContain('sidebar.workspaces.session.menu.item')
     expect(source).toContain('shell.overlay')
   })
+
+  it('内联了命令结果通知能力：事件名、座位与卡片身份', () => {
+    const source = readArtifact('client.js')
+    expect(source).toContain('command/executed')
+    expect(source).toContain('conversation.input.overlay')
+    expect(source).toContain('web-ux-command-notice')
+  })
 })
 
 describe('宿主半产物', () => {
@@ -108,6 +115,8 @@ describe('包声明', () => {
       '@deepseek-ai/dsh-client-ui-layout',
       '@deepseek-ai/dsh-client-connection',
       '@deepseek-ai/dsh-client-locale',
+      '@deepseek-ai/dsh-client-ui-session',
+      '@deepseek-ai/dsh-client-ui-commands',
     ]) {
       expect(inject).toContain(dependency)
     }

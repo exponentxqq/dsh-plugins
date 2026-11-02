@@ -42,6 +42,13 @@ export const zh = {
   'format.kb': '{value} KB',
   'format.mb': '{value} MB',
 
+  // —— 命令结果通知卡 ——
+  'notice.success.title': '命令执行成功',
+  'notice.error.title': '命令执行失败',
+  'notice.expand': '展开全文',
+  'notice.collapse': '收起',
+  'notice.close': '关闭通知',
+
   // —— 失败码 → 文案（未知码回退 error.fallback） ——
   'error.not-found': '该会话已不存在，可能已在别处删除。',
   'error.not-archived': '该会话已不再处于归档状态；请刷新后重试。',
@@ -80,6 +87,12 @@ export const en = {
   'format.bytes': '{value} B',
   'format.kb': '{value} KB',
   'format.mb': '{value} MB',
+
+  'notice.success.title': 'Command succeeded',
+  'notice.error.title': 'Command failed',
+  'notice.expand': 'Show full text',
+  'notice.collapse': 'Collapse',
+  'notice.close': 'Dismiss notice',
 
   'error.not-found': 'That session no longer exists; it may have been deleted elsewhere.',
   'error.not-archived': 'That session is no longer archived; refresh and try again.',

@@ -10,6 +10,8 @@
     "test/delete-client.test.ts",
     "test/delete-store.test.ts",
     "test/locale-parity.test.ts",
+    "test/notice-store.test.ts",
+    "test/notice-visibility.test.ts",
     "test/stubs/ui-primitives.tsx"
   ]
 }

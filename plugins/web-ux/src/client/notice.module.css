@@ -1,0 +1,86 @@
+/* 命令结果通知卡的样式（CommandNoticeCard.tsx）。
+ *
+ * 挂在 composer 上方的浮层里（`conversation.input.overlay`），官方命令补全
+ * 弹层同位（order 1 在前）；卡片取有限宽度、不拦截浮层以外的点击。构建时
+ * 类名会被 build.mjs 的 cssModulesPlugin 重写为 `wux_<local>_<hash>`。 */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 560px;
+  padding: 8px 10px;
+  margin: 4px 12px;
+  border: 1px solid var(--dsh-border, rgba(127, 127, 127, 0.35));
+  border-radius: 8px;
+  background: var(--dsh-bg-elevated, rgba(127, 127, 127, 0.08));
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: left;
+}
+
+/* 错误卡：错误色边框 + 轻微着色，与成功卡一眼可分。 */
+.error {
+  border-color: var(--dsh-danger, #d5455c);
+  background: color-mix(in srgb, var(--dsh-danger, #d5455c) 8%, transparent);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.title {
+  flex: none;
+  font-weight: 600;
+}
+
+.command {
+  flex: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  opacity: 0.85;
+}
+
+/* 摘要：单行截断（配合组件侧首行 + 省略号逻辑，这里是视觉兜底）。 */
+.summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  opacity: 0.75;
+}
+
+.spring {
+  flex: 1 1 auto;
+}
+
+.action {
+  flex: none;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1.5;
+  cursor: pointer;
+  opacity: 0.65;
+}
+
+.action:hover {
+  opacity: 1;
+}
+
+/* 全文：限高滚动、保留换行（长清单不丢失）。 */
+.full {
+  max-height: 240px;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  border-top: 1px dashed var(--dsh-border, rgba(127, 127, 127, 0.35));
+  padding-top: 4px;
+}

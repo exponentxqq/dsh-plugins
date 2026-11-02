@@ -73,9 +73,9 @@ git push origin main --tags   # 3. push（容器已挂载宿主 ~/.ssh，可直�
 | 插件 | 说明 |
 | --- | --- |
 | [`dsh-plugin-multi-root-workspace`](plugins/multi-root-workspace/README.md) | 把 Workspace 的可写范围从「一个主根」扩展为「主根 + N 个附加根」；不放宽沙箱档位，附加根与主根同权。上游 `cherrchen/dsh-plugin-multi-root-workspace` 的本地 fork，含附加根一次性播种与通用附加根 `commonRoots` 两个本地扩展。 |
-| [`dsh-plugin-web-ux`](plugins/web-ux/README.md) | Web 界面体验插件（双端）：状态行 provider 徽章 + 侧栏已归档会话的「删除会话」入口（两步预览确认，级联 subagent 日志、保留 fork 与共享附件）；宿主半承载 Connection RPC 通道 `/web-ux`，同时供 web 客户端模块扫描定位 `dsh.client` 声明。后续其他 Web 界面体验改动落在本包。 |
+| [`dsh-plugin-web-ux`](plugins/web-ux/README.md) | Web 界面体验插件（双端）：状态行 provider 徽章 + 侧栏已归档会话的「删除会话」入口（两步预览确认，级联 subagent 日志、保留 fork 与共享附件）+ 命令结果通知卡（空会话首屏等结果无处渲染的场景，可展开全文，视图挂载即自隐）；宿主半承载 Connection RPC 通道 `/web-ux`，同时供 web 客户端模块扫描定位 `dsh.client` 声明。后续其他 Web 界面体验改动落在本包。 |
 | [`dsh-plugin-project-mcp`](plugins/project-mcp/README.md) | 项目级 MCP（host-only，任何 profile 可单独安装）：各工作区根 `.dsh/mcp/` 每文件一台服务器，自动发现、加载、热重载，按工作区隔离工具可见性，`/mcp-reload` 兜底。自 `dsh-plugin-web-ux` 拆出，行为零变化。 |
-| [`dsh-plugin-user-commands`](plugins/user-commands/README.md) | 用户自定义斜杠命令（host-only，任何 profile 可单独安装）：`.md` 文件即命令，正文即 prompt 模板；三层来源（内置 / `$DSH_HOME/commands/` / 各工作区根 `.dsh/commands/`）按层遮蔽、会话级隔离、热刷新、`/commands-reload` 兜底，并内置 `/init` 生成或合并更新主根 `AGENTS.md`。 |
+| [`dsh-plugin-user-commands`](plugins/user-commands/README.md) | 用户自定义斜杠命令（host-only，任何 profile 可单独安装）：`.md` 文件即命令，正文即 prompt 模板；三层来源（内置 / `$DSH_HOME/commands/` / 各工作区根 `.dsh/commands/`）按层遮蔽、会话级隔离、热刷新、`/commands-reload` 兜底，并内置 `/init`（生成或合并更新主根 `AGENTS.md`）与宿主侧只读的 `/inventory`（列出本会话实际可见的 MCP 服务器与可用 skill，零模型消息）。 |
 | [`dsh-plugin-session-tool-toggle`](plugins/session-tool-toggle/README.md) | 会话级工具面开关（双端）：在单个会话内关掉不需要的工具面——`mcp:<server>` 整组（工具 schema 与服务器指令段一并移除）、`mcp:<server>::<tool>` 单工具与尾部通配（仅移除 schema）、`tool:<name>` 内置工具（硬保护名单拒关），下一次模型步骤生效，`tools.restrict` 掩码 + dispatch guard 双层强制；入口为 `/tools` 命令面与会话头部工具区的 Web 面板（共用同一状态与同一持久化，通道 `/session-tool-toggle`），用户级默认档在 `$DSH_HOME/session-tool-toggle/defaults.json` 且只在会话创建时快照；宿主半任何 profile 可装，无 Web 组合时命令面独立可用。 |
 
 各插件的长文档留在插件目录内：多根插件的 `docs/` 含架构、ADR、参考与排障全文；其余插件的行为说明见各自 README。OpenSpec 规范在 `openspec/specs/`，规划工件归档在 [`openspec/changes/archive/`](openspec/changes/archive/)。
