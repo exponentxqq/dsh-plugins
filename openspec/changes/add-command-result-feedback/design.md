@@ -39,16 +39,18 @@ Web GUI 的命令结果只通过事件流渲染成会话 transcript 内的持久
 
 过滤规则：`commandName` 非字符串、`result` 缺 `kind`/`text` 字段结构、或 `kind === 'success'` 而 `text` 缺省/空——一律丢弃不产生通知（记 warn 供诊断），错误结果必带文本无需额外判断。
 
-### D2 可见性判定：`sessions.retainInfo` 主视图引用计数
+### D2 可见性判定：`sessions.retainInfo` 主视图引用计数 × 空白标记
 
-> **实施期修正**：原案「在 `conversation.chat.flow` 挂零渲染探针条目」不可行。该座位 `kind: 'single'`，框架对 single 座位的动态注册按「页面内后到者低优先级、渲染选举取首位」语义**遮蔽官方渲染器**（ui-renderer registry 文档与声明树元数据 `replaceRisk: "shadows-shipped-ui"` 双双明示）——第三方探针组件会把整个 transcript 渲染成 null，直接打挂会话流。改用公开的引用计数信号，零新增 slot 条目。
+> **实施期修正①**：原案「在 `conversation.chat.flow` 挂零渲染探针条目」不可行。该座位 `kind: 'single'`，框架对 single 座位的动态注册按「页面内后到者低优先级、渲染选举取首位」语义**遮蔽官方渲染器**（ui-renderer registry 文档与声明树元数据 `replaceRisk: "shadows-shipped-ui"` 双双明示）——第三方探针组件会把整个 transcript 渲染成 null，直接打挂会话流。改用公开的引用计数信号，零新增 slot 条目。
+>
+> **实施期修正②**（真机冒烟发现）：`retainedBy.mainView > 0` 只意味着「会话被主视图选中」，不意味着「结果可见」——空会话首屏（欢迎视图）执行命令时宿主会 `session/create`（或复用空白会话）并把它选进主视图，此时计数已为正、brand 页仍在、transcript 一行内容都没有，单用计数会把卡压掉（正是要兜底的场景！）。修正为**合取判定**：`mainView > 0` **且** `SessionSnapshot.blank === false` 才算「会话流可见」。`blank` 正是品牌页的驱动标记（`dsh-api-session-controller` 的 `blankBit`：命令执行不置位，首个提交 `send()` / 轮次开始才清零），与「transcript 有无可渲染内容行」严格同构；prompt 型命令提交时 `send()` 同步清零 blank，卡片随之隐藏，统一隐藏规则（共识⑥）不受影响。
 
-信号与判定：`ctx.sessions.retainInfo(sessionId)` 返回 `ObservableSnapshot<SessionRetainInfo>`，投影 `retainedBy.mainView > 0` 即「会话视图正在主视图渲染」（transcript 可见）。事件到达时：
+信号与判定：`ctx.sessions.retainInfo(sessionId)` 返回 `ObservableSnapshot<SessionRetainInfo>`（投影 `retainedBy.mainView`），会话作用域座位的标准 props `useSession` 提供反应式 `blank`（`SessionSnapshot.blank`）。事件到达时：
 
-- 计数为正 → 结果已作为会话流节点可见，不打扰；
-- 计数为零（典型：空会话首屏，主视图未打开该会话）→ 弹通知卡；计数 0→1 的跳变即「会话视图挂载」，卡片随之自动隐藏。
+- 计数为正且非空白 → 结果已作为会话流节点可见，不打扰；
+- 其余情形（未被选中，或选中但空白——典型：空会话首屏）→ 弹通知卡；「计数 0→1 且 blank 清零」或「选中态下 blank 单独清零（prompt 型提交）」的跳变即「会话流可见」，卡片随之自动隐藏。
 
-防御式投影纯函数 `mainViewCountOf(info: unknown): number`（非对象、缺 `retainedBy`、`mainView` 非数值一律记 0——信号缺席只影响「挂载即隐藏」这一增强，卡片自身 TTL 与手动关闭路径不受影响）；卡片注入面 `visibilityFor(sessionId)` 在渲染期 `ctx.get('sessions')` 延迟解析并 try/catch 包裹，服务缺席返回 `undefined`，卡片跳过隐藏检查。
+防御式投影纯函数 `mainViewCountOf(info: unknown): number`（非对象、缺 `retainedBy`、`mainView` 非数值一律记 0——信号缺席只影响「挂载即隐藏」这一增强，卡片自身 TTL 与手动关闭路径不受影响）；卡片注入面 `visibilityFor(sessionId)` 在渲染期 `ctx.get('sessions')` 延迟解析并 try/catch 包裹，服务缺席返回 `undefined`，卡片跳过计数检查（`useSession` 缺席时 blank 按 true 兜底，保守展示）。
 
 备选「读取 ui-conversation 内部活跃会话状态」无公开 API 且耦合实现细节，弃；DOM 观测脆，弃。
 
@@ -68,7 +70,7 @@ store 持 `Map<sessionId, 通知>`，通知为 `{commandName, kind, text, at, se
 - **错误卡**：不设自动消失，仅手动关闭（错误提示常需照着改输入）；
 - **统一隐藏规则**：卡片渲染条件是「该会话主视图引用计数为零」的**动态订阅**（D2 的 `retainInfo` 快照）——会话视图挂载（如 prompt 型命令提交后模型轮次开始）时计数变正，卡片立即隐藏，不分成败、无需用户操作。该规则天然化解 prompt 型命令的「已提交」卡残留问题。
 
-组件同时订阅 store 与可见性快照，任一变化触发重渲染；计数从 0 到正的跳变即隐藏时机。
+组件同时订阅 store、计数快照与 blank，任一变化触发重渲染；「选中且非空白」由否转是的跳变即隐藏时机。
 
 ### D5 卡片形态：摘要行 + 可展开全文
 
@@ -80,7 +82,7 @@ store 持 `Map<sessionId, 通知>`，通知为 `{commandName, kind, text, at, se
 
 ### D7 关键假设与验证路径
 
-方案依赖一个未证假设：**空会话首屏执行命令时，`session/create` 产生的会话视图（含 `conversation.input.overlay` 实例）绑定该新 sessionId**（抓包显示 execute 的 agentId 即 create 返回 id，且欢迎视图 composer 属于该会话，推断成立）。实施第一个任务即以真机 GUI 验证；若证伪（draft 实例拿到的是 draft id 而非会话 id），fallback 改挂 `shell.overlay` 非模态卡片（不依赖会话作用域），探针与判定逻辑不变。
+**已验证（任务 1.1，真机 GUI 冒烟）**：空会话首屏执行命令时，事件负载的 sessionId 与 composer 浮层座位绑定的 sessionId 一致（均为 `session/create` 复用空白会话返回的 id）——卡片在欢迎视图正常挂载，D7 假设成立，无需 fallback。
 
 ### D8 测试策略
 
@@ -94,5 +96,5 @@ store 持 `Map<sessionId, 通知>`，通知为 `{commandName, kind, text, at, se
 - **R1 D7 假设证伪**：fallback 已定（shell.overlay 非模态），可见性信号/判定/store 全部复用，成本限于挂载点一处；
 - **R2 上游事件负载演化**（0.3.x 未知）：宽松解构 + 丢弃策略保证最坏只是「回到现状」，不会崩；
 - **R3 与命令补全弹层同位层叠**：order 靠后 + 卡片不拦截焦点；实施时以真机视觉验收，必要时调 order；
-- **R4 多标签/多窗口同会话**：每实例各自展示通知（幂等）；探针集合 add/remove 天然平衡；
+- **R4 多标签/多窗口同会话**：每实例各自展示通知（幂等）；可见性信号是只读订阅，无共享状态需要平衡；
 - **取舍**：每会话只留最新一张卡（D4）意味着连续两条命令只见到后一条——空会话场景下可接受（前一条已在会话流落盘，且通知是兜底不是归档）。

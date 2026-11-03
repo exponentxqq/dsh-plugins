@@ -77,6 +77,17 @@ describe('浏览器半产物', () => {
     expect(source).toContain('conversation.input.overlay')
     expect(source).toContain('web-ux-command-notice')
   })
+
+  it('每个 css 模块都注入自己的样式表（防重护栏按包+模块，而非只按包）', () => {
+    const source = readArtifact('client.js')
+    // 三个 css 模块（badge / delete / notice）各自携带一个 data-dsh-css 注入器；
+    // 只按包名防重会让第一个模块之后的样式永远被跳过（v1.4.0 的 delete 样式
+    // 即因此从未生效）。
+    const injectors = source.match(/style\.setAttribute\((["'])data-dsh-css\1/g) ?? []
+    expect(injectors).toHaveLength(3)
+    // 通知卡的样式确实内联（不透明背景变量来自 notice.module.css）。
+    expect(source).toContain('--dsw-alias-bg-layer-2')
+  })
 })
 
 describe('宿主半产物', () => {

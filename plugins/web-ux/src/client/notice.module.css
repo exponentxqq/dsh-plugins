@@ -5,24 +5,30 @@
  * 类名会被 build.mjs 的 cssModulesPlugin 重写为 `wux_<local>_<hash>`。 */
 
 .card {
+  /* 锚点（overlay 座位容器）是输入区顶部的一个零高绝对定位点：卡片以它为
+   * containing block 向上浮（toast 形态），不遮挡输入区本身。 */
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
   max-width: 560px;
   padding: 8px 10px;
-  margin: 4px 12px;
-  border: 1px solid var(--dsh-border, rgba(127, 127, 127, 0.35));
+  border: 1px solid var(--dsw-elevation-stroke-color, rgba(127, 127, 127, 0.35));
   border-radius: 8px;
-  background: var(--dsh-bg-elevated, rgba(127, 127, 127, 0.08));
+  /* 不透明背景：卡片浮在界面上方，半透明会让下层文字透出。 */
+  background: var(--dsw-alias-bg-layer-2, #2c2c2e);
+  box-shadow: var(--dsw-elevation-panel, 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 3px 8px 0 rgba(0, 0, 0, 0.08));
   font-size: 12px;
   line-height: 1.5;
   text-align: left;
 }
 
-/* 错误卡：错误色边框 + 轻微着色，与成功卡一眼可分。 */
+/* 错误卡：错误色边框 + 着色（与不透明底色混合），与成功卡一眼可分。 */
 .error {
   border-color: var(--dsh-danger, #d5455c);
-  background: color-mix(in srgb, var(--dsh-danger, #d5455c) 8%, transparent);
+  background: color-mix(in srgb, var(--dsh-danger, #d5455c) 10%, var(--dsw-alias-bg-layer-2, #2c2c2e));
 }
 
 .head {

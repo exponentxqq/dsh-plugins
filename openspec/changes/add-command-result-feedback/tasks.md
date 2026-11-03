@@ -2,7 +2,7 @@
 
 ## 1. 前置验证
 
-- [ ] 1.1 在真机 GUI 验证 design D7 假设：空会话首屏执行命令后，`conversation.input.overlay` 实例绑定 `session/create` 产生的新会话 id（可先以最小探针条目 + console 临时观察）；证伪则在 design.md 记录结论并启用 fallback（`shell.overlay` 非模态卡片），后续任务按实际挂载点执行
+- [x] 1.1 在真机 GUI 验证 design D7 假设：空会话首屏执行命令后，`conversation.input.overlay` 实例绑定 `session/create` 产生的新会话 id（可先以最小探针条目 + console 临时观察）；证伪则在 design.md 记录结论并启用 fallback（`shell.overlay` 非模态卡片），后续任务按实际挂载点执行
 
 ## 2. 纯逻辑模块
 
@@ -28,7 +28,7 @@
 ## 6. 门禁与真机冒烟
 
 - [x] 6.1 `pnpm --filter dsh-plugin-web-ux verify:all` 与 `pnpm dsh:check` 全绿
-- [ ] 6.2 真机 GUI 冒烟（link 安装后重启）：空会话首屏 `/inventory` 弹卡且可展开全文；已打开会话内执行不弹；`/inventory foo` 错误样式；自动消失与手动关闭；既有徽章/删除入口回归；证据写入 `artifacts/command-feedback-smoke.md`
+- [x] 6.2 真机 GUI 冒烟（link 安装后重启）：空会话首屏 `/inventory` 弹卡且可展开全文；已打开会话内执行不弹；`/inventory foo` 错误样式；自动消失与手动关闭；既有徽章/删除入口回归；证据写入 `artifacts/command-feedback-smoke.md`
 
 ## 7. 文档
 

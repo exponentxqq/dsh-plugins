@@ -82,9 +82,13 @@ function cssModulesPlugin() {
         for (const [local, value] of scoped) classMap[local] = value
         const contents = [
           `const cssText = ${JSON.stringify(css)};`,
-          'if (typeof document !== \'undefined\' && document.querySelector(\'style[data-dsh-plugin="' + PACKAGE_NAME + '"]\') === null) {',
+          // 防重护栏按「包 + 模块」两个维度查询：一个包里的多个 css 模块各自注入
+          // 自己的样式表。只按包名查询会让第一个模块注入后，同包其余模块的样式
+          // 永远被跳过（v1.4.0 的 delete 样式即因此从未生效）。
+          'if (typeof document !== \'undefined\' && document.querySelector(\'style[data-dsh-plugin="' + PACKAGE_NAME + '"][data-dsh-css="' + hash + '"]\') === null) {',
           '  const style = document.createElement(\'style\');',
           `  style.setAttribute('data-dsh-plugin', ${JSON.stringify(PACKAGE_NAME)});`,
+          `  style.setAttribute('data-dsh-css', ${JSON.stringify(hash)});`,
           '  style.textContent = cssText;',
           '  document.head.appendChild(style);',
           '}',

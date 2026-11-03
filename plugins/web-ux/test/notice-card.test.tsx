@@ -2,14 +2,16 @@
 /**
  * 命令结果通知卡（`src/client/CommandNoticeCard.tsx`，spec: dsh-web-ux-command-feedback）。
  *
- * 用例通过真实组件 + 真实 store 驱动，覆盖五条要求：无处渲染才弹（可见性计数为
- * 零）、视图挂载即隐藏（计数变正）、全文可读且区分成败（展开/错误样式）、临时可关
+ * 用例通过真实组件 + 真实 store 驱动，覆盖五条要求：无处渲染才弹（「选中且非空白
+ * 才算可见」——空会话即使被选中、transcript 也没有内容行，结果依然不可见）、会话
+ * 出现内容（blank 翻转）即隐藏、全文可读且区分成败（展开/错误样式）、临时可关
  * （成功 10s 自动消失、展开冻结/收起恢复、错误仅手动关闭）与摘要截断（2.3 纯函数）。
  *
  * @module dsh-plugin-web-ux/test/notice-card
  */
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   CommandNoticeCard,
@@ -46,22 +48,51 @@ function countSource() {
   }
 }
 
+/**
+ * 可翻转 blank 的 `useSession` 标准席位替身：读当前 blank、订阅翻转通知——
+ * 「首个提交/轮次清零 blank → 卡片自隐」的 prompt 型路径靠它驱动。
+ */
+function sessionStub() {
+  let blank = true
+  const listeners = new Set<() => void>()
+  const useSession = (selector: (snapshot: { blank: boolean } | undefined) => unknown): unknown =>
+    useSyncExternalStore(
+      (onChange: () => void) => {
+        listeners.add(onChange)
+        return () => {
+          listeners.delete(onChange)
+        }
+      },
+      () => selector({ blank }),
+    )
+  return {
+    useSession,
+    setBlank(next: boolean): void {
+      blank = next
+      for (const listener of Array.from(listeners)) listener()
+    },
+  }
+}
+
 /** 渲染通知卡的入参。 */
 interface RenderOptions {
   /** 事件到达前预置的可见性源；缺省 = 无信号（软降级路径）。 */
   readonly visibility?: ReturnType<typeof countSource> | undefined
+  /** `useSession` 标准席位替身；缺省 = 永远空白（欢迎视图形态）。 */
+  readonly session?: ReturnType<typeof sessionStub> | undefined
 }
 
-/** 渲染通知卡并返回 store 与可见性源（无信号时为 undefined）。 */
-function renderCard({ visibility }: RenderOptions = {}) {
+/** 渲染通知卡并返回 store、可见性源与会话桩（未提供时为 undefined）。 */
+function renderCard({ visibility, session }: RenderOptions = {}) {
   const store = createNoticeStore(vi.fn())
   const props = {
     sessionId: 'session-1',
+    useSession: session?.useSession,
     notices: store,
     visibilityFor: (sessionId: string) => (visibility === undefined || sessionId !== 'session-1' ? undefined : visibility),
     t: translate,
   } as unknown as CommandNoticeCardProps
-  return { ...render(<CommandNoticeCard {...props} />), store }
+  return { ...render(<CommandNoticeCard {...props} />), store, session }
 }
 
 /** 从事件桥路径塞一条成功通知。 */
@@ -87,10 +118,22 @@ describe('通知卡渲染条件', () => {
     expect(container.innerHTML).toBe('')
   })
 
-  it('可见性计数为正（会话视图已打开）时，即使有通知也不渲染', async () => {
+  it('空会话被主视图选中（计数为正但 blank）时照常弹出——结果无处渲染正是本能力兜底的场景', async () => {
     const visibility = countSource()
     visibility.set(1)
-    const { container, store } = renderCard({ visibility })
+    const session = sessionStub()
+    const { container, store } = renderCard({ visibility, session })
+    await offerSuccess(store)
+
+    expect(container.querySelector('[role="status"]')).not.toBeNull()
+  })
+
+  it('选中且非空白（会话流可见）时不渲染——结果已是 transcript 里的持久节点', async () => {
+    const visibility = countSource()
+    visibility.set(1)
+    const session = sessionStub()
+    session.setBlank(false)
+    const { container, store } = renderCard({ visibility, session })
     await offerSuccess(store)
 
     expect(container.innerHTML).toBe('')
@@ -103,13 +146,29 @@ describe('通知卡渲染条件', () => {
     expect(screen.getByText('命令执行成功')).toBeDefined()
   })
 
-  it('展示期间计数 0→1（视图挂载）即自动隐藏，不分成败', async () => {
+  it('展示期间 blank 翻转（选中态下首个提交落地，prompt 型路径）即自动隐藏，不分成败', async () => {
     const visibility = countSource()
-    const { container, store } = renderCard({ visibility })
+    visibility.set(1)
+    const session = sessionStub()
+    const { container, store } = renderCard({ visibility, session })
     await offerSuccess(store)
     expect(container.querySelector('[role="status"]')).not.toBeNull()
 
     await offerError(store)
+    expect(container.querySelector('[role="status"]')).not.toBeNull()
+
+    await act(async () => {
+      session.setBlank(false)
+    })
+    expect(container.innerHTML).toBe('')
+  })
+
+  it('展示期间被选中（计数 0→1）且非空白也隐藏（切回已开始的会话）', async () => {
+    const visibility = countSource()
+    const session = sessionStub()
+    session.setBlank(false)
+    const { container, store } = renderCard({ visibility, session })
+    await offerSuccess(store)
     expect(container.querySelector('[role="status"]')).not.toBeNull()
 
     await act(async () => {

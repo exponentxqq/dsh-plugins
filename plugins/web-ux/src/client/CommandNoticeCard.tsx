@@ -46,7 +46,7 @@ export interface CommandNoticeInjected {
   readonly visibilityFor: (sessionId: string) => CountSnapshotSource | undefined
 }
 
-/** 完整 props：overlay 座位的运行时份额 + 本命名空间的 `t` + 注入面。 */
+/** 完整 props：overlay 座位的运行时份额（含 `useSession` 标准席位）+ 本命名空间的 `t` + 注入面。 */
 export type CommandNoticeCardProps = PropsRuntime<'conversation.input.overlay'>
   & PropsLocale<typeof NS>
   & CommandNoticeInjected
@@ -69,12 +69,16 @@ interface TimerBudget {
 }
 
 /**
- * 通知卡。渲染条件（全部满足才出卡）：本会话有通知，且主视图引用计数为零
- * （会话视图未打开）。内部卡按通知序号做 key——同会话新替旧时重挂、计时重置。
+ * 通知卡。渲染条件（全部满足才出卡）：本会话有通知，且「会话流此刻可见」不成立
+ * ——可见性判定是两件事的合取（design D2 实施修正版）：主视图引用计数为正
+ * （会话被选中）**且**会话非空白（`SessionSnapshot.blank`，品牌页/空会话标记：
+ * 命令执行不置位、首个提交/轮次才清零）。空会话即使被选中，transcript 也没有
+ * 任何可渲染的内容行，结果依然无处呈现——这正是本能力要兜底的场景。
+ * 内部卡按通知序号做 key——同会话新替旧时重挂、计时重置。
  * @param props - overlay 运行时份额、`t` 与注入面。
  * @returns 通知卡，或无需展示时的 null。
  */
-export function CommandNoticeCard({ sessionId, notices, visibilityFor, t }: CommandNoticeCardProps): ReactNode {
+export function CommandNoticeCard({ sessionId, useSession, notices, visibilityFor, t }: CommandNoticeCardProps): ReactNode {
   // 通知切片：store 任意变化都会回调读取，identity 未变的会话切片不触发重渲染。
   const notice = useSyncExternalStore(notices.source.subscribe, () => notices.source.noticeOf(sessionId))
   // 可见性源按会话记忆（注入面可能每渲染换新对象，身份以会话为准）。
@@ -88,9 +92,12 @@ export function CommandNoticeCard({ sessionId, notices, visibilityFor, t }: Comm
     [visibility],
   )
   const mainViewCount = useSyncExternalStore(subscribeCount, readCount)
+  // 空白标记：brand 页即「transcript 无内容行」。useSession 缺席（退化壳）时按
+  // 空白对待——保守展示，卡片自身 TTL/手动关闭路径兜底。
+  const blank = useSession?.((snapshot) => snapshot?.blank ?? true) ?? true
 
-  // 会话视图已打开（transcript 可见）→ 结果已是会话流里的持久节点，卡不该在。
-  if (mainViewCount > 0) return null
+  // 会话流此刻可见（选中且非空白）→ 结果已是会话流里的持久节点，卡不该在。
+  if (mainViewCount > 0 && !blank) return null
   if (notice === null) return null
   return (
     <CommandNoticeBody
