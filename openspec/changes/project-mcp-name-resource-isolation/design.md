@@ -20,7 +20,7 @@
 **Non-Goals：**
 
 - 不做注册层隔离（名字仍存在于全局工具/资源注册表）；不改人类 UI（`session-tool-toggle` 面板 `shadowed`、`/tools` 输出）。
-- 不做每 agent 独立连接（S1）、不改 serverName 仲裁与命名契约、不做跨工作区同名复用（后续变更方向见 ⑥「后续变更」）。
+- 不做每 agent 独立连接（S1）、不改 serverName 仲裁与命名契约、不做跨工作区同名复用、不做项目侧同名配置覆盖 profile（三者同为 `serverName` 作用域化，后续变更方向见 ⑥「后续变更」）。
 - 不新增上游 devDep（事件用本地 `declare module` 窄声明）；不做 agent 级资源 provider 重注册。
 - 不覆盖 `exec.agent === undefined` 的进程内直接调用（模型调用总在 agent 内；属已知边界）。
 - 不做「插件重载后存量会话」的 boot 追平（用户 Q1=A：只加观测日志 + README 边界）。
@@ -251,7 +251,8 @@ if (live > 0) log.info(`boot: ${live} session(s) predate this load; name isolati
 
 **落档阶段已解决的设计线上浮项**：Q1=A、Q2=B（范围扩张并口径改定为 `blocked = claimed \ failedClaims`）、Q3=B（deny 文案与上游同形）、Q4=A（限流保持）、Q5=A（spec 加历史不追溯场景）。无遗留产品级未决项。
 
-**后续变更（本变更不纳入，用户已确认单独立项）**：跨工作区同名 `serverName` 复用——各工作区都配 `dbx`，免去 family 侧改名 `dbx-family`。S2 路线机制上做不到：扫描层按名字先到先得（`plugins/project-mcp/src/host/scan.ts:162-171`），装载发生在插件全局 ctx（`plugin-loader.ts:124-128`），工具公开名 `mcp__<serverName>__*`、指令段 `mcp:<serverName>`、资源名字/`arguments.server` 全以名字为唯一身份，三面闸门无法区分两个同名服务器 → 同名只会让赢家对两个工作区会话同时可见，即跨工作区串用；上游对**全局**同名实例互斥，仅 agent scope 内允许复用（`dsh-mcp-client/lib/index.js:769-770`）。可行方向只有 S1（每 agent scope 独立连接，browser-use `mountSessionMcp` 为现成模板：per-agent `createScope` + 固定 `serverName` + 名字面过滤 + 资源守卫），代价为每会话服务器进程链（实测 dbx ≈ 90 MB/条、4 进程）、会话级生命周期/热重载/证据体系重做，且多根同会话（同一 agent scope）仍互斥；「内部唯一名 + 对外显示 `dbx`」不可行——工具名是模型可见的既有契约且无别名机制（`scan.ts:9-12` 明确名字从不重写）。立项时应先做可行性 spike（每会话连接成本、多根/子代理边界、是否需上游 patch）。
+**后续变更（本变更不纳入，用户已确认单独立项）**：`serverName` 作用域化——同一根因的两半需求合并立项：① **跨工作区同名复用**（各工作区都配 `dbx`，免去 family 侧改名 `dbx-family`）；② **项目侧同名配置覆盖 profile**（profile 保留全局 `dbx` 兜底，opc 的 `.dsh/mcp/dbx.yaml` 只对该工作区会话遮蔽它，family/brains 会话仍用 profile 那份）。两半都靠 S2 做不到：扫描层按名字先到先得（`plugins/project-mcp/src/host/scan.ts:162-171`），装载发生在插件全局 ctx（`plugin-loader.ts:124-128`），工具公开名 `mcp__<serverName>__*`、指令段 `mcp:<serverName>`、资源名字/`arguments.server` 全以名字为唯一身份，三面闸门无法区分两个同名服务器 → 同名只会让赢家对多个工作区会话同时可见，即跨工作区串用；上游对**全局**同名实例互斥，仅 agent scope 内允许复用（`dsh-mcp-client/lib/index.js:769-770`）。②不能简单反转成「项目顶替全局」：那会让 `mcp__dbx__*` 只剩一份实现，其它工作区调用打到该工作区服务器的凭证/数据，且 profile 能力被单工作区夺走、reload 时反复抢名；正确形态是**按工作区遮蔽**（scoped tools shadow globals：`dsh-tools/lib/index.js` 的 `register()` 注释），缺的只是「一份共享连接把注册落进指定 agent scope」。
+可行方向：**A** 上游支持（共享连接 + 指定作用域注册；三面完整、周期不可控）；**B** S1 每 agent scope 独立连接（browser-use `mountSessionMcp` 为模板：per-agent `createScope` + 固定 `serverName` + 名字面过滤 + 资源守卫；三面完整，代价为每会话服务器进程链——实测 dbx ≈ 90 MB/条、4 进程——以及会话级生命周期/热重载/证据体系重做，且多根同会话仍互斥）；**C** shim（内部唯一名装载 + 每 agent `get()` 取 definition 改名重注册来遮蔽全局；只能覆盖工具面——指令文本与 resource provider 不对外暴露，名字面只能删不能替换、资源面仍解析到 profile），不推荐作终态。「内部唯一名 + 对外显示 `dbx`」同样不可行——工具名是模型可见的既有契约且无别名机制（`scan.ts:9-12` 明确名字从不重写）。立项时先做可行性 spike：上游能力缺口、S1 连接成本、shim 三面覆盖度、多根/子代理边界。
 
 ## Risks / Trade-offs
 
