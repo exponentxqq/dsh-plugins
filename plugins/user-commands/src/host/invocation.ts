@@ -53,9 +53,14 @@ export function expandArguments(template: string, rawInput: string): string {
  * @param command - 待执行的命令。
  * @param deps - 调用所需的外部能力。
  * @returns 模板正文。
- * @throws 文件不可读或不再是合法命令定义时抛错。
+ * @throws 文件不可读、不再是合法命令定义，或命令是宿主型内置（调用方分流错误）时抛错。
  */
 async function resolveTemplate(command: RegisteredCommand, deps: InvocationDeps): Promise<string> {
+  if (command.origin.kind === 'host') {
+    // 编程错误而非用户错误：host 来源必须在 registrant 层被分流到 invoke，绝不进入
+    // prompt 展开路径——否则一次「清单」调用会变成一条空的用户消息。
+    throw new Error(`命令 /${command.name} 是宿主型内置命令，不能按 prompt 展开`)
+  }
   if (command.origin.kind === 'builtin') return command.origin.prompt
   const text = await deps.readFile(command.origin.file)
   return parseCommandDocument(text).document.body

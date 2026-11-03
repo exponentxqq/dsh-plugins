@@ -128,13 +128,13 @@ describe('插件主体', () => {
     for (const cleanup of harness.cleanups) cleanup()
   })
 
-  it('有 commands 服务时注册兜底命令与内置 /init', async () => {
+  it('有 commands 服务时注册兜底命令与内置命令（/init、/inventory）', async () => {
     const harness = fakeContext(true)
 
     apply(harness.ctx)
     await waitFor(() => harness.definitions.has('init'))
 
-    expect([...harness.definitions.keys()].sort()).toEqual(['commands-reload', 'init'])
+    expect([...harness.definitions.keys()].sort()).toEqual(['commands-reload', 'init', 'inventory'])
     expect(harness.definitions.get('commands-reload')?.description).toContain('重新扫描')
     expect(harness.errors).toEqual([])
 
@@ -154,7 +154,7 @@ describe('插件主体', () => {
     apply(harness.ctx)
     await waitFor(() => harness.definitions.has('weekly'))
 
-    expect([...harness.definitions.keys()].sort()).toEqual(['commands-reload', 'init', 'weekly'])
+    expect([...harness.definitions.keys()].sort()).toEqual(['commands-reload', 'init', 'inventory', 'weekly'])
     expect(harness.definitions.get('weekly')?.description).toBe('生成周报')
     expect(harness.errors).toHaveLength(1)
     expect(harness.errors[0]).toContain('broken.md')

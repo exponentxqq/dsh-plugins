@@ -82,7 +82,41 @@ export interface WorkspaceRoots {
   readonly roots: readonly string[]
 }
 
-/** 一条命令的 prompt 来源。 */
+/**
+ * 宿主型内置命令的入参：`dsh-commands` 的 `CommandInvocation` 的最小面。
+ *
+ * 只声明本插件实际消费的字段。`agent` 是不透明对象（宿主把它当作用域键与 cwd 来源），
+ * 因此本文件不 import 任何宿主模块——文件头的不变量（只声明类型、零 import）保持成立。
+ */
+export interface HostCommandInvocation {
+  /** 收到命令的 agent（不透明引用：作用域键与工作目录来源）。 */
+  readonly agent: object
+  /** 命令名之后的原始输入（含分隔空白）。 */
+  readonly rawInput: string
+  /** 派发方拥有的取消信号。 */
+  readonly signal: AbortSignal
+}
+
+/** 宿主型内置命令的结果，与 `dsh-commands` 的 `CommandResult` 同形。 */
+export type HostCommandResult =
+  | {
+      readonly kind: 'success'
+      readonly text?: string
+    }
+  | {
+      readonly kind: 'error'
+      readonly text: string
+    }
+
+/**
+ * 宿主型内置命令的实现：宿主侧**直接求值**——不展开 prompt、不提交用户消息，
+ * 返回值只作为命令 UI 文本渲染（因此不进入模型请求、不消耗 token）。
+ */
+export type HostCommandInvoke = (
+  invocation: HostCommandInvocation,
+) => HostCommandResult | Promise<HostCommandResult>
+
+/** 一条命令的来源：文件型 / prompt 型内置 / 宿主型内置。 */
 export type CommandOrigin =
   | {
       /** 来自命令目录里的文件。 */
@@ -101,6 +135,12 @@ export type CommandOrigin =
       readonly kind: 'builtin'
       /** 内置的 prompt 模板。 */
       readonly prompt: string
+    }
+  | {
+      /** 插件内置的宿主型命令（直接求值，见 {@link HostCommandInvoke}）。 */
+      readonly kind: 'host'
+      /** 直接求值的实现。 */
+      readonly invoke: HostCommandInvoke
     }
 
 /**

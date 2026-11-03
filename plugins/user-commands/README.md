@@ -1,14 +1,16 @@
 # dsh-plugin-user-commands
 
-DSH 插件（**纯宿主面，`exports "."`**）：用户自定义斜杠命令——用 Markdown 文件定义 `/命令`，正文即 prompt 模板，执行时展开 `$ARGUMENTS` 并作为用户消息提交给当前会话；三层来源（插件内置 / 用户级 / 项目级）按层遮蔽，多工作区会话互不串扰，支持热刷新，并内置 `/init` 为当前仓库生成或更新 `AGENTS.md`。
+DSH 插件（**纯宿主面，`exports "."`**）：用户自定义斜杠命令——用 Markdown 文件定义 `/命令`，正文即 prompt 模板，执行时展开 `$ARGUMENTS` 并作为用户消息提交给当前会话；三层来源（插件内置 / 用户级 / 项目级）按层遮蔽，多工作区会话互不串扰，支持热刷新，并内置 `/init`（生成或更新 `AGENTS.md`）与宿主侧只读的 `/inventory`（列出本会话可用的 MCP 服务器与 skill，零模型消息）。
 
 本包不声明 `dsh.client`，不含任何 Web UI 组件，因此 **web / acp / headless 等任何 profile 都可单独安装**；没有 `commands` 服务的部署里它零注册、零报错。
+
+> 本包的命令面有**两种求值方式**：文件型命令与 prompt 型内置命令（`/init`）提交一条用户消息；宿主型内置命令（`/inventory`）在宿主侧直接求值，只返回命令 UI 文本。两者的来源、遮蔽与注册规则完全一致。
 
 ## 三层来源与遮蔽
 
 | 层 | 目录 | 注册位置 | 遮蔽关系 |
 | --- | --- | --- | --- |
-| 内置 | 插件代码常量（v1 只有 `/init`） | 全局 | 被用户级 / 项目级同名命令遮蔽 |
+| 内置 | 插件代码（prompt 型 `/init` + 宿主型 `/inventory`） | 全局 | 被用户级 / 项目级同名命令遮蔽 |
 | 用户级 | `$DSH_HOME/commands/`（缺省 `~/.dsh/commands/`） | 全局 | 遮蔽内置 |
 | 项目级 | 各登记根（主根 + 附加根）的 `<根>/.dsh/commands/` | **该会话自己的作用域** | 遮蔽用户级与内置 |
 
@@ -51,6 +53,7 @@ argument-hint: [环境]
 - **提交**：展开后走 `agent.steer(createUserMessage(...))`（与 `/plan` 同一条通道）——命令本身不是模型消息，但这是**一条真正的用户消息**，空闲会话也会因此开启轮次。
 - **文件没了就报错**：注册之后文件被删除/被清空/变成非法 YAML → 返回错误结果，**不提交任何半截内容**。
 - **附件**：v1 不声明附件能力，带图片的调用由官方命令适配器拒绝（错误文案由它给出），不进入 handler。
+- **宿主型内置命令不走提交语义**：`/inventory` 在宿主侧直接求值，只返回命令 UI 文本——不展开 prompt、不提交用户消息、不产生模型请求、零 token。带参调用返回错误与用法；取消时返回取消结果，绝不返回半份清单。
 - `/命令` 的**结果文案**不消耗 token：注册表与 handler 返回值都不进模型请求。
 
 ## 同层冲突仲裁与工作区隔离
@@ -77,6 +80,33 @@ argument-hint: [环境]
 
 `/init` 指示 agent：查证目录结构、工具链、常用命令（逐条可复制执行）、代码约定 → 写入**主根** `AGENTS.md`；已存在则**合并更新**（保留仍然正确的内容，只修订过时条目，不推倒重写）。产出约束：全文简体中文、≤80 行、只写查证过的事实、不追加 TODO 或后续建议。内置命令可被用户级/项目级的 `init.md` 遮蔽。
 
+## 内置 `/inventory`（会话清单）
+
+```
+/inventory   # 列出本会话实际可见的 MCP 服务器与可用 skill；不接受参数
+```
+
+宿主侧**直接求值**的只读清单命令：结果只作为命令 UI 文本返回——不提交用户消息、不产生模型请求、不消耗 token。可被用户级 / 项目级的 `inventory.md` 遮蔽（与 `/init` 同一规则），该命令名不占用插件保留名。
+
+```text
+会话清单（cwd：/home/xuqinqin/develop/person/dsh-plugins）
+
+MCP 服务器（3 台，共 24 个工具）
+- chrome-devtools-mcp：12 个工具
+- codebase-memory：8 个工具
+- dbx：4 个工具
+
+Skill（24 个）
+- analyzing-elastic-logs — 分析 Elastic 日志…（模型+/name，用户(agents)）
+```
+
+口径是「**此刻本会话实际可用**」，不是配置台账：
+
+- **MCP 段**取 `tools.schemas(agent)` 的可见工具名，按 `mcp__<server>__<tool>` 前缀归组，只输出服务器名与工具数，因此天然反映 `/tools off mcp:<server>`（session-tool-toggle）的关闭项与 project-mcp 的工作区隔离之后的真实可见面。公开名因归一化 / 64 字符截断而无法还原服务器名的工具进「未归组」计数，**不猜测服务器名**（猜出来的名字会误导你执行 `/tools off mcp:<server>`）。
+- **Skill 段**取 skill 注册表在会话 cwd 与该 agent 作用域下的目录：保留「模型可调用或 `/name` 可调用至少其一」的条目，输出名称、折叠空白并截断到 60 字的描述、调用方式标记（`模型+/name` / `仅模型` / `仅 /name`）与来源短标签；两种调用方式都不可用的条目不计入。
+- **降级**：`tools` / `skills` 服务缺席或读取抛错 → 对应段落输出可读说明并写入诊断日志，命令仍成功结算；skill 目录观测不完整（`complete === false`）与会话工作目录无法解析各有一行标注。带参或调用已取消时返回错误结果，不读服务、不返回半份清单。
+- **已知限制**：`serverName` 文法允许 `_`，而 `mcp-client` 的公开名本身是有损投影，`a__b` 这类名字的归组按「第一个 `__` 即边界」处理。
+
 ## 热刷新与 `/commands-reload`
 
 - 对用户级目录与每个工作区根按阶梯监听**最深的存在层级**（`<根>/.dsh/commands` → `<根>/.dsh` → `<根>`；用户级同理退到 `$DSH_HOME`），因此「全新项目里第一次创建 `.dsh/commands/`」也会自动生效，无需重启；文件事件去抖 250 ms。
@@ -90,12 +120,13 @@ argument-hint: [环境]
 **项目级命令等于把 prompt 注入权交给仓库作者。** `.dsh/commands/*.md` 随仓库分发，clone 下来即生效：文件正文会被展开成一条用户消息送进你的会话，模型会把它当作你的指令。所以：
 
 - 只在信任的仓库里保留 `.dsh/commands/`；review 别人的 PR 时留意新增的命令文件。
-- 本插件**只做 prompt**，没有任何本地执行能力（不跑 shell、不读 `@file`、不设 `allowed-tools` 白名单）——真正有执行力的注入面需要单独的沙箱设计，不在这一个变更里。
+- 本插件对仓库下发的命令**只做 prompt**，没有任何本地执行能力（不跑 shell、不读 `@file`、不设 `allowed-tools` 白名单）——真正有执行力的注入面需要单独的沙箱设计，不在这一个变更里。插件自带的内置命令是宿主代码：`/init` 只提交一段固定 prompt，`/inventory` 只读工具与 skill 注册表，不构成仓库注入面。
 - 用户级目录 `$DSH_HOME/commands/` 是你自己的，不受仓库影响。
 
 ## 软依赖与降级
 
 - **`commands` 服务**：缺席的部署（无命令适配器的 acp / headless）中 `ctx.inject(['commands'])` 的回调根本不运行——零注册、零报错、无副作用。
+- **`tools` / `skills` / `workingDirectory`**（`/inventory` 的数据源）：调用时 `ctx.get` 的软依赖，**不进 `inject`**。服务缺席时对应段落降级为说明；读取抛错时降级并写诊断日志；`workingDirectory` 缺席或读失败回退到 `session.header.cwd`。三者全缺也只会得到一份两段都带说明的清单，插件照常加载。
 - **[`dsh-plugin-multi-root-workspace`](../multi-root-workspace/README.md)**：软依赖。其 registry 在就扫描「主根 + 附加根」，缺席则静默降级为只看各主根，其余行为不变。
 - **workspace registry 不在**：没有项目级命令，用户级与内置照常工作。
 
@@ -107,7 +138,7 @@ argument-hint: [环境]
 cd /home/xuqinqin/develop/person/dsh-plugins/plugins/user-commands   # 本包是 dsh-plugins workspace 成员
 pnpm install
 pnpm typecheck     # tsc -b：host 单工程
-pnpm test          # vitest：发现/仲裁/frontmatter/归属/分层注册/调用/监听/重载计数/降级
+pnpm test          # vitest：发现/仲裁/frontmatter/归属/分层注册/调用/清单（归组·渲染·降级）/监听/重载计数
 pnpm lint          # oxlint
 pnpm build         # esbuild → lib/index.js
 pnpm verify:all    # lint + typecheck + build + test
@@ -177,7 +208,7 @@ docker exec dsh dsh --profile web --dump-config | grep -A2 'id: user-commands'
 - 不做 shell 预执行（`!`cmd``）、`@file` 文件引用、`allowed-tools` 白名单。
 - 不做位置参数（`$1`/`$2`）与上下文变量（`${CWD}` 等）。
 - 不做子目录命名空间（命令名文法不含冒号，隐式改名不可取）。
-- 不内置 `/init` 之外的命令；不做命令级模型 / persona 覆盖。
+- 不做有副作用的内置命令：`/inventory` 只读工具面与 skill 注册表，不写任何状态、不跑 shell、不提交用户消息；不做命令级模型 / persona 覆盖。
 - 不做 watch 失效时的自动轮询（用 `/commands-reload` 兜底）。
 
 ## 许可

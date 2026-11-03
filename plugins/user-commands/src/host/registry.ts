@@ -70,11 +70,15 @@ export function reloadText(counts: SyncCounts, skipped: number): string {
 
 /**
  * 一条命令的注册指纹：说明、提示或来源变了就要重注册（发现菜单要跟着变）。
+ *
+ * 来源按类别成串：文件型用路径（同名不同目录要视为变化），内置按 `origin.kind`
+ * （`'builtin'` / `'host'`）——同一类内置命令的常量定义是静态的，指纹因此稳定，
+ * 重扫不会误判为变化而反复重注册。
  * @param command - 待计算的命令。
  * @returns 指纹字符串。
  */
 function fingerprintOf(command: RegisteredCommand): string {
-  const origin = command.origin.kind === 'file' ? command.origin.file : 'builtin'
+  const origin = command.origin.kind === 'file' ? command.origin.file : command.origin.kind
   return JSON.stringify([command.description, command.hint ?? '', origin])
 }
 

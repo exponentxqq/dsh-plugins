@@ -6,7 +6,7 @@
  */
 import path from 'node:path'
 import type { CommandRegistrar } from '../src/host/registry.ts'
-import type { CommandIo, CommandLog, DirEntry, RegisteredCommand, WorkspaceRoots } from '../src/host/types.ts'
+import type { CommandIo, CommandLog, DirEntry, HostCommandInvoke, RegisteredCommand, WorkspaceRoots } from '../src/host/types.ts'
 
 /** 一条文件形式的目录项。 */
 export function fileEntry(name: string): DirEntry {
@@ -99,6 +99,14 @@ export function fileCommand(
 /** 造一条内置命令。 */
 export function builtinCommand(name: string, prompt = '内置 prompt'): RegisteredCommand {
   return { name, description: `内置命令 ${name}`, origin: { kind: 'builtin', prompt } }
+}
+
+/** 造一条宿主型内置命令（默认实现直接成功返回固定文本）。 */
+export function hostCommand(
+  name: string,
+  invoke: HostCommandInvoke = () => ({ kind: 'success', text: `清单 ${name}` }),
+): RegisteredCommand {
+  return { name, description: `宿主型内置命令 ${name}`, origin: { kind: 'host', invoke } }
 }
 
 /** 收集注册结果的假注册器。 */

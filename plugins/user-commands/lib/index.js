@@ -7380,7 +7380,7 @@ function reloadText(counts, skipped) {
   return `\u5DF2\u91CD\u626B\uFF1A\u52A0\u8F7D ${distinct(counts.loaded)}\u3001\u66F4\u65B0 ${distinct(counts.updated)}\u3001\u79FB\u9664 ${distinct(counts.removed)}\u3001\u8DF3\u8FC7 ${skipped + counts.failed.length}`;
 }
 function fingerprintOf(command) {
-  const origin = command.origin.kind === "file" ? command.origin.file : "builtin";
+  const origin = command.origin.kind === "file" ? command.origin.file : command.origin.kind;
   return JSON.stringify([command.description, command.hint ?? "", origin]);
 }
 var CommandLayer = class {
@@ -7896,12 +7896,188 @@ function commandLog(ctx) {
   };
 }
 
+// src/host/inventory.ts
+var INVENTORY_COMMAND_NAME = "inventory";
+var INVENTORY_COMMAND_DESCRIPTION = "\u5217\u51FA\u672C\u4F1A\u8BDD\u5B9E\u9645\u53EF\u89C1\u7684 MCP \u670D\u52A1\u5668\u4E0E\u53EF\u7528 skill\uFF08\u5BBF\u4E3B\u4FA7\u76F4\u63A5\u6C42\u503C\uFF0C\u4E0D\u4EA7\u751F\u6A21\u578B\u8BF7\u6C42\uFF09";
+var INVENTORY_USAGE = `/${INVENTORY_COMMAND_NAME}\uFF08\u4E0D\u63A5\u53D7\u53C2\u6570\uFF09`;
+var MCP_TOOL_PREFIX = "mcp__";
+var SKILL_DESCRIPTION_MAX_LENGTH = 60;
+var MCP_SERVER_PATTERN = /^mcp__([A-Za-z0-9_-]+?)__(.+)$/;
+var SOURCE_LABELS = {
+  "project-dsh": "\u9879\u76EE",
+  "project-agents": "\u9879\u76EE(agents)",
+  custom: "\u81EA\u5B9A\u4E49",
+  "user-dsh": "\u7528\u6237",
+  "user-agents": "\u7528\u6237(agents)",
+  bundled: "\u5185\u7F6E",
+  runtime: "\u8FD0\u884C\u65F6"
+};
+function groupMcpTools(toolNames) {
+  const byServer = /* @__PURE__ */ new Map();
+  const ungrouped = [];
+  let totalTools = 0;
+  for (const name2 of toolNames) {
+    if (!name2.startsWith(MCP_TOOL_PREFIX)) continue;
+    totalTools += 1;
+    const match = MCP_SERVER_PATTERN.exec(name2);
+    if (match === null) {
+      ungrouped.push(name2);
+      continue;
+    }
+    const serverName = match[1];
+    const tools = byServer.get(serverName);
+    if (tools === void 0) byServer.set(serverName, [name2]);
+    else tools.push(name2);
+  }
+  const servers = Array.from(byServer, ([name2, tools]) => ({ name: name2, tools: tools.sort() })).sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+  return { servers, ungrouped: ungrouped.sort(), totalTools };
+}
+function skillRows(skills) {
+  return skills.filter((skill) => skill.invocation.modelInvocable || skill.invocation.userInvocable).map((skill) => ({
+    name: skill.name,
+    description: normalizeDescription(skill.description),
+    modelInvocable: skill.invocation.modelInvocable,
+    userInvocable: skill.invocation.userInvocable,
+    source: skill.source
+  })).sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+}
+function normalizeDescription(description) {
+  const collapsed = description.replace(/\s+/g, " ").trim();
+  if (collapsed.length <= SKILL_DESCRIPTION_MAX_LENGTH) return collapsed;
+  return `${collapsed.slice(0, SKILL_DESCRIPTION_MAX_LENGTH - 1)}\u2026`;
+}
+function invocationLabel(row) {
+  if (row.modelInvocable && row.userInvocable) return "\u6A21\u578B+/name";
+  if (row.modelInvocable) return "\u4EC5\u6A21\u578B";
+  return "\u4EC5 /name";
+}
+function sourceLabel(source) {
+  return SOURCE_LABELS[source] ?? source;
+}
+function renderMcp(reading, lines) {
+  if (reading.mcp === void 0) {
+    lines.push(`MCP \u670D\u52A1\u5668\uFF1A${reading.mcpNote ?? "\u8BFB\u53D6\u53EF\u89C1\u5DE5\u5177\u9762\u5931\u8D25"}`);
+    return;
+  }
+  const { servers, ungrouped, totalTools } = reading.mcp;
+  if (servers.length === 0) {
+    lines.push(
+      ungrouped.length === 0 ? "MCP \u670D\u52A1\u5668\uFF080 \u53F0\uFF09\uFF1A\u672C\u4F1A\u8BDD\u5F53\u524D\u6CA1\u6709\u53EF\u89C1\u7684 MCP \u5DE5\u5177" : `MCP \u670D\u52A1\u5668\uFF080 \u53F0\uFF0C\u5171 ${totalTools} \u4E2A\u5DE5\u5177\uFF09`
+    );
+  } else {
+    lines.push(`MCP \u670D\u52A1\u5668\uFF08${servers.length} \u53F0\uFF0C\u5171 ${totalTools} \u4E2A\u5DE5\u5177\uFF09`);
+    for (const server of servers) {
+      lines.push(`- ${server.name}\uFF1A${server.tools.length} \u4E2A\u5DE5\u5177`);
+    }
+  }
+  if (ungrouped.length > 0) {
+    lines.push(`\u672A\u5F52\u7EC4\uFF1A${ungrouped.length} \u4E2A MCP \u5DE5\u5177\uFF08\u516C\u5F00\u540D\u5F52\u4E00\u5316/\u622A\u65AD\u540E\u65E0\u6CD5\u8FD8\u539F\u670D\u52A1\u5668\u540D\uFF09`);
+  }
+}
+function renderSkills(reading, lines) {
+  if (reading.skills === void 0) {
+    lines.push(`Skill\uFF1A${reading.skillsNote ?? "\u8BFB\u53D6 skill \u76EE\u5F55\u5931\u8D25"}`);
+    return;
+  }
+  const { rows, complete } = reading.skills;
+  if (rows.length === 0) {
+    lines.push("Skill\uFF080 \u4E2A\uFF09\uFF1A\u672C\u4F1A\u8BDD\u5F53\u524D\u6CA1\u6709\u53EF\u7528 skill");
+  } else {
+    lines.push(`Skill\uFF08${rows.length} \u4E2A\uFF09`);
+    for (const row of rows) {
+      const head = row.description === "" ? row.name : `${row.name} \u2014 ${row.description}`;
+      lines.push(`- ${head}\uFF08${invocationLabel(row)}\uFF0C${sourceLabel(row.source)}\uFF09`);
+    }
+  }
+  if (!complete) lines.push("\uFF08\u6CE8\u610F\uFF1A\u6280\u80FD\u76EE\u5F55\u89C2\u6D4B\u4E0D\u5B8C\u6574\uFF0C\u5217\u8868\u53EF\u80FD\u7F3A\u9879\uFF09");
+  if (reading.cwd === void 0) lines.push("\uFF08\u672A\u80FD\u89E3\u6790\u4F1A\u8BDD\u5DE5\u4F5C\u76EE\u5F55\uFF0C\u9879\u76EE\u7EA7 skill \u53EF\u80FD\u7F3A\u5931\uFF09");
+}
+function renderInventory(reading) {
+  const lines = [`\u4F1A\u8BDD\u6E05\u5355\uFF08cwd\uFF1A${reading.cwd ?? "\u672A\u77E5"}\uFF09`, ""];
+  renderMcp(reading, lines);
+  lines.push("");
+  renderSkills(reading, lines);
+  return lines.join("\n");
+}
+
+// src/host/inventory-command.ts
+function describeError(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+function readCwd(ports, agent) {
+  try {
+    return ports.cwd(agent);
+  } catch (error) {
+    ports.log.warn(`/inventory \u89E3\u6790\u4F1A\u8BDD\u5DE5\u4F5C\u76EE\u5F55\u5931\u8D25\uFF1A${describeError(error)}`);
+    return void 0;
+  }
+}
+function readMcp(ports, agent) {
+  let names;
+  try {
+    names = ports.toolNames(agent);
+  } catch (error) {
+    const note = `\u8BFB\u53D6\u53EF\u89C1\u5DE5\u5177\u9762\u5931\u8D25\uFF1A${describeError(error)}`;
+    ports.log.error(`/inventory ${note}`);
+    return { mcpNote: note };
+  }
+  if (names === void 0) return { mcpNote: "\u5F53\u524D\u90E8\u7F72\u672A\u63D0\u4F9B tools \u670D\u52A1\uFF0C\u65E0\u6CD5\u8BFB\u53D6" };
+  return { mcp: groupMcpTools(names) };
+}
+async function readSkills(ports, cwd, agent, signal) {
+  let snapshot;
+  try {
+    snapshot = await ports.skillSnapshot(cwd, agent, signal);
+  } catch (error) {
+    const note = `\u8BFB\u53D6 skill \u76EE\u5F55\u5931\u8D25\uFF1A${describeError(error)}`;
+    ports.log.error(`/inventory ${note}`);
+    return { skillsNote: note };
+  }
+  if (snapshot === void 0) return { skillsNote: "\u5F53\u524D\u90E8\u7F72\u672A\u63D0\u4F9B skills \u670D\u52A1\uFF0C\u65E0\u6CD5\u8BFB\u53D6" };
+  return { skills: { rows: skillRows(snapshot.skills), complete: snapshot.complete } };
+}
+function createInventoryCommand(ports) {
+  const invoke = async ({ agent, rawInput, signal }) => {
+    if (rawInput.trim() !== "") {
+      return {
+        kind: "error",
+        text: `/${INVENTORY_COMMAND_NAME} \u4E0D\u63A5\u53D7\u53C2\u6570\uFF1B\u7528\u6CD5\uFF1A${INVENTORY_USAGE}`
+      };
+    }
+    if (signal.aborted) return cancelled();
+    const cwd = readCwd(ports, agent);
+    const mcp = readMcp(ports, agent);
+    if (signal.aborted) return cancelled();
+    const skills = await readSkills(ports, cwd, agent, signal);
+    if (signal.aborted) return cancelled();
+    const reading = {
+      ...cwd === void 0 ? {} : { cwd },
+      ...mcp.mcp === void 0 ? {} : { mcp: mcp.mcp },
+      ...mcp.mcpNote === void 0 ? {} : { mcpNote: mcp.mcpNote },
+      ...skills.skills === void 0 ? {} : { skills: skills.skills },
+      ...skills.skillsNote === void 0 ? {} : { skillsNote: skills.skillsNote }
+    };
+    return { kind: "success", text: renderInventory(reading) };
+  };
+  return {
+    name: INVENTORY_COMMAND_NAME,
+    description: INVENTORY_COMMAND_DESCRIPTION,
+    origin: { kind: "host", invoke }
+  };
+}
+function cancelled() {
+  return { kind: "error", text: `/${INVENTORY_COMMAND_NAME} \u5DF2\u53D6\u6D88` };
+}
+
 // src/host/invocation.ts
 var ARGUMENTS_PLACEHOLDER = "$ARGUMENTS";
 function expandArguments(template, rawInput) {
   return template.replaceAll(ARGUMENTS_PLACEHOLDER, rawInput.trim());
 }
 async function resolveTemplate(command, deps) {
+  if (command.origin.kind === "host") {
+    throw new Error(`\u547D\u4EE4 /${command.name} \u662F\u5BBF\u4E3B\u578B\u5185\u7F6E\u547D\u4EE4\uFF0C\u4E0D\u80FD\u6309 prompt \u5C55\u5F00`);
+  }
   if (command.origin.kind === "builtin") return command.origin.prompt;
   const text = await deps.readFile(command.origin.file);
   return parseCommandDocument(text).document.body;
@@ -8074,13 +8250,18 @@ function registrarFor(commands, log) {
       name: command.name,
       description: command.description,
       ...command.hint === void 0 ? {} : { input: { hint: command.hint } },
-      handler: ({ agent, rawInput }) => invokeCommand(command, rawInput, {
-        readFile: nodeCommandIo.readFile,
-        log,
-        submit: (text) => {
-          agent.steer(createUserMessage({ content: [{ type: "text", text }], source: { kind: "user" } }));
+      handler: ({ agent, rawInput, signal }) => {
+        if (command.origin.kind === "host") {
+          return command.origin.invoke({ agent, rawInput, signal });
         }
-      })
+        return invokeCommand(command, rawInput, {
+          readFile: nodeCommandIo.readFile,
+          log,
+          submit: (text) => {
+            agent.steer(createUserMessage({ content: [{ type: "text", text }], source: { kind: "user" } }));
+          }
+        });
+      }
     })
   };
 }
@@ -8108,6 +8289,34 @@ function apply(ctx) {
     projects: () => projects,
     log
   });
+  const inventoryPorts = {
+    log,
+    cwd: (agent) => {
+      const session = agent.session;
+      try {
+        const workingDirectory = ctx.get("workingDirectory");
+        if (workingDirectory !== void 0) return workingDirectory.get(session);
+      } catch (error) {
+        log.warn(`/inventory \u8BFB\u53D6\u4F1A\u8BDD\u5F53\u524D\u5DE5\u4F5C\u76EE\u5F55\u5931\u8D25\uFF0C\u56DE\u9000\u5230\u4F1A\u8BDD\u521B\u5EFA\u76EE\u5F55\uFF1A${String(error)}`);
+      }
+      return session.header.cwd;
+    },
+    toolNames: (agent) => {
+      const tools = ctx.get("tools");
+      if (tools === void 0) return void 0;
+      return tools.schemas(agent).map((schema) => schema.name);
+    },
+    skillSnapshot: async (cwd, agent, signal) => {
+      const skills = ctx.get("skills");
+      if (skills === void 0) return void 0;
+      return await skills.snapshot({
+        ...cwd === void 0 ? {} : { cwd },
+        scope: agent,
+        signal
+      });
+    }
+  };
+  const inventory = createInventoryCommand(inventoryPorts);
   let queue = Promise.resolve(EMPTY_COUNTS);
   const watcher = new DirectoryWatcher(nodeWatchIo, () => {
     background();
@@ -8123,7 +8332,7 @@ function apply(ctx) {
     await attributor.update(workspaces);
     const scan = await discoverCommands({ userDir, workspaces }, nodeCommandIo, runLog);
     projects = scan.projects;
-    const globalCounts = globalLayer.sync(globalCommands(scan.user, BUILTIN_COMMANDS));
+    const globalCounts = globalLayer.sync(globalCommands(scan.user, [...BUILTIN_COMMANDS, inventory]));
     const agentCounts = await agents.resync();
     watcher.arm(await watchTargets(nodeWatchIo, userDir, workspaces.flatMap((workspace) => workspace.roots)));
     return mergeCounts(globalCounts, agentCounts);

@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import { expandArguments, invokeCommand } from '../src/host/invocation.ts'
 import type { CommandLog } from '../src/host/types.ts'
-import { builtinCommand, fileCommand, recordingLog } from './helpers.ts'
+import { builtinCommand, fileCommand, hostCommand, recordingLog } from './helpers.ts'
 
 /**
  * 造一份调用装置：命令文件来自可变的内容表，提交进 `submitted`。
@@ -128,6 +128,18 @@ describe('命令执行', () => {
 
     expect(result).toEqual({ kind: 'success', text: '已提交 /init' })
     expect(harness.submitted).toEqual(['请分析仓库。补充关注点：重点写发布流程'])
+  })
+
+  it('宿主型内置命令不进入 prompt 展开路径：报错且不提交任何内容', async () => {
+    const harness = device({})
+    const command = hostCommand('inventory')
+
+    const result = await invokeCommand(command, '', harness.deps)
+
+    expect(result.kind).toBe('error')
+    expect(result.kind === 'error' ? result.text : '').toContain('不能按 prompt 展开')
+    expect(harness.submitted).toEqual([])
+    expect(harness.errors).toHaveLength(1)
   })
 
   it('提交失败时返回错误结果而不是抛出', async () => {

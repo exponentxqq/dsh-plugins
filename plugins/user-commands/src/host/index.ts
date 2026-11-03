@@ -29,6 +29,7 @@ import { Attributor } from './attribution.ts'
 import { BUILTIN_COMMANDS, globalCommands } from './builtins.ts'
 import { discoverCommands } from './discovery.ts'
 import { commandLog, nodeCommandIo, nodeRealpathIo, nodeWatchIo, userCommandsDir } from './host-io.ts'
+import { createInventoryCommand, type InventoryPorts, type SkillSnapshotLike } from './inventory-command.ts'
 import { invokeCommand } from './invocation.ts'
 import { CommandLayer, EMPTY_COUNTS, mergeCounts, reloadText, type CommandRegistrar, type SyncCounts } from './registry.ts'
 import { workspaceRoots } from './roots.ts'
@@ -43,8 +44,9 @@ export const name = 'user-commands'
  * 本插件不硬依赖任何服务。
  *
  * 命令服务（`commands`）只经 `ctx.inject(['commands'])` 软接入——无命令适配器的部署里
- * 那个回调根本不会运行，插件保持零注册零报错；工作区登记表与 multi-root registry 都是
- * 调用时 `ctx.get` 的软依赖（缺席时只剩用户级与内置命令）。
+ * 那个回调根本不会运行，插件保持零注册零报错；工作区登记表、multi-root registry 与内置
+ * `/inventory` 用到的 `tools` / `skills` / `workingDirectory` 都是调用时 `ctx.get` 的软依赖
+ * （缺席时对应能力按段降级，插件照常加载）。
  */
 export const inject: string[] = []
 
@@ -68,11 +70,48 @@ interface CommandsService {
   register(definition: CommandDefinition): () => void
 }
 
+/** 本插件用到的 `tools` 服务面（`ctx.get` 软读取；只消费工具名）。 */
+interface ToolsService {
+  /**
+   * 该 scope 视角下模型可见的工具 schema。
+   * @param scope - 作用域键（agent 对象；缺省读全局视图）。
+   * @returns 可见工具 schema 列表。
+   */
+  schemas(scope?: object): readonly { readonly name: string }[]
+}
+
+/** 本插件用到的 `skills` 服务面（`ctx.get` 软读取）。 */
+interface SkillsService {
+  /**
+   * 读该 cwd 与 scope 下的 skill 目录快照。
+   * @param options - cwd（会话当前目录）、scope（agent 对象）与取消信号。
+   * @returns 目录快照（`/inventory` 端口原样透传）。
+   */
+  snapshot(options: {
+    readonly cwd?: string
+    readonly scope?: object
+    readonly signal?: AbortSignal
+  }): Promise<SkillSnapshotLike>
+}
+
+/** 本插件用到的 `workingDirectory` 服务面（`ctx.get` 软读取）。 */
+interface WorkingDirectoryService {
+  /**
+   * 读会话当前工作目录（同步、无 I/O）。
+   * @param session - 目标会话。
+   * @returns 绝对路径。
+   */
+  get(session: unknown): string
+}
+
 /**
  * 把一层的命令服务包成注册器。
  *
  * handler 落在**被调用的那个会话**上：`/deploy` 在哪个会话里执行，展开后的 prompt 就提交给哪个会话；
  * 正文仍然现读（见 `invocation.ts`），所以注册时给出的只是发现菜单需要的那点信息。
+ *
+ * 宿主型内置命令（`origin.kind === 'host'`，如 `/inventory`）在这里**分流**：直接调用它自己的
+ * `invoke`，不展开 prompt、不提交用户消息——这条路径的产物只是命令 UI 文本。
  * @param commands - 该层的命令服务。
  * @param log - 诊断出口。
  * @returns 该层的注册器。
@@ -83,13 +122,18 @@ function registrarFor(commands: CommandsService, log: CommandLog): CommandRegist
       name: command.name,
       description: command.description,
       ...(command.hint === undefined ? {} : { input: { hint: command.hint } }),
-      handler: ({ agent, rawInput }) => invokeCommand(command, rawInput, {
-        readFile: nodeCommandIo.readFile,
-        log,
-        submit: (text) => {
-          agent.steer(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
-        },
-      }),
+      handler: ({ agent, rawInput, signal }) => {
+        if (command.origin.kind === 'host') {
+          return command.origin.invoke({ agent, rawInput, signal })
+        }
+        return invokeCommand(command, rawInput, {
+          readFile: nodeCommandIo.readFile,
+          log,
+          submit: (text) => {
+            agent.steer(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
+          },
+        })
+      },
     }),
   }
 }
@@ -142,6 +186,45 @@ export function apply(ctx: Context): void {
     log,
   })
 
+  /**
+   * `/inventory` 的宿主端口。
+   *
+   * 三个服务一律 `ctx.get` 软读取（不声明 `inject`，任何 profile 仍可安装）：服务缺席时端口
+   * 返回 `undefined`，由命令按段降级；读取失败向上抛，由命令统一转成段内说明与诊断日志。
+   * 装配层只做真实读取与类型收窄，不含任何业务规则（归组/渲染在 `inventory.ts` 纯函数里）。
+   */
+  const inventoryPorts: InventoryPorts = {
+    log,
+    cwd: (agent) => {
+      const session = (agent as Agent).session
+      try {
+        const workingDirectory = ctx.get('workingDirectory') as WorkingDirectoryService | undefined
+        // 会话当前目录（可能因 /cd 变化）；缺席或读失败时回退到会话头里的创建目录。
+        if (workingDirectory !== undefined) return workingDirectory.get(session)
+      } catch (error) {
+        log.warn(`/inventory 读取会话当前工作目录失败，回退到会话创建目录：${String(error)}`)
+      }
+      return session.header.cwd
+    },
+    toolNames: (agent) => {
+      const tools = ctx.get('tools') as ToolsService | undefined
+      if (tools === undefined) return undefined
+      // agent 对象就是宿主工具注册表的作用域键：得到的是会话级掩码与工作区隔离后的可见面。
+      return tools.schemas(agent).map((schema) => schema.name)
+    },
+    skillSnapshot: async (cwd, agent, signal) => {
+      const skills = ctx.get('skills') as SkillsService | undefined
+      if (skills === undefined) return undefined
+      return await skills.snapshot({
+        ...(cwd === undefined ? {} : { cwd }),
+        scope: agent,
+        signal,
+      })
+    },
+  }
+  /** 内置只读命令 `/inventory`：宿主侧直接求值，加载期创建一次，重扫不会产生新指纹。 */
+  const inventory = createInventoryCommand(inventoryPorts)
+
   /** 串行化的重扫队列。 */
   let queue: Promise<SyncCounts> = Promise.resolve(EMPTY_COUNTS)
 
@@ -173,7 +256,9 @@ export function apply(ctx: Context): void {
     await attributor.update(workspaces)
     const scan = await discoverCommands({ userDir, workspaces }, nodeCommandIo, runLog)
     projects = scan.projects
-    const globalCounts = globalLayer.sync(globalCommands(scan.user, BUILTIN_COMMANDS))
+    // 全局层 = 用户级 + 内置：prompt 型内置（静态常量）与宿主型内置（/inventory）一起参与
+    // 同名遮蔽——用户写 inventory.md 即遮蔽内置清单命令，与 /init 同一规则。
+    const globalCounts = globalLayer.sync(globalCommands(scan.user, [...BUILTIN_COMMANDS, inventory]))
     const agentCounts = await agents.resync()
     watcher.arm(await watchTargets(nodeWatchIo, userDir, workspaces.flatMap((workspace) => workspace.roots)))
     return mergeCounts(globalCounts, agentCounts)

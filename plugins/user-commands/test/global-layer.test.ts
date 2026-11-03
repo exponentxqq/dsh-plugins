@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest'
 import { BUILTIN_COMMANDS, globalCommands } from '../src/host/builtins.ts'
 import { CommandLayer, type CommandRegistrar } from '../src/host/registry.ts'
-import { builtinCommand, fakeRegistrar, fileCommand, recordingLog } from './helpers.ts'
+import { builtinCommand, fakeRegistrar, fileCommand, hostCommand, recordingLog } from './helpers.ts'
 
 describe('全局层的命令构成', () => {
   it('没有用户级命令时全部内置命令都在', () => {
@@ -82,6 +82,19 @@ describe('一层命令的差量同步', () => {
     layer.sync([fileCommand('a', '/d/a.md')])
 
     expect(layer.sync([fileCommand('a', '/other/a.md')]).updated).toEqual(['a'])
+  })
+
+  it('宿主型内置命令的指纹稳定：重复同步不重注册、注册对象不变', () => {
+    const { registrar, registered } = fakeRegistrar()
+    const layer = new CommandLayer(recordingLog().log, '全局命令层')
+    layer.setRegistrar(registrar)
+    const inventory = hostCommand('inventory')
+
+    expect(layer.sync([inventory]).loaded).toEqual(['inventory'])
+    const first = registered.get('inventory')
+
+    expect(layer.sync([inventory])).toEqual({ loaded: [], updated: [], removed: [], failed: [] })
+    expect(registered.get('inventory')).toBe(first)
   })
 
   it('注册失败（例如别的插件已有同名命令）记错误、计入 failed，且不记账', () => {
