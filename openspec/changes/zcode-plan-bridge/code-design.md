@@ -86,7 +86,7 @@
 |---|---|---|
 | R1 | `README.md:75-79` | 插件一览表新增一行 `dsh-plugin-zcode-plan`；`:32` 的「其余四个软插件」表述改为「其余五个软插件」 |
 | R2 | `AGENTS.md:20-26` | 「插件清单」新增一条；`:37` 的「四个软插件（project-mcp / user-commands / web-ux / session-tool-toggle）」→ 加 `zcode-plan` |
-| R3 | `openspec/changes/add-zcode-plan-bridge/{proposal.md,design.md,tasks.md,specs/dsh-zcode-plan/spec.md}` | **规划产物**（T0 用 `openspec-propose` 生成；本文 ⑤ 的 T0–T9 即其 tasks 骨架）。**不得手写绕开流程**（`AGENTS.md:70-74`） |
+| R3 | `openspec/changes/zcode-plan-bridge/{proposal.md,design.md,tasks.md,specs/dsh-zcode-plan/spec.md}` | **规划产物**（已由 spec-plan 落档；本文 ⑤ 的 T0–T9 即其 tasks 骨架）。**不得手写绕开流程**（`AGENTS.md:70-74`） |
 | R4 | `openspec/specs/dsh-zcode-plan/spec.md` | 由 openspec 归档时生成（实施期落，不在本蓝图） |
 
 **明确不改（已核实）**：
@@ -249,7 +249,7 @@ export interface LoginGrant {
 | 列 Key | `GET https://bigmodel.cn/api/biz/v1/organization/{org}/projects/{proj}/api_keys` | `Authorization: Bearer <JWT>` | — | `data: [{ name, apiKey, usageScene, … }]`；`apiKey` 字段即路径里的 keyId（`test-b.sh:25`） |
 | 建 Key | `POST` 同路径 | 同上 | `{ name: 'zcode-plan-bridge', usageScene: 1 }` | `data.apiKey` = 新 keyId |
 | 换 PAT | `POST …/api_keys/{keyId}/access_tokens` | 同上 | `{ clientType: 'zcode', clientVersion }` | `data` 内 token（实测名 `accessToken`）+ 效期字段（名未定稿） |
-| 用量 | `GET https://www.bigmodel.cn/api/monitor/usage/quota/limit` | **`authorization: <JWT>`（无 `Bearer`）+ `bigmodel-organization` + `bigmodel-project`** | — | `{code,msg,success,data:{level,limits:[{unit,number,currentValue,remaining,percentage,nextResetTime}]}}`，`unit===3` 为 5h 窗口 |
+| 用量 | `GET https://www.bigmodel.cn/api/monitor/usage/quota/limit` | **`authorization: <JWT>`（无 `Bearer`）+ `bigmodel-organization` + `bigmodel-project`** | — | `{code,msg,success,data:{level,limits:[{unit,number,currentValue,remaining,percentage,nextResetTime}]}}`，`unit===3` 为 5h 窗口、`unit===6` 为周额度（status 两档都展示） |
 
 **头形态的不对称是实测事实**（`test-pat.sh:15-17` 用 `Bearer`，`:28-30` 用裸 JWT），代码里必须分开写并在注释里标明出处，不得「统一成 Bearer」。
 
@@ -440,9 +440,11 @@ zcode-plan 状态（读数 <本地时刻>）
   Key ：zcode-plan-bridge · scene=1 · id 3f9a1c2b…           ／ 未知（登录后自动 find-or-create）
   PAT ：有效 · 到期 14:32（剩 4h10m）· 下次续期 14:28        ／ 已过期 ／ 无 ／ 已停止（JWT_EXPIRED）
   路由：已注册（glm-5.3, glm-5.3-flash）                     ／ 已声明未注册 ／ 未安装（运行 /zcode-plan route install）
-  用量：5h 窗口 3120 / 28000（11%，重置 18:00；读数 2 分钟前，服务端聚合延迟 1–2 分钟）
+  用量：5h 窗口 3120 / 28000（11%，重置 18:00）· 周 18200 / 140000（13%，重置 周一 00:00）（读数 2 分钟前，服务端聚合延迟 1–2 分钟）
   备注：<halt 原因 / REF_CONFLICT / 无>
 ```
+
+- 用量段读取 `quota/limit` 的 `limits[]` 两档：`unit===3`（5h 窗口）与 `unit===6`（周额度，如 140000）——两者都是套餐硬约束，缺一周额度读数会漏报「窗口有余、周额度已尽」的限流形态。
 
 - `readRouteState`：`llm.listProviders()` 有 `zcode-plan` → 已注册；`llm.listConfigurableProviders()` 有 → 已声明未注册（这类「声明了但解析失败」正是 `$D/dsh-llm-pi-ai` 的 dormant 语义）。
 - 用量读失败 → 该行降级为 `用量：读取失败（<码>），需登录态与 org/project`，其余行照常。
@@ -606,7 +608,7 @@ zcode-plan 状态（读数 <本地时刻>）
 
 ### T0 — 探路 spike（4 项 + OpenSpec 提案；串行前置，阻塞 T5/T3 的字段细节）
 
-- **文件**：无源码改动；脚本/证据放 `openspec/changes/add-zcode-plan-bridge/artifacts/`（gitignore）。
+- **文件**：无源码改动；脚本/证据放 `openspec/changes/zcode-plan-bridge/artifacts/`（证据文件随档提交，不做 gitignore——review 已定，保持排障可追溯）。
 - **要点**（每项一行结论 + 命令 + 观察片段）：
   1. **org/project 发现**：拿一份有效 JWT 试 `GET https://bigmodel.cn/api/biz/v1/customerInfo`（及 `/api/biz/v1/organizations` 备选），确认能否程序化拿到默认 org/project；不行则判定「Config 必填」。
   2. **`tokenByAuthCode` 契约**：用一次性 authCode 打 `POST https://bigmodel.cn/api/auth/tokenByAuthCode`，钉死 body 字段名（`authCode`/`code`？`appId`？`state` 是否回传）、响应里 JWT 的字段名、JWT payload 的 `exp`。

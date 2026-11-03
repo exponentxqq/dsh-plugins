@@ -45,13 +45,13 @@
 
 ## 8. 可观测与命令面收口（T7）
 
-- [ ] 8.1 status 渲染与日志事件（src/host/ 同目录合一任务）：status.ts 五段渲染 + 用量只读降级（H13）、host/index.ts 日志点接入固定事件名（H2 部分：pat_issued/pat_refresh_deferred/pat_refresh_failed/key_created/key_reused/login_committed/route_registered/halted）、commands.ts 五子命令收口（H14：login/logout/status/route/refresh）；验证：`pnpm --filter dsh-plugin-zcode-plan test` 全量全绿
+- [ ] 8.1 status 渲染与日志事件（src/host/ 同目录合一任务）：status.ts 五段渲染 + 用量只读两档（H13：`limits[]` 的 `unit===3` 5h 窗口与 `unit===6` 周额度都展示、失败降级）、host/index.ts 日志点接入固定事件名（H2 部分：pat_issued/pat_refresh_deferred/pat_refresh_failed/key_created/key_reused/login_committed/route_registered/halted）、commands.ts 五子命令收口（H14：login/logout/status/route/refresh）；验证：`pnpm --filter dsh-plugin-zcode-plan test` 全量全绿
 - [ ] 8.2 status 单测（X8，test/ 目录）：五段齐全、用量失败降级文案、`expect(text).not.toContain(jwtFixture)` 与 `not.toContain(patFixture)` 反向断言；验证：`pnpm --filter dsh-plugin-zcode-plan test -- status` 全绿且反向断言存在（grep -c 'not.toContain' ≥2）
 
 ## 9. 文档 + 迁移指南（T8）
 
 - [ ] 9.1 插件 README（plugins/zcode-plan/README.md）：原理一句（凭证属性折扣非指纹）、安装、三步上线、回退（切回 zai-coding-cn + route remove）、PAT 落盘偏离官方红线声明、卸载不清引用与 ≤5h 残留说明、headless 不适用（E1）、单 owner 多 profile（E2）、折扣复测口径（bodies/o1.json + quota/limit 差值）、手工路由 YAML 样例（F1 降级文档）；验证：`grep -c "route remove" plugins/zcode-plan/README.md` ≥1 且 `grep -c "仅内存" plugins/zcode-plan/README.md` ≥1（安全模型差异声明存在）
-- [ ] 9.2 迁移指南（plugins/zcode-plan/docs/migration-from-zai-coding-zcode.md）：首步「先核对 agent-default-model 指向再决定」（Q6，本机已指向 zai-coding-cn）→ route install → login → 切换验证 → 删 profile patch 的 zai-coding-zcode 块（用户手工）→ 回退与重建样例；验证：`grep -c "先核对" plugins/zcode-plan/docs/migration-from-zai-coding-zcode.md` ≥1 且文件含回退小节
+- [ ] 9.2 迁移指南（plugins/zcode-plan/docs/migration-from-zai-coding-zcode.md）：首步「先核对 agent-default-model 指向再决定」（Q6，本机已指向 zai-coding-cn）→ route install → login → 切换验证 → 删 profile patch 的 zai-coding-zcode 块（用户手工）→ 回退与重建样例；并加一句防误读注记：同目录 `diff-matrix.md` 是阶段 1.5 冻结留痕，其 §八「bundle patch 注册路由」已被设计线实测推翻、路由注册以 `design.md` D-1（profile 层 route install）为准；验证：`grep -c "先核对" plugins/zcode-plan/docs/migration-from-zai-coding-zcode.md` ≥1 且 `grep -cE "design\.md.*D-1|D-1.*为准" plugins/zcode-plan/docs/migration-from-zai-coding-zcode.md` ≥1 且文件含回退小节
 - [ ] 9.3 仓库根清单更新（根仓同目录合一任务）：根 README.md 插件一览表加行 + 「其余四个软插件」改「五个」（R1）、根 AGENTS.md 插件清单与软插件表述同步（R2）；验证：`grep -c "zcode-plan" README.md` ≥1 且 `grep -c "zcode-plan" AGENTS.md` ≥1 且 `grep -c "其余五个软插件" README.md` ≥1
 
 ## 10. 端到端验收（T9，真账号消耗少量 credits）

@@ -60,7 +60,7 @@ dsh-zcode-plan 能力：以官方 ZCode 客户端等价的登录凭证链（OAut
 
 ### Requirement: 状态可观测与机密脱敏
 
-`/zcode-plan status` SHALL 输出五段状态：登录（含 JWT 到期日）、Key（keyId 与 usageScene）、PAT（当前值剩余效期）、路由（注册状态）、用量（5 小时窗口余量，标注读数时间戳；读取失败降级为一行说明而非报错）。插件的一切日志、错误消息与状态输出 MUST NOT 包含 JWT、PAT、Key Secret 的任何明文片段（诊断只含错误码、步骤名与脱敏 keyId）；bigmodel 风控信号 405[3012] MUST 按终止性错误处理，不自动重试。
+`/zcode-plan status` SHALL 输出五段状态：登录（含 JWT 到期日）、Key（keyId 与 usageScene）、PAT（当前值剩余效期）、路由（注册状态）、用量（5 小时窗口**与周额度**两档余量，标注读数时间戳；读取失败降级为一行说明而非报错）。插件的一切日志、错误消息与状态输出 MUST NOT 包含 JWT、PAT、Key Secret 的任何明文片段（诊断只含错误码、步骤名与脱敏 keyId）；bigmodel 风控信号 405[3012] MUST 按终止性错误处理，不自动重试。
 
 #### Scenario: 状态输出零机密
 - **WHEN** 已登录且 PAT 已发布，执行 `/zcode-plan status`
