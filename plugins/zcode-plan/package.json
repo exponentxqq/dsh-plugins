@@ -44,6 +44,8 @@
   "scripts": {
     "build": "node build.mjs",
     "compose:check": "node scripts/compose-check.mjs",
+    "discount:snap": "node scripts/refresh-snap.mjs",
+    "discount:verify": "bash scripts/verify-discount.sh",
     "lint": "oxlint",
     "test": "vitest run",
     "typecheck": "tsc -b --pretty false",

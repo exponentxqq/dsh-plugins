@@ -244,18 +244,19 @@ dsh 官方对短期 token 的立场是**仅内存**（short-lived token 不落�
 
 ## 折扣复测口径
 
-折扣是否生效用**同款请求对拍**验证，方法来自 `/home/docker/.cache/zcode-rate-test/`（五臂对照 → PAT 实验 → RE-8/RE-9 签名定位 → signed-channel 4.2 验收的原始现场）：
+折扣是否生效用**同款请求对拍**验证：两臂同用一张 PAT、各发一份互异全新体，唯一变量 = 是否带插件线签名头组；**比值 A/B（签名/无签名刻度）落 0.50–0.75（官方 0.67 折算系数邻域）→ 折扣命中**。脚本正本与完整手册在本包内：`scripts/` 五件套（refresh-snap / gen / replicate-sign-pat / read-pools / verify-discount）+ [docs/discount-verify.md](docs/discount-verify.md)（原理、流程、判读表、方法论与纪律）。
 
-1. **造请求体**：`node gen.mjs 52000` 生成 `bodies/o1.json`——等长互异内容（`max_tokens=16` + thinking disabled，输出成本压到可忽略，扣费几乎全由输入构成；臂间无共享前缀，规避服务端缓存降价的假阳性；gen.mjs 种子掺时间，每次运行内容全新）。**token 口径按读数日实测归一**：上游 tokenizer 压缩率会变（2026-11-02 同 26000 字符计 42k tok，11-03 起计 ~18.4k tok），比较用理论刻度而非绝对 delta。
-2. **对拍双臂（签名通道判定臂）**：两臂同用 PAT、**各用一份互异全新体**——签名臂 `PAT=<token> BODY_FILE=bodies/o1.json node replicate-sign-pat.mjs`（插件线格式逐字复刻：PAT 三段式握手 + Ed25519 签名 + PoW 头组）；无签名直连臂 `curl -X POST https://open.bigmodel.cn/api/coding/paas/v4/chat/completions -H "Authorization: Bearer <PAT>" -d @bodies/o1.json`。全套封装（基线连稳→探针→轮询→归一判定，单命令封闭）见 `run-accept-42.sh`。
-3. **读数**：调 `GET https://www.bigmodel.cn/api/monitor/usage/quota/limit`（请求头 `authorization: <登录JWT>` 裸值**不带 Bearer 前缀**，另附 `bigmodel-organization` / `bigmodel-project`），取 `limits[]` 里 `unit===3` 的行（5h 窗口）各臂发请求前后 `currentValue` 的**差值**（credits）。`unit===6` 是周额度，两池同读互证。
-4. **判定（2026-11-04 终局口径）**：按**理论刻度 = 实扣 ÷ 理论积分**比较（理论积分 = (输入×2.3 + 缓存命中×1.7 + 输出×24)/10000，GLM-5.3 官方系数；勿用 分/ktoken——输出长度会污染归一，glm-5.3 输出系数是输入的 10 倍）——**签名臂刻度 ≈0.95 且比值 A/B 落 0.5–0.67 → 签名通道命中折扣**（2026-11-04 验收实测：A 0.952 vs B 1.543，比值 **0.617**，双池一致，等效 ~1.62x，读数见 docs/acceptance.md §四）；**双臂刻度均 ≈1.5 且互比 ≈1.0 → 签名未生效**（先查 `/zcode-plan status` 签名行是否止损 / 冷却，再核对官方协议常量是否升级）。直连臂恒 ~1.5 刻度与官方「订阅专享 150% 额度」计量基数吻合——1.5x 的字面实现是计量放大而非池子加大。历史「PAT 3–6 vs 基线 14–15 credits」区间与「头组复刻 / 端点选择 / Key 类型」各维度都是**已排除的假阳性**（前缀缓存误读），**已废弃勿再用作判据**。
-   **实验纪律**：dsh 主会话自身跑 GLM、与实验共用 quota 池——务必单条命令内完成「基线连稳→探针→轮询」（命令执行期间主会话不产出 token），后台跑实验+前台并发推理会污染读数。
+```bash
+pnpm discount:snap     # 从凭据存储刷新快照（JWT/org/proj/PAT → 仓外缓存目录，0600）
+pnpm discount:verify   # 交错双对 + 平台期轮询 + 本底窗对拍（~16 分钟，实测 ~60–90 分）
+```
+
+判定要点（详见手册）：比值落 0.50–0.75 = 生效（2026-11-04 实测 0.679 ≈ 0.67，等效 1.47x；晨间闲时 0.617 / 1.62x）；两臂同价（比值 ≈ 1.0）= 签名未生效（先查 `/zcode-plan status` 签名行，再核对官方协议常量是否升级）。**绝对刻度会随时段计量系数漂移（同日实测 ×2，两臂同比），比值判定免疫**。KV 缓存是最大误判源——缓存命中的输入按低价计费，历史「scene=1 → 3–4 分」折扣观察即同体重发的缓存假阳性：请求体必须互异全新（gen.mjs 时间种子），归一勿用 分/ktoken（输出系数是输入的 10 倍），用理论积分 = (in×2.3 + cached×1.7 + out×24)/10000。
 
 两个提醒：
 
-- **窗口重置 > 20 分钟再跑**——5h 窗口尾部余量不足时读数不可信；
-- **聚合延迟 1–2 分钟**——发完最后一组等 1–2 分钟再读终值（`/zcode-plan status` 的用量行尾注同口径）。
+- **运行期间主会话零并发推理**——dsh 主会话与实验共享 quota 池，对拍必须单命令内完成（历史「PAT 多扣 20%」即并发自污染假象）；
+- **5h 窗口尾部不跑**（余量不足读数不可信）；聚合延迟 1–2 分钟已由脚本内平台期等待吸收。
 
 ## 排障
 
