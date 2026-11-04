@@ -2,10 +2,14 @@
  * 删除确认对话框：`shell.overlay` 上的一个 list entry，空闲时返回 `null`。
  *
  * 它订阅菜单项写入的删除请求 store，一次请求走完五个内部阶段：
- * `previewing`（请求宿主预览）→ `ready`（标题 + 会话数 + 子代理数 + 体积 + 不可逆警示，
- * 确认按钮可用）→ `deleting`（确认按钮禁用并显示进行中）→ `done`（展示警告清单）或
- * `failed`（只读展示原因，**不提供任何确认操作**）。关闭/取消/完成后关闭都调用
- * `settle()` 清空请求，对话框随之消失。
+ * `previewing`（请求宿主预览）→ `ready`（处置方式单选 + 会话数 + 子代理数 + 体积 + 对应
+ * 警示，确认按钮可用）→ `deleting`（单选与确认按钮一起禁用并显示进行中）→ `done`（展示
+ * 警告清单）或 `failed`（只读展示原因，**不提供任何确认操作**）。关闭/取消/完成后关闭都
+ * 调用 `settle()` 清空请求，对话框随之消失。
+ *
+ * 处置方式（`archive` 迁移归档 / `delete` 物理删除）是本案的局部 state，默认归档：预览
+ * 只在挂载时发一次、带默认档（四个数字与归档根都与 mode 无关），用户切换模式只改本地
+ * 文案与确认语义，执行时才把最终模式交给宿主。
  *
  * 对话框自身不做任何授权判断：预览与执行都由宿主端点独立校验，这里只负责把结果
  * 讲清楚。
@@ -16,7 +20,7 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { DeleteOutcome, DeletePreview } from '../contract.ts'
+import type { DeleteOutcome, DeletePreview, DisposalMode } from '../contract.ts'
 // Type-only：拉 ui-renderer 的 `ctx.slots` merge（slot 注册面）与 ui-layout 的
 // SlotMap merge（`shell.overlay` 这个座位的声明方）。注册本身仍是软注册：壳里没有
 // 这个座位时 register 抛错被下面的 try/catch 吃掉，入口静默不出现。
@@ -29,6 +33,15 @@ import css from './delete.module.css'
 
 /** 对话框在一次请求内的阶段。 */
 export type DeletePhase = 'previewing' | 'ready' | 'deleting' | 'done' | 'failed'
+
+/**
+ * 处置方式的默认档。
+ *
+ * 物理删除不可逆，默认必须落在可找回的一侧：想彻底删除的用户要主动改选。导出它是因为
+ * 预览请求只能携带一个确定的初始模式（切模式不重发预览），测试与将来的复用点都需要
+ * 这个锚。
+ */
+export const DEFAULT_DISPOSAL_MODE: DisposalMode = 'archive'
 
 /**
  * 本 entry 的注入面。`client` 在渲染期才从 `connection` 解析（该服务可能晚于
@@ -107,14 +120,17 @@ export function DeleteSessionDialog({ requests, client, t }: DeleteSessionDialog
  */
 function DeleteSessionBody({ target, requests, client, t }: DeleteSessionBodyProps): ReactNode {
   const [phase, setPhase] = useState<DeletePhase>('previewing')
+  const [mode, setMode] = useState<DisposalMode>(DEFAULT_DISPOSAL_MODE)
   const [preview, setPreview] = useState<DeletePreview | null>(null)
   const [failure, setFailure] = useState<DeleteError | null>(null)
   const [outcome, setOutcome] = useState<DeleteOutcome | null>(null)
 
-  // 挂载即预览。组件按 sessionId 做 key，所以这里只需处理「本次请求是否还作数」。
+  // 挂载即预览，且只发一次：预览的四个数字与归档根都与 mode 无关，切换模式只改本地
+  // 文案与确认语义、不重发请求（effect 依赖里刻意没有 mode）。组件按 sessionId#seq 做
+  // key，所以这里只需处理「本次请求是否还作数」。
   useEffect(() => {
     let cancelled = false
-    void client.preview(target.sessionId).then(
+    void client.preview(target.sessionId, DEFAULT_DISPOSAL_MODE).then(
       (value) => {
         if (cancelled) return
         setPreview(value)
@@ -131,11 +147,14 @@ function DeleteSessionBody({ target, requests, client, t }: DeleteSessionBodyPro
     }
   }, [client, target.sessionId])
 
-  /** 用户确认：执行端点会当次重新校验，预览数字不携带任何授权语义。 */
+  /**
+   * 用户确认：执行端点会当次重新校验，预览数字不携带任何授权语义。模式取用户最终选择，
+   * 而不是预览时的默认档。
+   */
   const confirm = (): void => {
     if (phase !== 'ready') return
     setPhase('deleting')
-    void client.remove(target.sessionId).then(
+    void client.remove(target.sessionId, mode).then(
       (value) => {
         setOutcome(value)
         setPhase('done')
@@ -153,6 +172,9 @@ function DeleteSessionBody({ target, requests, client, t }: DeleteSessionBodyPro
     requests.settle()
   }
 
+  // 当前档位：决定描述、体积行、警示、目标行、按钮文案与危险色的全部文案分支。
+  const archiving = mode === 'archive'
+
   // 会话可能没有标题（宿主 SessionHeader 无 title 字段），此时用 id 兜底，绝不给空标题。
   const displayTitle = target.displayTitle === '' ? target.sessionId : target.displayTitle
 
@@ -165,13 +187,16 @@ function DeleteSessionBody({ target, requests, client, t }: DeleteSessionBodyPro
           <Button variant="outline" onClick={close} disabled={phase === 'deleting'}>
             {t('dialog.cancel')}
           </Button>
+          {/* 危险色只属于「永久删除」档；归档是可找回的移动，不挂错误色。 */}
           <Button
             variant="primary"
-            className={css.danger}
+            className={archiving ? undefined : css.danger}
             onClick={confirm}
             disabled={phase !== 'ready'}
           >
-            {phase === 'deleting' ? t('dialog.deleting') : t('dialog.confirm')}
+            {phase === 'deleting'
+              ? t(archiving ? 'dialog.archiving' : 'dialog.deleting')
+              : t(archiving ? 'dialog.confirm.archive' : 'dialog.confirm')}
           </Button>
         </>
       )
@@ -182,7 +207,7 @@ function DeleteSessionBody({ target, requests, client, t }: DeleteSessionBodyPro
       onClose={close}
       title={t('dialog.title')}
       closeLabel={t('dialog.close')}
-      description={t('dialog.description', { title: displayTitle })}
+      description={t(archiving ? 'dialog.description.archive' : 'dialog.description', { title: displayTitle })}
       footer={footer}
     >
       {phase === 'previewing' && <p className={css.muted}>{t('dialog.previewing')}</p>}
@@ -192,20 +217,69 @@ function DeleteSessionBody({ target, requests, client, t }: DeleteSessionBodyPro
           <ul className={css.summary}>
             <li>{t('dialog.summary.sessions', { count: preview.sessionCount })}</li>
             <li>{t('dialog.summary.descendants', { count: preview.descendantCount })}</li>
-            <li>{t('dialog.summary.size', { size: formatSize(preview.logBytes, t) })}</li>
+            <li>
+              {t(archiving ? 'dialog.summary.moveSize' : 'dialog.summary.size', {
+                size: formatSize(preview.logBytes, t),
+              })}
+            </li>
           </ul>
-          <p className={css.warning}>{t('dialog.warning.irreversible')}</p>
+          {archiving && (
+            <p className={css.archiveTarget}>{t('dialog.archive.target', { path: preview.archiveRoot })}</p>
+          )}
+          <p className={css.warning}>
+            {t(archiving ? 'dialog.warning.archive' : 'dialog.warning.irreversible')}
+          </p>
         </>
       )}
 
-      {phase === 'deleting' && <p className={css.muted}>{t('dialog.deleting')}</p>}
+      {/*
+        * 处置方式单选只在可确认与进行中出现：预览未回时还没有信息可据以选择，结束后也
+        * 不再允许改变结果。原生 fieldset/radio 的语义就是「多选一设置项」，键盘与读屏
+        * 开箱即用；`legend` 刻意不带 className，样式靠 `.modes legend` 后代规则命中，
+        * radio 是 `.modeRow` 这个 label 的后代，样式靠 `.modeRow input` 命中。
+        * 每个 radio 自己再写一次 `disabled`：fieldset 的禁用不会反映到 `input.disabled`
+        * 这个 IDL 属性上，显式标注让测试与读屏都能观察到禁用。
+        */}
+      {(phase === 'ready' || phase === 'deleting') && (
+        <fieldset className={css.modes} disabled={phase === 'deleting'}>
+          <legend>{t('dialog.mode.legend')}</legend>
+          <label className={css.modeRow}>
+            <input
+              type="radio"
+              name="web-ux-disposal"
+              value="archive"
+              checked={archiving}
+              disabled={phase === 'deleting'}
+              onChange={() => { setMode('archive') }}
+            />
+            <span className={css.modeText}>{t('dialog.mode.archive')}</span>
+          </label>
+          <label className={css.modeRow}>
+            <input
+              type="radio"
+              name="web-ux-disposal"
+              value="delete"
+              checked={mode === 'delete'}
+              disabled={phase === 'deleting'}
+              onChange={() => { setMode('delete') }}
+            />
+            <span className={css.modeText}>{t('dialog.mode.delete')}</span>
+          </label>
+        </fieldset>
+      )}
+
+      {phase === 'deleting' && (
+        <p className={css.muted}>{t(archiving ? 'dialog.archiving' : 'dialog.deleting')}</p>
+      )}
 
       {phase === 'done' && outcome !== null && (
         <>
-          <p className={css.done}>{t('dialog.done', { count: outcome.removed.length })}</p>
+          <p className={css.done}>
+            {t(archiving ? 'dialog.done.archive' : 'dialog.done', { count: outcome.removed.length })}
+          </p>
           {outcome.warnings.length > 0 && (
             <section className={css.warnings}>
-              <p>{t('dialog.warnings')}</p>
+              <p>{t(archiving ? 'dialog.warnings.archive' : 'dialog.warnings')}</p>
               <ul>
                 {outcome.warnings.map((warning) => <li key={warning}><code>{warning}</code></li>)}
               </ul>
@@ -216,7 +290,11 @@ function DeleteSessionBody({ target, requests, client, t }: DeleteSessionBodyPro
 
       {phase === 'failed' && failure !== null && (
         <>
-          <p className={css.failure}>{t('dialog.failed', { reason: t(errorKeyOf(failure.code)) })}</p>
+          <p className={css.failure}>
+            {t(archiving ? 'dialog.failed.archive' : 'dialog.failed', {
+              reason: t(errorKeyOf(failure.code)),
+            })}
+          </p>
           {failure.message !== '' && <p className={css.detail}>{failure.message}</p>}
         </>
       )}

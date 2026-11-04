@@ -22,6 +22,8 @@ import {
   parsePreview,
   type DeleteOutcome,
   type DeletePreview,
+  type DeleteRequest,
+  type DisposalMode,
 } from '../contract.ts'
 import { zh, type Key } from './locales.ts'
 
@@ -42,17 +44,19 @@ export interface DeleteClient {
   /**
    * 请求删除预览（不产生任何写操作）。
    * @param sessionId - 目标已归档会话。
-   * @returns 删除集合的规模与体积。
+   * @param mode - 处置模式。调用方必填：本层不做默认值、也不做取值校验（宿主 parser 负责白名单）。
+   * @returns 处置集合的规模与体积，外加宿主解析后的归档根。
    * @throws {DeleteError} 宿主拒绝或响应不可读。
    */
-  preview(sessionId: string): Promise<DeletePreview>
+  preview(sessionId: string, mode: DisposalMode): Promise<DeletePreview>
   /**
-   * 执行删除（宿主会当次重新校验，不信任预览结论）。
+   * 执行处置（宿主会当次重新校验，不信任预览结论）。
    * @param sessionId - 目标已归档会话。
+   * @param mode - 处置模式，决定宿主走物理删除还是迁移。
    * @returns 已移除的 id 与逐条文件失败。
    * @throws {DeleteError} 宿主拒绝或响应不可读。
    */
-  remove(sessionId: string): Promise<DeleteOutcome>
+  remove(sessionId: string, mode: DisposalMode): Promise<DeleteOutcome>
 }
 
 /**
@@ -74,14 +78,14 @@ export function createDeleteClient(connection: ConnectionHandle): DeleteClient {
   /**
    * 调一个端点并拆掉结果信封。
    * @param endpoint - 端点名（也是 RPC method）。
-   * @param sessionId - 请求体里的唯一字段。
+   * @param body - 请求体：目标会话 id + 处置模式（两端口径一致）。
    * @returns 未校验的成功值。
    * @throws {DeleteError} 传输异常、失败信封或信封本身不可读。
    */
-  const call = async (endpoint: string, sessionId: string): Promise<unknown> => {
+  const call = async (endpoint: string, body: DeleteRequest): Promise<unknown> => {
     let result: ConnectionRpcResult<unknown>
     try {
-      result = await connection.rpc.call(CHANNEL, endpoint, { sessionId })
+      result = await connection.rpc.call(CHANNEL, endpoint, body)
     } catch (error: unknown) {
       throw new DeleteError('unavailable', error instanceof Error ? error.message : String(error))
     }
@@ -94,13 +98,13 @@ export function createDeleteClient(connection: ConnectionHandle): DeleteClient {
   }
 
   return {
-    async preview(sessionId) {
-      const parsed = parsePreview(await call(PREVIEW_ENDPOINT, sessionId))
+    async preview(sessionId, mode) {
+      const parsed = parsePreview(await call(PREVIEW_ENDPOINT, { sessionId, mode }))
       if (!parsed.ok) throw new DeleteError('bad-response', parsed.message)
       return parsed.value
     },
-    async remove(sessionId) {
-      const parsed = parseOutcome(await call(DELETE_ENDPOINT, sessionId))
+    async remove(sessionId, mode) {
+      const parsed = parseOutcome(await call(DELETE_ENDPOINT, { sessionId, mode }))
       if (!parsed.ok) throw new DeleteError('bad-response', parsed.message)
       return parsed.value
     },

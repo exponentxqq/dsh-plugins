@@ -1,10 +1,12 @@
 /**
  * 宿主实载体的单测：channel 的软挂载（connection 缺失只告警）、CHANNEL 注册与
- * disposer 释放，以及 dispatcher 在真实临时目录上的预览 / 删除 / 拒绝 / 失败映射。
+ * disposer 释放，以及 dispatcher 在真实临时目录上的预览 / 删除 / 归档迁移 / 拒绝 /
+ * 失败映射。
  *
  * cordis Context 用一个最小 fake 代替：注入回调、服务查找、logger 与 emit 全部
  * 可控，断言的是本插件的行为而不是 cordis 的调度。文件操作则跑在真实临时目录上，
- * 以覆盖 `node:fs/promises` 适配层。
+ * 以覆盖 `node:fs/promises` 适配层；归档根走真实的 `resolveArchiveRoot`（缺省
+ * `$DSH_HOME/archive/sessions` 与显式配置两条路径）。
  */
 
 import { existsSync } from 'node:fs'
@@ -16,13 +18,16 @@ import type { ConnectionRpcResult } from '@deepseek-ai/dsh-client-connection'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CHANNEL, DELETE_ENDPOINT, PREVIEW_ENDPOINT, parseOutcome, parsePreview } from '../src/contract.ts'
 import { SESSION_REMOVED_EVENT, type StoredSessionHeader } from '../src/delete-session.ts'
-import { apply, createDispatcher, inject, name } from '../src/index.ts'
+import { apply, Config, createDispatcher, inject, name } from '../src/index.ts'
 
 /** 请求用的一次性 abort signal（本流程不消费取消，仅满足 channel 形状）。 */
 const SIGNAL = new AbortController().signal
 
 /** 测试用目标会话 id。 */
 const TARGET = 'session-a'
+
+/** 目标会话在 `sessions/` 下的项目目录名（`createHome` 的布局与归档目标共用）。 */
+const PROJECT_DIR = '--home-docker--'
 
 /** channel handler 的形状。 */
 type Dispatcher = (endpoint: string, payload: unknown, signal: AbortSignal) => Promise<ConnectionRpcResult<unknown>>
@@ -155,7 +160,7 @@ afterEach(async () => {
 async function createHome(sessionId: string): Promise<string> {
   const home = await mkdtemp(join(tmpdir(), 'web-ux-host-'))
   homes.push(home)
-  const sessionDir = join(home, 'sessions', '--home-docker--', sessionId)
+  const sessionDir = join(home, 'sessions', PROJECT_DIR, sessionId)
   await mkdir(sessionDir, { recursive: true })
   await writeFile(join(sessionDir, 'session.v4.jsonl.zstd'), 'x'.repeat(10))
   const cacheDir = join(home, 'storages', 'session_projcache', 'sessions')
@@ -164,10 +169,25 @@ async function createHome(sessionId: string): Promise<string> {
   return home
 }
 
+/** 目标会话的投影缓存文件路径（删除与迁移都必须把它一并清掉）。 */
+function cachePathOf(home: string, sessionId: string): string {
+  return join(home, 'storages', 'session_projcache', 'sessions', `${sessionId}.json`)
+}
+
+/** 目标会话的日志目录路径。 */
+function sessionDirOf(home: string, sessionId: string): string {
+  return join(home, 'sessions', PROJECT_DIR, sessionId)
+}
+
 describe('web-ux 宿主声明', () => {
   it('插件名与三个硬依赖与契约一致', () => {
     expect(name).toBe('web-ux')
     expect(inject).toEqual(['workspaceRegistry', 'sessionPersistence', 'dshHomePath'])
+  })
+
+  it('从包入口导出原生 Schemastery Config（loader 的唯一读取点，构建时内联）', () => {
+    expect(Config).toBeTypeOf('function')
+    expect(Config({ archiveRoot: '/tmp/archive' })).toEqual({ archiveRoot: '/tmp/archive' })
   })
 })
 
@@ -207,7 +227,7 @@ describe('apply', () => {
     const handler = host.channels.get(CHANNEL)
     expect(handler).toBeTypeOf('function')
     if (handler === undefined) throw new Error('channel not mounted')
-    const result = await handler(PREVIEW_ENDPOINT, { sessionId: TARGET }, SIGNAL)
+    const result = await handler(PREVIEW_ENDPOINT, { sessionId: TARGET, mode: 'archive' }, SIGNAL)
     if (!result.ok) throw new Error(result.error.message)
     const parsed = parsePreview(result.value)
     if (!parsed.ok) throw new Error(parsed.message)
@@ -216,7 +236,21 @@ describe('apply', () => {
 })
 
 describe('createDispatcher', () => {
-  it('preview 与 delete 走通真实文件系统，并广播移除事件', async () => {
+  it('预览回声缺省归档根（$DSH_HOME/archive/sessions）', async () => {
+    const home = await createHome(TARGET)
+    const host = createFakeHost({
+      homePath: home,
+      persistence: { list: async () => [{ header: { id: TARGET } }] },
+      registry: createFakeRegistry([TARGET]).registry,
+    })
+    const preview = await createDispatcher(host.ctx)(PREVIEW_ENDPOINT, { sessionId: TARGET, mode: 'archive' }, SIGNAL)
+    if (!preview.ok) throw new Error(preview.error.message)
+    const parsed = parsePreview(preview.value)
+    if (!parsed.ok) throw new Error(parsed.message)
+    expect(parsed.value.archiveRoot).toBe(join(home, 'archive', 'sessions'))
+  })
+
+  it('preview 与 delete 走通真实文件系统，并广播移除事件（删除模式不建归档目录）', async () => {
     const home = await createHome(TARGET)
     const fakeRegistry = createFakeRegistry([TARGET], { 'ws-1': [TARGET] })
     const host = createFakeHost({
@@ -226,14 +260,14 @@ describe('createDispatcher', () => {
     })
     const dispatch = createDispatcher(host.ctx)
 
-    const preview = await dispatch(PREVIEW_ENDPOINT, { sessionId: TARGET }, SIGNAL)
+    const preview = await dispatch(PREVIEW_ENDPOINT, { sessionId: TARGET, mode: 'delete' }, SIGNAL)
     if (!preview.ok) throw new Error(preview.error.message)
     const parsedPreview = parsePreview(preview.value)
     if (!parsedPreview.ok) throw new Error(parsedPreview.message)
     expect(parsedPreview.value).toMatchObject({ sessionCount: 1, descendantCount: 0 })
     expect(parsedPreview.value.logBytes).toBeGreaterThanOrEqual(15)
 
-    const outcome = await dispatch(DELETE_ENDPOINT, { sessionId: TARGET }, SIGNAL)
+    const outcome = await dispatch(DELETE_ENDPOINT, { sessionId: TARGET, mode: 'delete' }, SIGNAL)
     if (!outcome.ok) throw new Error(outcome.error.message)
     const parsedOutcome = parseOutcome(outcome.value)
     if (!parsedOutcome.ok) throw new Error(parsedOutcome.message)
@@ -241,20 +275,85 @@ describe('createDispatcher', () => {
 
     expect(fakeRegistry.calls).toEqual([`unarchive:${TARGET}`, `unpin:${TARGET}`, `detach:ws-1:${TARGET}`])
     expect(host.emitted).toEqual([[SESSION_REMOVED_EVENT, TARGET]])
-    expect(existsSync(join(home, 'sessions', '--home-docker--', TARGET))).toBe(false)
-    expect(existsSync(join(home, 'storages', 'session_projcache', 'sessions', `${TARGET}.json`))).toBe(false)
+    expect(existsSync(sessionDirOf(home, TARGET))).toBe(false)
+    expect(existsSync(cachePathOf(home, TARGET))).toBe(false)
+    // 删除模式绝不创建归档目录：缺省根 `<home>/archive/sessions` 的父级都必须不存在。
+    expect(existsSync(join(home, 'archive'))).toBe(false)
   })
 
-  it('非法请求体与未知端点都映射为 bad-request', async () => {
+  it('归档：预览回声自定义根，执行后日志目录迁到该根、缓存删除、registry 按序清理', async () => {
+    const home = await createHome(TARGET)
+    const archiveRoot = join(home, 'custom-archive')
+    const fakeRegistry = createFakeRegistry([TARGET], { 'ws-1': [TARGET] })
+    const host = createFakeHost({
+      homePath: home,
+      persistence: { list: async () => [{ header: { id: TARGET } }] },
+      registry: fakeRegistry.registry,
+    })
+    const dispatch = createDispatcher(host.ctx, { archiveRoot })
+
+    const preview = await dispatch(PREVIEW_ENDPOINT, { sessionId: TARGET, mode: 'archive' }, SIGNAL)
+    if (!preview.ok) throw new Error(preview.error.message)
+    const parsedPreview = parsePreview(preview.value)
+    if (!parsedPreview.ok) throw new Error(parsedPreview.message)
+    expect(parsedPreview.value.archiveRoot).toBe(archiveRoot)
+
+    const outcome = await dispatch(DELETE_ENDPOINT, { sessionId: TARGET, mode: 'archive' }, SIGNAL)
+    if (!outcome.ok) throw new Error(outcome.error.message)
+    const parsedOutcome = parseOutcome(outcome.value)
+    if (!parsedOutcome.ok) throw new Error(parsedOutcome.message)
+    expect(parsedOutcome.value).toEqual({ removed: [TARGET], warnings: [] })
+
+    // 目标结构：<archiveRoot>/<项目目录>/<会话id>/，日志文件原样在场；源目录消失。
+    expect(existsSync(join(archiveRoot, PROJECT_DIR, TARGET, 'session.v4.jsonl.zstd'))).toBe(true)
+    expect(existsSync(sessionDirOf(home, TARGET))).toBe(false)
+    // 投影缓存是纯缓存，迁移时直接删除（不搬去归档根）。
+    expect(existsSync(cachePathOf(home, TARGET))).toBe(false)
+    // 执行序列与删除同构：cleanup（unarchive → unpin → detach）→ 文件动作 → emit。
+    expect(fakeRegistry.calls).toEqual([`unarchive:${TARGET}`, `unpin:${TARGET}`, `detach:ws-1:${TARGET}`])
+    expect(host.emitted).toEqual([[SESSION_REMOVED_EVENT, TARGET]])
+  })
+
+  it('归档根不可用（父路径是普通文件）映射为 archive-unavailable，且 registry 零调用', async () => {
+    const home = await createHome(TARGET)
+    await writeFile(join(home, 'blocked'), 'not a directory')
+    const fakeRegistry = createFakeRegistry([TARGET], { 'ws-1': [TARGET] })
+    const host = createFakeHost({
+      homePath: home,
+      persistence: { list: async () => [{ header: { id: TARGET } }] },
+      registry: fakeRegistry.registry,
+    })
+    const dispatch = createDispatcher(host.ctx, { archiveRoot: join(home, 'blocked', 'sessions') })
+
+    expect(await dispatch(DELETE_ENDPOINT, { sessionId: TARGET, mode: 'archive' }, SIGNAL)).toEqual({
+      ok: false,
+      error: { code: 'archive-unavailable', message: expect.any(String), details: {} },
+    })
+    // 任何写动作之前就失败：registry 与广播零调用，源目录与缓存原样保留。
+    expect(fakeRegistry.calls).toEqual([])
+    expect(host.emitted).toEqual([])
+    expect(existsSync(join(sessionDirOf(home, TARGET), 'session.v4.jsonl.zstd'))).toBe(true)
+    expect(existsSync(cachePathOf(home, TARGET))).toBe(true)
+  })
+
+  it('非法请求体、缺 mode 与未知端点都映射为 bad-request', async () => {
     const host = createFakeHost()
     const dispatch = createDispatcher(host.ctx)
-    for (const payload of [{}, { sessionId: '' }, { sessionId: 42 }, { sessionId: TARGET, extra: true }]) {
+    for (const payload of [
+      {},
+      { sessionId: '' },
+      { sessionId: 42 },
+      { sessionId: TARGET },
+      { sessionId: TARGET, mode: 'purge' },
+      { sessionId: TARGET, mode: 42 },
+      { sessionId: TARGET, mode: 'archive', extra: true },
+    ]) {
       expect(await dispatch(PREVIEW_ENDPOINT, payload, SIGNAL)).toEqual({
         ok: false,
         error: { code: 'bad-request', message: expect.any(String), details: {} },
       })
     }
-    expect(await dispatch('not-an-endpoint', { sessionId: TARGET }, SIGNAL)).toEqual({
+    expect(await dispatch('not-an-endpoint', { sessionId: TARGET, mode: 'delete' }, SIGNAL)).toEqual({
       ok: false,
       error: { code: 'bad-request', message: expect.any(String), details: {} },
     })
@@ -262,7 +361,7 @@ describe('createDispatcher', () => {
 
   it('dshHomePath 缺失时返回 internal 并告警', async () => {
     const host = createFakeHost({ persistence: { list: async () => [{ header: { id: TARGET } }] } })
-    expect(await createDispatcher(host.ctx)(PREVIEW_ENDPOINT, { sessionId: TARGET }, SIGNAL)).toEqual({
+    expect(await createDispatcher(host.ctx)(PREVIEW_ENDPOINT, { sessionId: TARGET, mode: 'archive' }, SIGNAL)).toEqual({
       ok: false,
       error: { code: 'internal', message: expect.any(String), details: {} },
     })
@@ -276,7 +375,7 @@ describe('createDispatcher', () => {
       persistence: { list: async () => [{ header: { id: TARGET } }] },
       registry: createFakeRegistry([]).registry,
     })
-    expect(await createDispatcher(host.ctx)(DELETE_ENDPOINT, { sessionId: TARGET }, SIGNAL)).toEqual({
+    expect(await createDispatcher(host.ctx)(DELETE_ENDPOINT, { sessionId: TARGET, mode: 'delete' }, SIGNAL)).toEqual({
       ok: false,
       error: { code: 'not-archived', message: expect.any(String), details: {} },
     })
@@ -290,7 +389,7 @@ describe('createDispatcher', () => {
       registry: createFakeRegistry([TARGET]).registry,
       sessions: { get: (sessionId: string) => (sessionId === TARGET ? { id: TARGET } : undefined) },
     })
-    expect(await createDispatcher(host.ctx)(PREVIEW_ENDPOINT, { sessionId: TARGET }, SIGNAL)).toEqual({
+    expect(await createDispatcher(host.ctx)(PREVIEW_ENDPOINT, { sessionId: TARGET, mode: 'archive' }, SIGNAL)).toEqual({
       ok: false,
       error: { code: 'session-live', message: expect.any(String), details: {} },
     })
@@ -303,7 +402,7 @@ describe('createDispatcher', () => {
       persistence: { list: async () => [] },
       registry: createFakeRegistry([TARGET]).registry,
     })
-    expect(await createDispatcher(host.ctx)(DELETE_ENDPOINT, { sessionId: TARGET }, SIGNAL)).toEqual({
+    expect(await createDispatcher(host.ctx)(DELETE_ENDPOINT, { sessionId: TARGET, mode: 'delete' }, SIGNAL)).toEqual({
       ok: false,
       error: { code: 'not-found', message: expect.any(String), details: {} },
     })
@@ -318,7 +417,7 @@ describe('createDispatcher', () => {
       },
       registry: createFakeRegistry([TARGET]).registry,
     })
-    expect(await createDispatcher(host.ctx)(PREVIEW_ENDPOINT, { sessionId: TARGET }, SIGNAL)).toEqual({
+    expect(await createDispatcher(host.ctx)(PREVIEW_ENDPOINT, { sessionId: TARGET, mode: 'archive' }, SIGNAL)).toEqual({
       ok: false,
       error: { code: 'internal', message: 'storage exploded', details: {} },
     })

@@ -1,23 +1,22 @@
-# dsh-plugin-web-ux bundle patch: inserts the client-facing plugin row into the
-# web profile roster. Applied as a profile bundle layer (the
-# `dsh.bundle.patch` manifest field) over dsh-base; activate with
-# `dsh plugin --profile web add <path-to-this-directory>`.
+# dsh-plugin-web-ux 的 bundle patch：把面向客户端的插件行插进 web profile 名单。
+# 应用方式：作为 profile 的 bundle 层（`dsh.bundle.patch` 清单字段）叠加在 dsh-base 之上，
+# 用 `dsh plugin --profile web add <本目录>` 激活。
 #
-# The row is a bare plugin by package name, and that shape is REQUIRED: the web
-# client-module scan reads the `dsh.client` declaration in package.json from
-# this bare-name row, which is what makes the browser half (exports "./client",
-# served at /plugins/<id>/client.js) load in the web GUI. That half contributes
-# the provider badge in the composer status row and the archived-session delete
-# entry. The node half (exports ".") is the real host carrier for the delete
-# capability: it mounts the Connection RPC channel `/web-ux`
-# (endpoints `preview-delete` / `delete-session`) and does nothing else — no
-# browser host means no channel, and the badge keeps working on its own.
+# 该行以「裸包名」形态插入，且这一形态是 REQUIRED：Web 侧的 client-module scan 正是从这
+# 一行读取 package.json 里的 `dsh.client` 声明，浏览器半（exports "./client"，经
+# /plugins/<id>/client.js 提供）才得以在 Web GUI 中加载。浏览器半贡献输入框状态行的
+# provider 徽章与侧栏已归档会话的处置入口（永久删除，或移动到归档目录）。宿主半
+# （exports "."）是处置能力的实载体：挂载 Connection RPC 通道 `/web-ux`（端点
+# `preview-delete` / `delete-session`），不做别的事——没有浏览器宿主就没有通道，徽章
+# 照常工作。
 #
-# Project-level MCP (`.dsh/mcp/` scan + load + per-workspace tool isolation)
-# used to ride in this package's host half; it now lives in the standalone
-# dsh-plugin-project-mcp, which any profile can install without a web client.
+# `archiveRoot` 是**可选**配置键（原生 Schemastery schema，见 src/config.ts）：接受绝对
+# 路径或 `~/` 开头的路径，缺省为 `$DSH_HOME/archive/sessions`。本文件因此**不带**
+# `config:` 段——零配置即可跑；要改归档根，在 profile 层按 id 覆盖本行并给出
+# `config: { archiveRoot: … }` 即可。注册行本身保持裸包名，不因这个可选配置而变。
 #
-# No profile-level `config:` section is needed.
+# 项目级 MCP（`.dsh/mcp/` 扫描 + 加载 + 按工作区工具隔离）原先搭在本包的宿主半里，
+# 现已拆到独立的 dsh-plugin-project-mcp：任何 profile 不装 Web 客户端也能单独安装。
 - insert:
     - id: web-ux
       name: 'dsh-plugin-web-ux'

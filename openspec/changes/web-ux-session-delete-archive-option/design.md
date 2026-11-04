@@ -221,15 +221,22 @@ spring-boot/nuxt 特征），用户豁免本次加载（仅本次有效）。设
 | D11 | `delete-store`/`DeleteSessionMenuItem` 不改，mode 是对话框局部状态 | mode 写进请求 store（点菜单时定死） | 菜单点击时用户还没看见预览与说明，此时定模式是盲选；store 身份是「处理哪一行」 | 将来菜单若提供「直接永久删除」快捷项需 store 携带预设——与单入口冲突，属另一次变更 |
 | D12 | `archiveRoot` 作为 `previewDelete()` 入参原样回声进 `DeletePreview`，不拆 `PreviewStats` 再在接线层合成 | 拆内部类型；预览不归档根另设端点 | 两套同形四字段类型会漂移；预览结果本来就是「给界面看的形状」；接线层保持一端点一形状的简单映射 | 流程层因此多知道一个宿主概念（字符串），纯度略降——不解析不 I/O，仍可纯 node 驱动 |
 
+- 执行环境：直用主工作区。创建于 2026-11-04
+
 ## 逐任务组实现要点（⑤）
 
 与 `tasks.md` 分组一一对齐（组间串行、组内可并行）：
 
 - **G1 契约+配置+文案地基**：contract 演进（mode 必填/archiveRoot/失败码）；`config.ts` 新建（Schemastery+解析）；三个测试文件同步。验证：vitest 三个文件全绿 + host tsc。
+  - **终形态（2026-11-04 执行实测）**：contract 49 用例 / config 12 用例 / locale-parity 4 用例，干净窗口 65/65 绿；`@deepseek-ai/schemastery@3.18.5` 安装链接成功（lockfile 仅 3 行 importer，install 1m2s）；`config.ts` 按代码设计 ③.3 定稿（trim、`~\` 支持、单条 warn、永不抛错、原生 Schemastery 图）。host tsc 过渡缺口见 tasks.md 附录 R1（1.1 勾选推迟至 2.1 复核）；Schemastery 原生图必要性实测依据：`--dump-config-schema` 只认原生图（`dsh-app-boot` 的 `isNativeConfigSchema`），非原生记 error 诊断。
 - **G2 宿主纯流程与文件工厂**：`FileSystemOps` 三原语、`DeletePorts` 两方法、`archiveSession`+`disposeAll`、`createSessionFiles.archive`（locate 复用、`copyTree`、警告串）；fake fs 扩原语与 11 条用例矩阵（迁移成功/EXDEV/同名/中途失败/级联/顺序/根不可用/非法 id/源缺失/缓存失败/预览回声）。验证：`delete-session.test.ts` 全绿且既有 8 用例不改断言通过。
+  - **终形态（2026-11-04 执行实测）**：61/61 绿（改造前 36、新增 25）；**既有 deleteSession 用例实测 7 条**（非 8，规划期笔误）断言零改动通过（仅一处既有自定义 FileSystemOps 字面量补 3 个空实现适配接口扩展）；矩阵 6（真实 registry 顺序断言）按设计归 G3 的 `fakeRegistry.calls` 断言；③.2 表未枚举的失败（lstat 非 ENOENT、copyTree 内 mkdir/readdir 失败）复用表内「rename/mkdir 失败」行格式 `<src> -> <dest>: <原因>`；`disposeAll` logger 文案沿用原删除文案保证删除告警序列逐字节不变。host tsc 过渡缺口已收敛至 `src/index.ts` 3 条（R1 复核①，归 3.1）。
 - **G3 宿主实实体接线**：`index.ts` 全部接线 + `export { Config }`；`package.json` devDeps；`test/index.test.ts` 真实临时目录用例（预览回声/自定义根/归档执行断言 `existsSync`/`archive-unavailable` 零副作用/delete 回归不建归档目录/缺 mode 拒）；`build.mjs`+`cordis.patch.yml` 注释。验证：vitest（含 bundle 自包含）+ build + `node -e` 断言 `Config` 可从产物 import 且产物模块词只有 `node:*`。
+  - **终形态（2026-11-04 执行实测）**：index+bundle 25/25 绿、**host tsc 全绿（0 诊断，R1 收口）**；真实临时目录用例覆盖矩阵 6（`fakeRegistry.calls` 顺序 `unarchive→unpin→detach`）与 `archive-unavailable` 零副作用；子代理以 out-of-tree esbuild 预演 A10 链（模块词仅 `node:*`、`Config({archiveRoot:'/tmp/x'})` 输出符合），正式重建仍归 6.2。实现差异：createPorts 保留既有 try 包裹（伪码为 try 外，解析抛错映射 `internal`，裁定接受，见 tasks.md R2）。
 - **G4 浏览器半**：client 调用面带 mode；对话框单选与分支文案；css；两个测试文件（默认档/切换/`remove` 断言/deleting 禁用/预览失败无单选）。验证：vitest 两文件 + client tsc。
+  - **终形态（2026-11-04 执行实测）**：delete-dialog 10/10 绿、client tsc 全绿（R1 client 侧收口）；相邻 4 个 client 测试文件 30 用例回归绿；css 四类名 + legend/radio/disabled 三条支撑规则（6 处 `--dsw-alias-*` 令牌带静态兜底）；esbuild 干跑确认类名 scoped 导出正常。裁定留档见 tasks.md R3（radio 双重 disabled、danger 不断言、预览失败 mode 分支文案、done 收单选）。
 - **G5 文档、产物与发布面**：README 全面更新；package/patch/build 注释定稿；`pnpm build` 重建 `lib/` 入库；`verify:all` 全绿；（条件项）link 安装后 `--dump-config-schema` 校验。
+  - **终形态（2026-11-04 执行实测）**：README +132/−32（新增处置模式/迁移范围/归档目录与手工找回/版本迁移四节，版本口径按 R4 裁定为「v1.5.0 及更早」）；lib 两产物重建入库，A10 守护在新字节上 9/9；`verify:all` 退出码 0（lint 0 errors、tsc 强制全量 0 诊断、**15 文件 233 用例全过**），产物自包含仅 `node:fs/promises`/`node:os`/`node:path`，规范入口构建 sha256 确定性成立（R5）。条件项（link 安装 + `--dump-config-schema`）留待用户部署时实测。
 
 ## 假设（⑥，实现时按此执行，违反需回到设计）
 

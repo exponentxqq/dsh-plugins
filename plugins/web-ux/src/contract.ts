@@ -1,11 +1,15 @@
 /**
- * web-ux「删除已归档会话」能力的线上契约：宿主半与浏览器半共享的唯一事实来源。
+ * web-ux「处置已归档会话（删除 / 归档）」能力的线上契约：宿主半与浏览器半共享的
+ * 唯一事实来源。
  *
  * 这是纯数据模块，两端各自内联一份（客户端 bundle 与宿主产物各打包一次），不共享
  * 任何运行时身份。它拥有两类职责：
  *
  * - **端点与形状**：一个端点一种响应形状（预览返回 {@link DeletePreview}，执行返回
- *   {@link DeleteOutcome}），调用方不可能把 A 端点的答案当 B 端点解码。
+ *   {@link DeleteOutcome}），调用方不可能把 A 端点的答案当 B 端点解码。两个端点共用
+ *   同形请求体：目标会话 id + 必填的处置模式（{@link DisposalMode}），模式没有隐式
+ *   默认；预览还回声宿主解析后的归档根（{@link DeletePreview.archiveRoot}），让界面
+ *   展示真实去向。
  * - **边界校验**：请求来自浏览器、响应来自宿主，两侧类型都只是「承诺」。这里的
  *   `parse*` 函数在边界上逐字段校验，把结构不符变成一句可读的失败信息，而不是崩溃
  *   或静默错渲染。
@@ -32,10 +36,18 @@ export const ENDPOINTS = [PREVIEW_ENDPOINT, DELETE_ENDPOINT] as const
 export type WebUxEndpoint = (typeof ENDPOINTS)[number]
 
 /**
- * 稳定失败码。`bad-request` 表示线上形状不合契约；`internal` 表示宿主侧未预期故障。
- * 三者之外的三个是业务拒绝码，界面按码给出对应文案。
+ * 稳定失败码。`bad-request` 表示线上形状不合契约；`internal` 表示宿主侧未预期故障；
+ * 其余四个是业务拒绝码，界面按码给出对应文案。`archive-unavailable` 只表示归档根
+ * 不可用（未做任何文件改动），与「逐条迁移失败只进 warnings」刻意区分。
  */
-export const FAILURE_CODES = ['bad-request', 'not-found', 'not-archived', 'session-live', 'internal'] as const
+export const FAILURE_CODES = [
+  'bad-request',
+  'not-found',
+  'not-archived',
+  'session-live',
+  'archive-unavailable',
+  'internal',
+] as const
 
 /** 失败码类型。 */
 export type FailureCode = (typeof FAILURE_CODES)[number]
@@ -45,20 +57,40 @@ export function isFailureCode(code: string): code is FailureCode {
   return (FAILURE_CODES as readonly string[]).includes(code)
 }
 
-/** 两个端点共用的请求体：只带目标会话 id。 */
+/** 处置模式：`delete` 物理删除；`archive` 迁移到宿主解析出的归档根目录。 */
+export const DISPOSAL_MODES = ['delete', 'archive'] as const
+
+/** 处置模式类型。 */
+export type DisposalMode = (typeof DISPOSAL_MODES)[number]
+
+/**
+ * 判断一个值是否为已知处置模式。
+ *
+ * 请求体校验只接受本白名单：两个端点都没有隐式默认模式（物理删除不可逆，归档也
+ * 会移动文件），未知取值一律按 `bad-request` 拒绝，而不是猜测调用方意图。
+ */
+export function isDisposalMode(value: unknown): value is DisposalMode {
+  return typeof value === 'string' && (DISPOSAL_MODES as readonly string[]).includes(value)
+}
+
+/** 两个端点共用的请求体：目标会话 id + 处置模式（必填）。 */
 export interface DeleteRequest {
   /** 目标已归档会话的 id。 */
   readonly sessionId: string
+  /** 处置模式；两个端点都必填，缺失或未知取值都被 `bad-request` 拒绝。 */
+  readonly mode: DisposalMode
 }
 
-/** 预览结果：删除集合的规模与体积，仅用于展示。 */
+/** 预览结果：处置集合的规模与体积，外加宿主解析后的归档根，仅用于展示。 */
 export interface DeletePreview {
-  /** 删除集合的会话数（目标 + 级联后代）。 */
+  /** 处置集合的会话数（目标 + 级联后代）。 */
   readonly sessionCount: number
   /** 其中 subagent 后代的数量。 */
   readonly descendantCount: number
   /** 预计释放的字节数（会话日志目录树 + 投影缓存文件）。 */
   readonly logBytes: number
+  /** 宿主解析后的归档根绝对路径；与 mode 无关，两种模式下都返回，供界面展示真实去向。 */
+  readonly archiveRoot: string
 }
 
 /** 执行结果：被移除的 id 列表与逐条文件删除失败。 */
@@ -86,13 +118,13 @@ export type Parsed<T> = { readonly ok: true; readonly value: T } | { readonly ok
  */
 const SESSION_ID_MAX = 255
 
-/** 一次请求体允许的字段上限：多余字段视为越界（静默忽略会掩盖版本漂移）。 */
+/** 一次请求体只允许 `sessionId` + `mode` 两个字段：多余字段视为越界（静默忽略会掩盖版本漂移）。 */
 function readRequest(payload: unknown): Parsed<DeleteRequest> {
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
     return { ok: false, message: '请求体不是对象' }
   }
   const record = payload as Record<string, unknown>
-  const extra = Object.keys(record).filter((key) => key !== 'sessionId')
+  const extra = Object.keys(record).filter((key) => key !== 'sessionId' && key !== 'mode')
   if (extra.length > 0) return { ok: false, message: `请求体含未知字段：${extra.join(', ')}` }
   const sessionId = record['sessionId']
   if (typeof sessionId !== 'string' || sessionId === '') return { ok: false, message: 'sessionId 缺失或不是非空字符串' }
@@ -100,7 +132,9 @@ function readRequest(payload: unknown): Parsed<DeleteRequest> {
   // 控制字符（含 NUL）不是合法路径片段：宿主会把它当目录名用，node:fs 会直接抛错。
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f]/.test(sessionId)) return { ok: false, message: 'sessionId 含控制字符' }
-  return { ok: true, value: { sessionId } }
+  const mode = record['mode']
+  if (!isDisposalMode(mode)) return { ok: false, message: 'mode 缺失或不是 delete / archive' }
+  return { ok: true, value: { sessionId, mode } }
 }
 
 /**
@@ -143,9 +177,18 @@ export function parsePreview(value: unknown): Parsed<DeletePreview> {
   if (typeof logBytes !== 'number' || !Number.isFinite(logBytes) || logBytes < 0) {
     return { ok: false, message: '预览响应的 logBytes 不是非负有限数' }
   }
+  const archiveRoot = record['archiveRoot']
+  if (typeof archiveRoot !== 'string' || archiveRoot === '') {
+    return { ok: false, message: '预览响应的 archiveRoot 缺失或不是非空字符串' }
+  }
   return {
     ok: true,
-    value: { sessionCount: sessionCount.value, descendantCount: descendantCount.value, logBytes },
+    value: {
+      sessionCount: sessionCount.value,
+      descendantCount: descendantCount.value,
+      logBytes,
+      archiveRoot,
+    },
   }
 }
 

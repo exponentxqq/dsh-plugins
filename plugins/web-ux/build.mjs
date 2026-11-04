@@ -1,29 +1,27 @@
 /**
- * Self-contained build for dsh-plugin-web-ux.
+ * dsh-plugin-web-ux 的自包含构建脚本（双端）。
  *
- * This package is DUAL-HALF since the archived-session-delete change
- * (add-web-ux-archived-session-delete): the host half stopped being a no-op
- * carrier and now owns the Connection RPC channel `/web-ux` with the
- * `preview-delete` / `delete-session` endpoints (pure host work — registry
- * cleanup plus session log / projection cache removal), while the browser half
- * adds the sidebar delete entry and its confirmation dialog next to the
- * provider badge.
+ * 本包自 archived-session-delete 变更起是**双端**插件（delete-or-archive 变更再把单一的
+ * 「删除」扩为「删除或移动到归档目录」）：宿主半不再只是空壳载体，它承载 Connection RPC
+ * 通道 `/web-ux` 的 `preview-delete` / `delete-session` 两个端点（纯宿主工作——工作区注册
+ * 表清理，加会话日志与投影缓存的删除或迁移），浏览器半在 provider 徽章旁提供侧栏处置入
+ * 口及其确认弹窗。
  *
- * Browser half: `src/client/index.ts` becomes a single CJS bundle wrapped in
- * the `window.__ModuleLoader__.load({ id, factory })` shell contract, with
- * `react` / `react-dom` / `react/jsx-runtime` /
- * `@deepseek-ai/dsh-client-ui-primitives` externalized (the browser shell
- * provides them through the loader's `require`), and CSS modules compiled into
- * a runtime `<style>` injection so no separate stylesheet is served.
+ * 浏览器半：`src/client/index.ts` 编成单份 CJS bundle，包进
+ * `window.__ModuleLoader__.load({ id, factory })` 壳；`react` / `react-dom` /
+ * `react/jsx-runtime` / `@deepseek-ai/dsh-client-ui-primitives` 外置（由浏览器外壳经
+ * loader 的 `require` 提供），CSS modules 编译成运行时 `<style>` 注入，因此不单独产样式
+ * 表。
  *
- * Host half: `src/index.ts` is built as one self-contained ESM artifact
- * (`lib/index.js`) with only `node:*` external. It is both the Connection RPC
- * carrier of the delete endpoints AND the anchor the bundle row needs: the row
- * keeps inserting this package by BARE NAME, and the web client-module scan
- * reads `dsh.client` from exactly that row.
+ * 宿主半：`src/index.ts` 编成一份自包含 ESM 产物（`lib/index.js`），**external 仍只有
+ * `node:*`**。`Config` 用的 Schemastery（`@deepseek-ai/schemastery`，`archiveRoot` 配置
+ * 键的原生 schema）由构建**内联**进产物：`link:` 安装不会装被链接包的依赖，产物必须自
+ * 包含才能加载；这也正是宿主运行时不解析任何 `@deepseek-ai/*` 的原因
+ * （`test/bundle.test.ts` 的自包含断言守护这一点，见设计 A10）。宿主半既是处置端点的
+ * RPC 载体，也是 bundle 行所需的锚点：注册行保持「裸包名」插入，Web 侧 client-module
+ * scan 正是从那一行读 `dsh.client`。
  *
- * No d.ts and no sourcemaps: the plugin is consumed by the dsh runtime, not by
- * other TypeScript.
+ * 不产 d.ts、不产 sourcemap：插件由 dsh 运行时消费，不供其他 TypeScript 引用。
  */
 
 import { createHash } from 'node:crypto'

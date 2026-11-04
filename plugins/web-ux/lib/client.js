@@ -157,9 +157,18 @@ window.__ModuleLoader__.load({
 		  if (typeof logBytes !== "number" || !Number.isFinite(logBytes) || logBytes < 0) {
 		    return { ok: false, message: "\u9884\u89C8\u54CD\u5E94\u7684 logBytes \u4E0D\u662F\u975E\u8D1F\u6709\u9650\u6570" };
 		  }
+		  const archiveRoot = record["archiveRoot"];
+		  if (typeof archiveRoot !== "string" || archiveRoot === "") {
+		    return { ok: false, message: "\u9884\u89C8\u54CD\u5E94\u7684 archiveRoot \u7F3A\u5931\u6216\u4E0D\u662F\u975E\u7A7A\u5B57\u7B26\u4E32" };
+		  }
 		  return {
 		    ok: true,
-		    value: { sessionCount: sessionCount.value, descendantCount: descendantCount.value, logBytes }
+		    value: {
+		      sessionCount: sessionCount.value,
+		      descendantCount: descendantCount.value,
+		      logBytes,
+		      archiveRoot
+		    }
 		  };
 		}
 		function readStringList(record, key, subject) {
@@ -201,19 +210,32 @@ window.__ModuleLoader__.load({
 		  // —— 确认对话框：标题与预览 ——
 		  "dialog.title": "\u5220\u9664\u5DF2\u5F52\u6863\u4F1A\u8BDD",
 		  "dialog.description": "\u300C{title}\u300D\u5F52\u6863\u7684\u5168\u90E8\u5185\u5BB9\u5C06\u88AB\u6C38\u4E45\u79FB\u9664\u3002",
+		  "dialog.description.archive": "\u300C{title}\u300D\u7684\u4F1A\u8BDD\u65E5\u5FD7\u5C06\u88AB\u79FB\u52A8\u5230\u5F52\u6863\u76EE\u5F55\u3002",
 		  "dialog.previewing": "\u6B63\u5728\u7EDF\u8BA1\u5220\u9664\u8303\u56F4\u2026",
 		  "dialog.summary.sessions": "\u4F1A\u8BDD\uFF1A{count} \u4E2A",
 		  "dialog.summary.descendants": "\u5176\u4E2D\u5B50\u4EE3\u7406\u4F1A\u8BDD\uFF1A{count} \u4E2A",
 		  "dialog.summary.size": "\u9884\u8BA1\u91CA\u653E\uFF1A{size}",
+		  "dialog.summary.moveSize": "\u79FB\u52A8\u4F53\u79EF\uFF1A{size}",
+		  "dialog.archive.target": "\u5F52\u6863\u76EE\u5F55\uFF1A{path}",
 		  "dialog.warning.irreversible": "\u5220\u9664\u4E0D\u53EF\u64A4\u9500\uFF1A\u4F1A\u8BDD\u65E5\u5FD7\u4E0E\u6295\u5F71\u7F13\u5B58\u4F1A\u88AB\u79FB\u9664\uFF0C\u5DE5\u4F5C\u533A\u8BB0\u5F55\u540C\u6B65\u6E05\u9664\uFF0C\u4EFB\u4F55\u754C\u9762\u90FD\u65E0\u6CD5\u6062\u590D\u3002\u5171\u4EAB\u9644\u4EF6\u5B58\u50A8\u4E0D\u4F1A\u88AB\u6E05\u7406\u3002",
+		  "dialog.warning.archive": "\u65E5\u5FD7\u4F1A\u79FB\u52A8\u5230\u4E0A\u8FF0\u76EE\u5F55\uFF08\u4FDD\u7559\u9879\u76EE\u76EE\u5F55\u5C42\u7EA7\uFF09\uFF0C\u6295\u5F71\u7F13\u5B58\u4E0E\u5DE5\u4F5C\u533A\u8BB0\u5F55\u540C\u6B65\u6E05\u9664\uFF0C\u754C\u9762\u4E0D\u518D\u663E\u793A\u8BE5\u4F1A\u8BDD\u3002\u9700\u8981\u65F6\u53EF\u6309\u4F1A\u8BDD id \u4ECE\u8BE5\u76EE\u5F55\u624B\u52A8\u627E\u56DE\uFF1B\u63D2\u4EF6\u4E0D\u63D0\u4F9B\u6062\u590D\u5165\u53E3\u3002",
+		  // —— 确认对话框：处置方式单选 ——
+		  "dialog.mode.legend": "\u5904\u7F6E\u65B9\u5F0F",
+		  "dialog.mode.archive": "\u79FB\u52A8\u5230\u5F52\u6863\u76EE\u5F55",
+		  "dialog.mode.delete": "\u6C38\u4E45\u5220\u9664",
 		  // —— 确认对话框：动作与结果 ——
 		  "dialog.deleting": "\u6B63\u5728\u5220\u9664\u2026",
+		  "dialog.archiving": "\u6B63\u5728\u79FB\u52A8\u2026",
 		  "dialog.confirm": "\u6C38\u4E45\u5220\u9664",
+		  "dialog.confirm.archive": "\u79FB\u52A8\u5230\u5F52\u6863\u76EE\u5F55",
 		  "dialog.cancel": "\u53D6\u6D88",
 		  "dialog.close": "\u5173\u95ED",
 		  "dialog.done": "\u5DF2\u5220\u9664 {count} \u4E2A\u4F1A\u8BDD\u3002",
+		  "dialog.done.archive": "\u5DF2\u79FB\u52A8 {count} \u4E2A\u4F1A\u8BDD\u5230\u5F52\u6863\u76EE\u5F55\u3002",
 		  "dialog.warnings": "\u4EE5\u4E0B\u6587\u4EF6\u5220\u9664\u5931\u8D25\uFF0C\u9700\u8981\u624B\u52A8\u6E05\u7406\uFF1A",
+		  "dialog.warnings.archive": "\u4EE5\u4E0B\u9879\u672A\u80FD\u5B8C\u6210\uFF0C\u9700\u8981\u624B\u52A8\u6E05\u7406\uFF1A",
 		  "dialog.failed": "\u5220\u9664\u672A\u80FD\u5B8C\u6210\uFF1A{reason}",
+		  "dialog.failed.archive": "\u5F52\u6863\u672A\u80FD\u5B8C\u6210\uFF1A{reason}",
 		  // —— 体积格式化 ——
 		  "format.bytes": "{value} B",
 		  "format.kb": "{value} KB",
@@ -228,6 +250,7 @@ window.__ModuleLoader__.load({
 		  "error.not-found": "\u8BE5\u4F1A\u8BDD\u5DF2\u4E0D\u5B58\u5728\uFF0C\u53EF\u80FD\u5DF2\u5728\u522B\u5904\u5220\u9664\u3002",
 		  "error.not-archived": "\u8BE5\u4F1A\u8BDD\u5DF2\u4E0D\u518D\u5904\u4E8E\u5F52\u6863\u72B6\u6001\uFF1B\u8BF7\u5237\u65B0\u540E\u91CD\u8BD5\u3002",
 		  "error.session-live": "\u8BE5\u4F1A\u8BDD\u4ECD\u5728\u5BBF\u4E3B\u673A\u5185\u5B58\u4E2D\u8FD0\u884C\uFF1B\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002",
+		  "error.archive-unavailable": "\u5F52\u6863\u76EE\u5F55\u4E0D\u53EF\u7528\uFF08\u65E0\u6CD5\u521B\u5EFA\u6216\u6CA1\u6709\u5199\u6743\u9650\uFF09\uFF0C\u672A\u505A\u4EFB\u4F55\u6539\u52A8\u3002",
 		  "error.bad-request": "\u8BF7\u6C42\u4E0D\u5408\u6CD5\uFF0C\u5BBF\u4E3B\u62D2\u7EDD\u4E86\u672C\u6B21\u8C03\u7528\u3002",
 		  "error.internal": "\u5BBF\u4E3B\u5185\u90E8\u9519\u8BEF\uFF0C\u5220\u9664\u672A\u6267\u884C\u3002",
 		  "error.unavailable": "\u65E0\u6CD5\u8FDE\u63A5\u5230 dsh \u4E3B\u8FDB\u7A0B\u3002",
@@ -238,18 +261,30 @@ window.__ModuleLoader__.load({
 		  "menu.delete": "Delete session",
 		  "dialog.title": "Delete archived session",
 		  "dialog.description": 'Everything archived under "{title}" will be removed permanently.',
+		  "dialog.description.archive": 'The stored logs of "{title}" will be moved to the archive directory.',
 		  "dialog.previewing": "Measuring the delete scope\u2026",
 		  "dialog.summary.sessions": "Sessions: {count}",
 		  "dialog.summary.descendants": "Subagent sessions included: {count}",
 		  "dialog.summary.size": "Space to be freed: {size}",
+		  "dialog.summary.moveSize": "Size to move: {size}",
+		  "dialog.archive.target": "Archive directory: {path}",
 		  "dialog.warning.irreversible": "Deletion is irreversible: session logs and projection caches are removed, workspace records are cleared, and no surface can restore them. The shared attachment store is left untouched.",
+		  "dialog.warning.archive": "The logs move to that directory (project layout preserved); the projection cache and workspace records are cleared and the session disappears from every view. You can recover it by hand from that directory by session id; this plugin offers no restore entry.",
+		  "dialog.mode.legend": "Disposition",
+		  "dialog.mode.archive": "Move to archive directory",
+		  "dialog.mode.delete": "Delete permanently",
 		  "dialog.deleting": "Deleting\u2026",
+		  "dialog.archiving": "Moving\u2026",
 		  "dialog.confirm": "Delete permanently",
+		  "dialog.confirm.archive": "Move to archive directory",
 		  "dialog.cancel": "Cancel",
 		  "dialog.close": "Close",
 		  "dialog.done": "Deleted {count} sessions.",
+		  "dialog.done.archive": "Moved {count} sessions to the archive directory.",
 		  "dialog.warnings": "These files could not be removed and need manual cleanup:",
+		  "dialog.warnings.archive": "These items did not complete and need manual cleanup:",
 		  "dialog.failed": "Deletion did not complete: {reason}",
+		  "dialog.failed.archive": "Archiving did not complete: {reason}",
 		  "format.bytes": "{value} B",
 		  "format.kb": "{value} KB",
 		  "format.mb": "{value} MB",
@@ -261,6 +296,7 @@ window.__ModuleLoader__.load({
 		  "error.not-found": "That session no longer exists; it may have been deleted elsewhere.",
 		  "error.not-archived": "That session is no longer archived; refresh and try again.",
 		  "error.session-live": "That session is still live in the host; try again later.",
+		  "error.archive-unavailable": "The archive directory is unusable (it cannot be created or is not writable); nothing was changed.",
 		  "error.bad-request": "The host rejected the request as malformed.",
 		  "error.internal": "The host hit an internal error; nothing was deleted.",
 		  "error.unavailable": "Could not reach the dsh host process.",
@@ -285,10 +321,10 @@ window.__ModuleLoader__.load({
 		  return candidate in zh ? candidate : "error.fallback";
 		}
 		function createDeleteClient(connection) {
-		  const call = async (endpoint, sessionId) => {
+		  const call = async (endpoint, body) => {
 		    let result;
 		    try {
-		      result = await connection.rpc.call(CHANNEL, endpoint, { sessionId });
+		      result = await connection.rpc.call(CHANNEL, endpoint, body);
 		    } catch (error) {
 		      throw new DeleteError("unavailable", error instanceof Error ? error.message : String(error));
 		    }
@@ -300,13 +336,13 @@ window.__ModuleLoader__.load({
 		    return result.value;
 		  };
 		  return {
-		    async preview(sessionId) {
-		      const parsed = parsePreview(await call(PREVIEW_ENDPOINT, sessionId));
+		    async preview(sessionId, mode) {
+		      const parsed = parsePreview(await call(PREVIEW_ENDPOINT, { sessionId, mode }));
 		      if (!parsed.ok) throw new DeleteError("bad-response", parsed.message);
 		      return parsed.value;
 		    },
-		    async remove(sessionId) {
-		      const parsed = parseOutcome(await call(DELETE_ENDPOINT, sessionId));
+		    async remove(sessionId, mode) {
+		      const parsed = parseOutcome(await call(DELETE_ENDPOINT, { sessionId, mode }));
 		      if (!parsed.ok) throw new DeleteError("bad-response", parsed.message);
 		      return parsed.value;
 		    }
@@ -314,7 +350,7 @@ window.__ModuleLoader__.load({
 		}
 
 		// src/client/delete.module.css
-		var cssText2 = "/*\n * \u5220\u9664\u786E\u8BA4\u5BF9\u8BDD\u6846\u7684\u6700\u5C0F\u6837\u5F0F\u3002\n *\n * \u9AA8\u67B6\uFF08\u906E\u7F69\u3001\u5361\u7247\u3001\u6807\u9898\u3001\u5173\u95ED\u6309\u94AE\u3001\u6309\u94AE\u6392\u5E03\uFF09\u5168\u90E8\u7531\u5B98\u65B9 primitives \u7684 Modal / Button\n * \u63D0\u4F9B\uFF0C\u8FD9\u91CC\u53EA\u8865\u4E09\u4EF6\u4E8B\uFF1A\u5371\u9669\u786E\u8BA4\u6309\u94AE\u7684\u914D\u8272\uFF08Button \u6CA1\u6709 danger variant\uFF09\u3001\u9884\u89C8\u6458\u8981\u4E0E\n * \u8B66\u793A\u7684\u6587\u5B57\u5C42\u7EA7\u3001warnings \u6E05\u5355\u7684\u53EF\u8BFB\u6027\u3002\u989C\u8272\u4E00\u5F8B\u53D6\u5B98\u65B9 `--dsw-alias-*` \u8BBE\u8BA1\u4EE4\u724C\u5E76\u5E26\n * \u9759\u6001\u515C\u5E95\uFF0C\u4EE4\u724C\u6539\u540D\u65F6\u6700\u574F\u9000\u5316\u6210\u53EF\u8BFB\u7684\u9ED1\u767D\u800C\u4E0D\u662F\u900F\u660E\u3002\n */\n\n/* \u5371\u9669\u786E\u8BA4\u6309\u94AE\uFF1A\u4E0E\u5B98\u65B9 primary \u540C\u5C3A\u5BF8\u540C\u5706\u89D2\uFF0C\u53EA\u628A\u586B\u5145\u6362\u6210\u9519\u8BEF\u8272\u3002 */\n.wux_danger_0c3afc {\n  color: var(--dsw-alias-label-primary-foreground, #fff);\n  background: var(--dsw-alias-state-error-primary, #ec1313);\n}\n\n.wux_danger_0c3afc:hover:not(:disabled) {\n  background: var(--dsw-alias-state-error-secondary, #f25a5a);\n}\n\n/* \u8FDB\u884C\u4E2D\u7B49\u8FC7\u7A0B\u6587\u6848\uFF1A\u4F4E\u8C03\uFF0C\u4E0D\u4E0E\u9884\u89C8\u6458\u8981\u62A2\u6CE8\u610F\u529B\u3002 */\n.wux_muted_0c3afc {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n/* \u9884\u89C8\u6458\u8981\uFF1A\u4F1A\u8BDD\u6570 / \u5B50\u4EE3\u7406\u6570 / \u4F53\u79EF\u4E09\u884C\u3002 */\n.wux_summary_0c3afc {\n  margin: 0 0 12px;\n  padding-left: 22px;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n/* \u4E0D\u53EF\u9006\u8B66\u793A\uFF1A\u7528\u8B66\u544A\u8272\u800C\u975E\u9519\u8BEF\u8272\u2014\u2014\u8FD9\u662F\u5FC5\u987B\u8BFB\u5230\u7684\u4E8B\u5B9E\uFF0C\u4E0D\u662F\u5DF2\u7ECF\u53D1\u751F\u7684\u9519\u8BEF\u3002 */\n.wux_warning_0c3afc {\n  margin: 0;\n  color: var(--dsw-alias-state-warn-label, #dd8629);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n.wux_done_0c3afc {\n  margin: 0;\n  color: var(--dsw-alias-label-primary, #000);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n.wux_failure_0c3afc {\n  margin: 0;\n  color: var(--dsw-alias-state-error-primary, #ec1313);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n/* \u5BBF\u4E3B\u515C\u5E95\u8BF4\u660E\uFF08\u672A\u672C\u5730\u5316\uFF09\uFF1A\u6BD4\u5931\u8D25\u539F\u56E0\u4F4E\u4E00\u5C42\u3002 */\n.wux_detail_0c3afc {\n  margin: 8px 0 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n  word-break: break-word;\n}\n\n/* \u534A\u5931\u8D25\u6E05\u5355\uFF1Awarnings \u662F\u5BBF\u4E3B\u7ED9\u7684 `<\u8DEF\u5F84>: <\u539F\u56E0>` \u673A\u5668\u53EF\u8BFB\u4E32\uFF0C\u539F\u6837\u5217\u51FA\u3002 */\n.wux_warnings_0c3afc {\n  margin-top: 14px;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n.wux_warnings_0c3afc p {\n  margin: 0 0 6px;\n}\n\n.wux_warnings_0c3afc ul {\n  margin: 0;\n  padding-left: 22px;\n}\n\n.wux_warnings_0c3afc code {\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  word-break: break-all;\n}\n";
+		var cssText2 = "/*\n * \u5220\u9664\u786E\u8BA4\u5BF9\u8BDD\u6846\u7684\u6700\u5C0F\u6837\u5F0F\u3002\n *\n * \u9AA8\u67B6\uFF08\u906E\u7F69\u3001\u5361\u7247\u3001\u6807\u9898\u3001\u5173\u95ED\u6309\u94AE\u3001\u6309\u94AE\u6392\u5E03\uFF09\u5168\u90E8\u7531\u5B98\u65B9 primitives \u7684 Modal / Button\n * \u63D0\u4F9B\uFF0C\u8FD9\u91CC\u53EA\u8865\u56DB\u4EF6\u4E8B\uFF1A\u5371\u9669\u786E\u8BA4\u6309\u94AE\u7684\u914D\u8272\uFF08Button \u6CA1\u6709 danger variant\uFF09\u3001\u9884\u89C8\u6458\u8981\u4E0E\n * \u8B66\u793A\u7684\u6587\u5B57\u5C42\u7EA7\u3001\u5904\u7F6E\u65B9\u5F0F\u5355\u9009\u533A\u5757\uFF08\u539F\u751F fieldset/radio \u4E0E\u5F52\u6863\u76EE\u6807\u884C\uFF09\u3001warnings \u6E05\u5355\n * \u7684\u53EF\u8BFB\u6027\u3002\u989C\u8272\u4E00\u5F8B\u53D6\u5B98\u65B9 `--dsw-alias-*` \u8BBE\u8BA1\u4EE4\u724C\u5E76\u5E26\u9759\u6001\u515C\u5E95\uFF0C\u4EE4\u724C\u6539\u540D\u65F6\u6700\u574F\u9000\u5316\u6210\n * \u53EF\u8BFB\u7684\u9ED1\u767D\u800C\u4E0D\u662F\u900F\u660E\u3002\n */\n\n/* \u5371\u9669\u786E\u8BA4\u6309\u94AE\uFF1A\u4E0E\u5B98\u65B9 primary \u540C\u5C3A\u5BF8\u540C\u5706\u89D2\uFF0C\u53EA\u628A\u586B\u5145\u6362\u6210\u9519\u8BEF\u8272\u3002 */\n.wux_danger_0c3afc {\n  color: var(--dsw-alias-label-primary-foreground, #fff);\n  background: var(--dsw-alias-state-error-primary, #ec1313);\n}\n\n.wux_danger_0c3afc:hover:not(:disabled) {\n  background: var(--dsw-alias-state-error-secondary, #f25a5a);\n}\n\n/* \u8FDB\u884C\u4E2D\u7B49\u8FC7\u7A0B\u6587\u6848\uFF1A\u4F4E\u8C03\uFF0C\u4E0D\u4E0E\u9884\u89C8\u6458\u8981\u62A2\u6CE8\u610F\u529B\u3002 */\n.wux_muted_0c3afc {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n/* \u9884\u89C8\u6458\u8981\uFF1A\u4F1A\u8BDD\u6570 / \u5B50\u4EE3\u7406\u6570 / \u4F53\u79EF\u4E09\u884C\u3002 */\n.wux_summary_0c3afc {\n  margin: 0 0 12px;\n  padding-left: 22px;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n/* \u2014\u2014 \u5904\u7F6E\u65B9\u5F0F\u5355\u9009\uFF1Afieldset \u81EA\u5E26\u8FB9\u6846\u4E0E\u5185\u8FB9\u8DDD\uFF0C\u8FD9\u91CC\u5168\u90E8\u62B9\u5E73\u53EA\u7559\u5206\u7EC4\u95F4\u8DDD \u2014\u2014 */\n.wux_modes_0c3afc {\n  margin: 0 0 12px;\n  padding: 0;\n  border: 0;\n  min-inline-size: 0;\n}\n\n/* legend \u662F\u539F\u751F\u8BED\u4E49\u5143\u7D20\u3001\u6CA1\u6709 className\uFF0C\u53EA\u80FD\u5728\u540E\u4EE3\u91CC\u5BF9\u9F50\u5206\u533A\u6807\u9898\u7684\u5B57\u7EA7\u3002 */\n.wux_modes_0c3afc legend {\n  display: block;\n  margin: 0 0 6px;\n  padding: 0;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 13px;\n  font-weight: 600;\n  line-height: 20px;\n  letter-spacing: 0.01em;\n}\n\n/* \u9009\u9879\u884C\uFF1A\u6574\u884C\u662F label\uFF0C\u70B9\u6587\u5B57\u7B49\u4E8E\u70B9 radio\uFF1Bradio \u4E0E\u9996\u884C\u6587\u5B57\u9876\u5BF9\u9F50\u3002 */\n.wux_modeRow_0c3afc {\n  display: flex;\n  align-items: flex-start;\n  gap: 8px;\n  padding: 3px 0;\n  cursor: pointer;\n}\n\n/* \u539F\u751F radio \u53EA\u6539\u5F3A\u8C03\u8272\uFF08\u5BF9\u9F50\u8BBE\u8BA1\u7CFB\u7EDF\u7684\u54C1\u724C\u8272\uFF09\uFF0C\u5C3A\u5BF8\u4E0E\u547D\u4E2D\u533A\u4FDD\u6301\u7CFB\u7EDF\u9ED8\u8BA4\u3002 */\n.wux_modeRow_0c3afc input {\n  flex: none;\n  margin: 3px 0 0;\n  accent-color: var(--dsw-alias-state-business-primary, #1a67e0);\n}\n\n/* \u9009\u9879\u6587\u5B57\uFF1A\u4E3B\u6807\u9898\u4E00\u884C\uFF1B\u5C06\u6765\u8865\u8BF4\u660E\u884C\u65F6\u6309 2px \u95F4\u8DDD\u5806\u6210\u4E0A\u4E0B\u4E24\u884C\u3002 */\n.wux_modeText_0c3afc {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n  color: var(--dsw-alias-label-primary, #000);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n/* \u8FDB\u884C\u4E2D\uFF08fieldset disabled\uFF09\uFF1A\u6574\u7EC4\u964D\u7EA7\u5230\u5F31\u5316\u8272\uFF0C\u884C\u4E5F\u4E0D\u518D\u663E\u793A\u53EF\u70B9\u624B\u52BF\u3002 */\n.wux_modes_0c3afc:disabled .wux_modeRow_0c3afc {\n  cursor: default;\n}\n\n.wux_modes_0c3afc:disabled .wux_modeText_0c3afc {\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n}\n\n/* \u5F52\u6863\u76EE\u6807\u8DEF\u5F84\uFF1A\u673A\u5668\u4E32\u7528\u7B49\u5BBD\u5B57\u4F53\uFF0C\u957F\u8DEF\u5F84\u6309\u8BCD\u6362\u884C\uFF0C\u989C\u8272\u5F31\u5316\u5230\u8F85\u52A9\u5C42\u7EA7\u3002 */\n.wux_archiveTarget_0c3afc {\n  margin: 0 0 12px;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  line-height: 18px;\n  word-break: break-all;\n}\n\n/* \u4E0D\u53EF\u9006\u8B66\u793A\uFF1A\u7528\u8B66\u544A\u8272\u800C\u975E\u9519\u8BEF\u8272\u2014\u2014\u8FD9\u662F\u5FC5\u987B\u8BFB\u5230\u7684\u4E8B\u5B9E\uFF0C\u4E0D\u662F\u5DF2\u7ECF\u53D1\u751F\u7684\u9519\u8BEF\u3002 */\n.wux_warning_0c3afc {\n  margin: 0;\n  color: var(--dsw-alias-state-warn-label, #dd8629);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n.wux_done_0c3afc {\n  margin: 0;\n  color: var(--dsw-alias-label-primary, #000);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n.wux_failure_0c3afc {\n  margin: 0;\n  color: var(--dsw-alias-state-error-primary, #ec1313);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n/* \u5BBF\u4E3B\u515C\u5E95\u8BF4\u660E\uFF08\u672A\u672C\u5730\u5316\uFF09\uFF1A\u6BD4\u5931\u8D25\u539F\u56E0\u4F4E\u4E00\u5C42\u3002 */\n.wux_detail_0c3afc {\n  margin: 8px 0 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n  word-break: break-word;\n}\n\n/* \u534A\u5931\u8D25\u6E05\u5355\uFF1Awarnings \u662F\u5BBF\u4E3B\u7ED9\u7684 `<\u8DEF\u5F84>: <\u539F\u56E0>` \u673A\u5668\u53EF\u8BFB\u4E32\uFF0C\u539F\u6837\u5217\u51FA\u3002 */\n.wux_warnings_0c3afc {\n  margin-top: 14px;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n.wux_warnings_0c3afc p {\n  margin: 0 0 6px;\n}\n\n.wux_warnings_0c3afc ul {\n  margin: 0;\n  padding-left: 22px;\n}\n\n.wux_warnings_0c3afc code {\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  word-break: break-all;\n}\n";
 		if (typeof document !== "undefined" && document.querySelector('style[data-dsh-plugin="dsh-plugin-web-ux"][data-dsh-css="0c3afc"]') === null) {
 		  const style = document.createElement("style");
 		  style.setAttribute("data-dsh-plugin", "dsh-plugin-web-ux");
@@ -322,10 +358,11 @@ window.__ModuleLoader__.load({
 		  style.textContent = cssText2;
 		  document.head.appendChild(style);
 		}
-		var delete_default = { "danger": "wux_danger_0c3afc", "muted": "wux_muted_0c3afc", "summary": "wux_summary_0c3afc", "warning": "wux_warning_0c3afc", "done": "wux_done_0c3afc", "failure": "wux_failure_0c3afc", "detail": "wux_detail_0c3afc", "warnings": "wux_warnings_0c3afc" };
+		var delete_default = { "danger": "wux_danger_0c3afc", "muted": "wux_muted_0c3afc", "summary": "wux_summary_0c3afc", "modes": "wux_modes_0c3afc", "modeRow": "wux_modeRow_0c3afc", "modeText": "wux_modeText_0c3afc", "archiveTarget": "wux_archiveTarget_0c3afc", "warning": "wux_warning_0c3afc", "done": "wux_done_0c3afc", "failure": "wux_failure_0c3afc", "detail": "wux_detail_0c3afc", "warnings": "wux_warnings_0c3afc" };
 
 		// src/client/DeleteSessionDialog.tsx
 		var import_jsx_runtime3 = require("react/jsx-runtime");
+		var DEFAULT_DISPOSAL_MODE = "archive";
 		function formatSize(bytes, t) {
 		  const round1 = (value) => String(Math.round(value * 10) / 10);
 		  if (bytes < 1024) return t("format.bytes", { value: String(bytes) });
@@ -354,12 +391,13 @@ window.__ModuleLoader__.load({
 		}
 		function DeleteSessionBody({ target, requests, client, t }) {
 		  const [phase, setPhase] = (0, import_react3.useState)("previewing");
+		  const [mode, setMode] = (0, import_react3.useState)(DEFAULT_DISPOSAL_MODE);
 		  const [preview, setPreview] = (0, import_react3.useState)(null);
 		  const [failure, setFailure] = (0, import_react3.useState)(null);
 		  const [outcome, setOutcome] = (0, import_react3.useState)(null);
 		  (0, import_react3.useEffect)(() => {
 		    let cancelled = false;
-		    void client.preview(target.sessionId).then(
+		    void client.preview(target.sessionId, DEFAULT_DISPOSAL_MODE).then(
 		      (value) => {
 		        if (cancelled) return;
 		        setPreview(value);
@@ -378,7 +416,7 @@ window.__ModuleLoader__.load({
 		  const confirm = () => {
 		    if (phase !== "ready") return;
 		    setPhase("deleting");
-		    void client.remove(target.sessionId).then(
+		    void client.remove(target.sessionId, mode).then(
 		      (value) => {
 		        setOutcome(value);
 		        setPhase("done");
@@ -393,6 +431,7 @@ window.__ModuleLoader__.load({
 		    if (phase === "deleting") return;
 		    requests.settle();
 		  };
+		  const archiving = mode === "archive";
 		  const displayTitle = target.displayTitle === "" ? target.sessionId : target.displayTitle;
 		  const footer = phase === "done" || phase === "failed" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(import_dsh_client_ui_primitives2.Button, { variant: "outline", onClick: close, children: t("dialog.close") }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
 		    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(import_dsh_client_ui_primitives2.Button, { variant: "outline", onClick: close, disabled: phase === "deleting", children: t("dialog.cancel") }),
@@ -400,10 +439,10 @@ window.__ModuleLoader__.load({
 		      import_dsh_client_ui_primitives2.Button,
 		      {
 		        variant: "primary",
-		        className: delete_default.danger,
+		        className: archiving ? void 0 : delete_default.danger,
 		        onClick: confirm,
 		        disabled: phase !== "ready",
-		        children: phase === "deleting" ? t("dialog.deleting") : t("dialog.confirm")
+		        children: phase === "deleting" ? t(archiving ? "dialog.archiving" : "dialog.deleting") : t(archiving ? "dialog.confirm.archive" : "dialog.confirm")
 		      }
 		    )
 		  ] });
@@ -414,7 +453,7 @@ window.__ModuleLoader__.load({
 		      onClose: close,
 		      title: t("dialog.title"),
 		      closeLabel: t("dialog.close"),
-		      description: t("dialog.description", { title: displayTitle }),
+		      description: t(archiving ? "dialog.description.archive" : "dialog.description", { title: displayTitle }),
 		      footer,
 		      children: [
 		        phase === "previewing" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: delete_default.muted, children: t("dialog.previewing") }),
@@ -422,20 +461,60 @@ window.__ModuleLoader__.load({
 		          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("ul", { className: delete_default.summary, children: [
 		            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("li", { children: t("dialog.summary.sessions", { count: preview.sessionCount }) }),
 		            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("li", { children: t("dialog.summary.descendants", { count: preview.descendantCount }) }),
-		            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("li", { children: t("dialog.summary.size", { size: formatSize(preview.logBytes, t) }) })
+		            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("li", { children: t(archiving ? "dialog.summary.moveSize" : "dialog.summary.size", {
+		              size: formatSize(preview.logBytes, t)
+		            }) })
 		          ] }),
-		          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: delete_default.warning, children: t("dialog.warning.irreversible") })
+		          archiving && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: delete_default.archiveTarget, children: t("dialog.archive.target", { path: preview.archiveRoot }) }),
+		          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: delete_default.warning, children: t(archiving ? "dialog.warning.archive" : "dialog.warning.irreversible") })
 		        ] }),
-		        phase === "deleting" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: delete_default.muted, children: t("dialog.deleting") }),
+		        (phase === "ready" || phase === "deleting") && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("fieldset", { className: delete_default.modes, disabled: phase === "deleting", children: [
+		          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("legend", { children: t("dialog.mode.legend") }),
+		          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: delete_default.modeRow, children: [
+		            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+		              "input",
+		              {
+		                type: "radio",
+		                name: "web-ux-disposal",
+		                value: "archive",
+		                checked: archiving,
+		                disabled: phase === "deleting",
+		                onChange: () => {
+		                  setMode("archive");
+		                }
+		              }
+		            ),
+		            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: delete_default.modeText, children: t("dialog.mode.archive") })
+		          ] }),
+		          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: delete_default.modeRow, children: [
+		            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+		              "input",
+		              {
+		                type: "radio",
+		                name: "web-ux-disposal",
+		                value: "delete",
+		                checked: mode === "delete",
+		                disabled: phase === "deleting",
+		                onChange: () => {
+		                  setMode("delete");
+		                }
+		              }
+		            ),
+		            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: delete_default.modeText, children: t("dialog.mode.delete") })
+		          ] })
+		        ] }),
+		        phase === "deleting" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: delete_default.muted, children: t(archiving ? "dialog.archiving" : "dialog.deleting") }),
 		        phase === "done" && outcome !== null && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
-		          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: delete_default.done, children: t("dialog.done", { count: outcome.removed.length }) }),
+		          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: delete_default.done, children: t(archiving ? "dialog.done.archive" : "dialog.done", { count: outcome.removed.length }) }),
 		          outcome.warnings.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: delete_default.warnings, children: [
-		            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { children: t("dialog.warnings") }),
+		            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { children: t(archiving ? "dialog.warnings.archive" : "dialog.warnings") }),
 		            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("ul", { children: outcome.warnings.map((warning) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("li", { children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("code", { children: warning }) }, warning)) })
 		          ] })
 		        ] }),
 		        phase === "failed" && failure !== null && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
-		          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: delete_default.failure, children: t("dialog.failed", { reason: t(errorKeyOf(failure.code)) }) }),
+		          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: delete_default.failure, children: t(archiving ? "dialog.failed.archive" : "dialog.failed", {
+		            reason: t(errorKeyOf(failure.code))
+		          }) }),
 		          failure.message !== "" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: delete_default.detail, children: failure.message })
 		        ] })
 		      ]

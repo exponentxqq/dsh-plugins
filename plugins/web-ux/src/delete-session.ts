@@ -1,6 +1,6 @@
 /**
- * 「删除已归档会话」的宿主侧纯流程：删除集合收集、前置校验、预览统计、执行，
- * 以及会话文件的操作工厂。
+ * 「处置已归档会话」的宿主侧纯流程：删除集合收集、前置校验、预览统计，以及
+ * 物理删除与迁移归档两条执行路径，和会话文件的操作工厂。
  *
  * 这一层不认识 cordis，也不 import 任何 `@deepseek-ai/*`：它只依赖注入进来的
  * {@link DeletePorts} 与 {@link FileSystemOps}，所以能用 fake 端口在纯 node 环境
@@ -12,14 +12,16 @@
  *   引用但来源不是 subagent）永不级联。
  * - 预览与执行各自独立校验（不存在 / 未归档 / 集合内任一成员仍 live），执行端
  *   不信任预览阶段的结论。
- * - 执行顺序固定为「registry 清理（幂等）→ 文件删除（失败只记 warnings）→ 逐 id
- *   广播 {@link SESSION_REMOVED_EVENT}」；文件失败不回滚、不中止，共享附件存储
- *   一律不清理。
+ * - 删除与迁移共用同一条执行循环（{@link disposeAll}）：逐 id「registry 清理
+ *   （幂等）→ 文件动作（失败只记 warnings）→ 广播 {@link SESSION_REMOVED_EVENT}」；
+ *   文件失败不回滚、不中止，共享附件存储一律不清理。
+ * - 迁移在**任何写动作之前**先准备归档根；根不可用返回 `archive-unavailable`，
+ *   逐项迁移失败只进 warnings（数据留在源目录，警告点名源与目标）。
  *
  * @module dsh-plugin-web-ux/delete-session
  */
 
-import { join } from 'node:path'
+import { basename, dirname, isAbsolute, join } from 'node:path'
 import type { DeleteOutcome, DeletePreview, FailureCode } from './contract.ts'
 
 /** 宿主广播的会话移除事件名；client 的会话列表模型据此即时删行（上游 Remote 事件）。 */
@@ -51,6 +53,10 @@ export interface DeletePorts {
   measureFiles(sessionId: string): Promise<number>
   /** 删除该会话的磁盘痕迹，返回失败项 `<路径>: <原因>`；不抛错。 */
   removeFiles(sessionId: string): Promise<readonly string[]>
+  /** 建出归档根（递归）；失败抛错，由 {@link archiveSession} 映射为 `archive-unavailable`。 */
+  prepareArchive(archiveRoot: string): Promise<void>
+  /** 把该会话的日志目录移动到归档根下并删除投影缓存；返回失败项，不抛错。 */
+  archiveFiles(sessionId: string, archiveRoot: string): Promise<readonly string[]>
   /** 广播一次会话移除事件。 */
   emitRemoved(sessionId: string): void
   /** 记录一条宿主告警。 */
@@ -124,16 +130,18 @@ export async function planDelete(
 }
 
 /**
- * 预览一次删除：执行与 {@link deleteSession} 完全相同的前置校验（预览不是授权，
- * 只是展示），再统计删除集合的规模与待释放体积。
+ * 预览一次处置：执行与 {@link deleteSession} / {@link archiveSession} 完全相同的
+ * 前置校验（预览不是授权，只是展示），再统计处置集合的规模与待释放体积，并把宿主
+ * 解析后的归档根原样回声进结果。
  *
  * `measureFiles` 抛错按 0 计并告警：体积只是给用户的参考数字，不该让预览失败。
  *
  * @param ports - 全部端口。
  * @param sessionId - 目标会话 id。
+ * @param archiveRoot - 宿主解析后的归档根；本流程不解析、不做 I/O，只回声给界面。
  * @returns 预览结果，或与执行同款的拒绝码。
  */
-export async function previewDelete(ports: DeletePorts, sessionId: string): Promise<PreviewResult> {
+export async function previewDelete(ports: DeletePorts, sessionId: string, archiveRoot: string): Promise<PreviewResult> {
   const plan = await planDelete(sessionId, ports)
   if (!plan.ok) return plan
   let logBytes = 0
@@ -146,17 +154,13 @@ export async function previewDelete(ports: DeletePorts, sessionId: string): Prom
   }
   return {
     ok: true,
-    preview: { sessionCount: plan.ids.length, descendantCount: plan.ids.length - 1, logBytes },
+    preview: { sessionCount: plan.ids.length, descendantCount: plan.ids.length - 1, logBytes, archiveRoot },
   }
 }
 
 /**
- * 执行一次删除。进入执行前**重新**校验（预览结论不携带授权语义），随后对每个
- * id 依次：
- *
- * 1. `cleanupRegistry`——失败只记 warning（`registry: <id>: <原因>`）并继续；
- * 2. `removeFiles`——返回的失败项原样并入 warnings；
- * 3. `emitRemoved`——抛错只告警，不影响结果。
+ * 执行一次删除。进入执行前**重新**校验（预览结论不携带授权语义），随后交给
+ * {@link disposeAll} 逐条「registry 清理 → 删除文件 → 广播移除」。
  *
  * 任何文件失败都不回滚：registry 引用已经清掉，重启后侧栏不再出现被删会话，残留
  * 的日志文件由 warnings 逐条点名，可手工清理。
@@ -168,8 +172,59 @@ export async function previewDelete(ports: DeletePorts, sessionId: string): Prom
 export async function deleteSession(ports: DeletePorts, sessionId: string): Promise<DeleteResult> {
   const plan = await planDelete(sessionId, ports)
   if (!plan.ok) return plan
+  return { ok: true, outcome: await disposeAll(ports, plan.ids, (id) => ports.removeFiles(id)) }
+}
+
+/**
+ * 执行一次迁移归档。与删除同源的前置校验（同一套 not-found / not-archived /
+ * session-live），随后在**任何写动作之前**确认归档根可用，最后交给
+ * {@link disposeAll} 逐条「registry 清理 → 移动文件 → 广播移除」。
+ *
+ * 归档根不可用（非绝对路径，或递归建目录失败）返回 `archive-unavailable`：此时
+ * registry 与磁盘都没有被改动过，界面可以引导用户修好配置后重试。逐项迁移失败
+ * 不回滚（与删除同构），数据留在会话目录，warnings 点名源与目标。
+ *
+ * @param ports - 全部端口。
+ * @param sessionId - 目标会话 id。
+ * @param archiveRoot - 宿主解析后的归档根绝对路径。
+ * @returns 执行结果（`removed` 为完整迁移集合）或稳定拒绝码。
+ */
+export async function archiveSession(ports: DeletePorts, sessionId: string, archiveRoot: string): Promise<DeleteResult> {
+  const plan = await planDelete(sessionId, ports)
+  if (!plan.ok) return plan
+  if (!isAbsolute(archiveRoot)) {
+    return { ok: false, code: 'archive-unavailable', message: `archive root "${archiveRoot}" is not an absolute path` }
+  }
+  try {
+    await ports.prepareArchive(archiveRoot)
+  } catch (error: unknown) {
+    return { ok: false, code: 'archive-unavailable', message: `archive root "${archiveRoot}" is not usable: ${reasonOf(error)}` }
+  }
+  return { ok: true, outcome: await disposeAll(ports, plan.ids, (id) => ports.archiveFiles(id, archiveRoot)) }
+}
+
+/**
+ * 删除与迁移共用的执行循环：逐 id 依次
+ *
+ * 1. `cleanupRegistry`——失败只记 warning（`registry: <id>: <原因>`）并继续；
+ * 2. 传入的文件动作——返回的失败项原样并入 warnings，抛错记 `files: <id>: <原因>` 并继续；
+ * 3. `emitRemoved`——抛错只告警，不影响结果。
+ *
+ * 文件失败**不回滚、不中止**：这是删除与迁移逐字同构的保证（同一段循环，而不是
+ * 两份复制代码），因此两条路径的 warnings 顺序与文案也一致。
+ *
+ * @param ports - 执行循环所需的三个端口。
+ * @param ids - 已通过前置校验的处置集合（目标在首位）。
+ * @param disposeFiles - 单个 id 的文件动作；返回失败项，不抛错。
+ * @returns 处置结论：removed 为完整集合，warnings 为逐条失败。
+ */
+async function disposeAll(
+  ports: Pick<DeletePorts, 'cleanupRegistry' | 'emitRemoved' | 'warn'>,
+  ids: readonly string[],
+  disposeFiles: (id: string) => Promise<readonly string[]>,
+): Promise<DeleteOutcome> {
   const warnings: string[] = []
-  for (const id of plan.ids) {
+  for (const id of ids) {
     try {
       await ports.cleanupRegistry(id)
     } catch (error: unknown) {
@@ -177,7 +232,7 @@ export async function deleteSession(ports: DeletePorts, sessionId: string): Prom
       ports.warn(`web-ux: removing session "${id}" from the workspace registry failed`, error)
     }
     try {
-      warnings.push(...await ports.removeFiles(id))
+      warnings.push(...await disposeFiles(id))
     } catch (error: unknown) {
       warnings.push(`files: ${id}: ${reasonOf(error)}`)
       ports.warn(`web-ux: deleting the stored files of session "${id}" failed`, error)
@@ -188,7 +243,7 @@ export async function deleteSession(ports: DeletePorts, sessionId: string): Prom
       ports.warn(`web-ux: broadcasting the removal of session "${id}" failed`, error)
     }
   }
-  return { ok: true, outcome: { removed: plan.ids, warnings } }
+  return { removed: ids, warnings }
 }
 
 /** 会话目录里的一个条目：名字与「是否目录」判定（`node:fs` Dirent 的最小投影）。 */
@@ -204,7 +259,7 @@ export interface DirectoryEntry {
   isSymbolicLink?(): boolean
 }
 
-/** 文件操作端口：工厂只用这四个原语，因此测试可注入内存实现。 */
+/** 文件操作端口：工厂只用这七个原语，因此测试可注入内存实现。 */
 export interface FileSystemOps {
   /** 读目录；路径缺失（ENOENT）由调用方处理。 */
   readdir(path: string): Promise<readonly DirectoryEntry[]>
@@ -214,6 +269,12 @@ export interface FileSystemOps {
   rm(path: string, options: { readonly recursive: boolean; readonly force: boolean }): Promise<void>
   /** 删除单个文件。 */
   unlink(path: string): Promise<void>
+  /** 新建目录；`recursive` 允许缺父级、允许已存在。 */
+  mkdir(path: string, options: { readonly recursive: boolean }): Promise<void>
+  /** 同设备原子重命名；跨设备抛 `code === 'EXDEV'`。 */
+  rename(from: string, to: string): Promise<void>
+  /** 复制单个文件（不含目录）。 */
+  copyFile(from: string, to: string): Promise<void>
 }
 
 /** 文件操作工厂的宿主上下文：拼接路径的函数与文件系统端口。 */
@@ -252,9 +313,19 @@ function isMissing(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { readonly code?: unknown }).code === 'ENOENT'
 }
 
+/** 跨设备重命名（EXDEV）需要回退到逐文件复制。 */
+function isCrossDevice(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { readonly code?: unknown }).code === 'EXDEV'
+}
+
 /** 把任意抛出物压成一句可读原因。 */
 function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/** 单个文件复制失败的警告：点名源与目标，并说明源被保留、目标半成品需手工清理。 */
+function copyFailure(src: string, dest: string, error: unknown): string {
+  return `copy ${src} -> ${dest}: ${reasonOf(error)} (the source was kept; the partial copy at the destination needs manual cleanup)`
 }
 
 /**
@@ -266,14 +337,22 @@ function reasonOf(error: unknown): string {
  *   缺失或删除失败都无害。
  *
  * `remove` 不抛错：所有失败都作为 `<路径>: <原因>` 返回，由调用方并入 warnings。
+ * `archive(sessionId, archiveRoot)` 把每个命中的会话目录移动到
+ * `<archiveRoot>/<项目目录>/<sessionId>`（项目层级取自源路径的父目录名），绝不覆盖
+ * 已存在的目标：先 `lstat(dest)`，再 `mkdir` 父级、`rename`；仅在跨设备（EXDEV）时
+ * 回退到内部 `copyTree`（符号链接不复制、任一失败不删源、全部成功后才删源）。
+ * 投影缓存的 `unlink` 与 `remove` 相同；所有失败都返回而不抛出。
  * `measure` 递归求和（符号链接按自身大小计，不跟随），任何读取失败按 0。
+ * `prepareArchive` 递归建出归档根，失败直接抛给 {@link archiveSession} 映射。
  *
  * @param layout - 宿主路径解析与文件系统端口。
- * @returns 该会话的 `measure` / `remove` 两个动作。
+ * @returns 该会话的 `measure` / `remove` 与归档迁移的 `prepareArchive` / `archive`。
  */
 export function createSessionFiles(layout: SessionFileLayout): {
   measure(sessionId: string): Promise<number>
   remove(sessionId: string): Promise<readonly string[]>
+  prepareArchive(archiveRoot: string): Promise<void>
+  archive(sessionId: string, archiveRoot: string): Promise<readonly string[]>
 } {
   const { fs } = layout
 
@@ -337,6 +416,52 @@ export function createSessionFiles(layout: SessionFileLayout): {
     return total
   }
 
+  /**
+   * 逐文件复制一棵目录树（只在 EXDEV 回退里使用，不交给 `fs.cp`）。
+   *
+   * 目的地必须不存在：`mkdir(to, { recursive: false })` 的 EEXIST 就是失败。符号链接
+   * 不跟随、不复制（记一条点名该路径的警告）；任一失败都会让调用方保留源目录，绝不
+   * 在复制不完整时删除源。返回失败项，不抛错。
+   *
+   * @param from - 源目录。
+   * @param to - 目标目录（必须不存在）。
+   * @returns 失败项；为空表示整棵树复制完整。
+   */
+  async function copyTree(from: string, to: string): Promise<readonly string[]> {
+    const warnings: string[] = []
+    try {
+      await fs.mkdir(to, { recursive: false })
+    } catch (error: unknown) {
+      warnings.push(`${from} -> ${to}: ${reasonOf(error)}`)
+      return warnings
+    }
+    let entries: readonly DirectoryEntry[]
+    try {
+      entries = await fs.readdir(from)
+    } catch (error: unknown) {
+      warnings.push(`${from} -> ${to}: ${reasonOf(error)}`)
+      return warnings
+    }
+    for (const entry of entries) {
+      const src = join(from, entry.name)
+      const dest = join(to, entry.name)
+      if (entry.isSymbolicLink?.() === true) {
+        warnings.push(`${src}: symbolic link was not copied (the source directory was kept)`)
+        continue
+      }
+      if (entry.isDirectory()) {
+        warnings.push(...await copyTree(src, dest))
+        continue
+      }
+      try {
+        await fs.copyFile(src, dest)
+      } catch (error: unknown) {
+        warnings.push(copyFailure(src, dest, error))
+      }
+    }
+    return warnings
+  }
+
   return {
     /** 删除集合里一个会话的磁盘痕迹，返回失败项。 */
     async remove(sessionId: string): Promise<readonly string[]> {
@@ -350,6 +475,69 @@ export function createSessionFiles(layout: SessionFileLayout): {
           await fs.rm(path, { recursive: true, force: true })
         } catch (error: unknown) {
           warnings.push(`${path}: ${reasonOf(error)}`)
+        }
+      }
+      const cachePath = projCachePath(sessionId)
+      try {
+        await fs.unlink(cachePath)
+      } catch (error: unknown) {
+        if (!isMissing(error)) warnings.push(`${cachePath}: ${reasonOf(error)}`)
+      }
+      return warnings
+    },
+
+    /** 递归建出归档根；失败直接抛出，由 {@link archiveSession} 映射为 `archive-unavailable`。 */
+    async prepareArchive(archiveRoot: string): Promise<void> {
+      await fs.mkdir(archiveRoot, { recursive: true })
+    },
+
+    /**
+     * 迁移集合里一个会话的磁盘痕迹：每个命中的日志目录移动到
+     * `<archiveRoot>/<项目目录>/<sessionId>`，随后删除投影缓存；返回失败项。
+     */
+    async archive(sessionId: string, archiveRoot: string): Promise<readonly string[]> {
+      if (!isSafeSessionId(sessionId)) {
+        return [`session id ${JSON.stringify(sessionId)} is not a safe path segment; nothing was moved`]
+      }
+      const located = await locate(sessionId)
+      const warnings = [...located.warnings]
+      for (const src of located.paths) {
+        const dest = join(archiveRoot, basename(dirname(src)), sessionId)
+        // POSIX rename 会静默顶替空目录：先显式判定目标存在，把同名冲突变成失败项。
+        try {
+          await fs.lstat(dest)
+          warnings.push(`${dest} already exists; the session directory was not moved (source kept at ${src})`)
+          continue
+        } catch (error: unknown) {
+          if (!isMissing(error)) {
+            warnings.push(`${src} -> ${dest}: ${reasonOf(error)}`)
+            continue
+          }
+        }
+        try {
+          await fs.mkdir(dirname(dest), { recursive: true })
+        } catch (error: unknown) {
+          warnings.push(`${src} -> ${dest}: ${reasonOf(error)}`)
+          continue
+        }
+        try {
+          await fs.rename(src, dest)
+          continue
+        } catch (error: unknown) {
+          if (!isCrossDevice(error)) {
+            warnings.push(`${src} -> ${dest}: ${reasonOf(error)}`)
+            continue
+          }
+        }
+        const copyWarnings = await copyTree(src, dest)
+        if (copyWarnings.length > 0) {
+          warnings.push(...copyWarnings)
+          continue
+        }
+        try {
+          await fs.rm(src, { recursive: true, force: false })
+        } catch (error: unknown) {
+          warnings.push(`moved to ${dest} but the source could not be removed: ${src}: ${reasonOf(error)}`)
         }
       }
       const cachePath = projCachePath(sessionId)

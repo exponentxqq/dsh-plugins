@@ -1,5 +1,6 @@
 /**
- * `delete-client` 的边界行为：两个端点的成功路径、宿主失败信封、传输异常与坏形状。
+ * `delete-client` 的边界行为：两个端点的成功路径（含请求体携带的处置模式）、宿主失败信封、
+ * 传输异常与坏形状。
  *
  * 浏览器半的类型只是「宿主承诺」，所以这里全部用假 Connection 喂原始线值，断言的是
  * 调用参数与归一化后的失败码，而不是类型。
@@ -34,29 +35,45 @@ async function failureOf(run: () => Promise<unknown>): Promise<DeleteError> {
 }
 
 describe('delete client', () => {
-  it('预览成功：走预览端点、带 sessionId、返回校验后的预览', async () => {
+  it('预览成功：走预览端点、带 sessionId 与 mode、返回校验后的预览', async () => {
     const { call, connection } = connectionReturning({
       ok: true,
-      value: { sessionCount: 3, descendantCount: 2, logBytes: 4096 },
+      value: {
+        sessionCount: 3,
+        descendantCount: 2,
+        logBytes: 4096,
+        archiveRoot: '/home/x/archive/sessions',
+      },
     })
 
-    const preview = await createDeleteClient(connection).preview('session-1')
+    const preview = await createDeleteClient(connection).preview('session-1', 'archive')
 
-    expect(preview).toEqual({ sessionCount: 3, descendantCount: 2, logBytes: 4096 })
-    expect(call).toHaveBeenCalledWith(CHANNEL, PREVIEW_ENDPOINT, { sessionId: 'session-1' })
+    expect(preview).toEqual({
+      sessionCount: 3,
+      descendantCount: 2,
+      logBytes: 4096,
+      archiveRoot: '/home/x/archive/sessions',
+    })
+    expect(call).toHaveBeenCalledWith(CHANNEL, PREVIEW_ENDPOINT, {
+      sessionId: 'session-1',
+      mode: 'archive',
+    })
   })
 
-  it('执行成功：走删除端点并返回 removed 与 warnings', async () => {
+  it('执行成功：走删除端点、带 sessionId 与 mode，并返回 removed 与 warnings', async () => {
     const { call, connection } = connectionReturning({
       ok: true,
       value: { removed: ['session-1', 'session-2'], warnings: ['/home/x/sessions/a/session-1: EACCES'] },
     })
 
-    const outcome = await createDeleteClient(connection).remove('session-1')
+    const outcome = await createDeleteClient(connection).remove('session-1', 'delete')
 
     expect(outcome.removed).toEqual(['session-1', 'session-2'])
     expect(outcome.warnings).toEqual(['/home/x/sessions/a/session-1: EACCES'])
-    expect(call).toHaveBeenCalledWith(CHANNEL, DELETE_ENDPOINT, { sessionId: 'session-1' })
+    expect(call).toHaveBeenCalledWith(CHANNEL, DELETE_ENDPOINT, {
+      sessionId: 'session-1',
+      mode: 'delete',
+    })
   })
 
   it('宿主拒绝：原样保留失败码与说明', async () => {
@@ -65,7 +82,7 @@ describe('delete client', () => {
       error: { code: 'not-archived', message: 'session "session-1" is not archived' },
     })
 
-    const error = await failureOf(() => createDeleteClient(connection).preview('session-1'))
+    const error = await failureOf(() => createDeleteClient(connection).preview('session-1', 'archive'))
 
     expect(error.code).toBe('not-archived')
     expect(error.message).toBe('session "session-1" is not archived')
@@ -75,7 +92,7 @@ describe('delete client', () => {
   it('传输异常归一为 unavailable', async () => {
     const { connection } = connectionThrowing(new Error('socket closed'))
 
-    const error = await failureOf(() => createDeleteClient(connection).remove('session-1'))
+    const error = await failureOf(() => createDeleteClient(connection).remove('session-1', 'delete'))
 
     expect(error.code).toBe('unavailable')
     expect(error.message).toBe('socket closed')
@@ -87,7 +104,7 @@ describe('delete client', () => {
       value: { sessionCount: '3', descendantCount: 0, logBytes: 0 },
     })
 
-    const error = await failureOf(() => createDeleteClient(connection).preview('session-1'))
+    const error = await failureOf(() => createDeleteClient(connection).preview('session-1', 'archive'))
 
     expect(error.code).toBe('bad-response')
   })
@@ -95,7 +112,7 @@ describe('delete client', () => {
   it('执行响应的 removed 为空串数组时同样按坏形状拒绝', async () => {
     const { connection } = connectionReturning({ ok: true, value: { removed: [], warnings: [] } })
 
-    const error = await failureOf(() => createDeleteClient(connection).remove('session-1'))
+    const error = await failureOf(() => createDeleteClient(connection).remove('session-1', 'delete'))
 
     expect(error.code).toBe('bad-response')
   })
@@ -103,7 +120,7 @@ describe('delete client', () => {
   it('不可读的失败信封归一为 unavailable', async () => {
     const { connection } = connectionReturning({ ok: false, error: 'boom' })
 
-    const error = await failureOf(() => createDeleteClient(connection).remove('session-1'))
+    const error = await failureOf(() => createDeleteClient(connection).remove('session-1', 'delete'))
 
     expect(error.code).toBe('unavailable')
   })

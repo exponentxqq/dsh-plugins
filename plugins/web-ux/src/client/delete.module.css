@@ -2,9 +2,10 @@
  * 删除确认对话框的最小样式。
  *
  * 骨架（遮罩、卡片、标题、关闭按钮、按钮排布）全部由官方 primitives 的 Modal / Button
- * 提供，这里只补三件事：危险确认按钮的配色（Button 没有 danger variant）、预览摘要与
- * 警示的文字层级、warnings 清单的可读性。颜色一律取官方 `--dsw-alias-*` 设计令牌并带
- * 静态兜底，令牌改名时最坏退化成可读的黑白而不是透明。
+ * 提供，这里只补四件事：危险确认按钮的配色（Button 没有 danger variant）、预览摘要与
+ * 警示的文字层级、处置方式单选区块（原生 fieldset/radio 与归档目标行）、warnings 清单
+ * 的可读性。颜色一律取官方 `--dsw-alias-*` 设计令牌并带静态兜底，令牌改名时最坏退化成
+ * 可读的黑白而不是透明。
  */
 
 /* 危险确认按钮：与官方 primary 同尺寸同圆角，只把填充换成错误色。 */
@@ -32,6 +33,71 @@
   color: var(--dsw-alias-label-secondary, #545557);
   font-size: 14px;
   line-height: 22px;
+}
+
+/* —— 处置方式单选：fieldset 自带边框与内边距，这里全部抹平只留分组间距 —— */
+.modes {
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+
+/* legend 是原生语义元素、没有 className，只能在后代里对齐分区标题的字级。 */
+.modes legend {
+  display: block;
+  margin: 0 0 6px;
+  padding: 0;
+  color: var(--dsw-alias-label-secondary, #545557);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  letter-spacing: 0.01em;
+}
+
+/* 选项行：整行是 label，点文字等于点 radio；radio 与首行文字顶对齐。 */
+.modeRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 3px 0;
+  cursor: pointer;
+}
+
+/* 原生 radio 只改强调色（对齐设计系统的品牌色），尺寸与命中区保持系统默认。 */
+.modeRow input {
+  flex: none;
+  margin: 3px 0 0;
+  accent-color: var(--dsw-alias-state-business-primary, #1a67e0);
+}
+
+/* 选项文字：主标题一行；将来补说明行时按 2px 间距堆成上下两行。 */
+.modeText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--dsw-alias-label-primary, #000);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+/* 进行中（fieldset disabled）：整组降级到弱化色，行也不再显示可点手势。 */
+.modes:disabled .modeRow {
+  cursor: default;
+}
+
+.modes:disabled .modeText {
+  color: var(--dsw-alias-label-tertiary, #7f8287);
+}
+
+/* 归档目标路径：机器串用等宽字体，长路径按词换行，颜色弱化到辅助层级。 */
+.archiveTarget {
+  margin: 0 0 12px;
+  color: var(--dsw-alias-label-tertiary, #7f8287);
+  font-family: var(--ds-font-family-code, monospace);
+  font-size: 12px;
+  line-height: 18px;
+  word-break: break-all;
 }
 
 /* 不可逆警示：用警告色而非错误色——这是必须读到的事实，不是已经发生的错误。 */

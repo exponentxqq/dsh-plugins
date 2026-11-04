@@ -1,6 +1,7 @@
 /**
- * 「删除已归档会话」宿主侧流程的单测：级联收集、三种拒绝码、预览统计、执行顺序
- * 与半失败 warnings，以及文件操作工厂的目录定位与安全防线。
+ * 「删除已归档会话」宿主侧流程的单测：级联收集、三种拒绝码、预览统计、删除与
+ * 迁移共用的执行顺序、半失败 warnings，以及文件操作工厂的目录定位、安全防线与
+ * 迁移（rename / EXDEV 回退 copyTree / 同名冲突 / 符号链接）语义。
  *
  * 全部通过注入的 fake 端口与内存文件系统驱动：不触碰真实磁盘、不需要 cordis。
  */
@@ -8,6 +9,7 @@
 import { basename, dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  archiveSession,
   collectDeleteSet,
   createSessionFiles,
   deleteSession,
@@ -31,12 +33,17 @@ const CASCADE: readonly StoredSessionHeader[] = [
 /** 上述清单的删除集合。 */
 const REMOVED = ['session-target', 'session-child', 'session-grandchild']
 
+/** 迁移用例共用的归档根。 */
+const ARCHIVE_ROOT = '/archive/sessions'
+
 /** 一次 fake 端口组装的产物。 */
 interface RecordingPorts {
   /** 交给流程的端口。 */
   readonly ports: DeletePorts
   /** 端口调用序列，形如 `cleanup:<id>`。 */
   readonly calls: string[]
+  /** `prepareArchive` 收到的归档根；单独记录，让 `calls` 只保留会话级动作。 */
+  readonly prepared: string[]
   /** `warn` 收到的参数。 */
   readonly warnings: unknown[][]
 }
@@ -55,6 +62,10 @@ interface PortOptions {
   readonly remove?: (sessionId: string) => Promise<readonly string[]>
   /** `cleanupRegistry` 的替身，默认只记录调用。 */
   readonly cleanup?: (sessionId: string) => Promise<void>
+  /** `prepareArchive` 的替身，默认只记录调用。 */
+  readonly prepare?: (archiveRoot: string) => Promise<void>
+  /** `archiveFiles` 的替身，默认空 warnings。 */
+  readonly archive?: (sessionId: string, archiveRoot: string) => Promise<readonly string[]>
   /** `emitRemoved` 的替身，默认只记录调用。 */
   readonly emit?: (sessionId: string) => void
 }
@@ -66,6 +77,7 @@ interface PortOptions {
  */
 function createPorts(options: PortOptions = {}): RecordingPorts {
   const calls: string[] = []
+  const prepared: string[] = []
   const warnings: unknown[][] = []
   const headersOf = (): readonly StoredSessionHeader[] =>
     typeof options.headers === 'function' ? options.headers() : options.headers ?? []
@@ -85,13 +97,21 @@ function createPorts(options: PortOptions = {}): RecordingPorts {
       calls.push(`remove:${sessionId}`)
       return options.remove === undefined ? [] : await options.remove(sessionId)
     },
+    prepareArchive: async (archiveRoot) => {
+      prepared.push(archiveRoot)
+      await options.prepare?.(archiveRoot)
+    },
+    archiveFiles: async (sessionId, archiveRoot) => {
+      calls.push(`archive:${sessionId}:${archiveRoot}`)
+      return options.archive === undefined ? [] : await options.archive(sessionId, archiveRoot)
+    },
     emitRemoved: (sessionId) => {
       calls.push(`emit:${sessionId}`)
       options.emit?.(sessionId)
     },
     warn: (message, error) => { warnings.push([message, error]) },
   }
-  return { ports, calls, warnings }
+  return { ports, calls, prepared, warnings }
 }
 
 describe('collectDeleteSet', () => {
@@ -169,9 +189,9 @@ describe('previewDelete', () => {
       archived: ['session-target'],
       measure: async (sessionId) => sizes.get(sessionId) ?? 0,
     })
-    expect(await previewDelete(ports, 'session-target')).toEqual({
+    expect(await previewDelete(ports, 'session-target', '/archive/sessions')).toEqual({
       ok: true,
-      preview: { sessionCount: 3, descendantCount: 2, logBytes: 60 },
+      preview: { sessionCount: 3, descendantCount: 2, logBytes: 60, archiveRoot: '/archive/sessions' },
     })
     expect(calls).toEqual([
       'measure:session-target',
@@ -182,7 +202,7 @@ describe('previewDelete', () => {
 
   it('未归档时与执行同款拒绝，且不做任何测量', async () => {
     const { ports, calls } = createPorts({ headers: CASCADE, archived: [] })
-    expect(await previewDelete(ports, 'session-target')).toEqual({
+    expect(await previewDelete(ports, 'session-target', '/archive/sessions')).toEqual({
       ok: false,
       code: 'not-archived',
       message: expect.any(String),
@@ -199,9 +219,9 @@ describe('previewDelete', () => {
         return 5
       },
     })
-    expect(await previewDelete(ports, 'session-target')).toEqual({
+    expect(await previewDelete(ports, 'session-target', '/archive/sessions')).toEqual({
       ok: true,
-      preview: { sessionCount: 3, descendantCount: 2, logBytes: 10 },
+      preview: { sessionCount: 3, descendantCount: 2, logBytes: 10, archiveRoot: '/archive/sessions' },
     })
     expect(warnings).toHaveLength(1)
   })
@@ -303,7 +323,95 @@ describe('deleteSession', () => {
   })
 })
 
-/** 内存文件系统：目录集合 + 文件大小表 + 可注入的逐操作失败。 */
+describe('archiveSession', () => {
+  it('级联迁移：逐 id 以 cleanup → archive → emit 顺序执行并返回完整集合', async () => {
+    const { ports, calls } = createPorts({ headers: CASCADE, archived: ['session-target'] })
+    expect(await archiveSession(ports, 'session-target', ARCHIVE_ROOT)).toEqual({
+      ok: true,
+      outcome: { removed: REMOVED, warnings: [] },
+    })
+    expect(calls).toEqual([
+      'cleanup:session-target', `archive:session-target:${ARCHIVE_ROOT}`, 'emit:session-target',
+      'cleanup:session-child', `archive:session-child:${ARCHIVE_ROOT}`, 'emit:session-child',
+      'cleanup:session-grandchild', `archive:session-grandchild:${ARCHIVE_ROOT}`, 'emit:session-grandchild',
+    ])
+  })
+
+  it('归档根准备失败 → archive-unavailable，且不做任何会话动作', async () => {
+    const { ports, calls, prepared } = createPorts({
+      headers: CASCADE,
+      archived: ['session-target'],
+      prepare: async () => { throw new Error('EACCES: permission denied') },
+    })
+    expect(await archiveSession(ports, 'session-target', ARCHIVE_ROOT)).toEqual({
+      ok: false,
+      code: 'archive-unavailable',
+      message: `archive root "${ARCHIVE_ROOT}" is not usable: EACCES: permission denied`,
+    })
+    expect(calls).toEqual([])
+    expect(prepared).toEqual([ARCHIVE_ROOT])
+  })
+
+  it('相对归档根 → archive-unavailable，且不准备归档根', async () => {
+    const { ports, calls, prepared } = createPorts({ headers: CASCADE, archived: ['session-target'] })
+    expect(await archiveSession(ports, 'session-target', 'archive/sessions')).toEqual({
+      ok: false,
+      code: 'archive-unavailable',
+      message: 'archive root "archive/sessions" is not an absolute path',
+    })
+    expect(calls).toEqual([])
+    expect(prepared).toEqual([])
+  })
+
+  it('拒绝码与删除同源：未归档时不做准备也不做动作', async () => {
+    const { ports, calls, prepared } = createPorts({ headers: CASCADE, archived: [] })
+    expect(await archiveSession(ports, 'session-target', ARCHIVE_ROOT)).toEqual({
+      ok: false,
+      code: 'not-archived',
+      message: expect.any(String),
+    })
+    expect(calls).toEqual([])
+    expect(prepared).toEqual([])
+  })
+
+  it('archiveFiles 返回的失败项并入 warnings，整体仍成功', async () => {
+    const { ports } = createPorts({
+      headers: CASCADE,
+      archived: ['session-target'],
+      archive: async (sessionId) => (sessionId === 'session-child' ? ['/home/tester/.dsh/sessions/proj/session-child: EACCES'] : []),
+    })
+    expect(await archiveSession(ports, 'session-target', ARCHIVE_ROOT)).toEqual({
+      ok: true,
+      outcome: {
+        removed: REMOVED,
+        warnings: ['/home/tester/.dsh/sessions/proj/session-child: EACCES'],
+      },
+    })
+  })
+
+  it('archiveFiles 意外抛错也只记 warning 并继续', async () => {
+    const { ports, calls } = createPorts({
+      headers: CASCADE,
+      archived: ['session-target'],
+      archive: async (sessionId) => {
+        if (sessionId === 'session-target') throw new Error('driver exploded')
+        return []
+      },
+    })
+    expect(await archiveSession(ports, 'session-target', ARCHIVE_ROOT)).toEqual({
+      ok: true,
+      outcome: { removed: REMOVED, warnings: ['files: session-target: driver exploded'] },
+    })
+    expect(calls).toContain(`archive:session-grandchild:${ARCHIVE_ROOT}`)
+  })
+})
+
+/** 造一个跨设备重命名错误（EXDEV），用于驱动 copyTree 回退。 */
+function crossDeviceError(path: string): Error {
+  return Object.assign(new Error(`EXDEV: cross-device link not permitted, ${path}`), { code: 'EXDEV' })
+}
+
+/** 内存文件系统：目录集合 + 文件大小表 + 符号链接集合 + 可注入的逐操作失败。 */
 interface FakeFs {
   /** 交给工厂的文件系统端口。 */
   readonly ops: FileSystemOps
@@ -313,8 +421,14 @@ interface FakeFs {
   addDir(path: string): void
   /** 建文件。 */
   addFile(path: string, size: number): void
+  /** 建符号链接（只登记路径，不跟随）。 */
+  addSymlink(path: string): void
   /** 让某个操作对某个路径抛错。 */
-  fail(op: 'readdir' | 'lstat' | 'rm' | 'unlink', path: string, error: Error): void
+  fail(
+    op: 'readdir' | 'lstat' | 'rm' | 'unlink' | 'mkdir' | 'rename' | 'copyFile',
+    path: string,
+    error: Error,
+  ): void
   /** 路径是否仍存在。 */
   has(path: string): boolean
 }
@@ -326,21 +440,61 @@ interface FakeFs {
 function createFakeFs(): FakeFs {
   const dirs = new Map<string, Set<string>>()
   const files = new Map<string, number>()
+  const symlinks = new Set<string>()
   const failures = new Map<string, Error>()
   const calls: string[] = []
 
   const missing = (path: string): Error =>
     Object.assign(new Error(`ENOENT: no such file or directory, ${path}`), { code: 'ENOENT' })
+  const exists = (path: string): Error =>
+    Object.assign(new Error(`EEXIST: file already exists, ${path}`), { code: 'EEXIST' })
   const check = (op: string, path: string): void => {
     const failure = failures.get(`${op} ${path}`)
     if (failure !== undefined) throw failure
   }
+  const detach = (path: string): void => {
+    dirs.get(dirname(path))?.delete(basename(path))
+  }
   const removeTree = (path: string): void => {
+    detach(path)
     files.delete(path)
+    symlinks.delete(path)
     const children = dirs.get(path)
     if (children === undefined) return
     dirs.delete(path)
     for (const name of children) removeTree(join(path, name))
+  }
+  const ensureDir = (path: string): void => {
+    if (dirs.has(path)) return
+    if (files.has(path) || symlinks.has(path)) throw exists(path)
+    const parent = dirname(path)
+    if (parent !== path) ensureDir(parent)
+    dirs.set(path, new Set())
+    if (parent !== path) dirs.get(parent)?.add(basename(path))
+  }
+  const moveTree = (from: string, to: string): void => {
+    if (symlinks.delete(from)) {
+      symlinks.add(to)
+      detach(from)
+      dirs.get(dirname(to))?.add(basename(to))
+      return
+    }
+    const size = files.get(from)
+    if (size !== undefined) {
+      files.delete(from)
+      files.set(to, size)
+      detach(from)
+      dirs.get(dirname(to))?.add(basename(to))
+      return
+    }
+    const children = dirs.get(from)
+    if (children === undefined) throw missing(from)
+    const names = [...children]
+    dirs.delete(from)
+    dirs.set(to, new Set(names))
+    detach(from)
+    dirs.get(dirname(to))?.add(basename(to))
+    for (const name of names) moveTree(join(from, name), join(to, name))
   }
 
   const ops: FileSystemOps = {
@@ -352,6 +506,7 @@ function createFakeFs(): FakeFs {
       return [...children].map((name): DirectoryEntry => ({
         name,
         isDirectory: () => dirs.has(join(path, name)),
+        isSymbolicLink: () => symlinks.has(join(path, name)),
       }))
     },
     lstat: async (path) => {
@@ -359,13 +514,14 @@ function createFakeFs(): FakeFs {
       check('lstat', path)
       if (dirs.has(path)) return { size: 0, isDirectory: () => true }
       const size = files.get(path)
-      if (size === undefined) throw missing(path)
-      return { size, isDirectory: () => false }
+      if (size !== undefined) return { size, isDirectory: () => false }
+      if (symlinks.has(path)) return { size: 0, isDirectory: () => false }
+      throw missing(path)
     },
     rm: async (path, options) => {
       calls.push(`rm ${path}`)
       check('rm', path)
-      if (!dirs.has(path) && !files.has(path)) {
+      if (!dirs.has(path) && !files.has(path) && !symlinks.has(path)) {
         if (!options.force) throw missing(path)
         return
       }
@@ -374,7 +530,40 @@ function createFakeFs(): FakeFs {
     unlink: async (path) => {
       calls.push(`unlink ${path}`)
       check('unlink', path)
-      if (!files.delete(path)) throw missing(path)
+      if (!files.delete(path) && !symlinks.delete(path)) throw missing(path)
+      detach(path)
+    },
+    mkdir: async (path, options) => {
+      calls.push(`mkdir ${path}`)
+      check('mkdir', path)
+      if (dirs.has(path)) {
+        if (options.recursive) return
+        throw exists(path)
+      }
+      if (files.has(path) || symlinks.has(path)) throw exists(path)
+      if (options.recursive) {
+        ensureDir(path)
+        return
+      }
+      if (!dirs.has(dirname(path))) throw missing(path)
+      dirs.set(path, new Set())
+      dirs.get(dirname(path))?.add(basename(path))
+    },
+    rename: async (from, to) => {
+      calls.push(`rename ${from} -> ${to}`)
+      check('rename', from)
+      if (!dirs.has(from) && !files.has(from) && !symlinks.has(from)) throw missing(from)
+      if (dirs.has(to) || files.has(to) || symlinks.has(to)) throw exists(to)
+      moveTree(from, to)
+    },
+    copyFile: async (from, to) => {
+      calls.push(`copyFile ${from} -> ${to}`)
+      check('copyFile', from)
+      const size = files.get(from)
+      if (size === undefined) throw missing(from)
+      if (!dirs.has(dirname(to))) throw missing(to)
+      files.set(to, size)
+      dirs.get(dirname(to))?.add(basename(to))
     },
   }
 
@@ -390,8 +579,12 @@ function createFakeFs(): FakeFs {
       files.set(path, size)
       dirs.get(dirname(path))?.add(basename(path))
     },
+    addSymlink: (path) => {
+      symlinks.add(path)
+      dirs.get(dirname(path))?.add(basename(path))
+    },
     fail: (op, path, error) => { failures.set(`${op} ${path}`, error) },
-    has: (path) => dirs.has(path) || files.has(path),
+    has: (path) => dirs.has(path) || files.has(path) || symlinks.has(path),
   }
 }
 
@@ -401,7 +594,7 @@ const HOME = '/home/tester/.dsh'
 /**
  * 把文件操作工厂挂到 {@link HOME} 上。
  * @param fs - 文件系统端口。
- * @returns 工厂产出的 `measure` / `remove`。
+ * @returns 工厂产出的 `measure` / `remove` / `prepareArchive` / `archive`。
  */
 function mountFiles(fs: FileSystemOps): ReturnType<typeof createSessionFiles> {
   return createSessionFiles({ homePath: (...segments: string[]) => join(HOME, ...segments), fs })
@@ -543,11 +736,187 @@ describe('createSessionFiles', () => {
       },
       rm: async () => { calls.push('rm') },
       unlink: async () => { calls.push('unlink') },
+      mkdir: async () => { calls.push('mkdir') },
+      rename: async () => { calls.push('rename') },
+      copyFile: async () => { calls.push('copyFile') },
     }
     expect(await mountFiles(ops).remove('session-a')).toEqual([
       `${join(HOME, 'sessions', 'proj-link')}: symbolic-linked project directory was not followed`,
     ])
     // 只尝试了投影缓存的 unlink：符号链接项目目录下的会话树一次都没有被 rm。
     expect(calls).toEqual(['unlink'])
+  })
+})
+
+describe('createSessionFiles.archive', () => {
+  it('prepareArchive 递归建出归档根（含父级）', async () => {
+    const fake = createFakeFs()
+    await mountFiles(fake.ops).prepareArchive('/data/dsh/archive/sessions')
+    expect(fake.has('/data')).toBe(true)
+    expect(fake.has('/data/dsh/archive')).toBe(true)
+    expect(fake.has('/data/dsh/archive/sessions')).toBe(true)
+    expect(fake.calls).toEqual(['mkdir /data/dsh/archive/sessions'])
+  })
+
+  it('迁移成功：rename 恰一次，源目录消失，目标保留日志，投影缓存被删', async () => {
+    const fake = createFakeFs()
+    const src = addSession(fake, 'proj-a', 'session-a', 100)
+    const cache = addProjCache(fake, 'session-a')
+    const dest = join(ARCHIVE_ROOT, 'proj-a', 'session-a')
+    const files = mountFiles(fake.ops)
+    await files.prepareArchive(ARCHIVE_ROOT)
+
+    expect(await files.archive('session-a', ARCHIVE_ROOT)).toEqual([])
+    expect(fake.has(src)).toBe(false)
+    expect(fake.has(join(dest, 'session.v4.jsonl.zstd'))).toBe(true)
+    expect(fake.has(cache)).toBe(false)
+    expect(fake.calls.filter((call) => call.startsWith('rename '))).toEqual([`rename ${src} -> ${dest}`])
+  })
+
+  it('多个项目目录各自迁移，目标保留项目层级', async () => {
+    const fake = createFakeFs()
+    addSession(fake, 'proj-a', 'session-a')
+    addSession(fake, 'proj-b', 'session-a')
+    expect(await mountFiles(fake.ops).archive('session-a', ARCHIVE_ROOT)).toEqual([])
+    expect(fake.has(join(ARCHIVE_ROOT, 'proj-a', 'session-a', 'session.v4.jsonl.zstd'))).toBe(true)
+    expect(fake.has(join(ARCHIVE_ROOT, 'proj-b', 'session-a', 'session.v4.jsonl.zstd'))).toBe(true)
+  })
+
+  it('EXDEV 回退：mkdir + copyFile + rm(源)，源消失且目标内容完整', async () => {
+    const fake = createFakeFs()
+    const src = addSession(fake, 'proj-a', 'session-a', 100)
+    const cache = addProjCache(fake, 'session-a')
+    const dest = join(ARCHIVE_ROOT, 'proj-a', 'session-a')
+    fake.fail('rename', src, crossDeviceError(src))
+
+    expect(await mountFiles(fake.ops).archive('session-a', ARCHIVE_ROOT)).toEqual([])
+    expect(fake.has(src)).toBe(false)
+    expect(fake.has(join(dest, 'session.v4.jsonl.zstd'))).toBe(true)
+    expect(fake.has(cache)).toBe(false)
+    expect(fake.calls).toEqual([
+      `readdir ${join(HOME, 'sessions')}`,
+      `lstat ${src}`,
+      `lstat ${dest}`,
+      `mkdir ${join(ARCHIVE_ROOT, 'proj-a')}`,
+      `rename ${src} -> ${dest}`,
+      `mkdir ${dest}`,
+      `readdir ${src}`,
+      `copyFile ${join(src, 'session.v4.jsonl.zstd')} -> ${join(dest, 'session.v4.jsonl.zstd')}`,
+      `rm ${src}`,
+      `unlink ${cache}`,
+    ])
+  })
+
+  it('目标已存在：返回 already exists 警告，源完整保留且未调用 rename', async () => {
+    const fake = createFakeFs()
+    const src = addSession(fake, 'proj-a', 'session-a', 100)
+    const cache = addProjCache(fake, 'session-a')
+    const dest = join(ARCHIVE_ROOT, 'proj-a', 'session-a')
+    fake.addDir(ARCHIVE_ROOT)
+    fake.addDir(join(ARCHIVE_ROOT, 'proj-a'))
+    fake.addDir(dest)
+
+    expect(await mountFiles(fake.ops).archive('session-a', ARCHIVE_ROOT)).toEqual([
+      `${dest} already exists; the session directory was not moved (source kept at ${src})`,
+    ])
+    expect(fake.has(join(src, 'session.v4.jsonl.zstd'))).toBe(true)
+    expect(fake.calls.some((call) => call.startsWith('rename '))).toBe(false)
+    expect(fake.has(cache)).toBe(false)
+  })
+
+  it('copy 中途失败：源保留，警告点名源与目标，且未删除源', async () => {
+    const fake = createFakeFs()
+    const src = addSession(fake, 'proj-a', 'session-a', 100)
+    fake.addDir(join(src, 'parts'))
+    const part = join(src, 'parts', 'part-1')
+    fake.addFile(part, 7)
+    const cache = addProjCache(fake, 'session-a')
+    fake.fail('rename', src, crossDeviceError(src))
+    fake.fail('copyFile', part, new Error('EIO: i/o error'))
+    const dest = join(ARCHIVE_ROOT, 'proj-a', 'session-a')
+
+    const warnings = await mountFiles(fake.ops).archive('session-a', ARCHIVE_ROOT)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain(`copy ${part} -> ${join(dest, 'parts', 'part-1')}`)
+    expect(warnings[0]).toContain(src)
+    expect(warnings[0]).toContain(dest)
+    expect(warnings[0]).toContain('the source was kept')
+    expect(fake.calls).not.toContain(`rm ${src}`)
+    expect(fake.has(part)).toBe(true)
+    expect(fake.has(cache)).toBe(false)
+  })
+
+  it('源内含符号链接：不复制、源目录保留，并点名该链接', async () => {
+    const fake = createFakeFs()
+    const src = addSession(fake, 'proj-a', 'session-a', 100)
+    const link = join(src, 'linked-log')
+    fake.addSymlink(link)
+    fake.fail('rename', src, crossDeviceError(src))
+    const dest = join(ARCHIVE_ROOT, 'proj-a', 'session-a')
+
+    expect(await mountFiles(fake.ops).archive('session-a', ARCHIVE_ROOT)).toEqual([
+      `${link}: symbolic link was not copied (the source directory was kept)`,
+    ])
+    expect(fake.has(src)).toBe(true)
+    expect(fake.has(link)).toBe(true)
+    expect(fake.has(join(dest, 'linked-log'))).toBe(false)
+    expect(fake.calls).not.toContain(`rm ${src}`)
+  })
+
+  it('copy 全部成功后 rm 源失败：记「已移动但源未删」，目标数据完整', async () => {
+    const fake = createFakeFs()
+    const src = addSession(fake, 'proj-a', 'session-a', 100)
+    fake.fail('rename', src, crossDeviceError(src))
+    fake.fail('rm', src, new Error('EACCES: permission denied'))
+    const dest = join(ARCHIVE_ROOT, 'proj-a', 'session-a')
+
+    expect(await mountFiles(fake.ops).archive('session-a', ARCHIVE_ROOT)).toEqual([
+      `moved to ${dest} but the source could not be removed: ${src}: EACCES: permission denied`,
+    ])
+    expect(fake.has(join(dest, 'session.v4.jsonl.zstd'))).toBe(true)
+    expect(fake.has(join(src, 'session.v4.jsonl.zstd'))).toBe(true)
+  })
+
+  it('rename 非 EXDEV 失败：记源 → 目标与原因，源保留且不回退复制', async () => {
+    const fake = createFakeFs()
+    const src = addSession(fake, 'proj-a', 'session-a', 100)
+    const dest = join(ARCHIVE_ROOT, 'proj-a', 'session-a')
+    fake.fail('rename', src, new Error('EPERM: operation not permitted'))
+
+    expect(await mountFiles(fake.ops).archive('session-a', ARCHIVE_ROOT)).toEqual([
+      `${src} -> ${dest}: EPERM: operation not permitted`,
+    ])
+    expect(fake.has(src)).toBe(true)
+    expect(fake.calls.some((call) => call.startsWith('copyFile '))).toBe(false)
+  })
+
+  it.each(['', '.', '..', '../session-a', 'a/b', 'a\\b', 'a\u0000b', 'x'.repeat(256)])(
+    'archive 非法 id %j 不触碰文件系统',
+    async (sessionId) => {
+      const fake = createFakeFs()
+      expect(await mountFiles(fake.ops).archive(sessionId, ARCHIVE_ROOT)).toEqual([
+        `session id ${JSON.stringify(sessionId)} is not a safe path segment; nothing was moved`,
+      ])
+      expect(fake.calls).toEqual([])
+    },
+  )
+
+  it('源目录缺失：无警告，投影缓存照删', async () => {
+    const fake = createFakeFs()
+    const cache = addProjCache(fake, 'session-a')
+    expect(await mountFiles(fake.ops).archive('session-a', ARCHIVE_ROOT)).toEqual([])
+    expect(fake.has(cache)).toBe(false)
+    expect(fake.calls.some((call) => call.startsWith('mkdir '))).toBe(false)
+  })
+
+  it('投影缓存 unlink 非 ENOENT 失败也记 warning', async () => {
+    const fake = createFakeFs()
+    const src = addSession(fake, 'proj-a', 'session-a', 100)
+    const cache = addProjCache(fake, 'session-a')
+    fake.fail('unlink', cache, new Error('EPERM: operation not permitted'))
+    expect(await mountFiles(fake.ops).archive('session-a', ARCHIVE_ROOT)).toEqual([
+      `${cache}: EPERM: operation not permitted`,
+    ])
+    expect(fake.has(src)).toBe(false)
   })
 })

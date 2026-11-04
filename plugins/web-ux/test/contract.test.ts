@@ -12,9 +12,11 @@ import { describe, expect, it } from 'vitest'
 import {
   CHANNEL,
   DELETE_ENDPOINT,
+  DISPOSAL_MODES,
   ENDPOINTS,
   FAILURE_CODES,
   PREVIEW_ENDPOINT,
+  isDisposalMode,
   isFailureCode,
   parseDeleteRequest,
   parseFailure,
@@ -22,7 +24,7 @@ import {
   parsePreview,
 } from '../src/contract.ts'
 
-describe('端点词汇表', () => {
+describe('词汇表', () => {
   it('通道与两个端点名是共享常量', () => {
     expect(CHANNEL).toBe('/web-ux')
     expect(PREVIEW_ENDPOINT).toBe('preview-delete')
@@ -30,78 +32,126 @@ describe('端点词汇表', () => {
     expect(ENDPOINTS).toEqual(['preview-delete', 'delete-session'])
   })
 
+  it('处置模式集合稳定，未知取值不被当成已知模式', () => {
+    expect(DISPOSAL_MODES).toEqual(['delete', 'archive'])
+    expect(isDisposalMode('delete')).toBe(true)
+    expect(isDisposalMode('archive')).toBe(true)
+    expect(isDisposalMode('purge')).toBe(false)
+    expect(isDisposalMode(42)).toBe(false)
+    expect(isDisposalMode(undefined)).toBe(false)
+  })
+
   it('失败码集合稳定，未知码不被当成已知码', () => {
-    expect(FAILURE_CODES).toEqual(['bad-request', 'not-found', 'not-archived', 'session-live', 'internal'])
+    expect(FAILURE_CODES).toEqual([
+      'bad-request',
+      'not-found',
+      'not-archived',
+      'session-live',
+      'archive-unavailable',
+      'internal',
+    ])
     expect(isFailureCode('not-archived')).toBe(true)
+    expect(isFailureCode('archive-unavailable')).toBe(true)
     expect(isFailureCode('workspace/session-active')).toBe(false)
   })
 })
 
 describe('parseDeleteRequest', () => {
-  it('接受合法请求体', () => {
-    expect(parseDeleteRequest(PREVIEW_ENDPOINT, { sessionId: 'session-1' })).toEqual({
+  it('接受合法请求体（两种处置模式）', () => {
+    expect(parseDeleteRequest(PREVIEW_ENDPOINT, { sessionId: 'session-1', mode: 'archive' })).toEqual({
       ok: true,
-      value: { sessionId: 'session-1' },
+      value: { sessionId: 'session-1', mode: 'archive' },
+    })
+    expect(parseDeleteRequest(DELETE_ENDPOINT, { sessionId: 'session-1', mode: 'delete' })).toEqual({
+      ok: true,
+      value: { sessionId: 'session-1', mode: 'delete' },
     })
   })
 
   it('拒绝未知端点', () => {
-    const parsed = parseDeleteRequest('delete-everything', { sessionId: 'session-1' })
+    const parsed = parseDeleteRequest('delete-everything', { sessionId: 'session-1', mode: 'archive' })
     expect(parsed.ok).toBe(false)
     if (!parsed.ok) expect(parsed.message).toContain('delete-everything')
   })
 
   it.each([
-    ['缺少 sessionId', {}],
-    ['sessionId 为空串', { sessionId: '' }],
-    ['sessionId 不是字符串', { sessionId: 7 }],
+    ['缺少 sessionId', { mode: 'archive' }],
+    ['sessionId 为空串', { sessionId: '', mode: 'archive' }],
+    ['sessionId 不是字符串', { sessionId: 7, mode: 'archive' }],
     ['请求体是数组', []],
     ['请求体是 null', null],
     ['请求体是标量', 'session-1'],
-    ['含未知字段', { sessionId: 'session-1', force: true }],
+    ['含未知字段', { sessionId: 'session-1', mode: 'archive', force: true }],
   ])('拒绝非法请求体：%s', (_label, payload) => {
     expect(parseDeleteRequest(DELETE_ENDPOINT, payload).ok).toBe(false)
   })
 
+  it.each([
+    ['缺少 mode（无隐式默认）', { sessionId: 'session-1' }],
+    ['mode 是未知取值', { sessionId: 'session-1', mode: 'purge' }],
+    ['mode 不是字符串', { sessionId: 'session-1', mode: 42 }],
+  ])('拒绝非法处置模式：%s', (_label, payload) => {
+    const parsed = parseDeleteRequest(DELETE_ENDPOINT, payload)
+    expect(parsed.ok).toBe(false)
+    if (!parsed.ok) expect(parsed.message).toContain('mode')
+  })
+
   it('拒绝超长 sessionId', () => {
-    expect(parseDeleteRequest(DELETE_ENDPOINT, { sessionId: 'x'.repeat(257) }).ok).toBe(false)
+    expect(parseDeleteRequest(DELETE_ENDPOINT, { sessionId: 'x'.repeat(257), mode: 'archive' }).ok).toBe(false)
   })
 
   it('255 字符是接受边界，256 字符被拒（与文件系统单段上限一致）', () => {
-    expect(parseDeleteRequest(DELETE_ENDPOINT, { sessionId: 'x'.repeat(255) }).ok).toBe(true)
-    expect(parseDeleteRequest(DELETE_ENDPOINT, { sessionId: 'x'.repeat(256) }).ok).toBe(false)
+    expect(parseDeleteRequest(DELETE_ENDPOINT, { sessionId: 'x'.repeat(255), mode: 'archive' }).ok).toBe(true)
+    expect(parseDeleteRequest(DELETE_ENDPOINT, { sessionId: 'x'.repeat(256), mode: 'archive' }).ok).toBe(false)
   })
 
   it('拒绝含控制字符（含 NUL）的 sessionId', () => {
-    expect(parseDeleteRequest(DELETE_ENDPOINT, { sessionId: 'a\u0000b' }).ok).toBe(false)
-    expect(parseDeleteRequest(DELETE_ENDPOINT, { sessionId: 'a\nb' }).ok).toBe(false)
-    expect(parseDeleteRequest(DELETE_ENDPOINT, { sessionId: 'a\u007fb' }).ok).toBe(false)
+    expect(parseDeleteRequest(DELETE_ENDPOINT, { sessionId: 'a\u0000b', mode: 'archive' }).ok).toBe(false)
+    expect(parseDeleteRequest(DELETE_ENDPOINT, { sessionId: 'a\nb', mode: 'archive' }).ok).toBe(false)
+    expect(parseDeleteRequest(DELETE_ENDPOINT, { sessionId: 'a\u007fb', mode: 'archive' }).ok).toBe(false)
   })
 })
 
 describe('parsePreview', () => {
-  const valid = { sessionCount: 3, descendantCount: 2, logBytes: 1024 }
+  const valid = { sessionCount: 3, descendantCount: 2, logBytes: 1024, archiveRoot: '/home/u/.dsh/archive/sessions' }
 
   it('接受合法预览', () => {
     expect(parsePreview(valid)).toEqual({ ok: true, value: valid })
   })
 
   it('接受零值（空级联与空目录都是合法状态）', () => {
-    expect(parsePreview({ sessionCount: 1, descendantCount: 0, logBytes: 0 }).ok).toBe(true)
+    expect(parsePreview({ sessionCount: 1, descendantCount: 0, logBytes: 0, archiveRoot: '/archive' }).ok).toBe(true)
   })
 
   it.each([
-    ['缺字段', { sessionCount: 1, descendantCount: 0 }],
-    ['计数为负数', { sessionCount: -1, descendantCount: 0, logBytes: 0 }],
-    ['计数非整数', { sessionCount: 1.5, descendantCount: 0, logBytes: 0 }],
-    ['计数超出安全整数', { sessionCount: Number.MAX_SAFE_INTEGER + 1, descendantCount: 0, logBytes: 0 }],
-    ['logBytes 为 NaN', { sessionCount: 1, descendantCount: 0, logBytes: Number.NaN }],
-    ['logBytes 为 Infinity', { sessionCount: 1, descendantCount: 0, logBytes: Number.POSITIVE_INFINITY }],
-    ['logBytes 为字符串', { sessionCount: 1, descendantCount: 0, logBytes: '1024' }],
+    ['缺字段', { sessionCount: 1, descendantCount: 0, archiveRoot: '/archive' }],
+    ['计数为负数', { sessionCount: -1, descendantCount: 0, logBytes: 0, archiveRoot: '/archive' }],
+    ['计数非整数', { sessionCount: 1.5, descendantCount: 0, logBytes: 0, archiveRoot: '/archive' }],
+    [
+      '计数超出安全整数',
+      { sessionCount: Number.MAX_SAFE_INTEGER + 1, descendantCount: 0, logBytes: 0, archiveRoot: '/archive' },
+    ],
+    ['logBytes 为 NaN', { sessionCount: 1, descendantCount: 0, logBytes: Number.NaN, archiveRoot: '/archive' }],
+    [
+      'logBytes 为 Infinity',
+      { sessionCount: 1, descendantCount: 0, logBytes: Number.POSITIVE_INFINITY, archiveRoot: '/archive' },
+    ],
+    ['logBytes 为字符串', { sessionCount: 1, descendantCount: 0, logBytes: '1024', archiveRoot: '/archive' }],
     ['响应是数组', []],
     ['响应是 null', null],
   ])('拒绝非法预览：%s', (_label, value) => {
     expect(parsePreview(value).ok).toBe(false)
+  })
+
+  it.each([
+    ['archiveRoot 缺失', { sessionCount: 1, descendantCount: 0, logBytes: 0 }],
+    ['archiveRoot 为空串', { sessionCount: 1, descendantCount: 0, logBytes: 0, archiveRoot: '' }],
+    ['archiveRoot 不是字符串', { sessionCount: 1, descendantCount: 0, logBytes: 0, archiveRoot: 42 }],
+    ['archiveRoot 为 null', { sessionCount: 1, descendantCount: 0, logBytes: 0, archiveRoot: null }],
+  ])('拒绝非法归档根：%s', (_label, value) => {
+    const parsed = parsePreview(value)
+    expect(parsed.ok).toBe(false)
+    if (!parsed.ok) expect(parsed.message).toContain('archiveRoot')
   })
 })
 
