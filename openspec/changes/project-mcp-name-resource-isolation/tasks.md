@@ -6,8 +6,8 @@
 
 ## 1. 关键 spike（2 项，可并行：各自独立 `DSH_HOME`/端口，不改源码）
 
-- [ ] 1.1 名字面段契约与组装行为实证：独立 `DSH_HOME` + 独立端口（`dsh --profile web --port 3099 --no-open`）实例上放两台 probe 服务器（各含 `ping` 工具 + 一条 resource + 非空 `instructions`），逐条记录「命令 + 观察」到 `openspec/changes/project-mcp-name-resource-isolation/artifacts/spike-name-surface.md`：① 资源服务器名段逐字形态（`## MCP resource servers` + 句末 `["a","b"].`）；② `mcp:<server>` 段名与 `### MCP server: <name>` 标题；③ 段对象带 `interpolate: false`；④ 未打标签的 `ctx.on('system-prompt/assemble')` 收到每个 scope 的装配、改写 `assembly.sections` 后下一步生效；⑤ `complete` 段存在时 mutations 被丢弃的实测确认（触达：D4；无源码改动）；验证：`test -s openspec/changes/project-mcp-name-resource-isolation/artifacts/spike-name-surface.md` 且 `[ "$(grep -c '^结果：通过' openspec/changes/project-mcp-name-resource-isolation/artifacts/spike-name-surface.md)" -eq 5 ]`；任一条红则停止并上报，不得进入组 2。
-- [ ] 1.2 守卫参数形态实证（独立实例，端口 3098）：以临时探针插件（放 `artifacts/`，不进产物）装 `agent.ctx.tools.guard` 打印 `execution.arguments`，覆盖原生 `list_mcp_resources(server=…)`、`read_mcp_resource`、`run_code` 内层 dispatch、缺 `server`、`server` 非字符串、profile 级服务器调用；并确认 deny 后目标 probe 服务器日志无新增请求（触达：D4；无源码改动）；验证：`[ "$(grep -c '^结果：通过' .../artifacts/spike-guard-arguments.md)" -eq 6 ]` 且摘录里出现带 `parent` 的 PTC 调用记录、`diff <(…before) <(…after)` 为空。
+- [x] 1.1 名字面段契约与组装行为实证：独立 `DSH_HOME` + 独立端口（`dsh --profile web --port 3099 --no-open`）实例上放两台 probe 服务器（各含 `ping` 工具 + 一条 resource + 非空 `instructions`），逐条记录「命令 + 观察」到 `openspec/changes/project-mcp-name-resource-isolation/artifacts/spike-name-surface.md`：① 资源服务器名段逐字形态（`## MCP resource servers` + 句末 `["a","b"].`）；② `mcp:<server>` 段名与 `### MCP server: <name>` 标题；③ 段对象带 `interpolate: false`；④ 未打标签的 `ctx.on('system-prompt/assemble')` 收到每个 scope 的装配、改写 `assembly.sections` 后下一步生效；⑤ `complete` 段存在时 mutations 被丢弃的实测确认（触达：D4；无源码改动）；验证：`test -s openspec/changes/project-mcp-name-resource-isolation/artifacts/spike-name-surface.md` 且 `[ "$(grep -c '^结果：通过' openspec/changes/project-mcp-name-resource-isolation/artifacts/spike-name-surface.md)" -eq 5 ]`；任一条红则停止并上报，不得进入组 2。
+- [x] 1.2 守卫参数形态实证（独立实例，端口 3098）：以临时探针插件（放 `artifacts/`，不进产物）装 `agent.ctx.tools.guard` 打印 `execution.arguments`，覆盖原生 `list_mcp_resources(server=…)`、`read_mcp_resource`、`run_code` 内层 dispatch、缺 `server`、`server` 非字符串、profile 级服务器调用；并确认 deny 后目标 probe 服务器日志无新增请求（触达：D4；无源码改动）；验证：`[ "$(grep -c '^结果：通过' .../artifacts/spike-guard-arguments.md)" -eq 6 ]` 且摘录里出现带 `parent` 的 PTC 调用记录、`diff <(…before) <(…after)` 为空。
 
 ## 2. 纯函数、闸门与读数（3 项，可并行；组末 typecheck 绿）
 
@@ -36,6 +36,12 @@
 ## 7. 发布（1 项，串行末位）
 
 - [ ] 7.1 按仓库统一版本流程发布：`pnpm release --dry-run` 复核版本与文件清单 → `pnpm release <version>` → `lib/` 重建随提交 → profile 以 `link:` 重装并重启 → 复跑冒烟第①②③⑨条（触达：H1/H2/H3/H4 产物 + D2 的版本/回滚段）；验证：`pnpm release --dry-run` 打印的版本高于当前 tag 且文件清单含 `lib/index.js`；`pnpm verify` 与 `pnpm dsh:check` 退出码 0；重启后 `docker exec dsh dsh plugin --profile web list | grep project-mcp` 显示新版本；`docker logs dsh | grep -c "prompt: resource names"` ≥ 1。
+
+## 附录：执行期运行规则留痕（R-6 起，与落档决议 R-1…R-5 同序列延续）
+
+- **R-6 `execution.arguments` 恒为冻结 JSON 对象，缺参为 `{}`（非 `undefined`）**。依据：G1-1.2 实测（`artifacts/spike-guard-arguments.md` ④）。适用范围：资源面守卫判定。连锁面：2.2 `resourceGuardReason` 按 `typeof args.server === 'string'` 判定即可（`undefined`/`{}` 自然放行交回上游校验）；T2 断言组含 `{}` 放行；G5 冒烟④。
+- **R-7 非字符串 `server` 仅 PTC 内层可产出**：原生调用在 schema 约束下被模型自行字符串化（实测两次 `"123"`/`"{}"`）。依据：G1-1.2 ⑤。适用范围：单测与冒烟对「非字符串」场景的覆盖路径。连锁面：T2 的 `{server:1}` 断言走纯函数直测；G5 冒烟⑧用 PTC 路径实测非字符串。
+- **R-8 装配段对象不带 `complete` 标志；存在 complete 段时监听器 mutations 全部被丢弃（`sections` 整体替换为 `[completeSection]`）**。依据：G1-1.1 ⑤（源码 `dsh-system-prompt/lib/index.js:381-403` + minimal 预设实测）。适用范围：名字面监听器实现。连锁面：3.1 `createAssembleListener` **不写 complete 特判**（对 complete 会话是安全 no-op）；T1 监听器测试不造 complete 场景；README/G5 无需覆盖 complete 会话的名字面。
 
 ## Workflow follow-up
 

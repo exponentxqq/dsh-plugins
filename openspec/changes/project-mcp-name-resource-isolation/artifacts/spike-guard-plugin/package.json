@@ -1,0 +1,11 @@
+{
+  "name": "dsh-plugin-spike-guard",
+  "version": "0.0.0",
+  "private": true,
+  "description": "spike 临时探针插件：装 per-agent tools.guard，打印 execution.arguments 并拒绝 probe-b 资源调用；不进产物",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  }
+}

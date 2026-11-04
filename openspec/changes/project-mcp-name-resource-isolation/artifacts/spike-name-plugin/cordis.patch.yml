@@ -1,0 +1,4 @@
+# spike 1.1 探针插件的 profile 层：插入本包一行（包由 dsh plugin add link: 安装）
+- insert:
+    - id: spike-name-probe
+      name: dsh-plugin-spike-name-probe

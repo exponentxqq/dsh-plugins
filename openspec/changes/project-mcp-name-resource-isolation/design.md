@@ -99,6 +99,8 @@
 
 **R-1（用户 Q1=A）HMR/重载后存量会话不做 boot 追平**：只加 boot 观测行（`agents.list().length > 0` → 一行 info）+ README 边界（名字面自下一次装配 fail-closed，资源面在下一个 `agent/created` 前无守卫）。
 
+- 执行环境：直用主工作区（衔接点判据全不命中：工作树干净、仅 `main` 检出、无并行变更 worktree；本仓单仓、工件与代码同仓，省去 worktree 装配与收尾合并）。创建于 2026-11-03。
+
 ## 触达面清单（①）
 
 | # | 文件（仓：本仓 `dsh-plugins`） | 改动意图 | 关键改动点 |

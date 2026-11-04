@@ -625,6 +625,16 @@ prompt: resource names section unparsable (deleted), upstream text drifted: sess
 
 ### 1. 关键 spike（G1，2 项，串行前置；不改源码）
 
+> **G1 实测终形态（2026-11-04 执行期落定，5/5 + 6/6 全绿）**——产物 `artifacts/spike-name-surface.md`（569 行）与 `artifacts/spike-guard-arguments.md`（333 行）；可复用 fixture：`/tmp/spike-name/`（两工作区 probe + 临时 DSH_HOME + api.mjs）与 `/tmp/spike-guard/`（含 profile 级 probe）。后续组以此为契约输入：
+>
+> - **段文本契约（T1 输入）**：`mcp-resource-servers` 文本 = 固定前缀 + `JSON.stringify(sortedNames)` + `.`（实测逐字同形）；`mcp:<server>` 段名 + 文本首行 `### MCP server: <name>`；三个 MCP 段对象均带 `interpolate:false` 键——改写时必须 spread 保留。
+> - **监听器形态（3.1 输入）**：`ctx.on('system-prompt/assemble', (assembly, context, next) => …)` 无标签收到全部 agent scope 装配（A2 ✓）；`context = {agent, scope, signal}`，`agent.session.header.cwd` 可取归属；**先 `await next()` 再返回新装配对象**，同进程下一步生效；不可依赖 `result === assembly`（实测 `resultChanged=true`）。
+> - **complete 事实（A3 相关）**：装配给监听器的段对象**不带 `complete` 标志**；存在 complete 段时瀑布返回的 `sections` 被整体替换为 `[completeSection]`——监听器 mutations 全部丢弃 → 名字面隔离对 complete 会话是**安全 no-op**，实现**不写 complete 特判**（R-8）。
+> - **guard 形态（2.2 输入）**：`execution.arguments` 恒为冻结 JSON 对象，缺参为 `{}` 而非 `undefined`（R-6）；非字符串 `server` 仅 PTC 内层代码直传可产出（原生调用被模型自行字符串化，R-7）——`typeof args.server === 'string'` 判定即可覆盖；guard 返回字符串在 **dispatch 前**拒绝、目标服务器零请求（三条 `diff` 全空）；PTC 内层 `parent:true` 走同一 guard 管线（A5/A6 ✓）；`agent/created` 里 `agent.ctx.tools.guard` 可直接装（探针即此用法）。
+> - **关键 D4 发现**：同一时刻工具面日志已 `deny=[…]` 而两个会话提示词仍含全部项目名段——**工具面已隔离 ≠ 名字面隔离**，名字面必须按 `context.agent` 在监听器侧做。
+>
+> **口径更正锚**：本节以下（§2-§6 逐任务组）为**重排前旧稿**——分组/任务号/集合口径以 `tasks.md`（7 组 12 项）与 `design.md`（D-3 修订：三面统一 `blocked = claimed \ failedClaims`；触达面 H1-H4；接口形状 §③）为准。尤其：端口名 `blockedServerNames()`（非 `activeServerNames`）、mcp-manager 需 `failedClaims` + `failedServerNames()` + `blockedServerNames()` 两读数、G2 为 3 项（原 2.4 接线并入 2.2）、G3 仅 1 项（3.1，条件项 3.3 已按 Q1=A 取消）。
+
 - **1.1 名字面段契约实证**（触达：无源码改动；产物 D4 `artifacts/spike-name-surface.md`）
   在独立 `DSH_HOME` + 独立端口（`dsh --profile web --port 3099 --no-open`，换 `DSH_HOME`）实例上，放两台 probe 服务器（`.dsh/mcp/*.yaml`，各自：`ping` 工具 + 一条 resource + 非空 `instructions` + HTTP 请求日志），逐条记录「命令 + 观察输出」：① 提示词段落文本逐字形态（`## MCP resource servers` + 句末 `["a","b"].`）；② `mcp:<server>` 段的段名与 `### MCP server: <name>` 标题；③ 段对象带 `interpolate: false`；④ 未打标签的 `ctx.on('system-prompt/assemble')` 能收到**每个** scope 的装配，且能用一个 listener 改 `assembly.sections` 后**下一步**生效；⑤ `complete` 段存在时 mutations 被丢弃（读 `dsh-system-prompt/lib/index.js:398-407` 即可预判，实测确认）。
   **验证**：`test -s openspec/changes/project-mcp-name-resource-isolation/artifacts/spike-name-surface.md` 且 `[ "$(grep -c '^结果：通过' …spike-name-surface.md)" -eq 5 ]`；任一条红 → 停止并上报（不得进 G2）。

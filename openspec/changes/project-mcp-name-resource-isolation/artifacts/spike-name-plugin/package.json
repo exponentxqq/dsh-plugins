@@ -1,0 +1,16 @@
+{
+  "name": "dsh-plugin-spike-name-probe",
+  "version": "0.0.0",
+  "private": true,
+  "description": "spike 1.1 探针插件：观察/改写 system-prompt/assemble（不进产物）",
+  "type": "module",
+  "main": "index.js",
+  "dsh": {
+    "engines": {
+      "dsh": ">=0.2.1-rc.2 <0.3.0"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
