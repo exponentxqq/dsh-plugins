@@ -42,12 +42,16 @@
 | D-6 | 换 PAT 的 HTTP 全程在 `modifyRecord` 之外（锁内零网络，避免并发 `session.commit()` 撞 2s 锁超时） | mutate 内读-判断-换发（看似原子实则阻塞整份凭据文件） |
 | D-7 | 卸载/禁用**不清** PAT 引用（避免重启首请求 `MISSING_CREDENTIAL` 窗口）；logout 才清（用户 Q2 拍板；残留 PAT ≤5h 短效 + 0600 约束） | 卸载即 unset（每次重启一次无谓失败） |
 | D-8 | `retryPolicy.retryableCodes` = 默认五码**显式重述** + `INVALID_CREDENTIAL`（整集覆盖语义，只写一码会丢默认五码；`AUTH` 码不存在于本版本码表） | 只写 `['INVALID_CREDENTIAL']`（限流不再重试的回归）；always mode（无限重试永久失败） |
-| D-9 | 用量接口裸 `authorization: <JWT>` + `bigmodel-*` 头，管理面 `Bearer`（实测两处不同）；org/proj = Config > 自动发现（T0） > 报错点名；不硬编码本机值 | 统一 Bearer（401）；org/proj 入库（账号私有） |
+| D-9 | 用量接口裸 `authorization: <JWT>` + `bigmodel-*` 头，管理面 `Bearer`（实测两处不同）；org/proj = **Config 必填**（T0 已证伪「登录后自动发现」：biz 无 customerInfo/organizations 路由），缺省报错并在 status 点名；不硬编码本机值 | 统一 Bearer（401）；org/proj 入库（账号私有）；登录后自动发现（T0 ① 实测 404，证伪） |
 | D-10 | Key 匹配 `name==='zcode-plan-bridge' && usageScene===1` 双条件；永不删改存量 Key | 官方名复用（本机存量 scene=3 → 无折扣）；只按名匹配（静默劣化最难排查） |
 | D-11 | 一条命令五子文法：`login [<callback-url>]` / `logout` / `status`（缺省）/ `route [install\|remove\|status]` / `refresh` | 拆多条顶层命令；多轮交互（CommandResult 单次回执） |
 | D-12 | 机密红线：错误与日志只带码/步骤/脱敏 keyId，绝不取值（YAML 解析器报错会带源码行的同款教训） | 错误带响应体片段（PAT 就在响应体里） |
 | D-13 | 单测全走窄端口 + 假实现（FakeFetch/FakeClock/FakeCredentials），不起真 Context；真 seam 验证下移 T9 真机断言 | vitest 挂真 dsh-credentials-local（0600 校验跨机随红） |
 | D-14 | `route install` 只增删本键；不写 `agent-default-model`、不删任何 Key、不改他人路由 | install 顺手切默认（折扣消失时全会有话无感烧 credits）；自动清理旧 Key（破坏回退路径） |
+
+### 执行环境
+
+- 执行环境：直用主工作区。布局：本仓 main 检出直用（用户知情选定；主工作区存在无关脏改动 `openspec/changes/project-mcp-name-resource-isolation/design.md`，本变更触达面为全新目录与根清单两行，物理零交集）；执行参数：模式 auto、引擎 subagent、apply 键 zai-coding-cn/glm-5.3-flash（映射文件预置）；创建于 2026-11-03
 
 ## 触达面清单（六字段①）
 
@@ -74,7 +78,7 @@
 
 完整签名见 `code-design.md` ③（3.1–3.11）。关键形状：
 
-- **Config**（schemastery，全默认零配置可跑）：`organization`/`project`（可选，自动发现失败则必填）、`clientVersion`（'0.17.0'）、`refreshLeadMs`（120000）/`refreshJitterMs`（60000）/`requestTimeoutMs`（15000）、`callbackServer`（true，可关）、`loginAttemptTtlMs`（600000）
+- **Config**（schemastery；`organization`/`project` **必填**（T0 已证伪自动发现），其余零配置可跑）：`organization`/`project`（必填）、`clientVersion`（'0.17.0'）、`refreshLeadMs`（120000）/`refreshJitterMs`（60000）/`requestTimeoutMs`（15000）、`callbackServer`（true，可关）、`loginAttemptTtlMs`（600000）
 - **凭据地址**：`LOGIN_RECORD_KEY = credentialKey('zcode-plan','bigmodel-login')`；`PAT_REF = credentialRef('ZCODE_PLAN_PAT')`；grant payload v1 = `{v, jwt, organization?, project?, keyId?, loginAt, jwtExpiresAt?, patExpiresAt?}`（机密仅 jwt 一项；keyId 非 secret）
 - **路由常量单一真源**（`route-config.ts`）：`apiKeyEnv: ZCODE_PLAN_PAT` / `api: openai-completions` / `baseURL: https://open.bigmodel.cn/api/coding/paas/v4` / 零指纹 headers / models 两条（glm-5.3、glm-5.3-flash，复用本机已跑通的 zai-coding-zcode 条目）/ `retryPolicy.retryableCodes` 六码
 - **模块边界**：仅 `host/index.ts` 与 `commands.ts` 碰 `ctx`；其余模块纯逻辑 + 端口（`FetchPort`/`ClockPort`/`LogPort`/`CredentialsPort` 窄面）
@@ -104,11 +108,13 @@
 
 ## Open Questions
 
-均不阻塞 spec / 方案 / 任务拆分（实施期 T0/T9 消解，见 `code-design.md` ⑥ U1–U6）：
+T0 已消解前四项（见 `artifacts/spike-*.md` 与 `code-design.md` T0 终形态）；余项不阻塞 spec / 方案 / 任务拆分（实施期消解，见 `code-design.md` ⑥ U1–U6）：
 
-- `tokenByAuthCode` 请求/响应字段名（T0②，`endpoints.ts` 单点收口）
-- PAT 效期字段名（`expiresAt`/`expiresIn`/缺省 18000s 三级兜底已吸收）
-- org/project 自动发现端点（失败即 Config 必填，用户 Q4 已接受）
+- ~~`tokenByAuthCode` 请求/响应字段名~~ → **消解**：换成现行 `POST zcode.z.ai/api/v1/oauth/token`（`{provider,code,redirect_uri,state}`，免 appSecret），管理面 JWT = `data.bigmodel.access_token`，JWT 无 exp
+- ~~PAT 效期字段名~~ → **消解**：实测 `expiresIn`(秒) + `expiresAt`(epoch 秒)，满值 18000s；三级兜底只保留缺省分支
+- ~~org/project 自动发现端点~~ → **消解（证伪）**：Config 必填（Q4 已接受）
+- ~~authorize 对 loopback 的放行~~ → **消解**：放行，`bigmodel.cn/login?appId=zcode&redirect=…&state=…`，回调字段 `authCode`；容器部署粘贴分支为主路径
+- ~~同 Key 并发两 PAT 互斥~~ → **消解**：不互斥且幂等（返回同一张），A8 成立
 - 404 在「Key 被删」与「JWT 无权限」间的语义混叠（作废重查一轮再判 terminal）
 - `compose-check` E3 的 TS 常量序列化在 CI 的可用性（退化为 route.json 深等断言）
 - `route install` 与 settings 表单并发写的呈现（edit() 内部已串行，回执加提示句）

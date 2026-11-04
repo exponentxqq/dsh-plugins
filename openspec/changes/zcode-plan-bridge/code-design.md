@@ -204,8 +204,8 @@ export interface CredentialsPort {
 
 ```ts
 export const Config = Schema.object({
-  organization: Schema.string().description('大模型开放平台组织 id；省略时按登录 JWT 自动发现（T0 未证则必填）'),
-  project: Schema.string().description('项目 id；同上'),
+  organization: Schema.string().required().description('大模型开放平台组织 id（T0 证伪自动发现，必填；可从控制台/用量页 URL 取得）'),
+  project: Schema.string().required().description('项目 id（同上，必填）'),
   clientVersion: Schema.string().default('0.17.0').description('换发 PAT 时上报的 clientVersion（跟随官方 ZCode 版本）'),
   refreshLeadMs: Schema.number().default(120_000).description('PAT 提前续期量（F3：默认贴官方 120s，实测竞态不可忍再上调）'),
   refreshJitterMs: Schema.number().default(60_000).description('续期抖动上限（0–该值均匀分布，官方同款）'),
@@ -245,7 +245,7 @@ export interface LoginGrant {
 
 | 用途 | 方法与路径 | 头 | 体 | 响应要点 |
 |---|---|---|---|---|
-| 换登录 JWT | `POST https://bigmodel.cn/api/auth/tokenByAuthCode` | `content-type: application/json` | `{ authCode }` + `appId`/`state` 形态**待 T0 钉死**（`endpoints.ts` 内一个常量 + 一个 `exchangeAuthCode` 函数） | `data` 里的 access token 即登录 JWT（A2 假设） |
+| 换登录 JWT | `POST https://zcode.z.ai/api/v1/oauth/token`（**T0 钉死，现行路径**） | `content-type: application/json` | `{ provider: 'bigmodel', code: <authCode>, redirect_uri: <与 authorize 时逐字一致>, state }`（免 appSecret） | 成功判定 `code===0`（数字或字符串）；**管理面 JWT = `data.bigmodel.access_token`**；`data.token` 为 zcode 侧 JWT 不使用；`refresh_token` 可选未下发；JWT 三段式但**无 exp** |
 | 列 Key | `GET https://bigmodel.cn/api/biz/v1/organization/{org}/projects/{proj}/api_keys` | `Authorization: Bearer <JWT>` | — | `data: [{ name, apiKey, usageScene, … }]`；`apiKey` 字段即路径里的 keyId（`test-b.sh:25`） |
 | 建 Key | `POST` 同路径 | 同上 | `{ name: 'zcode-plan-bridge', usageScene: 1 }` | `data.apiKey` = 新 keyId |
 | 换 PAT | `POST …/api_keys/{keyId}/access_tokens` | 同上 | `{ clientType: 'zcode', clientVersion }` | `data` 内 token（实测名 `accessToken`）+ 效期字段（名未定稿） |
@@ -253,15 +253,14 @@ export interface LoginGrant {
 
 **头形态的不对称是实测事实**（`test-pat.sh:15-17` 用 `Bearer`，`:28-30` 用裸 JWT），代码里必须分开写并在注释里标明出处，不得「统一成 Bearer」。
 
-**PAT 效期解析（三级兜底，E5 的实现边界）**：
+**PAT 效期解析（T0 已钉死字段：`expiresIn` 秒 + `expiresAt` epoch 秒同时存在，满值 18000s）**：
 
 ```ts
 type PatLease = { pat: string; expiresAt: number }   // 绝对本地时刻（epoch ms）
-// 1) data.expiresAt 存在 → 直接用服务端绝对值（并夹到 [now, now+6h] 防呆）
-// 2) 否则 data.expiresIn / ttl（秒）→ requestStartedAt + s*1000（时长口径，免疫时钟漂移）
-// 3) 都不存在 → requestStartedAt + 18000_000（官方效期常量）
-// 说明：E5 要求「优先服务端绝对值」；但若服务端时钟与本机偏差大，绝对值会误排期，
-// 因此「绝对值」分支额外做一次合理性夹取，越界则退回 2)。
+// 1) data.expiresIn（秒，实测必在）→ requestStartedAt + s*1000（时长口径，免疫时钟漂移）※ 实测首选
+// 2) 否则 data.expiresAt（epoch 秒）→ 直接用服务端绝对值（夹到 [now, now+6h] 防呆，越界则退 3）
+// 3) 都不存在 → requestStartedAt + 18000_000（官方效期常量兜底）
+// 实测：两字段同发且 expiresAt ≈ requestStartedAt + expiresIn*1000（差 1s 内），优先 1) 即无时钟漂移风险
 ```
 
 **响应壳**：`unwrap` 接受 `{code,msg,data}`；`successCode` = `code === 0 || code === 200 || code === '0' || code === '200' || success === true`（Q1 兼容条款）；HTTP 非 2xx 与业务失败都映射到 `BridgeError` 码表（§3.10）。
@@ -568,7 +567,7 @@ zcode-plan 状态（读数 <本地时刻>）
 
 - **决策**：`find-or-create` 匹配 `name === 'zcode-plan-bridge' && usageScene === 1`；命中即复用其 `apiKey` 段作为 `keyId`；未命中则创建 `{name, usageScene: 1}`；**永不删除/改写任何存量 Key**。
 - **被否**：① 官方名 `zcode-api-key`（本机存量是 scene=3，复用即无折扣 —— `results.log` A 组 = 14）；② 只按名字匹配不校验 scene；③ 每次启动都新建（Key 列表膨胀）。
-- **理由**：C5 + 实验 B③（任意 scene=1 Key 均享折扣，`test-verify.sh:26-27` 的 `arch-company` 也生效）→ 名字无关、scene 才是开关。
+- **理由**：C5 + 实验 B③（`arch-company` scene=1 键同样签发/调用成功）→ 名字无关、scene 才是开关。**执行期更正（RE-7）**：B③「scene=1 均享折扣」读数是前缀缓存假阳性（同 body 二发命中缓存低价，`cached_tokens=42048` 存档）；11-03 干净对照证明**直连载体**折扣不存在（acceptance.md §二双池终局）。且「scene=1 才能换 PAT」一并证伪——scene3 键 `zcode-api-key` 签 PAT 同样成功（B 臂）。**RE-8 翻转补充（11-04）**：折扣真实存在但判定键不在凭证链——官方 ZCode runtime 通道实测刻度 0.76–0.85（等效 1.67–2.0x），直连载体（含全套官方 header 复刻）恒为 ~1.5 计量刻度；scene/名字/凭证类型均非折扣开关（acceptance.md §二 RE-8 小节）。本决策**保留**：name+scene 双条件仍是官方客户端等价凭证链的构成 + 存量 scene=3 键的保守隔离，决策无害。
 - **反例**：②的具体形态——`listKeys` 返回同一名字的 scene=3 旧 Key，插件拿它换 PAT，一切 200 OK、`status` 全绿、扣费 14/42k；这类静默劣化是 line-b R5 点名的最难排查故障。
 
 ### D-11 命令面承载全部用户动作（`login`/`logout`/`status`/`route`/`refresh`）
@@ -617,7 +616,29 @@ zcode-plan 状态（读数 <本地时刻>）
   5. **OpenSpec 提案**：`openspec-propose` 生成 `proposal.md`/`design.md`/`tasks.md`/`specs/dsh-zcode-plan/spec.md`（本 ⑤ 即 tasks 骨架）。
 - **出口**：`artifacts/spike-bigmodel.md` 里 5 节，每节「命令 + 输出片段 + 结论（钉死/降级）」；其中 2/3 若红，T5 改走「只粘贴、不起回调服务器」并把 Q5 升级为用户决策。
 
+#### T0 终形态（执行期实测结论，2026-11-03）
+
+四项全部消解，证据文件各自独立（`artifacts/spike-*.md`，随档提交）：
+
+1. **org/project 发现 → 降级（Config 必填）**：`GET /api/biz/v1/customerInfo` 与 `/api/biz/v1/organizations`（apex/www 两域、只读 GET + Bearer）均返回 `code:404 接口不存在`，biz 后端无该路由（msg 回显去前缀路径证明已路由进后端，非鉴权失败）；登录 JWT payload 无 `exp`/`iat`。→ D-9 的「登录后自动发现」分支**证伪**，`organization`/`project` 为 Config **必填**（Q4 已接受），缺省时 §3.2 报错并在 status 点名。证据：`spike-org-project.md`。
+2. **换证端点 → 改为现行 zcode token 路由**：`POST https://zcode.z.ai/api/v1/oauth/token`，JSON `{provider:"bigmodel", code, redirect_uri, state}` 四字段、**免 appSecret**，成功判定 `code===0`；**管理面 JWT = `data.bigmodel.access_token`**（332ch，payload 与用量页 JWT 同形：user_type/user_channel/user_id/user_key/customer_id/username，**无 exp**），`data.token` 是 zcode 侧 JWT（204ch，{user_id,token_version,sub,iat}）不使用。旧 `bigmodel.cn/api/auth/tokenByAuthCode` 需官方已不内置的 `appSecret`（实测 1500「应用密钥不能为空」）→ **废弃不实现**。实测该 JWT 直通管理面（列 Key HTTP 200）。证据：`spike-token-contract.md`。
+3. **loopback redirect → 放行**：`https://bigmodel.cn/login?appId=zcode&redirect=http://127.0.0.1:<port>/oauth/callback/bigmodel&state=<32hex>`（端点本体 `bigmodel.cn/login`，非 `/api/auth/authorize`——后者带 JWT 返回 404 已证伪），服务端 302 回传 `authCode`（非 `code`）+ 原 state，两轮独立授权可复现。容器部署下浏览器在宿主、loopback 在容器回环 → 回调分支收不到，**粘贴分支为主用路径**；`callbackServer` 默认仍 `true`（同机部署可用，不触发 Q5 降级）。证据：`spike-loopback.md`。
+4. **同 Key 并发两 PAT → 不互斥且幂等**：连发两次 `access_tokens` 返回**同一张** token（accessToken 逐字节相同、`expiresAt` 相同），服务端为「find-or-return 现行 token」；后签发不吊销前张（PAT① 仍 200）。→ A8 假设成立，多实例天然共享，无需实例协调；实现侧「维护多张 PAT」表述修正为「续期同一张」。PAT 效期字段实测 `expiresIn`(秒) + `expiresAt`(epoch 秒)，满值 18000s（U2 收敛为双字段直取，三级兜底只留缺省 18000 分支兜底）。证据：`spike-pat-mutex.md`。
+
+**对后续任务的前置修正**：T1 `Config` 的 `organization`/`project` 描述改必填口径（见 §3.2 更新）；T2 `exchangeAuthCode` 打 zcode 端点、解析 `data.bigmodel.access_token`（endpoints.ts 单点）；T5 粘贴分支为产品主路径、回调分支同机可用；T3 续期实现按「幂等签发」理解（刷新得到的可能是同一张 token，须按 `expiresAt` 比较而非必然变化）。
+
+
 ### T1 — 脚手架（1 项）
+
+#### T1 终形态（执行期实测，2026-11-03）
+
+- **实际落地**：`plugins/zcode-plan/` 13 个文件（含构产 `lib/index.js`，随仓库提交；`.gitignore` 只忽略 `node_modules/` 与 `*.tsbuildinfo`）。模板照 `user-commands`：esbuild 单入口 + `external:['node:*']` + createRequire banner；tsconfig 三件套 references；vitest node 环境。
+- **版本口径**：`version: 1.4.0` = 当前 tag `v1.4.0`（仓内六插件一致）；`dsh.engines.dsh` 与 peer 均 `>=0.2.1-rc.2 <0.3.0`（`scripts/dsh-baseline.mjs` 派生）；devDeps 精确 pin dsh 0.2.1-rc.2 / cordis 4.0.5 / schemastery 3.18.5。
+- **Config 修正落地**：`organization`/`project` 为 `Schema.string().required()`（RE-2），其余六键全 default；`cordis.patch.yml` 不带 `config:` 段（org/proj 由 profile 安装行提供）。
+- **验收数据**（主会话独立复跑，干净窗口）：`verify:all` 退出 0（lint `Found 5 warnings and 0 errors`——警告来自打进产物的 schemastery 未用辅助函数，与既有 `user-commands` 同为 19 条同级现象，非缺陷；typecheck 无错；build 出 `lib/index.js`；test 4 passed）；engines 断言 exit 0；`pnpm dsh:check` 末行 `baseline, pins, soft ranges, allowlist, lockfile and installed tree agree`。
+- **清单外新增（接受）**：`test/smoke.test.ts` 4 用例——vitest 在零测试文件时非零退出，最小冒烟让 test 段真实执行（覆盖四件套形状、org/proj 缺失即抛、六默认值、apply 加载日志）。
+- **偏差留痕**：`apply(ctx, _config)` 参数加 `_` 前缀以满足 oxlint（T4 消费 config 时改回 `config`，docblock 已注）；`icon.svg`/`README.md` 未建（T8 文档任务与发布形态再定，当前 `package.json` 无 icon 字段已自洽）；真机 `docker plugin add` 归任务 7.3（T1 验证句不含）。
+- **被否方案**：双产物（web+host）路线——本插件无 `dsh.client`，宿主半面单入口即可（D-0）。
 
 - **文件**：`package.json`、`cordis.patch.yml`、`build.mjs`、`tsconfig*.json`、`vitest.config.ts`、`.gitignore`、`src/index.ts`、`src/host/index.ts`（空 `apply`）。
 - **要点**：`name/inject/Config/apply` 四个导出先落地（`apply` 只 `ctx.logger.info('zcode-plan: loaded')`）；`Config` 全默认值；`cordis.patch.yml` 只有 insert 行。
@@ -629,6 +650,14 @@ zcode-plan 状态（读数 <本地时刻>）
 
 ### T2 — bigmodel 客户端（3 项并行：endpoints/envelope+client / 测试）
 
+#### T2 终形态（执行期实测，2026-11-03）
+
+- **落地文件**：`ports.ts`（H3：三窄端口 + `createTimeoutSignal`，clock 计时、到点 abort 且 `timedOut` 以 `BridgeError('TIMEOUT')` 拒绝）、`errors.ts`（H15，本任务一并落地，T3-T7 复用）、`bigmodel/{endpoints,envelope,client}.ts`（H4/H5/H6）。
+- **签名偏差**：各 API 用**对象参数 + 可选 `signal`**（design 伪码为位置参数）；外部取消经 `AbortSignal.any` 与 15s 超时合并、原样上抛 AbortError 不计 TIMEOUT。`KEY_NAME` 归 H10（key-manager），`createKey` 的 name 由调用方传；`usageScene:1` 以 `KEY_USAGE_SCENE` 常量收口。
+- **码表扩展（接受）**：形状失败统一 `PAT_SHAPE`（§3.10 唯一形状码，各端点用场景化文案）；HTTP 瞬态失败用动态码 `HTTP:<status>`（传输层= `HTTP:0`），行为归类由 `classifyHttp`（0/429/≥500→retryable）决定，码仅作诊断标识。
+- **验收数据**（主会话独立复跑）：`test` 全量 26 passed（envelope 8 + client 14 + smoke 4）；`typecheck`/`build`/`lint` 全绿（lint 5 warnings 全在 bundle 产物内 schemastery，与 T1 同源）；出口验证句 `grep -c "https://" client.ts` = **0**；三条关键断言落位 `client.test.ts:197`（TIMEOUT）、`:246`（err.message 不含 jwt）、`:219/:225/:231`（效期三分支）。
+- **偏差留痕**：`pnpm test -- envelope client` 的 `--` 后词未被 vitest 当 filter（实跑全部 3 文件，均绿，满足完成标准）；超时路径不调 `clearTimeout`（计时器已触发无需清理；清理断言放成功路径）——裁决保留现实现，不改动（幂等 clear 无收益）。
+
 - **文件**：H3、H4、H5、H6；`test/envelope.test.ts`、`test/client.test.ts`。
 - **要点**：§3.4 表格逐行实现（方法/路径/头/体/解析）；15s 超时；三级效期兜底；所有失败走 §3.10 码表；`client` 无状态、`fetch`/`clock` 注入。
 - **出口**：
@@ -637,6 +666,14 @@ zcode-plan 状态（读数 <本地时刻>）
   3. `grep -c "https://" plugins/zcode-plan/src/host/bigmodel/client.ts` → `0`（URL 只在 `endpoints.ts`）。
 
 ### T3 — 凭据状态机 + PAT owner（3 项并行：record/key-manager / pat-owner / 两组测试）
+
+#### T3 终形态（执行期实测，2026-11-03）
+
+- **落地文件**：`credential-record.ts`（H9：`LOGIN_RECORD_KEY`/`PAT_REF`/`GRANT_VERSION`/`PAT_FILE_SOURCE`、`LoginGrant` v1、`parseGrant`/`readGrant`/`patchGrant`/`patchGrantKeyId`、`isPatRefConflict`、`toLoginState`）、`key-manager.ts`（H10：`KEY_NAME='zcode-plan-bridge'`、双条件 find-or-create + 缓存、`invalidateKey` 只作废缓存不删服务端、`KeyState`）、`pat-owner.ts`（H11：单飞、代次隔离、失败分类逐行、5s 固定退避、404 重查一轮防环、`credentials.set` 唯一发布）；`ports.ts` 追加 `CredentialsPort` 七方法窄面 + `@deepseek-ai/dsh-credentials/types` type-only 导入（devDeps 精确 pin 0.2.1-rc.2）。
+- **关键裁定（张力收口）**：H10 括号「404/403 作废重查」与 §3.5 失败分类表冲突 → **按失败分类表执行**：401/403 统一 `halt('JWT_EXPIRED')`（client 层已把 401/403 合并映射，owner 无法区分 403 归因），仅 404 走 `invalidateKey` 重查一轮。迟到结果出口借用 `REF_CONFLICT` 码并覆盖文案（§3.10 无专码），「返回旧 lease」优先、无旧 lease 才拒绝。
+- **RE-3 落地**：刷新返回同值不同 `expiresAt` 仍照常 `set` 并重排调度（按 `expiresAt` 结算，不比较 pat 值）。**RE-5 落地**：`jwtExpiresAt` 字段保留形状但 parse 不透传、patch 合并剔除，恒不写入。
+- **验收数据**（主会话独立复跑）：`test` 6 文件 **81 passed**（新增 credential-record 32 / key-manager 6 / pat-owner 17）；三类必指断言落位 `pat-owner.test.ts:177-181`（leadMs-1 不触发）、`:220-241`（429 旧值保留 + set 未重调）、`:352-380`（dispose 后迟到结果 set 不调）；验证句 `grep -n "fetch(" credential-record.ts` 无输出；`verify:all` 与 `pnpm dsh:check` 均绿/agree。
+- **偏差留痕**：`patchGrantKeyId` 首参 H9 记名 `ctx` 落地为 `CredentialsHost = { credentials: CredentialsPort }` 结构窄面（真 Context 与 fake 都满足，避免 import 上游抽象类）；key-manager 的 `createKey` seam 只传四字段（`usageScene:1` 由 client 层写 HTTP 体）；vitest 3.2.7 无 `toHaveBeenCalledExactlyOnceWith`，用 `times(1)+with` 等价替代。
 
 - **文件**：H9、H10、H11；`test/credential-record.test.ts`、`test/key-manager.test.ts`、`test/pat-owner.test.ts`。
 - **要点**：§3.5 状态机与续期公式；失败分类表逐行；代次隔离；单飞；`set` 是唯一发布路径；**网络在 mutate 之外**。
@@ -647,6 +684,17 @@ zcode-plan 状态（读数 <本地时刻>）
 
 ### T4 — credentials / authorization 集成（2 项并行：flow 注册 + 启动恢复 / 集成测试）
 
+#### T4 终形态（执行期实测，2026-11-03）
+
+- **落地文件**：`host/index.ts`（apply 落 H2 全序：logger 端口 → `ctx.inject(['credentials','authorization'])` 内 冲突检测先行→registerFlow（disposer 交 `scope.effect`）→`credentials/record-updated` 本 key 重建 owner→启动读 grant 则 `ensureKey`+`owner.ensure`（失败仅 warn）；`commands` 留 T7 占位）、`login-flow.ts`（`createLoginFlow` 完整 run 时序 + `createLoginDriver` + 纯函数 `buildAuthorizeUrl`/`parseCallbackUrl`/`randomState`）、`test/host-apply.test.ts`（5 例）、devDeps 追加 `@deepseek-ai/dsh-authorization` pin。
+- **关键实现裁定**：
+  1. **薄宿主防御**：`apply` 对 `typeof ctx.inject !== 'function'` 直接 return（真实 cordis Context 恒有该方法；此防御只为不破坏既有 `test/smoke.test.ts` 的薄 stub 断言，记录为已知偏差）。
+  2. **无 loopback 时的粘贴分支**：`startServer` 可注入，缺省 `undefined` = 只走粘贴；authorize URL 不带 `redirect` 参数；**粘贴分支的 `redirect_uri` 从粘贴 URL 的 origin+path 提取**（与浏览器 302 目标逐字一致），回调分支则用 `server.redirectUri`，两者天然相等。
+  3. **state fail-closed**：粘贴/回调 URL 缺 `state` 或不等一律 `AUTH_STATE` 拒绝；`PasteWithdrawnError` 用于「撤销提问」，与 `AuthorizationDeclinedError`（人拒绝→cancelled）严格区分（已对照上游 `dsh-authorization/lib/index.js` 确认判定口径）。
+  4. **record-updated 只重建 owner 不自动 ensure**（拉起入口归 T7 命令与启动路径）。
+- **验收数据**（主会话独立复跑）：`test` 8 文件 **94 passed**；5.2 原文两项（record-updated 分流、REF_CONFLICT 且 set 未调）由 `test/host-apply.test.ts:133-148` 与 `:113-131` 覆盖（不重复造轮子）；新增 flow↔driver 集成断言 `test/login-flow.test.ts`（粘贴主路径 grant 无 `jwtExpiresAt`、state 不符 AUTH_STATE、回调赢时 prompt.signal aborted、driver TTL/2s 首文本超时）；`verify:all` 与 `dsh:check` 全绿/agree。
+- **未完成（归后续组）**：`loopback.ts`（H8）与「回调服务器默认接线」在 T5（任务 6.1）；`commands` 注册与 `commands.test.ts` 在 T7（任务 8.1）——**tasks.md 6.2 提到的 `commands.test.ts` login 部分因 commands 尚未实现，并入组 8 执行**（见 RE-6）。
+
 - **文件**：H2（`apply` 主体）、H7 的 flow 定义、`test/login-flow.test.ts`（部分）。
 - **要点**：`ctx.inject(['credentials','authorization'], …)` 内 `registerFlow`（dispose 时反注册）；`credentials/record-updated` 监听本 key → 重建 owner（重新登录即生效）；启动若有记录 → `keyManager.ensureKey()` → `owner.ensure()` → 发布；`PAT_REF` 冲突检测（§3.3）；`credentials` 缺席时零注册零报错（照 `user-commands` 的软依赖姿态）。
 - **出口**：
@@ -656,6 +704,14 @@ zcode-plan 状态（读数 <本地时刻>）
   4. 真机：装上插件、`docker exec dsh sh -lc 'grep -cE "^  ZCODE_PLAN_PAT:" ~/.dsh/.credentials.yaml'` → 登录后 `1`（登录前 `0`）。
 
 ### T5 — 登录 flow（3 项并行：loopback / flow run / 命令 driver）
+
+#### T5 终形态（执行期实测，2026-11-03）
+
+- **落地文件**：`loopback.ts`（H8 全量：`startCallbackServer({state,path,log?,clock?,timeoutMs?})` → `{redirectUri,result,close}`；`server.listen(0,'127.0.0.1')`；成功 resolve `{code,state}` + 200 纯文本页；state 不符/缺 authCode → `BridgeError('AUTH_STATE')` + 4xx 页；`close()` 幂等且挂起 result 以 `CallbackClosedError` 结算；超时缺省 `CALLBACK_SERVER_TIMEOUT_MS=600000` 自关）、`login-flow.ts` 增量（`startServer` 缺省接线 `config.callbackServer ? startCallbackServer : undefined`）。
+- **三条验证断言落位**（vitest 3.2.7 无 `toHaveBeenCalledBefore`，用事件顺序数组等价）：两分支 `server.closed===true` @ `test/login-flow.test.ts:323`（回调赢）与 `:359`（粘贴赢）；`commit` 先于 `runResolved` @ `:409` 的 `expect(events).toEqual(['commit','runResolved'])`；`pasteReject` 为 `PasteWithdrawnError` 且 `not.toBeInstanceOf(AuthorizationDeclinedError)` @ `:329`。
+- **X5 全量补齐**（`test/login-flow.test.ts` 34 例）：parseCallbackUrl 容错矩阵 13（带/不带 scheme 归一、authCode 优先、编码差异、6 类不可解析、state 缺失透传）、buildAuthorizeUrl/randomState 4、flow 分支 4（callbackServer:false 不启服务器、换证失败原实例上抛 + finally close、Declined 原实例上抛、回调赢 grant 来源）、driver 边界 3（settled 后 no-attempt、notify→prompt 窗口 not-waiting、abort 幂等）。
+- **验收数据**（主会话独立复跑）：`test` 9 文件 **127 passed**；`verify:all` 全绿；`pnpm dsh:check` agree；loopback 测试仅 127.0.0.1 随机端口、零外网；工作区完整性复核（stash 空、lockfile 无冲突标记）。
+- **偏差/知悉**：① `commands.test.ts` login 部分按 RE-6 并入组 8；② 真实现下 state 不符以 **reject** 结算，flow 的 `callback-error` resolve 分支只在注入假 server 时可达（保留兼容）；③ driver `abort()` 依赖 attempt 能结算 → 生产由 seam（`begin` 对 request.signal 以 cancelled 结算）承载，测试用「响应 signal 即取消结算」桩模拟；**组 8 接线须沿用该语义**。
 
 - **文件**：H8、H7、`test/login-flow.test.ts`（全量）、`test/commands.test.ts`（login 部分）。
 - **要点**：§3.6 时序；state 校验；回调与粘贴赛跑（`prompt.signal` 只撤提问）；`session.commit` 在 `run()` 返回前；`finally` 关服务器；driver 的首个 notice 竞速（2s）；paste 邮箱；TTL abort；`AuthorizationDeclinedError` 与「撤回」严格区分。
@@ -676,6 +732,13 @@ zcode-plan 状态（读数 <本地时刻>）
   - 真机侧（人工一次）：`/zcode-plan route install` 后 `docker exec dsh dsh --profile web --dump-config | sed -n '/id: llm-pi-ai/,/^# ==/p' | grep -c 'zcode-plan:'` → `1`，且 `zai`/`opencode-go`/`zai-coding-cn` 三个键仍在（`grep -c` 各 1）。
 
 ### T7 — 可观测与 status（2 项：日志事件 / status 渲染）
+
+#### T7 终形态（执行期实测，2026-11-03）
+
+- **落地文件**：`status.ts`（H13：`renderStatus`/`readRouteState`/`readUsage`/`renderRouteLine` + 时间与用量格式化纯函数；IO 全经注入端口）、`commands.ts`（H14：`parseZcodePlanInput` 纯函数 + `USAGE` + `createZcodePlanCommand` 五子命令 + `LOG_EVENT_NAMES`/`logEvent`；**零新增依赖**，commands 与 CommandResult 用纯结构窄面）、`index.ts` 增量（commands 注册接线、owner/driver/credentials 槽位共享、`withEventHooks` 锚点翻译层、`AuthorizationSeam.begin`）、`test/commands.test.ts`（74 例，含 RE-6 的 X6 login 二次回显）、`test/status.test.ts`（X8，32 例）、`pat-owner.ts` +2 行日志锚点（`pat_refresh_deferred` @ :164、`pat_issued` @ :273，位于代次检查之后，调度公式不变）。
+- **实现要点**：status 六行（登录/Key/PAT/路由/用量/备注）；用量两档 `unit===3`（5h）与 `unit===6`（周）都展示，percentage/nextResetTime 宽容解析（缺 percentage 自算、resetTime 兼容秒/毫秒/ISO）；用量失败整段降级 `用量：读取失败（<码>）` 其余段照常；事件日志只带码/时刻/布尔；`refresh` 回执按 RE-3 报「与上一张不同：是/否」不报值。
+- **验收数据**（主会话独立复跑）：`test` 12 文件 **251 passed**；`grep -c "not.toContain" test/status.test.ts` = **11**（要求 ≥2，覆盖 JWT/PAT/Key Secret 三夹具）；`verify:all` 与 `pnpm dsh:check` 全绿/agree；`index.ts` 中关于 owner 无锚点的过时注释已同步修正。
+- **偏差留痕**：① `/zcode-plan login <url>` 的「flow 已提交后报登录完成」未实现——`LoginDriver.paste()` 为同步签名、无等待 flow promise 通道（登录完成经 `record-updated`→owner 重建日志与 status 反映），保持现状不改 login-flow；② `route install` 写盘成功但 llm 未注册时回执改为「…llm 目录尚未注册，待宿主重载配置后生效」（避免误导），registered=true 时用规格逐字文案；③ PAT 段「下次续期」显示为**上界** `≤ HH:mm`（PatOwner 不暴露精确调度时刻，leadMs 来自 Config）；④ `pnpm test -- status` 的过滤参数被 pnpm 11 吞掉（跑全量，同样全绿），文件级过滤用 `pnpm exec vitest run status` 补验。
 
 - **文件**：H13、`test/status.test.ts`、H2 内的日志点。
 - **要点**：§3.9 文本；固定事件名（对齐官方词汇）：`pat_issued` / `pat_refresh_deferred` / `pat_refresh_failed` / `key_created` / `key_reused` / `login_committed` / `route_registered` / `halted`；日志只带 code、时长、masked keyId。
@@ -699,7 +762,7 @@ zcode-plan 状态（读数 <本地时刻>）
   1. **登录链**：`/zcode-plan login` → 浏览器 → 粘贴 → `/zcode-plan status` 显示「已登录」；`docker exec dsh sh -lc 'grep -cE "^  zcode-plan/bigmodel-login:" ~/.dsh/.credentials.yaml'` → `1`。
   2. **Key 链**：控制台/`listKeys` 断言 `name === 'zcode-plan-bridge' && usageScene === 1`；**同时断言存量 `zcode-api-key` 的 `usageScene` 仍为 3**（未被改动）。
   3. **路由链**：`--dump-config` 断言（T6 真机侧）；`/zcode-plan status` 的「路由：已注册」。
-  4. **折扣链**：复用前序方法（`gen.mjs` 生成互异等长体 + `test-pat.sh:22-27` 的窗口重置安全检查），手工发同款 42k 请求（`bodies/o1.json`）到 `zcode-plan` 路由，读数口径 = `quota/limit` 的 `unit===3` 差值；判定：PAT 路由 **3–6**、对照 `zai-coding-cn` 普通 Key **14–15**（`results.log` 基线）。
+  4. **折扣链（执行期改写，RE-7；RE-8 翻转）**：原判定「PAT 3–6 vs 基线 14–15」基于前缀缓存假阳性数据，实测不成立。2026-11-03 双池终局对照（`run-final-duel.sh`，互异全新体 + 窗口重置后）实测 **直连载体 PAT 与裸 Key 同价**：u3（5h 窗）7/6 分、u6（周额度池）**6/6 分毫不差**，anthropic 协议端点亦无形态特权。2026-11-04 RE-8 翻转载体结论：**折扣真实存在但判定键不在凭证链**——按理论刻度（实扣 ÷ 理论积分，官方系数公式）重测，直连载体（含全套官方 header 复刻）恒为 ~1.5 计量刻度，官方 ZCode runtime 通道（npm zcode-app-cli 内嵌官方 zcode.cjs + 自定义 provider 直指 coding 端点）实测刻度 0.76–0.85，**等效用量 1.67–2.0x**。改写判定：**直连两臂刻度互比 ≈1.0（无折扣）+ 官方通道刻度 <1.0（折扣生效）+ 偏差留痕**；判定量弃分/ktoken（输出长度污染）改理论刻度。吃折扣的落地路径 = 驱动官方 runtime，非自制凭证直连。读数见 `plugins/zcode-plan/docs/acceptance.md` §二（含 RE-8 小节）。
   5. **轮换链**：`/zcode-plan refresh` → 回执「与上一张不同：是」→ 立刻发一次模型请求成功（证明 ref 热轮换对下一次请求生效，R11）；fake timers 单测另覆盖时序。
   6. **回退链**：`agent-default-model` 切回 `zai-coding-cn` → 请求成功且扣费回到 14–15 量级；`/zcode-plan route remove` → `--dump-config` 无 `zcode-plan` 键；`/zcode-plan logout` → `grep -cE "^  ZCODE_PLAN_PAT:" ~/.dsh/.credentials.yaml` → `0`，此时若强行用该路由 → 请求以 `MISSING_CREDENTIAL` 失败（**不是**用旧值静默成功）。
   7. **仓库门禁**：`pnpm verify`（递归）+ `pnpm dsh:check` 全绿；`pnpm --filter dsh-plugin-zcode-plan compose:check` 三例 E1/E2/E3 符合预期。
