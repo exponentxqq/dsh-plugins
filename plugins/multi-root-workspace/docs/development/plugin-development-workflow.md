@@ -7,7 +7,7 @@
 
 | 项 | 值 | 说明 |
 | --- | --- | --- |
-| 开发目标版本（基线） | `0.2.1-rc.2` | 精确 pin 在 `devDependencies`；基线常量在仓库根 `scripts/dsh-baseline.mjs`；升级/回归时用 `DSH_CLI` 逐版本实跑完整检查（上游 CI 矩阵已随 fork 移除） |
+| 开发目标版本（基线） | `0.2.1-rc.5` | 精确 pin 在 `devDependencies`；基线常量在仓库根 `scripts/dsh-baseline.mjs`；升级/回归时用 `DSH_CLI` 逐版本实跑完整检查（上游 CI 矩阵已随 fork 移除） |
 | 支持矩阵 | [`SUPPORTED_DSH_RELEASES`](../../src/compat/dsh-version.ts) | **精确版本 allowlist**；`peerDependencies` 逐项或，不承诺未来版本 |
 | 实测证据 | 本仓库 `pnpm test` / `pnpm smoke`（上游 CI 矩阵记录已随 fork 清理） | 升级与旧版回归都应运行完整检查；升级工具只探测候选，不自动扩大 allowlist |
 | 运行时门禁 | `multi-root-compat` 行 | 版本不在 allowlist 或核心包混装时，四个安全相关行根本不启动（ADR-0009） |
@@ -170,11 +170,11 @@ dsh plugin --profile web add <本仓库路径>
 
   ```sh
   # 在 workspace 根执行。先确认 manifest / workspace / lockfile 没有未提交改动。
-  pnpm dsh:upgrade 0.2.1-rc.2 --probe   # 重指 devDeps / cordis / 软插件范围 / release-age 条目，并写 probe overrides
+  pnpm dsh:upgrade 0.2.1-rc.5 --probe   # 重指 devDeps / cordis / 软插件范围 / release-age 条目，并写 probe overrides
   pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0     # 候选版本的整棵树都是刚发布的
   # 容器内跑 warn：宿主的 DSH_MULTI_ROOT_COMPAT 不会自动转发进 docker，必须在容器内层赋值
   docker-run node 'DSH_MULTI_ROOT_COMPAT=warn pnpm --filter dsh-plugin-multi-root-workspace verify:all'
-  pnpm dsh:upgrade 0.2.1-rc.2            # 移除 probe overrides（不带 --probe 即清理）
+  pnpm dsh:upgrade 0.2.1-rc.5            # 移除 probe overrides（不带 --probe 即清理）
   pnpm install --frozen-lockfile
   ```
 

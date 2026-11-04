@@ -7870,16 +7870,57 @@ var McpManager = class {
 };
 
 // src/host/plugin-loader.ts
+import { realpathSync } from "node:fs";
+import { dirname } from "node:path";
+import { pathToFileURL } from "node:url";
 var MCP_CLIENT_MODULE = "@deepseek-ai/dsh-mcp-client";
+function hostEntryBaseUrl() {
+  return entryBaseUrl(process.argv[1]);
+}
+function entryBaseUrl(entry) {
+  if (entry === void 0 || entry === "") return void 0;
+  try {
+    return pathToFileURL(dirname(realpathSync(entry))).href;
+  } catch {
+    return void 0;
+  }
+}
 function createServerLoader(ctx) {
   let client;
+  function installationBase() {
+    try {
+      const packages = ctx.get("pluginPackages");
+      if (packages === void 0) return void 0;
+      const parentBase = ctx.baseUrl ?? ctx.root?.baseUrl ?? import.meta.url;
+      const packageDir = packages.packageOf?.(MCP_CLIENT_MODULE, parentBase)?.dir ?? packages.resolution?.entries?.[MCP_CLIENT_MODULE]?.packageDir;
+      if (packageDir === void 0 || packageDir === "") return void 0;
+      return pathToFileURL(dirname(realpathSync(packageDir))).href;
+    } catch {
+      return void 0;
+    }
+  }
   function importBases() {
-    const candidates = [ctx.root?.baseUrl, ctx.baseUrl, import.meta.url];
+    const candidates = [ctx.root?.baseUrl, ctx.baseUrl, import.meta.url, installationBase(), hostEntryBaseUrl()];
     const bases = [];
     for (const candidate of candidates) {
       if (candidate !== void 0 && candidate !== "" && !bases.includes(candidate)) bases.push(candidate);
     }
     return bases;
+  }
+  async function importThrough(base) {
+    const internal = ctx.loader.internal;
+    if (internal !== void 0) {
+      try {
+        return await internal.import(MCP_CLIENT_MODULE, base, {});
+      } catch (error) {
+        throw new Error(`internal.import at ${base}: ${String(error)}`);
+      }
+    }
+    try {
+      return await ctx.loader.import(MCP_CLIENT_MODULE, base, {});
+    } catch (error) {
+      throw new Error(`loader.import at ${base}: ${String(error)}`);
+    }
   }
   function loadClient() {
     const cached = client;
@@ -7888,9 +7929,9 @@ function createServerLoader(ctx) {
       const failures = [];
       for (const base of importBases()) {
         try {
-          return await ctx.loader.import(MCP_CLIENT_MODULE, base, {});
+          return await importThrough(base);
         } catch (error) {
-          failures.push(`${base}: ${String(error)}`);
+          failures.push(error instanceof Error ? error.message : String(error));
         }
       }
       throw new Error(`cannot import ${MCP_CLIENT_MODULE} (tried ${failures.join(" | ")})`);

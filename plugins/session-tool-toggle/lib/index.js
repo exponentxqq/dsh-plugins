@@ -16033,7 +16033,7 @@ function mcpIdentityOf(toolName) {
 // src/host/defaults.ts
 import { readFile as readFile2 } from "node:fs/promises";
 
-// ../../node_modules/.pnpm/@deepseek-ai+dsh-atomic-write@0.2.1-rc.2_@deepseek-ai+cordis@4.0.5/node_modules/@deepseek-ai/dsh-atomic-write/lib/index.js
+// ../../node_modules/.pnpm/@deepseek-ai+dsh-atomic-write@0.2.1-rc.5_@deepseek-ai+cordis@4.0.5/node_modules/@deepseek-ai/dsh-atomic-write/lib/index.js
 import { createHash, randomBytes } from "node:crypto";
 import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -16082,7 +16082,7 @@ async function writeFileAtomic(filename, content, options) {
   }
 }
 
-// ../../node_modules/.pnpm/@deepseek-ai+dsh-home-paths@0.2.1-rc.2_@deepseek-ai+cordis@4.0.5/node_modules/@deepseek-ai/dsh-home-paths/lib/index.js
+// ../../node_modules/.pnpm/@deepseek-ai+dsh-home-paths@0.2.1-rc.5_@deepseek-ai+cordis@4.0.5/node_modules/@deepseek-ai/dsh-home-paths/lib/index.js
 import { opendir, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname as dirname2, join, resolve as resolve2 } from "node:path";

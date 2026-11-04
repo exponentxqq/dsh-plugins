@@ -13,15 +13,15 @@ src/compat/dsh-version.ts  →  SUPPORTED_DSH_RELEASES
 It is an array of **exact versions**, not a semver range. Currently:
 
 ```ts
-export const SUPPORTED_DSH_RELEASES = ['0.1.5-rc.2', '0.1.6-alpha.1', '0.1.6-alpha.2', '0.1.7-alpha.1', '0.1.7-alpha.2', '0.1.7-rc.1', '0.1.7-rc.2', '0.2.0-rc.1', '0.2.0-rc.2', '0.2.1-rc.2'] as const
+export const SUPPORTED_DSH_RELEASES = ['0.1.5-rc.2', '0.1.6-alpha.1', '0.1.6-alpha.2', '0.1.7-alpha.1', '0.1.7-alpha.2', '0.1.7-rc.1', '0.1.7-rc.2', '0.2.0-rc.1', '0.2.0-rc.2', '0.2.1-rc.2', '0.2.1-rc.5'] as const
 ```
 
 When you change it, these four must agree or `pnpm compat:check` fails:
 
 ```text
 src/compat/dsh-version.ts   SUPPORTED_DSH_RELEASES   the allowlist
-package.json                peerDependencies         "0.1.5-rc.2 || 0.1.6-alpha.1 || 0.1.6-alpha.2 || 0.1.7-alpha.1 || 0.1.7-alpha.2 || 0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-rc.2"
-package.json                devDependencies          one entry of the allowlist (currently 0.2.1-rc.2)
+package.json                peerDependencies         "0.1.5-rc.2 || 0.1.6-alpha.1 || 0.1.6-alpha.2 || 0.1.7-alpha.1 || 0.1.7-alpha.2 || 0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-rc.2 || 0.2.1-rc.5"
+package.json                devDependencies          one entry of the allowlist (currently 0.2.1-rc.5)
 node_modules                resolved versions        one entry of the allowlist
 ```
 
@@ -124,14 +124,14 @@ The upgrade probe (now the root `pnpm dsh:upgrade`; the upstream weekly lane was
 For upgrading and probing:
 
 ```bash
-pnpm dsh:upgrade 0.2.1-rc.2 --probe     # repoint pin / soft ranges / allowances, add probe overrides
+pnpm dsh:upgrade 0.2.1-rc.5 --probe     # repoint pin / soft ranges / allowances, add probe overrides
 pnpm dsh:upgrade --latest-prerelease --probe   # pin the newest pre-release
 pnpm dsh:upgrade --print-latest-prerelease
 pnpm dsh:upgrade --print-installed      # what each plugin actually resolved
 pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0
 # Inside the container, set warn on the inner command; host env vars are not forwarded into docker:
 docker-run node 'DSH_MULTI_ROOT_COMPAT=warn pnpm --filter dsh-plugin-multi-root-workspace verify:all'
-pnpm dsh:upgrade 0.2.1-rc.2             # remove the probe overrides
+pnpm dsh:upgrade 0.2.1-rc.5             # remove the probe overrides
 pnpm install --frozen-lockfile
 ```
 
@@ -179,11 +179,13 @@ It **deliberately excludes** `compat:check`, because the upgrade lane runs it ag
 
 ## 9. DSH 0.2 and the new development baseline
 
-The development pin is `0.2.1-rc.2`, with cordis `4.0.5`; the baseline constant lives in the root `scripts/dsh-baseline.mjs`. Restoring the baseline no longer means restoring `0.1.5-rc.2` / `4.0.2`; the earlier probes are historical records. Treat the four manifests, the workspace file, the lockfile, and the baseline file separately when recovering from a probe, and never discard uncommitted support declarations by restoring HEAD.
+The development pin is `0.2.1-rc.5`, with cordis `4.0.5`; the baseline constant lives in the root `scripts/dsh-baseline.mjs`. Restoring the baseline no longer means restoring `0.1.5-rc.2` / `4.0.2`; the earlier probes are historical records. Treat the four manifests, the workspace file, the lockfile, and the baseline file separately when recovering from a probe, and never discard uncommitted support declarations by restoring HEAD.
 
 `0.2.0-rc.1` and `rc.2` retain the seams handled by the existing adapters. The 0.2 agent loop records conservative failure `tool/result` events before closing a failed step: `message.isError: true`, plain-text content, and `data.error`. These must never count as successful file touches. `tests/instructions.spec.ts` covers old block-level failures, message-level failures, and recovery events. The inherited Windows provider softly registers the new ACL diagnosis skill; this plugin still does not promise Windows kernel multi-root grants.
 
 `0.2.1-rc.2` added no new adapter branch: `dsh-fs` / `dsh-sandbox` / `dsh-sandbox-local` types are unchanged, session format is still 4, and `HostConnectionRpc.handle`, the slots in use, and the primitives exports all remain. The real work was the dependency tree: every internal package is exact-pinned, `zod` must align on `4.4.3`, and `dsh-invariants` is no longer published on this line (which is why the git-graph plugin was removed entirely). The `pnpm-workspace.yaml` allowances are kept exactly equal to the lockfile by `pnpm dsh:check`.
+
+`0.2.1-rc.5` likewise added no new adapter branch (measured 2026-11-04, Linux container): rc.2 → rc.5 left the type tree unchanged on every surface this plugin consumes, session format stays 4, cordis stays `~4.0.5`, and `zod` stays `4.4.3`. Pre-promotion warn probe: typecheck green, kernel:probe passed, 405 passed / 5 skipped across 32 test files, compose 46/46, behavior 99/99, journey 60/60; post-promotion enforce `verify:all` and `compat:check` stayed green too. Consistent with the rule since `0.1.7-rc.1`, `peerDependencies` carried `0.2.1-rc.5` in the same change — otherwise the smoke's `dsh plugin add` cannot pass the install-time peer gate.
 
 The root `scripts/check-dsh-baseline.mjs` (`pnpm dsh:check`) guards the baseline constant, the four plugins' dev pins, the three soft plugins' unified range, multi-root's `compat:check`, the installed tree, and the allowances before a release; `scripts/release.mjs` runs it as a precondition. The candidate-repoint script's overrides block still belongs to the probe only; rerunning without `--probe` removes it.
 

@@ -229,6 +229,14 @@ PR #1（head `507c954`）的 P2-3 / P2-4 / P2-5 收紧了两条规则（内容�
 
 实测（macOS，seatbelt 可用，bwrap / landlock 不可用）：`0.1.7-rc.2` 纳入后 enforce（cordis `4.0.4`）与基线回归（pin 回到 `0.1.5-rc.2`，cordis `4.0.2`）都是 343 passed / 3 skipped，compose 40/40，behavior 99/99，journey 55/55。
 
+## 后续提升（2026-11-04）：纳入 `0.2.1-rc.5`
+
+按本 ADR 的人工提升流程，把 `0.2.1-rc.5` 写入 `SUPPORTED_DSH_RELEASES`，`peerDependencies` 改为十一项精确或，开发 pin 同步提升到 `0.2.1-rc.5`（仓库根基线常量随之更新）。
+
+对照 tag `dsh-v0.2.1-rc.2` → `dsh-v0.2.1-rc.5`：本插件消费的全部表面（`dsh-fs` / `dsh-sandbox` / `dsh-sandbox-local` 及各可选 peer 的类型树、session format 4、`HostConnectionRpc.handle`、所用槽位 / primitives 导出）零变化，cordis 仍为 `~4.0.5`，`zod` 仍为 `4.4.3`。适配层没有新分支。安装期 peer 门禁自 `0.1.7-rc.1` 起不变，所以 peer 与 allowlist 在同一次改动里加宽——否则 smoke 的 `dsh plugin add` 在运行时门禁之前就会失败。
+
+实测（Linux 容器）：纳入前 warn 探测 typecheck 全绿、kernel:probe 通过、单测 405 passed / 5 skipped（32 文件）、compose 46/46、behavior 99/99、journey 60/60；纳入后 enforce `verify:all` 与 `compat:check` 同样全绿。
+
 ## Related Documents
 
 - [ADR-0002：上游耦合策略](./ADR-0002-upstream-coupling-policy.md)（本 ADR 收紧了其中第 4 条关于 `peerDependencies` 范围的部分）
