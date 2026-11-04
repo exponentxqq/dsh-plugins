@@ -15,7 +15,10 @@
  *    `/mcp-reload` command all funnel into ONE serialized rescan, so
  *    overlapping triggers converge instead of interleaving;
  * 5. unloading the fiber releases watchers, restrictions, triggers, and every
- *    MCP child fiber.
+ *    MCP child fiber;
+ * 6. the prompt-assembly waterfall filters the project server names and the
+ *    `mcp:<server>` instruction sections out of every prompt whose session may
+ *    not see them.
  *
  * Rescans are serialized because they are declarative: each one re-reads the
  * registry, re-scans every root, and hands the complete desired set to the
@@ -34,6 +37,7 @@ import { nodeRealpathIo, nodeScanIo, nodeWatchIo, scanLog } from './host-io.ts'
 import { IsolationLayer, type ScopedTools } from './isolation.ts'
 import { McpManager, type SyncSummary } from './mcp-manager.ts'
 import { createServerLoader } from './plugin-loader.ts'
+import { createAssembleListener } from './prompt-isolation.ts'
 import { workspaceRoots } from './roots.ts'
 import { scanServers } from './scan.ts'
 import { installTriggers } from './triggers.ts'
@@ -92,7 +96,7 @@ export function apply(ctx: Context): void {
     catalog: () => ctx.tools.schemas().map((schema) => schema.name),
     attribute: async (cwd) => (await attributor.attribute(cwd))?.roots ?? null,
     serverNamesForRoots: (roots) => manager.serverNamesForRoots(roots),
-    managedServerNames: () => manager.managedServerNames(),
+    blockedServerNames: () => manager.blockedServerNames(),
     log,
   })
 
@@ -229,6 +233,29 @@ export function apply(ctx: Context): void {
     void manager.dispose()
   }, 'dsh-plugin-project-mcp: teardown')
 
-  // 6. Boot pass: a workspace that already configures servers needs no restart.
+  // 6. The name face: the prompt-assembly waterfall filters the project server
+  //    names and the `mcp:<server>` instruction sections out of every assembly
+  //    whose session may not see them. The listener awaits the rest of the
+  //    chain first and reads the live per-agent view, so a rescan lands in the
+  //    next assembly; without a system-prompt service the event never fires
+  //    and this registration is a no-op.
+  ctx.on('system-prompt/assemble', createAssembleListener({
+    visibleFor: (agent) => isolation.visibleFor(agent),
+    blockedServerNames: () => manager.blockedServerNames(),
+    log,
+  }))
+
+  // 7. Boot pass: a workspace that already configures servers needs no restart.
+  //    Sessions that already exist never receive `agent/created`, so one line
+  //    states the boundary: name isolation applies from their next assembly,
+  //    resource isolation from the next agent/created.
+  const agents = ctx.get('agents')
+  const live = agents === undefined ? 0 : agents.list().length
+  if (live > 0) {
+    log.info(
+      `boot: ${live} session(s) predate this load; name isolation applies from their next assembly, `
+        + 'resource isolation from the next agent/created',
+    )
+  }
   background()
 }

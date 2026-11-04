@@ -9,13 +9,30 @@
  *   The deny list is derived from the names the registry actually holds — the
  *   restriction API rejects unknown names, so no name is ever guessed from the
  *   configuration alone.
- * - **A dispatch guard** refuses a call to an out-of-scope managed name. It
+ * - **A dispatch guard** refuses a call to an out-of-scope blocked name. It
  *   closes the window between a tool registering and the restriction being
  *   recomputed, and it survives any drift between the two lists.
  *
  * Neither mechanism touches a tool this plugin does not own: profile-level MCP
  * servers (the user's own rows) and the built-in tools are never in a deny
- * list, because only names under a managed server prefix can enter one.
+ * list, because only names under a blocked server prefix can enter one. The
+ * blocked set is the claim set minus the claims whose load threw, so a project
+ * claim that never loaded cannot shadow a profile-level server of the same
+ * name.
+ *
+ * Isolation covers three surfaces over the same live reading:
+ *
+ * - the **tool face** — `mcp__<server>__*` calls, gated by
+ *   {@link guardReason};
+ * - the **name face** — the prompt's resource-server names and `mcp:<server>`
+ *   sections (`prompt-isolation.ts`), gated by
+ *   {@link IsolationLayer.visibleFor};
+ * - the **resource face** — the three resource tools, whose `arguments.server`
+ *   must belong to the agent's scope ({@link resourceGuardReason}).
+ *
+ * The resource face refuses in the very words the upstream MCP resource
+ * runtime uses for an unavailable server, so a model cannot tell an
+ * out-of-scope server from a missing one (no existence probe).
  *
  * Recomputation is idempotent by construction. `restrict` itself fires
  * `tools/change`, so a recompute that re-registered an unchanged deny set
@@ -28,6 +45,44 @@ import type { ScanLog } from './types.ts'
 
 /** The reserved prefix the MCP client publishes its tools under. */
 const MCP_TOOL_PREFIX = 'mcp__'
+
+/** The three resource tools the MCP resource runtime registers. */
+export const RESOURCE_TOOLS: ReadonlySet<string> = new Set([
+  'list_mcp_resources',
+  'list_mcp_resource_templates',
+  'read_mcp_resource',
+])
+
+/**
+ * The refusal reason for one out-of-scope MCP resource call.
+ *
+ * Deliberately WORD-FOR-WORD the message the upstream MCP resource runtime
+ * throws for a server it cannot resolve (`dsh-mcp-resources`:
+ * `MCP resource server "<server>" is unavailable in this agent's scope`):
+ * a model must not be able to probe for the existence of a server that is
+ * merely out of scope, and the diagnostic value lives in the log, not in the
+ * model-facing text.
+ * @param server - the serverName the call named.
+ * @returns the denial reason.
+ */
+export function resourceDenyReason(server: string): string {
+  return `MCP resource server "${server}" is unavailable in this agent's scope`
+}
+
+/**
+ * The slice of a tool call a guard reads (a subset of the upstream
+ * `ToolExecution`).
+ */
+export interface GuardedExecution {
+  /** The called tool's name. */
+  readonly name: string
+  /**
+   * The parsed, deeply frozen JSON snapshot of the call arguments; absent when
+   * upstream omits them. NEVER assumed to be an object with a `server` field:
+   * a guard runs before the tool validates its own schema.
+   */
+  readonly arguments?: unknown
+}
 
 /** The tool surface of one agent scope, as this layer drives it. */
 export interface ScopedTools {
@@ -42,7 +97,7 @@ export interface ScopedTools {
    * @param guard - a returned string denies the call.
    * @returns the exact disposer that removes it.
    */
-  guard(guard: (execution: { readonly name: string }) => string | undefined): () => void
+  guard(guard: (execution: GuardedExecution) => string | undefined): () => void
   /**
    * The names this agent can see, as its own scope resolves them.
    *
@@ -76,16 +131,27 @@ export interface IsolationPorts {
    */
   attribute(cwd: string): Promise<readonly string[] | null>
   /**
-   * The managed server names visible to one root set.
+   * The claimed server names visible to one root set: what this workspace's
+   * configuration defines, whether or not the server is loaded yet.
+   *
+   * Deliberately the CLAIM reading, not the blocked one: a workspace must keep
+   * seeing its own server while it loads or retries.
    * @param roots - the workspace's roots.
    * @returns the visible server names.
    */
   serverNamesForRoots(roots: ReadonlySet<string>): ReadonlySet<string>
   /**
-   * The server names this plugin claims.
-   * @returns every claimed name, loaded or not.
+   * The server names this plugin claims and has not proven dead: the claim set
+   * minus the claims whose most recent load threw.
+   *
+   * Deliberately narrower than the claim set. A claim that failed to load never
+   * registered a provider, so denying a profile-level server that happens to
+   * share its name would punish the wrong server; a claim that is merely still
+   * loading must stay denied until it resolves (its provider may already be
+   * registered). Both gates read this set rather than the claim set.
+   * @returns the blocked names, recomputed on every call.
    */
-  managedServerNames(): ReadonlySet<string>
+  blockedServerNames(): ReadonlySet<string>
   /** Sink for diagnostics. */
   readonly log: ScanLog
 }
@@ -117,22 +183,22 @@ export function toolServerOf(toolName: string): string | undefined {
 }
 
 /**
- * The registered names this plugin must hide from one agent: managed MCP tools
- * whose server is not part of the agent's root set.
+ * The registered names this plugin must hide from one agent: MCP tools of
+ * blocked servers that are not part of the agent's root set.
  * @param registered - every tool name in the global layer.
- * @param managed - the server names this plugin claims.
+ * @param blocked - the server names this plugin claims and has not proven dead.
  * @param visible - the server names the agent's workspace defines.
  * @returns the names to deny, sorted (a stable order keeps the diff guard honest).
  */
 export function deriveDeny(
   registered: readonly string[],
-  managed: ReadonlySet<string>,
+  blocked: ReadonlySet<string>,
   visible: ReadonlySet<string>,
 ): readonly string[] {
   const deny: string[] = []
   for (const toolName of registered) {
     const server = toolServerOf(toolName)
-    if (server === undefined || !managed.has(server) || visible.has(server)) continue
+    if (server === undefined || !blocked.has(server) || visible.has(server)) continue
     deny.push(toolName)
   }
   return deny.sort()
@@ -141,18 +207,68 @@ export function deriveDeny(
 /**
  * The refusal reason for one tool call, or undefined to allow it.
  * @param toolName - the called tool's name.
- * @param managed - the server names this plugin claims.
+ * @param blocked - the server names this plugin claims and has not proven dead.
  * @param visible - the server names the calling agent's workspace defines.
  * @returns the denial reason, or undefined.
  */
 export function guardReason(
   toolName: string,
-  managed: ReadonlySet<string>,
+  blocked: ReadonlySet<string>,
   visible: ReadonlySet<string>,
 ): string | undefined {
   const server = toolServerOf(toolName)
-  if (server === undefined || !managed.has(server) || visible.has(server)) return undefined
+  if (server === undefined || !blocked.has(server) || visible.has(server)) return undefined
   return `tool ${toolName} belongs to MCP server ${server}, which is not configured for this session's workspace`
+}
+
+/**
+ * The `server` argument of one resource-tool call.
+ *
+ * The argument snapshot is untrusted: a guard runs before the tool validates
+ * its own schema, and a PTC inner call may carry any JSON. Anything that is not
+ * a non-empty string is reported as absent, which hands the call back to the
+ * tool's own validation instead of denying it here.
+ * @param args - the execution's argument snapshot.
+ * @returns the server name, or undefined when the shape is not usable.
+ */
+function resourceServerOf(args: unknown): string | undefined {
+  if (typeof args !== 'object' || args === null || Array.isArray(args)) return undefined
+  const server = (args as { readonly server?: unknown }).server
+  return typeof server === 'string' && server !== '' ? server : undefined
+}
+
+/**
+ * The refusal reason for one MCP resource call, or undefined to allow it.
+ *
+ * The chain is the contract, in this order:
+ *
+ * 1. not one of {@link RESOURCE_TOOLS} → allow (not this module's concern);
+ * 2. `arguments.server` not a non-empty string → allow and let the tool's own
+ *    validation answer (a malformed call must never look like isolation);
+ * 3. the server is not blocked → allow (profile-level, unknown, or a project
+ *    claim whose load failed — none of them are ours to deny);
+ * 4. the server is visible to this agent → allow (its own workspace's server);
+ * 5. otherwise → {@link resourceDenyReason}, worded exactly like an unavailable
+ *    upstream server.
+ *
+ * The caller must pass the LIVE sets: a blocked-profile change has to take
+ * effect on the next call, not on the next refresh.
+ * @param toolName - the called tool's name.
+ * @param args - the execution's argument snapshot (untrusted shape).
+ * @param blocked - the server names this plugin claims and has not proven dead.
+ * @param visible - the server names the calling agent's workspace defines.
+ * @returns the denial reason, or undefined.
+ */
+export function resourceGuardReason(
+  toolName: string,
+  args: unknown,
+  blocked: ReadonlySet<string>,
+  visible: ReadonlySet<string>,
+): string | undefined {
+  if (!RESOURCE_TOOLS.has(toolName)) return undefined
+  const server = resourceServerOf(args)
+  if (server === undefined || !blocked.has(server) || visible.has(server)) return undefined
+  return resourceDenyReason(server)
 }
 
 /**
@@ -259,10 +375,18 @@ export class IsolationLayer {
 
     try {
       // Installed once and kept for the agent's lifetime: it reads the live
-      // managed and visible sets, so a restriction refresh never needs to
+      // blocked and visible sets, so a restriction refresh never needs to
       // re-register it (and a registration failure is reported, not fatal).
-      tracked.guard = tools.guard((execution) =>
-        guardReason(execution.name, this.ports.managedServerNames(), tracked.visible))
+      // The tool face answers first; the resource face only sees calls the
+      // tool face left alone, so a name-prefixed call is never judged twice.
+      tracked.guard = tools.guard((execution) => {
+        // One live read per call: both faces gate on the same snapshot, and a
+        // blocked/visible change takes effect on the very next call (D-12).
+        const blocked = this.ports.blockedServerNames()
+        const toolReason = guardReason(execution.name, blocked, tracked.visible)
+        if (toolReason !== undefined) return toolReason
+        return resourceGuardReason(execution.name, execution.arguments, blocked, tracked.visible)
+      })
     } catch (error) {
       this.ports.log.error(`cannot install the workspace isolation guard: ${String(error)}`)
     }
@@ -279,6 +403,21 @@ export class IsolationLayer {
     if (tracked === undefined) return
     this.agents.delete(key)
     this.lift(tracked)
+  }
+
+  /**
+   * The server names one tracked agent may see.
+   *
+   * Read live, never cached: the name face (`prompt-isolation.ts`) calls this
+   * on every prompt assembly. An unknown key means the agent predates this
+   * plugin's load (or is not an agent scope at all) — the caller treats that as
+   * "hide every project server" (fail closed), which is why this returns
+   * undefined instead of an empty set.
+   * @param key - the agent's identity object (its own scope).
+   * @returns the agent's current visible set, or undefined when untracked.
+   */
+  visibleFor(key: object): ReadonlySet<string> | undefined {
+    return this.agents.get(key)?.visible
   }
 
   /**
@@ -316,7 +455,7 @@ export class IsolationLayer {
    *   second reading would shrink to nothing on the next pass and the
    *   restriction would be lifted (the oscillation the diff guard exists to
    *   prevent). A carried name is dropped as soon as its server leaves the
-   *   managed set, and the retry below drops one whose registration is gone.
+   *   blocked set, and the retry below drops one whose registration is gone.
    * @param tracked - the agent's state.
    */
   private async recompute(tracked: Tracked): Promise<void> {
@@ -337,7 +476,7 @@ export class IsolationLayer {
    * @param tracked - the agent's state.
    */
   private async reconcile(tracked: Tracked): Promise<void> {
-    const managed = this.ports.managedServerNames()
+    const blocked = this.ports.blockedServerNames()
     const roots = await this.attribute(tracked)
     tracked.visible = roots === null
       ? new Set()
@@ -347,10 +486,10 @@ export class IsolationLayer {
     const scoped = this.readScopedNames(tracked)
     const carried = tracked.deny.filter((name) => {
       const server = toolServerOf(name)
-      return server !== undefined && managed.has(server)
+      return server !== undefined && blocked.has(server)
     })
     const candidates = Array.from(new Set([...global, ...scoped, ...carried]))
-    const deny = deriveDeny(candidates, managed, tracked.visible)
+    const deny = deriveDeny(candidates, blocked, tracked.visible)
 
     if (sameDeny(deny, tracked.deny)) {
       // Nothing changed. The first reading of an agent is still reported once,
@@ -376,7 +515,7 @@ export class IsolationLayer {
     // above just made them unrestricted — and retry once.
     const fresh = deriveDeny(
       Array.from(new Set([...this.readGlobalNames(), ...this.readScopedNames(tracked)])),
-      managed,
+      blocked,
       tracked.visible,
     )
     if (fresh.length === 0 || sameDeny(fresh, deny)) return

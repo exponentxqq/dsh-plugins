@@ -1,6 +1,6 @@
 # dsh-plugin-project-mcp
 
-DSH 插件（**纯宿主面，`exports "."`**）：让 MCP 配置随项目目录走——每个工作区根（及其附加根）的 `.dsh/mcp/` 目录下每个配置文件定义一台服务器，自动发现、加载、热重载，并**按工作区隔离工具可见性**，多项目并行时各会话只看得见自己项目的 MCP 工具。
+DSH 插件（**纯宿主面，`exports "."`**）：让 MCP 配置随项目目录走——每个工作区根（及其附加根）的 `.dsh/mcp/` 目录下每个配置文件定义一台服务器，自动发现、加载、热重载，并**按工作区隔离工具、提示词中的服务器名与资源读取（三面）**，多项目并行时各会话只看得见、也只用得上自己项目的 MCP 能力。
 
 本包不声明 `dsh.client`，不含任何 Web UI 组件，因此 **web / acp / headless 等任何 profile 都可单独安装**。
 
@@ -8,7 +8,7 @@ DSH 插件（**纯宿主面，`exports "."`**）：让 MCP 配置随项目目录
 
 本包由 [`dsh-plugin-web-ux`](../web-ux/README.md) 拆分而来（变更 `split-project-mcp-plugin`，行为零变化）：项目级 MCP 本是纯宿主能力，与 Web UI 无耦合，此前被 web 化的包名与安装面锁死在 web 场景。拆分后：
 
-- `dsh-plugin-project-mcp`（本包）：项目级 MCP 全部宿主实现——扫描、冲突仲裁、加载管理、工作区隔离、监听、`/mcp-reload`；
+- `dsh-plugin-project-mcp`（本包）：项目级 MCP 全部宿主实现——扫描、冲突仲裁、加载管理、工作区隔离（工具 / 名字 / 资源三面）、监听、`/mcp-reload`；
 - `dsh-plugin-web-ux`：Web 界面体验（双端）——provider 徽章 + 侧栏已归档会话的删除入口；其宿主半不只是客户端模块扫描所需的 bare 包名锚点，还承载该能力的 Connection RPC 通道。后续 Web 界面体验优化仍落在它。
 
 两者**互不依赖**，可分别安装；web profile 同时装两个即为拆分前的完整形态。
@@ -53,13 +53,24 @@ env:
 ## 工作区隔离语义
 
 - **归属判定**：取会话创建目录（cwd），逐级向上做 `realpath` 规范化后与全部已登记根比对，**最近命中**的那个根所属工作区即该会话的归属；到根目录仍无命中则无归属。
-- **可见集合**：归属工作区的**整个根集合**（主根 + 授予它的附加根）下定义的服务器对该会话可见，其余项目 MCP 工具不可见。
-- **fail-closed**：无归属的会话看不到**任何**项目 MCP 工具。
-- **两层强制**：`tools.restrict({ deny })` 把关掉的名字从模型可见的工具表里移除；每个 agent 另挂一个 dispatch guard，拒绝对越权受管名的调用（覆盖「工具注册」与「限制重算」之间的窗口，以及名单漂移的边角；限制万一挂不上，guard 仍是唯一拦截面）。
+- **可见集合**：归属工作区的**整个根集合**（主根 + 授予它的附加根）下定义的服务器对该会话可见，其余项目的工具、名字与资源一律不可见/不可用。
+- **fail-closed**：无归属的会话看不到**任何**项目 MCP 工具、提示词中的项目服务器名，其资源读取也全部被拒。
+- **工具面两层强制**：`tools.restrict({ deny })` 把关掉的名字从模型可见的工具表里移除；每个 agent 另挂一个 dispatch guard，拒绝对越权受管名的调用（覆盖「工具注册」与「限制重算」之间的窗口，以及名单漂移的边角；限制万一挂不上，guard 仍是唯一拦截面）。
 - deny 名单**只从实际注册名推导**（`restrict` 遇未注册名会抛错，所以绝不手工拼名）。候选集取三个读数的并集：宿主全局层（`tools.schemas()`）、**该会话自己 scope 的视角**（`tools.schemas(agent)`）、以及**当前已被屏蔽且服务器仍在受管集合内**的名字。三者缺一不可：本部署的模型可见**内置**工具在 agent 平面（实测同构实例 `global=9` / `scoped=35`），把项目 MCP 行排布到该平面的部署同样成立；而第三项防止「限制生效后视角读数缩水 → 下一遍算出更小的 deny → 摘下限制」的振荡。内置工具与非本插件管理的 profile 级 MCP 工具（如 `mcp__dbx__*`）永远不会进名单，也不受影响。
 - **健壮性**：归属判定、全局读数、视角读数各自兜底并降级（归属失败即 fail-closed 全屏蔽），每次重算整体再兜底一次——单个会话的运行期异常不会中断其他会话的刷新，且诊断行会点出失败阶段。
 - **动态刷新**：`tools/change`（服务器连接、断开、工具同步）对全部存活 agent 重算；`agent/created` 是 serial 派发且框架会 `await` 监听器返回值，插件**返回**挂载 Promise，因此新会话**首步装配前**限制必定已生效。重算幂等——deny 集不变就**不重复注册**（`restrict` 本身会触发 `tools/change`，没有这条 diff 守卫会自激）。
-- **排障**：本 profile 运行期没有 logger 出口，插件的诊断同时写 `ctx.logger` 与 `console`，因此 `docker logs dsh | grep dsh-plugin-project-mcp` 能看到 `isolation: cwd=… roots=N visible=[…] global=N(mcp=N) scoped=N(mcp=N) carried=N deny=N […]`、`isolation: masked N tool(s) …` 与冲突/跳过行——「隔离算空」和「隔离生效」一眼可辨。
+- **排障**：本 profile 运行期没有 logger 出口，插件的诊断同时写 `ctx.logger` 与 `console`，因此 `docker logs dsh | grep dsh-plugin-project-mcp` 能看到 `isolation: cwd=… roots=N visible=[…] global=N(mcp=N) scoped=N(mcp=N) carried=N deny=N […]`、`isolation: masked N tool(s) …` 与冲突/跳过行——「隔离算空」和「隔离生效」一眼可辨。名字面的 `prompt: resource names …` 行与重载时的 `boot: …` 行见下节。
+
+## 三面隔离（工具 / 名字 / 资源）
+
+同一次归属判定产出同一份 `visible`，三面共用同一刷新路径与同一实时读数；无新开关、无额外连接、无上游修改：
+
+- **工具面**：`tools.restrict({ deny })` 把越权 `mcp__<server>__*` 从模型可见工具表移除；每个 agent 另挂 dispatch guard，拒绝对越权受管名的调用（见上节「工具面两层强制」）。
+- **名字面**：监听 `system-prompt/assemble` 瀑布，在 `await next()` 之后按**调用会话**的归属改写 `## MCP resource servers` 段里的名字数组（保留 profile 名，移除无权项目名），并整段删除无权项目服务器的 `mcp:<server>` 指令段（标题与正文一并消失）。过滤后名字数组为空 → 整段删除（与上游「无服务器不贡献该段」同形）；上游文本形态无法解析 → **fail-closed 删段**并 warn（前 3 次）。改写用 `{...section, text}` 保留 `interpolate:false`——挑字段重建会让服务器 instructions 被当模板插值。
+- **资源面**：`list_mcp_resources` / `list_mcp_resource_templates` / `read_mcp_resource` 三个工具在**派发前**按 `arguments.server` 判定：属于 `blocked` 且不在本会话 `visible` → 拒绝，**不触达**目标服务器，模型拿不到该服务器的资源、URI 或内容。拒绝文案与上游「不可用」逐字同形（`MCP resource server "<server>" is unavailable in this agent's scope`），模型无法据此探测服务器是否存在；`server` 缺失或非字符串时交回工具自身校验，不额外拒绝。原生调用与 PTC（`run_code`）内层调用走同一条 guard 管线。
+- **口径**：`visible` = 该会话归属工作区根集合下**声称（claimed）**的服务器名（授权面，不变）；`blocked = claimed \ failedClaims`（= 已加载 ∪ 加载中；加载失败的 claim 剔除）。应拒 / 应隐集合 = `blocked \ visible`。每次调用与每次装配都读实时集合，不缓存快照。
+- **`blocked` 的动机与窗口语义**：旧口径直接拿 `claimed` 当应拒集合，一个**加载失败**的项目 claim（例如项目侧 `figma` 为 profile 行占名而加载失败）会把同名 profile 服务器一并 deny / 隐掉，误伤与本工作区无关的会话。改为 `blocked` 后，失败的 claim 不再进入应拒集合；**尚未加载完的 claim 仍在集合里**（fail-closed 方向）——若改用纯 `active`（加载成功后才写入），`connection.ready` 之前 provider 已注册而 `active` 尚未落笔，会开一个 fail-open 窗口。只有「确定加载失败」的才剔除。
+- **诊断**：`docker logs dsh | grep -E "isolation:|prompt: resource names|boot:"`。既有 `isolation: cwd=… roots=N visible=[…] … deny=N […]` 不变；新增名字面行 `prompt: resource names session=<id> cwd=<cwd> tracked=yes kept=[…] removed=[…] sections=[…] unparsable=N`，未被跟踪的装配为 `prompt: resource names session=<id> cwd=none tracked=no hidden=<n>`。无归属会话仍被建模为「已跟踪、可见集为空」（`roots=none visible=[]`），因此显示 `tracked=yes`、`kept` 只含 profile 名。同一形状只打一条，形状变化才再打；`unparsable` warn 前 3 次（`prompt: resource names section unparsable (deleted), upstream text drifted`）。插件加载时若已有会话，另打 `boot: N session(s) predate this load; name isolation applies from their next assembly, resource isolation from the next agent/created`（见「降级矩阵」）。
 
 ## 热重载与 `/mcp-reload`
 
@@ -71,6 +82,27 @@ env:
 ## 软依赖与降级
 
 [`dsh-plugin-multi-root-workspace`](../multi-root-workspace/README.md) 是**软依赖**：它的 registry 服务在就扫描「主根 + 附加根」，缺席（未安装或未激活）则**静默降级为只扫各主根**，其余行为不变，不报错。
+
+## 降级矩阵
+
+| 条件 | 行为 |
+| --- | --- |
+| 无 `systemPrompt` 服务 | `system-prompt/assemble` 监听不触发，名字面静默缺席；工具面与资源面不受影响（该部署的提示词里本来也没有名字段） |
+| 无 `mcpResources`（上游未装） | 三个资源工具不存在，资源面自然缺席；工具面与名字面不受影响 |
+| 名字段文本形态漂移（上游改文案） | 该段整体删除（fail-closed）+ warn 前 3 次；资源读取的硬拒绝不受影响 |
+| HMR / 插件重载后的存量会话 | 这些会话收不到 `agent/created`：名字面自**下一次装配**起隐去全部项目名（fail-closed 方向，profile 名保留），资源面在下一个 `agent/created` 之前**没有守卫**（已知 fail-open 窗口）；加载时若已有会话，日志打 `boot: …` 提示 |
+| `exec.agent === undefined` 的进程内直接调用 | per-agent guard 不参与，不覆盖（模型调用总在 agent 内） |
+
+已知噪声：加载失败的 claim 每次 rescan 都会重试并重记一条 error（与 scan 冲突日志同类），不影响 profile 服务器与其它配置。
+
+**回滚代价**：降级到上一版本即恢复旧行为——同时退回「名字 / 资源面不隔离」与旧工具面的 `claimed` 口径（加载失败的 claim 会再次误伤同名 profile 服务器）。无数据迁移、无配置清理：本版本未新增任何配置键。
+
+## 残余边界
+
+- **人类 UI**：`session-tool-toggle` 的 `/tools` 面板与命令输出仍显示项目服务器分组名——管理员视图，按 spec 不在隔离范围；在该面板里开关某分组也不改变资源归属判定。
+- **全局注册层**：项目服务器的名字仍在全局工具 / 资源注册表里（隔离发生在模型可见面与派发闸门，不改注册层）。将来若有新的消费者直接读全局注册表，需要重新评估。
+- **升级前历史**：升级前会话历史里已出现的项目服务器名与工具调用结果不追溯改写或清除；本版本只约束升级后的提示词装配与调用面。
+- **与会话级开关正交**：`/tools off mcp:<server>` 只关工具 schema 与 `mcp:<server>` 指令段（用户偏好），资源守卫按工作区归属独立判定（安全边界）。越权服务器的资源即使开关处于打开也被拒；本工作区服务器的资源即使开关关闭仍可读（冒烟⑦实测，见下节）。
 
 ## 隔离冒烟记录（验证证据）
 
@@ -105,6 +137,24 @@ env:
 
 同一宿主上 `/mcp-reload` 反馈：`已重扫：加载 0、重载 0、卸载 0、保持不变 1、跳过 0、失败 0`（仅剩 figma 一台；「跳过 0」= 无坏配置、无同名冲突、共享根不再自冲突）。
 
+### 三面冒烟（G5，9 条）
+
+在**独立 `DSH_HOME`（`/tmp/spike-smoke/home`）、独立端口（3099）的同构 web profile 实例**上完成（dsh `0.2.1-rc.5`，工作区含本变更实现；主实例与 `~/.dsh` 全程未触碰）。逐条命令与逐字观察见 [`openspec/changes/project-mcp-name-resource-isolation/artifacts/smoke-record.md`](../../openspec/changes/project-mcp-name-resource-isolation/artifacts/smoke-record.md)。
+
+| # | 断言 | 名字面 | 资源面 |
+| --- | --- | --- | --- |
+| ① | A 会话名字面只含 A 项目名 + profile 名 | ✓ `kept=[probe-a,probe-profile,probe-shared] removed=[probe-b]`；`### MCP server: probe-b` 零命中 | — |
+| ② | A 读 `probe-a` 资源成功 | — | ✓ `isError=false`，请求日志新增 `resources/list`、`resources/read` |
+| ③ | A 对 `probe-b` 三个资源工具全拒且不触达 | — | ✓ 文案与上游 unavailable 同形；`probe-b` 请求日志 4 行前后相等、diff 为空 |
+| ④ | 无归属 `/tmp` 会话 fail-closed | ✓ 项目名计数 0 | ✓ 四个项目资源调用全 `isError=true` |
+| ⑤ | profile 服务器在 A / B / tmp 三会话可见可读 | ✓ 三会话名字段均含 `probe-profile` | ✓ 读取成功，`probe-profile` 请求日志 4→10 |
+| ⑥ | 删配置后名字与资源同步变化 | ✓ 名字段变为 `["probe-profile","probe-shared"]`；watcher 与 `/mcp-reload` 两路径逐字相等 | ✓ `probe-a` 调用被拒；`/mcp-reload` 回执含「卸载 1」 |
+| ⑦ | 工具面回归 + `session-tool-toggle` 行为不变 | ✓ `mcp:probe-a` 指令段随开关隐藏 / 恢复 | 边界：`/tools off` 不关资源 provider，资源读取仍成功（见「残余边界」） |
+| ⑧ | PTC 内层越权同样被拒 | — | ✓ `tool/ptc-dispatch` `isError=true`；`probe-b` 请求日志 4 行前后相等 |
+| ⑨ | 同名 claim 加载失败不误伤 profile | ✓ `probe-shared` 名字保持 | ✓ profile 工具与资源在 A / B 均可用，`deny` 里无 `probe-shared` |
+
+结论：**9 条全部通过（9/9）**，无红项。⑨ 直接验证 `blocked = claimed \ failedClaims`：`probe-shared` 由 profile 行先占、ws-a 项目侧加载失败时，该名未进入应拒集合，B 与 A 会话都能调用 profile 的 `mcp__probe-shared__ping` 并读取其资源——「加载失败的 claim 误伤同名 profile 服务器」已修复。
+
 ## 构建
 
 自包含宿主产物：`link:` 与 git 两种安装形态都不依赖本包 `dependencies`（`yaml` 打进产物）；**`@deepseek-ai/dsh-mcp-client` 刻意不打进产物**——它经 `ctx.loader.import` 运行时加载，按 profile 目录为基准解析，因此与 profile 自己那些 MCP 行共用**同一个模块实例**（这正是项目级与 profile 级撞名能被 mcp-client 拒绝、而不是各自为政的前提）。
@@ -137,6 +187,8 @@ docker exec dsh dsh --profile web --dump-config-schema   # 校验组合可加载
 docker exec dsh dsh --profile web --dump-config | grep -A2 'id: project-mcp'
 ```
 
+已知环境问题：web profile 的 `--dump-config-schema` 目前会因官方 `dsh-agent-preset` 与 rc.5 检查器不兼容报 4 条 error（与本插件无关；本插件在三个 profile 上零诊断）。
+
 `dsh plugin add` 会把包追加进 profile `package.json` 的 `dsh.profile.bundles`，从而激活本包的 `cordis.patch.yml`（插入 `id: project-mcp` 的 bare 包名行）。web profile 想要徽章时另装 [`dsh-plugin-web-ux`](../web-ux/README.md)。
 
 两点运维须知：
@@ -149,7 +201,7 @@ docker exec dsh dsh --profile web --dump-config | grep -A2 'id: project-mcp'
 - 不含任何 Web UI 组件（provider 徽章等属 `dsh-plugin-web-ux`）。
 - 不递归扫描 `.dsh/mcp/` 子目录。
 - 隔离粒度到工作区为止，不细化到会话/目录；不做 agent 级 serverName 复用。
-- 不隔离 MCP **资源**面（`list_mcp_resources` / `list_mcp_resource_templates` / `read_mcp_resource`）：本插件隔离的是 `mcp__<serverName>__*` 工具命名空间，资源提供者按 agent scope 注册的语义属上游 `dsh-mcp-resources`——冒烟中已观察到越权工作区的 `probe-cs` 仍能被资源类工具列到（其工具则已被屏蔽）。若需资源面隔离应另开提案。
+- 不隔离全局注册层与人类 UI（模型可见文本与资源调用已隔离，见「三面隔离」与「残余边界」）。
 - 不做 watch 失效时的自动轮询（用 `/mcp-reload` 兜底）。
 
 ## 许可

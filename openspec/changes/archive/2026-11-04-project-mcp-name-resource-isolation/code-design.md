@@ -635,6 +635,35 @@ prompt: resource names section unparsable (deleted), upstream text drifted: sess
 >
 > **口径更正锚**：本节以下（§2-§6 逐任务组）为**重排前旧稿**——分组/任务号/集合口径以 `tasks.md`（7 组 12 项）与 `design.md`（D-3 修订：三面统一 `blocked = claimed \ failedClaims`；触达面 H1-H4；接口形状 §③）为准。尤其：端口名 `blockedServerNames()`（非 `activeServerNames`）、mcp-manager 需 `failedClaims` + `failedServerNames()` + `blockedServerNames()` 两读数、G2 为 3 项（原 2.4 接线并入 2.2）、G3 仅 1 项（3.1，条件项 3.3 已按 Q1=A 取消）。
 
+> **G2 实测终形态（2026-11-04，116/116 全绿 + typecheck 0）**——三任务并行合入后组末核对通过：
+> - `prompt-isolation.ts`（350 行，27 tests）：零 import 零 `ctx`；`rewriteResourceNames` 实现「数组前原文 + `JSON.stringify(kept)` + 数组后原文（`.` 及空白）」——标准形态与设计逐字一致且**幂等**（复跑得 `kept`）；`sample` 按任务指令导出（3.1 复用，与 isolation.ts 私有副本同语义）；导出 `AssembleAgentLike`/`AssembleContextLike`/`PromptAssemblyLike` 供 3.1。
+> - `isolation.ts`：`resourceGuardReason` 判定链按 design ③ 顺序落地；拒绝文案与 `dsh-mcp-resources:176` 逐字同形（实测比对）；`visibleFor` 返回活引用（未跟踪/detach 后 `undefined`）；guard 闭包**每次调用读一次实时 `blockedServerNames()`，工具面与资源面共用该快照**（对 design 旧示意「两处分别读」的主动修正：同次判定两集合必须一致，仍满足 D-12）。
+> - `mcp-manager.ts`：`failedClaims` 维护含一处必要补全——`reconcile()` 开头对**不在 desired 的失败名**做 prune（失败 claim 不进 `active`，unload 循环够不着）；`blockedServerNames()` = claimed \ failed 现算不缓存。
+> - 测试矩阵：isolation 34（原 22 + 新 12，含同形文案断言与 `probe-shared` 端到端）、mcp-manager 15（原 9 + 新 6，含恒等式）、prompt-isolation 27。
+
+> **G3 实测终形态（2026-11-04，131/131 全绿 + typecheck 0 + lint 0 err）**——3.1 合入后组末核对通过：
+> - `prompt-isolation.ts`（560 行，42 tests）：监听器层落地——先 `next()`（链抛错原样上抛）、无名字面段零端口零日志、`context.agent ?? context.scope` 归属（皆缺/`visibleFor→undefined` 全隐）、端口/过滤抛错 over-hide + error 行不上抛、`changed=false` 返回原引用、三条诊断行逐字格式 + 形状限流（首现即报 + 变化才报，R-9）+ `unparsable` warn 前 3 次。
+> - **D-9 前提被 rc.5 证伪**（见 tasks.md 附录 R-9）：上游 `dsh-agent` 类型树已声明 `system-prompt/assemble` 事件 → 本地声明合并为重载要求 `Promise<PromptAssembly>` → `AssembleListener` 泛型化 `<A extends PromptAssemblyLike>`（3 处 `as A`，spread 保字段）；**不增 devDep**（Lead 裁定，维持 D-9 零依赖意图）。
+> - `index.ts`（261 行）：`ctx.on('system-prompt/assemble', createAssembleListener({visibleFor, blockedServerNames, log}))` 注册于 apply 尾部编号第 6 步（与模块头对齐，apply 同步执行无行为差异）；boot 观测行逐字文案；模块头补第 6 步、boot pass 顺延第 7 步。
+> - 测试：prompt-isolation 42（+15，六条必测断言全落测：next 恰一次先于端口读 / 未跟踪全隐+profile 保留 / agent↔scope 其一 / 端口抛错全 `mcp:` 段消失 / 同引用 / 6 次同形 1 条 info）。
+
+> **G4 实测终形态（2026-11-04，静态门禁 5/6 组绿 + web 一条用户裁定例外通过，R-10）**：
+> - `verify:all`（lint→typecheck→build→test）退出码 0：oxlint 0 errors、131/131 测试、`lib/index.js` 重建（301448→313059B，含新代码）。
+> - `pnpm dsh:check` 退出码 0（baseline rc.5，安装树 50 包全 rc.5）。
+> - 三 profile dump-config-schema：**acp/headless 退出码 0**；web 退出码 1——4 条 error 全部指向官方 `dsh-agent-preset`（自定义 EntryGroup 承载器 × rc.5 dumper 只认 `cordis:group`/`cordis:include`），仅 web 装了承载 bundle；**本插件与全部 link 插件三 profile 零诊断** → 记例外通过（R-10，用户裁定）。
+> - 产物纯度：`^import .*@deepseek-ai` 零命中（import 仅 `node:*`）；`mcp-resource-servers` 进产物（1 处）+ 源码 3 处印证。
+
+> **G5 实测终形态（2026-11-04，端到端冒烟 9/9 通过；记录 `artifacts/smoke-record.md`，fixture `/tmp/spike-smoke/` 保留）**：
+> - **①名字面**：A 会话提示词名字段 = `["probe-a","probe-profile","probe-shared"]`（B 名零命中），`### MCP server: probe-b` 零命中；日志 `kept=[…] removed=[probe-b] sections=[mcp:probe-b]` 与 `isolation:` 行双证。**②资源允许 / ③拒绝不触达**：probe-b 三工具全拒且文案与 `probe-absent` 逐字同形，probe-b 请求日志 4→4（diff 空）——「拒绝发生在派发前」硬证。**④fail-closed**：`/tmp` 会话项目名全隐、资源全拒（诊断形态裁定见 R-11①）。**⑤profile 不受影响**：三会话名字可见、读取成功（日志 4→10）。**⑥动态刷新**：删配置 3s 后名字/资源同步变化，`/mcp-reload`「卸载 1」一致。**⑦工具面回归 + session-tool-toggle**：`/tools off/on mcp:probe-a` 生效且恢复；资源面与开关正交（R-11②，D-7 边界）。**⑧PTC**：run_code 内层同文案被拒、零触达。**⑨blocked 口径核心修复**：profile 占名 `probe-shared` → 项目侧 claim 加载失败（`already in use` 日志在档）→ **B 会话照常可见可调可读 profile 的 probe-shared，deny 不含它**——「失败 claim 误伤同名 profile 服务器」缺陷确认已修住。
+> - 已知噪声：失败 claim 每次 rescan 重记 error（R-11③）。
+
+> **G6 实测终形态（2026-11-04，13/13 全绿 + typecheck 0）**——四任务合入后组末核对通过：
+> - **6.1 spec 一致性**：15 项逐条对照全部一致（锚点行号 ↔ 实现/测试/冒烟证据）；`openspec validate --all` 12 passed、22 Scenario ≥ 20、`--strict` valid；spec 文件零改动。副产品 = 重试窗口发现（→ 6.4/R-12）。
+> - **6.2 插件 README**（+59/−7）：非目标 `:152` 删除（旧文案零残留）；新增「三面隔离」「降级矩阵」（5 行 + 已知噪声 + 回滚代价）「残余边界」（4 条，含与开关正交）「三面冒烟（G5，9 条）」表；诊断段准确区分无归属（`tracked=yes` + 空可见集）与未跟踪（`tracked=no`）——R-11① 口径落档；「无 mcpResources」按实现写「三工具不存在、守卫永不命中」（guard 无条件安装）。
+> - **6.3 根文档**：根 README 插件表格行与 AGENTS 插件清单行各就地追加「名字（资源服务器名与服务器指令段）与资源面隔离」，各仅 1 行变动。
+> - **6.4 重试窗口修复**（R-12）：`reconcile()` 发起加载前先剔出 `failedClaims`（重试连接窗口重新落入 `blocked`，fail-closed）；失败 catch 毫秒级补记、成功保持剔除；`manualLoader()` 假件支持读「load 悬挂期间」读数；红-绿佐证（删修复行 → 重试断言红；恢复 → 绿）。测试 18（+3）/全量 134。
+
+
 - **1.1 名字面段契约实证**（触达：无源码改动；产物 D4 `artifacts/spike-name-surface.md`）
   在独立 `DSH_HOME` + 独立端口（`dsh --profile web --port 3099 --no-open`，换 `DSH_HOME`）实例上，放两台 probe 服务器（`.dsh/mcp/*.yaml`，各自：`ping` 工具 + 一条 resource + 非空 `instructions` + HTTP 请求日志），逐条记录「命令 + 观察输出」：① 提示词段落文本逐字形态（`## MCP resource servers` + 句末 `["a","b"].`）；② `mcp:<server>` 段的段名与 `### MCP server: <name>` 标题；③ 段对象带 `interpolate: false`；④ 未打标签的 `ctx.on('system-prompt/assemble')` 能收到**每个** scope 的装配，且能用一个 listener 改 `assembly.sections` 后**下一步**生效；⑤ `complete` 段存在时 mutations 被丢弃（读 `dsh-system-prompt/lib/index.js:398-407` 即可预判，实测确认）。
   **验证**：`test -s openspec/changes/project-mcp-name-resource-isolation/artifacts/spike-name-surface.md` 且 `[ "$(grep -c '^结果：通过' …spike-name-surface.md)" -eq 5 ]`；任一条红 → 停止并上报（不得进 G2）。

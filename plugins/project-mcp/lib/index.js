@@ -7477,25 +7477,44 @@ function scanLog(ctx) {
 
 // src/host/isolation.ts
 var MCP_TOOL_PREFIX = "mcp__";
+var RESOURCE_TOOLS = /* @__PURE__ */ new Set([
+  "list_mcp_resources",
+  "list_mcp_resource_templates",
+  "read_mcp_resource"
+]);
+function resourceDenyReason(server) {
+  return `MCP resource server "${server}" is unavailable in this agent's scope`;
+}
 function toolServerOf(toolName) {
   if (!toolName.startsWith(MCP_TOOL_PREFIX)) return void 0;
   const rest = toolName.slice(MCP_TOOL_PREFIX.length);
   const separator = rest.indexOf("__");
   return separator <= 0 ? void 0 : rest.slice(0, separator);
 }
-function deriveDeny(registered, managed, visible) {
+function deriveDeny(registered, blocked, visible) {
   const deny = [];
   for (const toolName of registered) {
     const server = toolServerOf(toolName);
-    if (server === void 0 || !managed.has(server) || visible.has(server)) continue;
+    if (server === void 0 || !blocked.has(server) || visible.has(server)) continue;
     deny.push(toolName);
   }
   return deny.sort();
 }
-function guardReason(toolName, managed, visible) {
+function guardReason(toolName, blocked, visible) {
   const server = toolServerOf(toolName);
-  if (server === void 0 || !managed.has(server) || visible.has(server)) return void 0;
+  if (server === void 0 || !blocked.has(server) || visible.has(server)) return void 0;
   return `tool ${toolName} belongs to MCP server ${server}, which is not configured for this session's workspace`;
+}
+function resourceServerOf(args) {
+  if (typeof args !== "object" || args === null || Array.isArray(args)) return void 0;
+  const server = args.server;
+  return typeof server === "string" && server !== "" ? server : void 0;
+}
+function resourceGuardReason(toolName, args, blocked, visible) {
+  if (!RESOURCE_TOOLS.has(toolName)) return void 0;
+  const server = resourceServerOf(args);
+  if (server === void 0 || !blocked.has(server) || visible.has(server)) return void 0;
+  return resourceDenyReason(server);
 }
 function sameDeny(left, right) {
   return left.length === right.length && left.every((name2, index) => name2 === right[index]);
@@ -7552,7 +7571,12 @@ var IsolationLayer = class {
     };
     this.agents.set(key, tracked);
     try {
-      tracked.guard = tools.guard((execution) => guardReason(execution.name, this.ports.managedServerNames(), tracked.visible));
+      tracked.guard = tools.guard((execution) => {
+        const blocked = this.ports.blockedServerNames();
+        const toolReason = guardReason(execution.name, blocked, tracked.visible);
+        if (toolReason !== void 0) return toolReason;
+        return resourceGuardReason(execution.name, execution.arguments, blocked, tracked.visible);
+      });
     } catch (error) {
       this.ports.log.error(`cannot install the workspace isolation guard: ${String(error)}`);
     }
@@ -7567,6 +7591,20 @@ var IsolationLayer = class {
     if (tracked === void 0) return;
     this.agents.delete(key);
     this.lift(tracked);
+  }
+  /**
+   * The server names one tracked agent may see.
+   *
+   * Read live, never cached: the name face (`prompt-isolation.ts`) calls this
+   * on every prompt assembly. An unknown key means the agent predates this
+   * plugin's load (or is not an agent scope at all) — the caller treats that as
+   * "hide every project server" (fail closed), which is why this returns
+   * undefined instead of an empty set.
+   * @param key - the agent's identity object (its own scope).
+   * @returns the agent's current visible set, or undefined when untracked.
+   */
+  visibleFor(key) {
+    return this.agents.get(key)?.visible;
   }
   /**
    * Recompute every tracked agent against the current tool catalog and scan.
@@ -7600,7 +7638,7 @@ var IsolationLayer = class {
    *   second reading would shrink to nothing on the next pass and the
    *   restriction would be lifted (the oscillation the diff guard exists to
    *   prevent). A carried name is dropped as soon as its server leaves the
-   *   managed set, and the retry below drops one whose registration is gone.
+   *   blocked set, and the retry below drops one whose registration is gone.
    * @param tracked - the agent's state.
    */
   async recompute(tracked) {
@@ -7617,17 +7655,17 @@ var IsolationLayer = class {
    * @param tracked - the agent's state.
    */
   async reconcile(tracked) {
-    const managed = this.ports.managedServerNames();
+    const blocked = this.ports.blockedServerNames();
     const roots = await this.attribute(tracked);
     tracked.visible = roots === null ? /* @__PURE__ */ new Set() : this.ports.serverNamesForRoots(new Set(roots));
     const global = this.readGlobalNames();
     const scoped = this.readScopedNames(tracked);
     const carried = tracked.deny.filter((name2) => {
       const server = toolServerOf(name2);
-      return server !== void 0 && managed.has(server);
+      return server !== void 0 && blocked.has(server);
     });
     const candidates = Array.from(/* @__PURE__ */ new Set([...global, ...scoped, ...carried]));
-    const deny = deriveDeny(candidates, managed, tracked.visible);
+    const deny = deriveDeny(candidates, blocked, tracked.visible);
     if (sameDeny(deny, tracked.deny)) {
       if (tracked.reported) return;
       tracked.reported = true;
@@ -7644,7 +7682,7 @@ var IsolationLayer = class {
     if (this.apply(tracked, deny)) return;
     const fresh = deriveDeny(
       Array.from(/* @__PURE__ */ new Set([...this.readGlobalNames(), ...this.readScopedNames(tracked)])),
-      managed,
+      blocked,
       tracked.visible
     );
     if (fresh.length === 0 || sameDeny(fresh, deny)) return;
@@ -7767,6 +7805,8 @@ var McpManager = class {
   active = /* @__PURE__ */ new Map();
   /** The latest scanned set — the plugin's claim, loaded or not (see {@link managedServerNames}). */
   scanned = [];
+  /** Claimed names whose most recent load threw (see {@link failedServerNames}). */
+  failedClaims = /* @__PURE__ */ new Set();
   /** Serializes reconciliations so overlapping triggers cannot interleave. */
   chain = Promise.resolve();
   /**
@@ -7775,6 +7815,8 @@ var McpManager = class {
    * The scanned set is recorded immediately (before any await), because the
    * isolation layer reads it to decide which tool names this plugin owns —
    * reading a stale set there would briefly expose another workspace's tools.
+   * The failure marks, by contrast, are only touched inside the serialized
+   * reconciliation, so a reader never observes a half-updated failure set.
    * @param servers - the complete desired set, in load order.
    * @returns what this reconciliation did.
    */
@@ -7793,25 +7835,39 @@ var McpManager = class {
   /**
    * Dispose every loaded server. The manager stays usable afterwards: a later
    * {@link sync} loads the current scan result again.
+   *
+   * The claim and the failure marks are dropped together: both describe the
+   * scan being torn down, so nothing survives to shadow a profile-level server
+   * before the next scan decides what this plugin claims.
    * @returns after every child fiber settled.
    */
   async dispose() {
     this.scanned = [];
+    this.failedClaims.clear();
     for (const serverName of Array.from(this.active.keys())) await this.unload(serverName);
   }
   /**
    * The server names this plugin has claimed, whether or not they loaded.
    *
-   * A claim that failed to connect still reserves its namespace: its tools are
-   * this plugin's to hide from the workspaces that did not configure it, and a
-   * model-visible name needs no live server to be wrong for a session.
-   * @returns the claimed names.
+   * This is the *claim* reading: everything the latest scan produced. A claim
+   * keeps its identity across a failed load or a reload until the next scan
+   * drops it, which is what makes a name stable for callers. It is not the set
+   * the isolation gates deny — see {@link blockedServerNames} for that: a claim
+   * whose load threw must not shadow a profile-level server of the same name.
+   * @returns the claimed names, recomputed on every call.
    */
   managedServerNames() {
     return new Set(this.scanned.map((server) => server.serverName));
   }
   /**
    * The claimed names whose configuration lives under one of the given roots.
+   *
+   * Same claim reading as {@link managedServerNames}, narrowed to one root set:
+   * it answers "what did this workspace configure", not "what may be denied"
+   * (see {@link blockedServerNames}). It deliberately stays on claims, so a
+   * workspace keeps seeing a server it configured while that server is still
+   * loading or awaiting its next retry; a blocked reading here would make the
+   * workspace's own configuration look unauthorized.
    * @param roots - the canonical roots of one workspace's root set.
    * @returns the names a session attributed to those roots may see.
    */
@@ -7819,6 +7875,37 @@ var McpManager = class {
     const visible = /* @__PURE__ */ new Set();
     for (const server of this.scanned) if (roots.has(server.source.root)) visible.add(server.serverName);
     return visible;
+  }
+  /**
+   * The claimed names whose most recent load threw.
+   *
+   * Maintained by {@link sync}: a load that succeeds, a server left unchanged,
+   * a name that leaves the scan, and an unload all clear the mark; only the
+   * `catch` in the load loop sets it. {@link dispose} empties the set. This is
+   * the diagnostic reading — the gates use {@link blockedServerNames} — and it
+   * is recomputed per call, so a finished reconciliation is visible at once.
+   * @returns the failed claims, recomputed on every call.
+   */
+  failedServerNames() {
+    return new Set(this.failedClaims);
+  }
+  /**
+   * The claimed names that are loaded or may still load: the claim set minus
+   * {@link failedServerNames}.
+   *
+   * This is the set the isolation gates deny, in place of either extreme. A
+   * purely active set fails open: a server's provider is registered before its
+   * connection is ready, while the active map is only written once the load
+   * resolves. A purely claimed set fails closed on a claim that cannot load at
+   * all, so it shadows a profile-level server of the same name. Claim minus
+   * failure keeps the pre-resolve window closed and drops only the claims known
+   * to be dead — that is, loaded or still loading.
+   * @returns the blocked names, recomputed on every call.
+   */
+  blockedServerNames() {
+    const blocked = new Set(this.managedServerNames());
+    for (const serverName of this.failedClaims) blocked.delete(serverName);
+    return blocked;
   }
   /** Converge one reconciliation; serialized by {@link sync}. */
   async reconcile(servers) {
@@ -7828,13 +7915,18 @@ var McpManager = class {
     const unloaded = [];
     const unchanged = [];
     const failed = [];
+    for (const serverName of Array.from(this.failedClaims)) {
+      if (!desired.has(serverName)) this.failedClaims.delete(serverName);
+    }
     for (const [serverName, active] of Array.from(this.active)) {
       const next = desired.get(serverName);
       if (next !== void 0 && signatureOf(next) === active.signature) {
+        this.failedClaims.delete(serverName);
         unchanged.push(serverName);
         continue;
       }
       await this.unload(serverName);
+      this.failedClaims.delete(serverName);
       unloaded.push(serverName);
     }
     for (const server of servers) {
@@ -7842,12 +7934,14 @@ var McpManager = class {
       try {
         const dispose = await this.loader.load(server);
         this.active.set(server.serverName, { signature: signatureOf(server), dispose });
+        this.failedClaims.delete(server.serverName);
         if (unloaded.includes(server.serverName)) reloaded.push(server.serverName);
         else loaded.push(server.serverName);
       } catch (error) {
         this.log.error(
           `cannot load MCP server ${JSON.stringify(server.serverName)} from ${server.source.file}: ${String(error)}`
         );
+        this.failedClaims.add(server.serverName);
         failed.push(server.serverName);
       }
     }
@@ -7950,6 +8044,195 @@ function createServerLoader(ctx) {
       await fiber;
       return () => fiber.dispose();
     }
+  };
+}
+
+// src/host/prompt-isolation.ts
+var RESOURCE_NAMES_SECTION = "mcp-resource-servers";
+var SERVER_SECTION_PREFIX = "mcp:";
+var TRAILING_NAME_ARRAY = /server argument:[^[\]]*(\[[^[\]]*\])(?=\s*\.?\s*$)/u;
+var ANY_NAME_ARRAY = /\[[^[\]]*\]/gu;
+function trailingArray(text) {
+  const match = TRAILING_NAME_ARRAY.exec(text);
+  if (match === null) return void 0;
+  const raw = match[1];
+  const start = (match.index ?? 0) + match[0].lastIndexOf("[");
+  return { raw, start, end: start + raw.length };
+}
+function lastArray(text) {
+  let found;
+  for (const match of text.matchAll(ANY_NAME_ARRAY)) {
+    const start = match.index ?? 0;
+    found = { raw: match[0], start, end: start + match[0].length };
+  }
+  return found;
+}
+function parseNameArray(raw) {
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return void 0;
+  }
+  if (!Array.isArray(parsed)) return void 0;
+  if (!parsed.every((item) => typeof item === "string")) return void 0;
+  return parsed;
+}
+function rewriteResourceNames(text, hidden) {
+  if (text.trim() === "") return { kind: "kept" };
+  if (hidden.size === 0) return { kind: "kept" };
+  const candidates = [];
+  const trailing = trailingArray(text);
+  if (trailing !== void 0) candidates.push(trailing);
+  const last = lastArray(text);
+  if (last !== void 0 && (trailing === void 0 || last.start !== trailing.start)) candidates.push(last);
+  let span;
+  let names;
+  for (const candidate of candidates) {
+    const parsed = parseNameArray(candidate.raw);
+    if (parsed !== void 0) {
+      span = candidate;
+      names = parsed;
+      break;
+    }
+  }
+  if (span === void 0 || names === void 0) return { kind: "unparsable" };
+  const kept = names.filter((name2) => !hidden.has(name2));
+  const removed = names.filter((name2) => hidden.has(name2));
+  if (removed.length === 0) return { kind: "kept" };
+  if (kept.length === 0) return { kind: "empty", removed };
+  return {
+    kind: "rewritten",
+    text: text.slice(0, span.start) + JSON.stringify(kept) + text.slice(span.end),
+    kept,
+    removed
+  };
+}
+function planNameFilter(sections, hidden) {
+  const keptNames = [];
+  const removedNames = [];
+  const removedSections = [];
+  let unparsable = false;
+  let changed = false;
+  if (hidden.size === 0) {
+    return { sections, changed, keptNames, removedNames, removedSections, unparsable };
+  }
+  const filtered = [];
+  for (const section of sections) {
+    if (section.name === RESOURCE_NAMES_SECTION) {
+      const rewrite = rewriteResourceNames(section.text, hidden);
+      if (rewrite.kind === "kept") {
+        filtered.push(section);
+        continue;
+      }
+      changed = true;
+      if (rewrite.kind === "rewritten") {
+        filtered.push({ ...section, text: rewrite.text });
+        keptNames.push(...rewrite.kept);
+        removedNames.push(...rewrite.removed);
+        continue;
+      }
+      if (rewrite.kind === "empty") {
+        removedNames.push(...rewrite.removed);
+        continue;
+      }
+      unparsable = true;
+      continue;
+    }
+    if (section.name.startsWith(SERVER_SECTION_PREFIX)) {
+      const serverName = section.name.slice(SERVER_SECTION_PREFIX.length);
+      if (hidden.has(serverName)) {
+        changed = true;
+        removedSections.push(section.name);
+        continue;
+      }
+    }
+    filtered.push(section);
+  }
+  return {
+    sections: changed ? filtered : sections,
+    changed,
+    keptNames,
+    removedNames,
+    removedSections,
+    unparsable
+  };
+}
+function hiddenServers(blocked, visible) {
+  const hidden = /* @__PURE__ */ new Set();
+  if (visible === void 0) {
+    for (const name2 of blocked) hidden.add(name2);
+    return hidden;
+  }
+  for (const name2 of blocked) {
+    if (!visible.has(name2)) hidden.add(name2);
+  }
+  return hidden;
+}
+var REPORTED_NAMES2 = 6;
+function sample2(names) {
+  const head = names.slice(0, REPORTED_NAMES2).join(",");
+  return names.length > REPORTED_NAMES2 ? `${head},+${names.length - REPORTED_NAMES2}` : head;
+}
+var UNPARSABLE_WARNINGS = 3;
+function isNameSurface(section) {
+  return section.name === RESOURCE_NAMES_SECTION || section.name.startsWith(SERVER_SECTION_PREFIX);
+}
+function overHide(sections) {
+  return sections.filter((section) => !isNameSurface(section));
+}
+function sessionOf(context) {
+  const header = context.agent?.session.header;
+  return { id: header?.id ?? "(none)", cwd: header?.cwd };
+}
+function trackedShape(plan) {
+  const kept = plan.keptNames.join(",");
+  const removed = plan.removedNames.join(",");
+  const sections = plan.removedSections.join(",");
+  return `tracked|${kept}|${removed}|${sections}|${plan.unparsable ? 1 : 0}`;
+}
+function trackedLine(location, plan) {
+  return `prompt: resource names ${location} tracked=yes kept=[${sample2(plan.keptNames)}] removed=[${sample2(plan.removedNames)}] sections=[${sample2(plan.removedSections)}] unparsable=${plan.unparsable ? 1 : 0}`;
+}
+function createAssembleListener(ports) {
+  let lastShape;
+  let warnings = 0;
+  return async (_assembly, context, next) => {
+    const resolved = await next();
+    if (!resolved.sections.some(isNameSurface)) return resolved;
+    let visible;
+    let hidden;
+    try {
+      const key = context.agent ?? context.scope;
+      visible = key === void 0 ? void 0 : ports.visibleFor(key);
+      hidden = hiddenServers(ports.blockedServerNames(), visible);
+    } catch (error) {
+      ports.log.error(`prompt: cannot read the project server sets of one assembly: ${String(error)}`);
+      return { ...resolved, sections: overHide(resolved.sections) };
+    }
+    let plan;
+    try {
+      plan = planNameFilter(resolved.sections, hidden);
+    } catch (error) {
+      ports.log.error(`prompt: cannot filter the resource server names of one assembly: ${String(error)}`);
+      return { ...resolved, sections: overHide(resolved.sections) };
+    }
+    const tracked = visible !== void 0;
+    const { id, cwd } = sessionOf(context);
+    if (plan.unparsable && warnings < UNPARSABLE_WARNINGS) {
+      warnings += 1;
+      ports.log.warn(
+        `prompt: resource names section unparsable (deleted), upstream text drifted: session=${id} cwd=${cwd ?? "none"}`
+      );
+    }
+    const shape = tracked ? trackedShape(plan) : `untracked|${hidden.size}`;
+    if (shape !== lastShape) {
+      lastShape = shape;
+      ports.log.info(
+        tracked ? trackedLine(`session=${id} cwd=${cwd ?? "none"}`, plan) : `prompt: resource names session=${id} cwd=none tracked=no hidden=${hidden.size}`
+      );
+    }
+    return plan.changed ? { ...resolved, sections: plan.sections } : resolved;
   };
 }
 
@@ -8205,7 +8488,7 @@ function apply(ctx) {
     catalog: () => ctx.tools.schemas().map((schema) => schema.name),
     attribute: async (cwd) => (await attributor.attribute(cwd))?.roots ?? null,
     serverNamesForRoots: (roots) => manager.serverNamesForRoots(roots),
-    managedServerNames: () => manager.managedServerNames(),
+    blockedServerNames: () => manager.blockedServerNames(),
     log
   });
   let queue = Promise.resolve(EMPTY_SUMMARY);
@@ -8295,6 +8578,18 @@ function apply(ctx) {
     for (const dispose of triggers) dispose();
     void manager.dispose();
   }, "dsh-plugin-project-mcp: teardown");
+  ctx.on("system-prompt/assemble", createAssembleListener({
+    visibleFor: (agent) => isolation.visibleFor(agent),
+    blockedServerNames: () => manager.blockedServerNames(),
+    log
+  }));
+  const agents = ctx.get("agents");
+  const live = agents === void 0 ? 0 : agents.list().length;
+  if (live > 0) {
+    log.info(
+      `boot: ${live} session(s) predate this load; name isolation applies from their next assembly, resource isolation from the next agent/created`
+    );
+  }
   background();
 }
 export {

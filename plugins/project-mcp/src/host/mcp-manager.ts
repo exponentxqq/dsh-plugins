@@ -13,6 +13,18 @@
  * own — a `serverName` the profile's own layer already reserved, which the MCP
  * client rejects when the second instance loads.
  *
+ * Isolation reads three different name sets from here, and they differ on
+ * purpose. The claim set is every name the latest scan produced, loaded or
+ * not; the failed set is the claimed names whose last settled load attempt
+ * threw; the blocked set is the claim minus the failed one — loaded or still
+ * loading, including a retry that is connecting right now. The isolation
+ * gates deny on the blocked set rather than on a purely active set, because a
+ * server's provider is registered before its connection is ready while the
+ * active map is only written once the load resolves, so an active-only gate
+ * would briefly fail open. For the same reason a retry drops its failure mark
+ * before the attempt starts: the failure mark only describes a finished
+ * attempt, and a connecting retry must be blocked again.
+ *
  * The manager deliberately knows nothing about the host context: it loads
  * through a {@link ServerLoader} seam, so every rule above is unit-testable.
  * @module dsh-plugin-project-mcp/host/mcp-manager
@@ -70,6 +82,8 @@ export class McpManager {
   private readonly active = new Map<string, ActiveServer>()
   /** The latest scanned set — the plugin's claim, loaded or not (see {@link managedServerNames}). */
   private scanned: readonly ScannedServer[] = []
+  /** Claimed names whose most recent load threw (see {@link failedServerNames}). */
+  private readonly failedClaims = new Set<string>()
   /** Serializes reconciliations so overlapping triggers cannot interleave. */
   private chain: Promise<unknown> = Promise.resolve()
 
@@ -88,6 +102,8 @@ export class McpManager {
    * The scanned set is recorded immediately (before any await), because the
    * isolation layer reads it to decide which tool names this plugin owns —
    * reading a stale set there would briefly expose another workspace's tools.
+   * The failure marks, by contrast, are only touched inside the serialized
+   * reconciliation, so a reader never observes a half-updated failure set.
    * @param servers - the complete desired set, in load order.
    * @returns what this reconciliation did.
    */
@@ -107,20 +123,27 @@ export class McpManager {
   /**
    * Dispose every loaded server. The manager stays usable afterwards: a later
    * {@link sync} loads the current scan result again.
+   *
+   * The claim and the failure marks are dropped together: both describe the
+   * scan being torn down, so nothing survives to shadow a profile-level server
+   * before the next scan decides what this plugin claims.
    * @returns after every child fiber settled.
    */
   async dispose(): Promise<void> {
     this.scanned = []
+    this.failedClaims.clear()
     for (const serverName of Array.from(this.active.keys())) await this.unload(serverName)
   }
 
   /**
    * The server names this plugin has claimed, whether or not they loaded.
    *
-   * A claim that failed to connect still reserves its namespace: its tools are
-   * this plugin's to hide from the workspaces that did not configure it, and a
-   * model-visible name needs no live server to be wrong for a session.
-   * @returns the claimed names.
+   * This is the *claim* reading: everything the latest scan produced. A claim
+   * keeps its identity across a failed load or a reload until the next scan
+   * drops it, which is what makes a name stable for callers. It is not the set
+   * the isolation gates deny — see {@link blockedServerNames} for that: a claim
+   * whose load threw must not shadow a profile-level server of the same name.
+   * @returns the claimed names, recomputed on every call.
    */
   managedServerNames(): ReadonlySet<string> {
     return new Set(this.scanned.map((server) => server.serverName))
@@ -128,6 +151,13 @@ export class McpManager {
 
   /**
    * The claimed names whose configuration lives under one of the given roots.
+   *
+   * Same claim reading as {@link managedServerNames}, narrowed to one root set:
+   * it answers "what did this workspace configure", not "what may be denied"
+   * (see {@link blockedServerNames}). It deliberately stays on claims, so a
+   * workspace keeps seeing a server it configured while that server is still
+   * loading or awaiting its next retry; a blocked reading here would make the
+   * workspace's own configuration look unauthorized.
    * @param roots - the canonical roots of one workspace's root set.
    * @returns the names a session attributed to those roots may see.
    */
@@ -135,6 +165,44 @@ export class McpManager {
     const visible = new Set<string>()
     for (const server of this.scanned) if (roots.has(server.source.root)) visible.add(server.serverName)
     return visible
+  }
+
+  /**
+   * The claimed names whose most recent settled load attempt threw.
+   *
+   * Maintained by {@link sync}: a load that succeeds, a server left unchanged,
+   * a name that leaves the scan, and an unload all clear the mark; only the
+   * `catch` in the load loop sets it. A retry clears its mark when the attempt
+   * starts (see {@link blockedServerNames}) and the `catch` re-adds it if the
+   * attempt fails, so the set never describes an attempt that is in flight.
+   * {@link dispose} empties the set. This is the diagnostic reading — the gates
+   * use {@link blockedServerNames} — and it is recomputed per call, so a
+   * finished reconciliation is visible at once.
+   * @returns the failed claims, recomputed on every call.
+   */
+  failedServerNames(): ReadonlySet<string> {
+    return new Set(this.failedClaims)
+  }
+
+  /**
+   * The claimed names that are loaded or may still load: the claim set minus
+   * {@link failedServerNames}.
+   *
+   * This is the set the isolation gates deny, in place of either extreme. A
+   * purely active set fails open: a server's provider is registered before its
+   * connection is ready, while the active map is only written once the load
+   * resolves. A purely claimed set fails closed on a claim that cannot load at
+   * all, so it shadows a profile-level server of the same name. Claim minus
+   * failure keeps the pre-resolve window closed and drops only the claims known
+   * to be dead. A retry is a new attempt, so {@link sync} clears its failure
+   * mark when the attempt starts: the connecting window is blocked again, and
+   * a failure re-adds the name as soon as the attempt settles.
+   * @returns the blocked names, recomputed on every call.
+   */
+  blockedServerNames(): ReadonlySet<string> {
+    const blocked = new Set(this.managedServerNames())
+    for (const serverName of this.failedClaims) blocked.delete(serverName)
+    return blocked
   }
 
   /** Converge one reconciliation; serialized by {@link sync}. */
@@ -146,28 +214,46 @@ export class McpManager {
     const unchanged: string[] = []
     const failed: string[] = []
 
+    // A claim that left the scan no longer exists, so its failure mark goes
+    // with it. Names that only changed are cleared at unload below, and any
+    // load attempt below clears its mark before it starts.
+    for (const serverName of Array.from(this.failedClaims)) {
+      if (!desired.has(serverName)) this.failedClaims.delete(serverName)
+    }
+
     // Materialized because unloading below mutates `active` while iterating.
     for (const [serverName, active] of Array.from(this.active)) {
       const next = desired.get(serverName)
       if (next !== undefined && signatureOf(next) === active.signature) {
+        this.failedClaims.delete(serverName)
         unchanged.push(serverName)
         continue
       }
       await this.unload(serverName)
+      this.failedClaims.delete(serverName)
       unloaded.push(serverName)
     }
 
     for (const server of servers) {
       if (this.active.has(server.serverName)) continue
+      // The failure mark describes a finished attempt, never the one about to
+      // start: clearing it here re-includes a retried name in
+      // `blockedServerNames()`, so the connecting window — provider registered,
+      // connection not ready — stays isolated (fail-closed). The catch below
+      // re-adds the mark immediately if this attempt fails; a success keeps it
+      // cleared.
+      this.failedClaims.delete(server.serverName)
       try {
         const dispose = await this.loader.load(server)
         this.active.set(server.serverName, { signature: signatureOf(server), dispose })
+        this.failedClaims.delete(server.serverName)
         if (unloaded.includes(server.serverName)) reloaded.push(server.serverName)
         else loaded.push(server.serverName)
       } catch (error) {
         this.log.error(
           `cannot load MCP server ${JSON.stringify(server.serverName)} from ${server.source.file}: ${String(error)}`,
         )
+        this.failedClaims.add(server.serverName)
         failed.push(server.serverName)
       }
     }

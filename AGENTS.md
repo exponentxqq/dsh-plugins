@@ -18,7 +18,7 @@ DSH（DeepSeek Harness）自定义插件仓库：pnpm workspace 单仓多包，�
 ## 插件清单（统一版本，各自独立 bundle）
 
 - `dsh-plugin-multi-root-workspace` — 给沙箱作用域追加 N 个附加工作区根；目录内有独立 `AGENTS.md` 与 `docs/`，改动前先读
-- `project-mcp` — 从各工作区根 `.dsh/mcp/` 发现项目级 MCP 服务器，工具可见性按工作区隔离、热重载
+- `project-mcp` — 从各工作区根 `.dsh/mcp/` 发现项目级 MCP 服务器，工具可见性按工作区隔离、热重载，名字（资源服务器名与服务器指令段）与资源面隔离
 - `user-commands` — markdown 定义的用户斜杠命令（builtin / `$DSH_HOME/commands` / 各工作区根 `.dsh/commands` 三层），内置 prompt 型 `/init` 与宿主侧只读的 `/inventory`（会话 MCP + skill 清单）
 - `web-ux` — Web 界面体验（双端）：composer 状态行的模型提供商徽章 + 侧栏已归档会话的删除入口（宿主半承载 Connection RPC 通道 `/web-ux`）+ 命令结果通知卡（结果无处渲染时兜底，视图挂载即自隐）
 - `session-tool-toggle` — 会话级工具面开关（双端）：`mcp:<server>` 整组 / 单工具 / `tool:<name>` 内置工具（保护名单拒关）在会话内可关，`/tools` 命令面与会话头部工具区的 Web 面板共用同一状态，默认档在 `$DSH_HOME/session-tool-toggle/defaults.json`

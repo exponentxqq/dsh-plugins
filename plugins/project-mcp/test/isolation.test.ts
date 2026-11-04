@@ -12,7 +12,11 @@ import {
   deriveDeny,
   guardReason,
   IsolationLayer,
+  RESOURCE_TOOLS,
+  resourceDenyReason,
+  resourceGuardReason,
   toolServerOf,
+  type GuardedExecution,
   type IsolationPorts,
   type ScopedTools,
 } from '../src/host/isolation.ts'
@@ -39,7 +43,7 @@ function fakeTools(options: {
   refuse?: (deny: readonly string[]) => string | undefined
 } = {}) {
   const restrictions: (readonly string[])[] = []
-  const guards: ((execution: { readonly name: string }) => string | undefined)[] = []
+  const guards: ((execution: GuardedExecution) => string | undefined)[] = []
   const lifted: number[] = []
   let scopeNames = options.scopeNames ?? []
   let refuse = options.refuse
@@ -65,7 +69,7 @@ function fakeTools(options: {
           applied = []
         }
       },
-      guard: (fn: (execution: { readonly name: string }) => string | undefined) => {
+      guard: (fn: (execution: GuardedExecution) => string | undefined) => {
         guards.push(fn)
         return () => {}
       },
@@ -81,7 +85,7 @@ function ports(overrides: Partial<IsolationPorts> = {}): IsolationPorts {
     catalog: () => [],
     attribute: async () => null,
     serverNamesForRoots: () => new Set(),
-    managedServerNames: () => new Set(),
+    blockedServerNames: () => new Set(),
     log,
     ...overrides,
   }
@@ -95,7 +99,7 @@ describe('deny derivation', () => {
     expect(toolServerOf('mcp__figma')).toBeUndefined()
   })
 
-  it('denies only registered names of managed servers that the workspace does not define', () => {
+  it('denies only registered names of blocked servers that the workspace does not define', () => {
     const registered = [
       'mcp__figma__get_figma_data',
       'mcp__figma__download_figma_images',
@@ -106,6 +110,14 @@ describe('deny derivation', () => {
 
     // The profile-level dbx server and the built-in tool are never touched.
     expect(deny).toEqual(['mcp__figma__download_figma_images', 'mcp__figma__get_figma_data'])
+  })
+
+  it('denies nothing for a claim that failed to load (blocked, not claimed)', () => {
+    // probe-shared is claimed but its load threw, so the manager reports
+    // blocked = {probe-b} only: the profile row of that name must stay visible.
+    const deny = deriveDeny(['mcp__probe-shared__ping', 'mcp__probe-b__ping'], new Set(['probe-b']), new Set())
+
+    expect(deny).toEqual(['mcp__probe-b__ping'])
   })
 
   it('denies nothing for the workspace that defines the server', () => {
@@ -122,14 +134,94 @@ describe('deny derivation', () => {
 })
 
 describe('dispatch guard', () => {
-  it('refuses an out-of-scope managed call and allows everything else', () => {
-    const managed = new Set(['figma'])
+  it('refuses an out-of-scope blocked call and allows everything else', () => {
+    const blocked = new Set(['figma'])
     const visible = new Set<string>()
 
-    expect(guardReason('mcp__figma__get_figma_data', managed, visible)).toContain('figma')
-    expect(guardReason('mcp__figma__get_figma_data', managed, new Set(['figma']))).toBeUndefined()
-    expect(guardReason('read_file', managed, visible)).toBeUndefined()
-    expect(guardReason('mcp__dbx__execute_query', managed, visible)).toBeUndefined()
+    expect(guardReason('mcp__figma__get_figma_data', blocked, visible)).toContain('figma')
+    expect(guardReason('mcp__figma__get_figma_data', blocked, new Set(['figma']))).toBeUndefined()
+    expect(guardReason('read_file', blocked, visible)).toBeUndefined()
+    expect(guardReason('mcp__dbx__execute_query', blocked, visible)).toBeUndefined()
+  })
+
+  it('leaves a claim that failed to load out of the deny set (blocked, not claimed)', () => {
+    const blocked = new Set(['probe-a'])
+    const visible = new Set<string>()
+
+    // Loaded or still loading: ours to deny.
+    expect(guardReason('mcp__probe-a__ping', blocked, visible)).toContain('probe-a')
+    // Claimed but its load threw: the manager keeps it out of the blocked set,
+    // so a profile-level server of the same name is not denied by a failure
+    // that never produced a tool.
+    expect(guardReason('mcp__probe-shared__ping', blocked, visible)).toBeUndefined()
+    // Never claimed at all (a profile row): outside this gate.
+    expect(guardReason('mcp__codebase-memory__search', blocked, visible)).toBeUndefined()
+  })
+})
+
+describe('resource gate', () => {
+  const blocked = new Set(['probe-b'])
+  const visible = new Set(['probe-a'])
+
+  it('names exactly the three resource tools', () => {
+    expect(Array.from(RESOURCE_TOOLS).sort()).toEqual([
+      'list_mcp_resource_templates',
+      'list_mcp_resources',
+      'read_mcp_resource',
+    ])
+    expect(RESOURCE_TOOLS.has('mcp__probe-b__ping')).toBe(false)
+  })
+
+  it('refuses every resource tool for a blocked server outside the scope, in the upstream wording', () => {
+    // The phrase the upstream resource runtime throws for a server it cannot
+    // resolve. An out-of-scope server must be indistinguishable from a missing
+    // one, and both come out of the very same function, so equality is exact.
+    const absentServer = resourceDenyReason('probe-b')
+    expect(absentServer).toBe('MCP resource server "probe-b" is unavailable in this agent\'s scope')
+
+    for (const toolName of RESOURCE_TOOLS) {
+      expect(resourceGuardReason(toolName, { server: 'probe-b' }, blocked, visible)).toBe(absentServer)
+    }
+  })
+
+  it('allows the three tools for a server of the agent\'s own workspace', () => {
+    const scoped = new Set(['probe-a', 'probe-b'])
+    for (const toolName of RESOURCE_TOOLS) {
+      expect(resourceGuardReason(toolName, { server: 'probe-a' }, blocked, scoped)).toBeUndefined()
+    }
+  })
+
+  it('allows a profile-level or unknown server (not blocked)', () => {
+    for (const server of ['codebase-memory', 'probe-unknown', 'probe-shared']) {
+      for (const toolName of RESOURCE_TOOLS) {
+        // probe-shared is the failed claim: it never entered blocked, so the
+        // profile server of that name keeps its resources too.
+        expect(resourceGuardReason(toolName, { server }, blocked, visible)).toBeUndefined()
+      }
+    }
+  })
+
+  it('hands malformed arguments back to the tool instead of denying them', () => {
+    // A guard runs before the tool validates its schema: every shape that is
+    // not a non-empty string server must be left to that validation.
+    const malformed: unknown[] = [
+      undefined,
+      null,
+      'x',
+      [],
+      {},
+      { server: 1 },
+      { server: '' },
+      { server: null },
+    ]
+    for (const args of malformed) {
+      expect(resourceGuardReason('read_mcp_resource', args, blocked, visible)).toBeUndefined()
+    }
+  })
+
+  it('leaves non-resource tools to the tool face', () => {
+    expect(resourceGuardReason('mcp__probe-b__ping', { server: 'probe-b' }, blocked, visible)).toBeUndefined()
+    expect(resourceGuardReason('read_file', { server: 'probe-b' }, blocked, visible)).toBeUndefined()
   })
 })
 
@@ -139,7 +231,7 @@ describe('isolation layer', () => {
     const { log } = recordingLog()
     const layer = new IsolationLayer(ports({
       catalog: () => ['mcp__figma__get_figma_data', 'mcp__dbx__execute_query', 'read_file'],
-      managedServerNames: () => new Set(['figma']),
+      blockedServerNames: () => new Set(['figma']),
       attribute: async () => ['/work/b'],
       serverNamesForRoots: () => new Set(),
       log,
@@ -154,7 +246,7 @@ describe('isolation layer', () => {
     const io = fakeTools()
     const layer = new IsolationLayer(ports({
       catalog: () => ['mcp__figma__get_figma_data'],
-      managedServerNames: () => new Set(['figma']),
+      blockedServerNames: () => new Set(['figma']),
     }))
 
     await layer.attach({}, '/work/b', io.tools)
@@ -168,7 +260,7 @@ describe('isolation layer', () => {
     const io = fakeTools()
     const layer = new IsolationLayer(ports({
       catalog: () => ['mcp__figma__get_figma_data'],
-      managedServerNames: () => new Set(['figma']),
+      blockedServerNames: () => new Set(['figma']),
     }))
 
     await layer.attach({}, '/work/b', io.tools)
@@ -182,7 +274,7 @@ describe('isolation layer', () => {
     let catalog: string[] = []
     const layer = new IsolationLayer(ports({
       catalog: () => catalog,
-      managedServerNames: () => new Set(['figma']),
+      blockedServerNames: () => new Set(['figma']),
     }))
 
     await layer.attach({}, '/work/b', io.tools)
@@ -200,7 +292,7 @@ describe('isolation layer', () => {
     let roots: readonly string[] | null = null
     const layer = new IsolationLayer(ports({
       catalog: () => ['mcp__figma__get_figma_data'],
-      managedServerNames: () => new Set(['figma']),
+      blockedServerNames: () => new Set(['figma']),
       attribute: async () => roots,
       serverNamesForRoots: (set) => (set.has('/work/a') ? new Set(['figma']) : new Set()),
     }))
@@ -217,7 +309,7 @@ describe('isolation layer', () => {
     expect(io.lifted).toHaveLength(1)
   })
 
-  it('denies a managed name only the agent scope reports (the agent-plane case)', async () => {
+  it('denies a blocked name only the agent scope reports (the agent-plane case)', async () => {
     // The host's global layer never carried this name: the model-facing rows
     // live on the agent plane, so a global-only catalog computes an empty deny
     // set and the tool stays visible to the model.
@@ -226,7 +318,7 @@ describe('isolation layer', () => {
     })
     const layer = new IsolationLayer(ports({
       catalog: () => ['read_file'],
-      managedServerNames: () => new Set(['figma']),
+      blockedServerNames: () => new Set(['figma']),
     }))
 
     await layer.attach({}, '/work/b', io.tools)
@@ -239,7 +331,7 @@ describe('isolation layer', () => {
     const io = fakeTools({ scopeNames: ['mcp__figma__get_figma_data'] })
     const layer = new IsolationLayer(ports({
       catalog: () => [],
-      managedServerNames: () => new Set(['figma']),
+      blockedServerNames: () => new Set(['figma']),
     }))
 
     await layer.attach({}, '/work/b', io.tools)
@@ -257,7 +349,7 @@ describe('isolation layer', () => {
     const { log, errors } = recordingLog()
     const layer = new IsolationLayer(ports({
       catalog: () => [],
-      managedServerNames: () => new Set(['figma']),
+      blockedServerNames: () => new Set(['figma']),
       log,
     }))
 
@@ -280,7 +372,7 @@ describe('isolation layer', () => {
     const { log, errors } = recordingLog()
     const layer = new IsolationLayer(ports({
       catalog: () => ['mcp__figma__get_figma_data'],
-      managedServerNames: () => new Set(['figma']),
+      blockedServerNames: () => new Set(['figma']),
       log,
     }))
 
@@ -299,7 +391,7 @@ describe('isolation layer', () => {
     const { log, errors } = recordingLog()
     const layer = new IsolationLayer(ports({
       catalog: () => [],
-      managedServerNames: () => new Set(['figma']),
+      blockedServerNames: () => new Set(['figma']),
       attribute: async () => {
         throw new Error('realpath exploded')
       },
@@ -320,7 +412,7 @@ describe('isolation layer', () => {
       catalog: () => {
         throw new Error('unsupported schema')
       },
-      managedServerNames: () => new Set(['figma']),
+      blockedServerNames: () => new Set(['figma']),
       log,
     }))
 
@@ -340,7 +432,7 @@ describe('isolation layer', () => {
         catalogCalls += 1
         throw new Error('cannot get required service "tools" in inactive context')
       },
-      managedServerNames: () => new Set(['figma']),
+      blockedServerNames: () => new Set(['figma']),
       log,
     }))
 
@@ -361,7 +453,7 @@ describe('isolation layer', () => {
     const { log, errors } = recordingLog()
     const layer = new IsolationLayer(ports({
       catalog: () => ['mcp__figma__get_figma_data'],
-      managedServerNames: () => new Set(['figma']),
+      blockedServerNames: () => new Set(['figma']),
       log,
     }))
 
@@ -385,7 +477,7 @@ describe('isolation layer', () => {
     const { log, errors } = recordingLog()
     const layer = new IsolationLayer(ports({
       catalog: () => ['mcp__figma__get_figma_data'],
-      managedServerNames: () => new Set(['figma']),
+      blockedServerNames: () => new Set(['figma']),
       log,
     }))
 
@@ -403,7 +495,7 @@ describe('isolation layer', () => {
     const { log, infos } = recordingLog()
     const layer = new IsolationLayer(ports({
       catalog: () => ['mcp__figma__get_figma_data', 'read_file'],
-      managedServerNames: () => new Set(['figma']),
+      blockedServerNames: () => new Set(['figma']),
       attribute: async () => ['/work/b'],
       serverNamesForRoots: () => new Set(),
       log,
@@ -424,7 +516,7 @@ describe('isolation layer', () => {
     const io = fakeTools()
     const layer = new IsolationLayer(ports({
       catalog: () => ['mcp__figma__get_figma_data'],
-      managedServerNames: () => new Set(['figma']),
+      blockedServerNames: () => new Set(['figma']),
     }))
 
     const key = {}
@@ -440,7 +532,7 @@ describe('isolation layer', () => {
     const io = fakeTools()
     const layer = new IsolationLayer(ports({
       catalog: () => ['mcp__figma__get_figma_data'],
-      managedServerNames: () => new Set(['figma']),
+      blockedServerNames: () => new Set(['figma']),
     }))
 
     await layer.attach({}, '/work/b', io.tools)
@@ -448,5 +540,97 @@ describe('isolation layer', () => {
 
     expect(guard?.({ name: 'mcp__figma__get_figma_data' })).toContain('figma')
     expect(guard?.({ name: 'read_file' })).toBeUndefined()
+  })
+})
+
+describe('isolation layer visibility read', () => {
+  it('reports a tracked agent\'s current visible servers and nothing for an unknown key', async () => {
+    const io = fakeTools()
+    let servers = new Set(['probe-a'])
+    const layer = new IsolationLayer(ports({
+      attribute: async () => ['/work/a'],
+      serverNamesForRoots: () => servers,
+    }))
+
+    const key = {}
+    await layer.attach(key, '/work/a', io.tools)
+
+    expect(layer.visibleFor(key)).toEqual(new Set(['probe-a']))
+    // An untracked key is how the name face learns "hide every project server":
+    // undefined, never an empty set (which would mean "nothing hidden").
+    expect(layer.visibleFor({})).toBeUndefined()
+
+    // Live reference: a refresh replaces the set, and the read sees the new one.
+    servers = new Set(['probe-b'])
+    await layer.refresh()
+    expect(layer.visibleFor(key)).toEqual(new Set(['probe-b']))
+
+    layer.detach(key)
+    expect(layer.visibleFor(key)).toBeUndefined()
+  })
+})
+
+describe('isolation layer resource face', () => {
+  it('refuses a resource call to a blocked server outside the scope, in the upstream wording', async () => {
+    const io = fakeTools()
+    const layer = new IsolationLayer(ports({
+      blockedServerNames: () => new Set(['probe-b']),
+      attribute: async () => ['/work/a'],
+      serverNamesForRoots: () => new Set(['probe-a']),
+    }))
+
+    await layer.attach({}, '/work/a', io.tools)
+    const guard = io.guards[0]
+
+    for (const toolName of RESOURCE_TOOLS) {
+      expect(guard?.({ name: toolName, arguments: { server: 'probe-b' } }))
+        .toBe(resourceDenyReason('probe-b'))
+    }
+    // Own workspace and profile rows pass; malformed arguments reach the tool.
+    expect(guard?.({ name: 'read_mcp_resource', arguments: { server: 'probe-a' } })).toBeUndefined()
+    expect(guard?.({ name: 'list_mcp_resources', arguments: { server: 'codebase-memory' } })).toBeUndefined()
+    expect(guard?.({ name: 'read_mcp_resource', arguments: {} })).toBeUndefined()
+  })
+
+  it('runs the tool face first, then the resource face, reading the live blocked set', async () => {
+    let blocked = new Set<string>()
+    const io = fakeTools({ scopeNames: ['mcp__probe-b__ping'] })
+    const layer = new IsolationLayer(ports({
+      catalog: () => ['mcp__probe-b__ping'],
+      blockedServerNames: () => blocked,
+      attribute: async () => ['/work/a'],
+      serverNamesForRoots: () => new Set(['probe-a']),
+    }))
+
+    await layer.attach({}, '/work/a', io.tools)
+    const guard = io.guards[0]
+
+    // The same installed guard changes its answer with no refresh: every call
+    // re-reads the live sets (D-12).
+    blocked = new Set(['probe-b'])
+    expect(guard?.({ name: 'mcp__probe-b__ping' })).toContain('belongs to MCP server probe-b')
+    expect(guard?.({ name: 'list_mcp_resources', arguments: { server: 'probe-b' } }))
+      .toBe(resourceDenyReason('probe-b'))
+    expect(guard?.({ name: 'read_file' })).toBeUndefined()
+  })
+
+  it('does not deny a profile server whose name a failed claim shadowed', async () => {
+    // The project claim `probe-shared` collides with a profile row and its load
+    // throws: the manager keeps it out of blocked, so neither of its names is
+    // ours to mask or refuse.
+    const io = fakeTools({ scopeNames: ['mcp__probe-shared__ping', 'mcp__probe-a__ping'] })
+    const layer = new IsolationLayer(ports({
+      catalog: () => ['mcp__probe-shared__ping', 'mcp__probe-a__ping'],
+      blockedServerNames: () => new Set(['probe-a']),
+      attribute: async () => ['/work/b'],
+      serverNamesForRoots: () => new Set(),
+    }))
+
+    await layer.attach({}, '/work/b', io.tools)
+
+    expect(io.restrictions).toEqual([['mcp__probe-a__ping']])
+    const guard = io.guards[0]
+    expect(guard?.({ name: 'mcp__probe-shared__ping' })).toBeUndefined()
+    expect(guard?.({ name: 'list_mcp_resources', arguments: { server: 'probe-shared' } })).toBeUndefined()
   })
 })

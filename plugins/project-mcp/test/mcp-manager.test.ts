@@ -1,6 +1,7 @@
 /**
  * Loaded-server lifecycle tests (spec: dsh-project-mcp — 动态加载与失败
- * 隔离; task 4.1/4.2 and the diff rules task 6.1 drives).
+ * 隔离; task 4.1/4.2, the diff rules task 6.1 drives, and the retry-window
+ * rule task 6.4 adds).
  *
  * The loader seam is faked, so these cases assert the manager's decisions —
  * what it loads, what it tears down, and what it reports — without a host
@@ -55,6 +56,53 @@ function fakeLoader(refuse?: (server: ScannedServer) => string | undefined): {
   }
 }
 
+/** One load a case settles by hand, as the manager waits on it. */
+interface ManualLoad {
+  /** The name the manager is trying to load. */
+  readonly serverName: string
+  /** Resolve the attempt, as a load that connected would. */
+  succeed: () => void
+  /** Reject the attempt, as a load that failed would. */
+  fail: (reason: string) => void
+}
+
+/**
+ * A loader whose every attempt stays pending until the case settles it.
+ *
+ * `started()` hands back the next attempt as soon as the manager begins it, so
+ * a case can read the name sets while a load (or a retry) is in flight — the
+ * exact window a fail-open gate would expose — without counting microtasks.
+ */
+function manualLoader(): {
+  loader: ServerLoader
+  /** Resolve with the next attempt once the manager starts it. */
+  started: () => Promise<ManualLoad>
+} {
+  const queued: ManualLoad[] = []
+  const waiting: Array<(load: ManualLoad) => void> = []
+  const loader: ServerLoader = {
+    load: (candidate) =>
+      new Promise((resolve, reject) => {
+        const attempt: ManualLoad = {
+          serverName: candidate.serverName,
+          succeed: () => resolve(() => {}),
+          fail: (reason) => reject(new Error(reason)),
+        }
+        const waiter = waiting.shift()
+        if (waiter === undefined) queued.push(attempt)
+        else waiter(attempt)
+      }),
+  }
+  return {
+    loader,
+    started: async () => {
+      const ready = queued.shift()
+      if (ready !== undefined) return ready
+      return await new Promise<ManualLoad>((resolve) => waiting.push(resolve))
+    },
+  }
+}
+
 /** Render a summary for compact assertions. */
 function summaryOf(summary: SyncSummary): Record<string, readonly string[]> {
   return {
@@ -64,6 +112,11 @@ function summaryOf(summary: SyncSummary): Record<string, readonly string[]> {
     unchanged: summary.unchanged,
     failed: summary.failed,
   }
+}
+
+/** Snapshot a name set as a sorted array for stable assertions. */
+function names(set: ReadonlySet<string>): string[] {
+  return [...set].sort()
 }
 
 describe('dynamic loading', () => {
@@ -197,5 +250,186 @@ describe('isolation facts', () => {
     expect([...manager.serverNamesForRoots(new Set(['/work/a', '/work/a/extra']))].sort()).toEqual(['dbx', 'figma'])
     expect([...manager.serverNamesForRoots(new Set(['/work/b']))]).toEqual(['other'])
     expect([...manager.serverNamesForRoots(new Set(['/work/nowhere']))]).toEqual([])
+  })
+})
+
+describe('failure readings', () => {
+  it('reports a failed load as failed, blocked out, and still claimed', async () => {
+    const io = fakeLoader((candidate) => (candidate.serverName === 'broken' ? 'boom' : undefined))
+    const { log } = recordingLog()
+    const manager = new McpManager(io.loader, log)
+
+    await manager.sync([server('broken'), server('figma')])
+
+    expect(names(manager.failedServerNames())).toEqual(['broken'])
+    expect(names(manager.blockedServerNames())).toEqual(['figma'])
+    expect(names(manager.managedServerNames())).toEqual(['broken', 'figma'])
+  })
+
+  it('clears the failure mark once the server loads on a later reconciliation', async () => {
+    let refuseBroken = true
+    const io = fakeLoader((candidate) =>
+      candidate.serverName === 'broken' && refuseBroken ? 'boom' : undefined)
+    const { log } = recordingLog()
+    const manager = new McpManager(io.loader, log)
+
+    await manager.sync([server('broken'), server('figma')])
+    expect(names(manager.failedServerNames())).toEqual(['broken'])
+
+    refuseBroken = false
+    const retried = await manager.sync([server('broken'), server('figma')])
+    expect(retried.loaded).toEqual(['broken'])
+    expect(retried.failed).toEqual([])
+    expect(names(manager.failedServerNames())).toEqual([])
+    expect(names(manager.blockedServerNames())).toEqual(['broken', 'figma'])
+    expect(names(manager.managedServerNames())).toEqual(['broken', 'figma'])
+  })
+
+  it('drops a failed claim from every reading when it leaves the scan', async () => {
+    const io = fakeLoader((candidate) => (candidate.serverName === 'broken' ? 'boom' : undefined))
+    const { log } = recordingLog()
+    const manager = new McpManager(io.loader, log)
+
+    await manager.sync([server('broken'), server('figma')])
+    await manager.sync([server('figma')])
+
+    expect(names(manager.failedServerNames())).toEqual([])
+    expect(names(manager.blockedServerNames())).toEqual(['figma'])
+    expect(names(manager.managedServerNames())).toEqual(['figma'])
+  })
+
+  it('drops a loaded server from every reading when its configuration disappears', async () => {
+    const io = fakeLoader()
+    const { log } = recordingLog()
+    const manager = new McpManager(io.loader, log)
+
+    await manager.sync([server('figma')])
+    expect(names(manager.blockedServerNames())).toEqual(['figma'])
+
+    const removed = await manager.sync([])
+    expect(removed.unloaded).toEqual(['figma'])
+    expect(names(manager.failedServerNames())).toEqual([])
+    expect(names(manager.blockedServerNames())).toEqual([])
+    expect(names(manager.managedServerNames())).toEqual([])
+    expect(io.disposed).toEqual(['figma'])
+  })
+
+  it('clears the failure marks on dispose so the next scan starts clean', async () => {
+    const io = fakeLoader((candidate) => (candidate.serverName === 'broken' ? 'boom' : undefined))
+    const { log } = recordingLog()
+    const manager = new McpManager(io.loader, log)
+
+    await manager.sync([server('broken')])
+    expect(names(manager.failedServerNames())).toEqual(['broken'])
+
+    await manager.dispose()
+
+    expect(names(manager.failedServerNames())).toEqual([])
+    expect(names(manager.blockedServerNames())).toEqual([])
+    expect(names(manager.managedServerNames())).toEqual([])
+
+    await manager.sync([server('figma')])
+    expect(names(manager.failedServerNames())).toEqual([])
+    expect(names(manager.blockedServerNames())).toEqual(['figma'])
+    expect(names(manager.managedServerNames())).toEqual(['figma'])
+  })
+
+  it('keeps blocked equal to the claim set minus the failed set after every reconciliation', async () => {
+    const down = new Set(['broken', 'flaky'])
+    const io = fakeLoader((candidate) => (down.has(candidate.serverName) ? 'boom' : undefined))
+    const manager = new McpManager(io.loader, recordingLog().log)
+
+    const check = (failed: readonly string[]): void => {
+      const claimed = manager.managedServerNames()
+      const failedSet = manager.failedServerNames()
+      expect(names(failedSet)).toEqual([...failed].sort())
+      for (const serverName of failedSet) expect(claimed.has(serverName)).toBe(true)
+      for (const serverName of failedSet) expect(manager.blockedServerNames().has(serverName)).toBe(false)
+      const claimMinusFailure = new Set([...claimed].filter((serverName) => !failedSet.has(serverName)))
+      expect(names(manager.blockedServerNames())).toEqual(names(claimMinusFailure))
+    }
+
+    await manager.sync([server('figma'), server('broken')])
+    check(['broken'])
+
+    await manager.sync([server('figma'), server('broken'), server('flaky')])
+    check(['broken', 'flaky'])
+
+    down.delete('broken')
+    await manager.sync([server('figma'), server('broken'), server('flaky')])
+    check(['flaky'])
+
+    await manager.sync([server('figma')])
+    check([])
+  })
+})
+
+describe('retry window isolation', () => {
+  it('blocks a retried claim while its retry is connecting, then fails it again', async () => {
+    const io = manualLoader()
+    const manager = new McpManager(io.loader, recordingLog().log)
+
+    const first = manager.sync([server('figma')])
+    const firstAttempt = await io.started()
+    firstAttempt.fail('boom')
+    await first
+    expect(names(manager.failedServerNames())).toEqual(['figma'])
+    expect(names(manager.blockedServerNames())).toEqual([])
+
+    // The retry starts by re-including the name in blocked: while the
+    // connection is being attempted the claim is neither active nor known bad,
+    // so the isolation gates must deny it (fail-closed).
+    const retry = manager.sync([server('figma')])
+    const retryAttempt = await io.started()
+    expect(names(manager.blockedServerNames())).toEqual(['figma'])
+    expect(names(manager.failedServerNames())).toEqual([])
+    expect(names(manager.managedServerNames())).toEqual(['figma'])
+
+    retryAttempt.fail('still down')
+    const summary = await retry
+    expect(summary.failed).toEqual(['figma'])
+    expect(summary.loaded).toEqual([])
+    expect(names(manager.failedServerNames())).toEqual(['figma'])
+    expect(names(manager.blockedServerNames())).toEqual([])
+    expect(names(manager.managedServerNames())).toEqual(['figma'])
+  })
+
+  it('keeps a retried claim blocked once the retry succeeds', async () => {
+    const io = manualLoader()
+    const manager = new McpManager(io.loader, recordingLog().log)
+
+    const first = manager.sync([server('figma')])
+    const firstAttempt = await io.started()
+    firstAttempt.fail('boom')
+    await first
+    expect(names(manager.blockedServerNames())).toEqual([])
+
+    const retry = manager.sync([server('figma')])
+    const retryAttempt = await io.started()
+    expect(names(manager.blockedServerNames())).toEqual(['figma'])
+    expect(names(manager.failedServerNames())).toEqual([])
+
+    retryAttempt.succeed()
+    const summary = await retry
+    expect(summary.loaded).toEqual(['figma'])
+    expect(summary.failed).toEqual([])
+    expect(names(manager.blockedServerNames())).toEqual(['figma'])
+    expect(names(manager.failedServerNames())).toEqual([])
+    expect(names(manager.managedServerNames())).toEqual(['figma'])
+  })
+
+  it('blocks a claimed name while its very first load is connecting', async () => {
+    const io = manualLoader()
+    const manager = new McpManager(io.loader, recordingLog().log)
+
+    const load = manager.sync([server('figma')])
+    const attempt = await io.started()
+    expect(names(manager.blockedServerNames())).toEqual(['figma'])
+    expect(names(manager.failedServerNames())).toEqual([])
+
+    attempt.succeed()
+    await load
+    expect(names(manager.blockedServerNames())).toEqual(['figma'])
+    expect(names(manager.failedServerNames())).toEqual([])
   })
 })
