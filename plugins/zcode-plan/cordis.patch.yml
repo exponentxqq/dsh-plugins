@@ -1,0 +1,12 @@
+# dsh-plugin-zcode-plan bundle patch：插入 host-only 插件行，把 zcode 计划桥接到
+# dsh 宿主（凭证复用、`/zcode-plan` 命令、PAT owner）。
+#
+# 该行是按包名的裸插件。不声明 `dsh.client`：本包只有 host 半面，可装在任何
+# profile（web / acp / headless）上；没有 `credentials` / `commands` 服务的部署里
+# 各段软注入零注册、零报错。
+#
+# 不带 profile 级 `config:` 段：organization / project 是必填项，由 profile 的
+# 插件安装行 `config:` 提供；其余配置项在插件 schema 里都有默认值。
+- insert:
+    - id: zcode-plan
+      name: 'dsh-plugin-zcode-plan'

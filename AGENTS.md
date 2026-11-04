@@ -22,19 +22,20 @@ DSH（DeepSeek Harness）自定义插件仓库：pnpm workspace 单仓多包，�
 - `user-commands` — markdown 定义的用户斜杠命令（builtin / `$DSH_HOME/commands` / 各工作区根 `.dsh/commands` 三层），内置 prompt 型 `/init` 与宿主侧只读的 `/inventory`（会话 MCP + skill 清单）
 - `web-ux` — Web 界面体验（双端）：composer 状态行的模型提供商徽章 + 侧栏已归档会话的删除入口（宿主半承载 Connection RPC 通道 `/web-ux`）+ 命令结果通知卡（结果无处渲染时兜底，视图挂载即自隐）
 - `session-tool-toggle` — 会话级工具面开关（双端）：`mcp:<server>` 整组 / 单工具 / `tool:<name>` 内置工具（保护名单拒关）在会话内可关，`/tools` 命令面与会话头部工具区的 Web 面板共用同一状态，默认档在 `$DSH_HOME/session-tool-toggle/defaults.json`
+- `zcode-plan` — bigmodel GLM Coding Plan 的 ZCode 折扣凭证桥接（host-only）：`/zcode-plan` 五子命令（login / logout / status / route / refresh），org/project 必填；profile 层注册 `llm-pi-ai.providers['zcode-plan']` 路由，不改 `agent-default-model`
 
 ## 插件结构约定
 
 - 包名一律 `dsh-plugin-<目录名>`；`package.json` 以 `dsh.bundle.patch` 声明 `cordis.patch.yml`（insert 本包注册行）
 - 源码在 `src/`（TypeScript，入口 `src/index.ts`，导出 `name` / `inject` / `apply`），构建产物在 `lib/`（`main` 指向 `lib/index.js`，随仓库提交）
-- 构建：multi-root-workspace 用 tsc 产类型 + tsdown 打包；其余四个用 `build.mjs`（esbuild）
+- 构建：multi-root-workspace 用 tsc 产类型 + tsdown 打包；其余五个用 `build.mjs`（esbuild）
 - 测试：vitest（multi-root 在 `tests/`，其余在 `test/`）；lint 用 oxlint
 - web 侧插件（multi-root-workspace、web-ux、session-tool-toggle）在 `dsh.client` 声明 `platform: web` 与 `inject` 列表
 
 ## DSH 基线
 
 - 唯一版本常量在 `scripts/dsh-baseline.mjs`（当前 `0.2.1-rc.2`，Node 工具链 `24.21.0`）。
-- 四个软插件（project-mcp / user-commands / web-ux / session-tool-toggle）的 `engines.dsh` 与 DSH peer 由基线派生为 `>=0.2.1-rc.2 <0.3.0`。
+- 五个软插件（project-mcp / user-commands / web-ux / session-tool-toggle / zcode-plan）的 `engines.dsh` 与 DSH peer 由基线派生为 `>=0.2.1-rc.2 <0.3.0`。
 - multi-root 保留精确 `SUPPORTED_DSH_RELEASES` 与精确 peer 枚举；提升新版本是绿灯后的人工动作（ADR-0009）。
 - `pnpm dsh:upgrade <version> [--probe]` 统一重指 devDeps / cordis / 软插件范围 / 豁免；`pnpm dsh:check` 在发布前守住这些事实，`release` 已自动调用。
 

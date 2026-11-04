@@ -1,0 +1,53 @@
+{
+  "name": "dsh-plugin-zcode-plan",
+  "description": "DSH 插件（host-only，任意 profile）：zcode 计划桥接——复用宿主 zcode 凭证（PAT）维持登录态、把 /zcode-plan 计划命令接入会话；organization / project 必须显式配置",
+  "version": "1.4.0",
+  "type": "module",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    }
+  },
+  "dsh": {
+    "engines": {
+      "dsh": ">=0.2.1-rc.2 <0.3.0"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "files": [
+    "lib/**/*.js",
+    "src",
+    "cordis.patch.yml"
+  ],
+  "license": "Apache-2.0",
+  "peerDependencies": {
+    "@deepseek-ai/dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.5",
+    "@deepseek-ai/dsh": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-authorization": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-credentials": "0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "3.18.5",
+    "@types/node": "^22.20.0",
+    "esbuild": "^0.25.0",
+    "oxlint": "^1.42.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "compose:check": "node scripts/compose-check.mjs",
+    "lint": "oxlint",
+    "test": "vitest run",
+    "typecheck": "tsc -b --pretty false",
+    "verify:all": "pnpm lint && pnpm typecheck && pnpm build && pnpm test",
+    "prepack": "pnpm run build"
+  }
+}
