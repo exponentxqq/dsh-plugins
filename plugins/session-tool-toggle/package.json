@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-session-tool-toggle",
   "description": "DSH 插件（双端）：会话级工具面开关——按 mcp:<server> 整组 / 单工具与 tool:<name> 内置工具在会话内关闭，命令面 /tools 与 Web 会话头部面板共用同一状态（宿主半承载 Connection RPC 通道 /session-tool-toggle）",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "icon": "icon.svg",
   "type": "module",
   "engines": {
