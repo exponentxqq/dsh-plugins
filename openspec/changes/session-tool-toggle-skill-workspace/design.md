@@ -4,12 +4,12 @@
 
 ## Context
 
-- 目标插件 `plugins/session-tool-toggle/` 当前 1.4.0，双端 bundle（宿主半 + Web client 半），已有：会话级 `disabled` 集合（`mcp:`/`tool:` 地址）、用户级默认档 `$DSH_HOME/session-tool-toggle/defaults.json`、会话创建时拍快照且不追溯、`/tools` 命令面 + `conversation.session.header.utilities` 面板（Connection RPC 通道 `/session-tool-toggle`，4 端点）。
-- 运行基线 DSH `0.2.1-rc.2`；live profile 挂载全局 `dsh-skill`/`skill-filesystem`（`customSkillDirs=/home/docker/.agents/skills`，24 个 skill）与 `dsh-tool-skill`，三个 agent preset 内**各另挂一份** `skill-filesystem`；因此技能的权威可见集必须按**会话视角**（`scope: agent`）读，全局层读会漏 preset 层 provider。
-- 技能子系统事实（0.2.1-rc.2 实读）：`dsh-skill` 注册表按 scope 分层、最近层同名直接胜出；`register()` 落**调用方 ctx** 的层（Cordis service tracker 按调用方 ctx 解析 `this.ctx`）；`dsh-tool-skill` 目录在 `agent/pre-step` 读 `snapshot({cwd, scope: agent})` 并过滤 `modelInvocable`，`skill` 工具对 `modelInvocable:false` 报可读拒绝，用户 `/name` 注入走 `skills.get` + `isUserInvocable`（正文必须保留）；`skills/list` Remote 用 live agent scope 过滤 `userInvocable`。
-- Web 侧入口事实：工作区行 `...` 菜单在 `dsh-client-ui-workspace` 内部硬编码 `[rename, delete]`，**没有插件座位**；`sidebar.workspaces` 是 `single` 座位；0.2.1-rc.2 / 0.2.1-rc.5 / 0.2.2-alpha.2（npm 最新）均如此（本会话 `npm pack` 实测）；可用的 additive 座位是 `sidebar.footer.action`（list/root）与 `conversation.session.header.utilities`。
+- 目标插件 `plugins/session-tool-toggle/` 当前 1.5.0（勘误 2026-11-04：落档时为 1.4.0，其间 v1.5.0 已发布、tag 未推送），双端 bundle（宿主半 + Web client 半），已有：会话级 `disabled` 集合（`mcp:`/`tool:` 地址）、用户级默认档 `$DSH_HOME/session-tool-toggle/defaults.json`、会话创建时拍快照且不追溯、`/tools` 命令面 + `conversation.session.header.utilities` 面板（Connection RPC 通道 `/session-tool-toggle`，4 端点）。
+- 运行基线 DSH `0.2.1-rc.5`（勘误 2026-11-04 随仓库基线升级同步，落档时为 0.2.1-rc.2）；live profile 挂载全局 `dsh-skill`/`skill-filesystem`（`customSkillDirs=/home/docker/.agents/skills`，24 个 skill）与 `dsh-tool-skill`，三个 agent preset 内**各另挂一份** `skill-filesystem`；因此技能的权威可见集必须按**会话视角**（`scope: agent`）读，全局层读会漏 preset 层 provider。
+- 技能子系统事实（0.2.1-rc.2 实读；勘误复验 2026-11-04：`dsh-skill`/`dsh-tool-skill`/`dsh-client-ui-skill` 三包 rc.2→rc.5 lib 逐字节一致，以下事实原样成立）：`dsh-skill` 注册表按 scope 分层、最近层同名直接胜出；`register()` 落**调用方 ctx** 的层（Cordis service tracker 按调用方 ctx 解析 `this.ctx`）；`dsh-tool-skill` 目录在 `agent/pre-step` 读 `snapshot({cwd, scope: agent})` 并过滤 `modelInvocable`，`skill` 工具对 `modelInvocable:false` 报可读拒绝，用户 `/name` 注入走 `skills.get` + `isUserInvocable`（正文必须保留）；`skills/list` Remote 用 live agent scope 过滤 `userInvocable`。
+- Web 侧入口事实：工作区行 `...` 菜单在 `dsh-client-ui-workspace` 内部硬编码 `[rename, delete]`，**没有插件座位**；`sidebar.workspaces` 是 `single` 座位；0.2.1-rc.2 / 0.2.1-rc.5（当前基线）/ 0.2.2-alpha.2 均如此（`npm pack` 实测，勘误复验 rc.5 同）；0.2.2-rc.1 起上游引入 `@deepseek-ai/dsh-client-ui-context-menu` 贡献面并登记 `ContextMenuTargetMap.workspace` 目标（硬编码数组移除、内建动作改走 `ctx.contextMenus`），基线 rc.5 无此包，本变更仍走 footer 过渡入口，后续变更在基线升至 0.2.2 后接入；可用的 additive 座位是 `sidebar.footer.action`（list/root）与 `conversation.session.header.utilities`。
 - 约束：上游 `@deepseek-ai/dsh*` 零修改、零 import（ADR-0002，宿主产物只允许 `node:*` external）；`src/contract.ts` 零 import、两端各内联 strict parser；状态形状保持 version 1；新服务一律软注入；`skills` 缺席/文件损坏时功能降级可观测。
-- 流程事实：旧变更 `session-tool-toggle` 已归档（`openspec/specs/dsh-session-tool-toggle/spec.md` 为本变更 MODIFIED 基准）；用户已拍板「不保证回滚到 1.4.0」。
+- 流程事实：旧变更 `session-tool-toggle` 已归档（`openspec/specs/dsh-session-tool-toggle/spec.md` 为本变更 MODIFIED 基准）；用户已拍板「不保证回滚到不含本功能的旧版」（勘误泛化：1.4.0/1.5.0 均如此）。
 
 ## Goals / Non-Goals
 
@@ -169,7 +169,7 @@
 | C10 | `src/client/locales.ts` | 新键（section.skills / skill.* / workspace.* / notice 两码 / error 两码），zh canonical + en parity |
 | C11 | `src/client/panel.module.css` | 技能行、工作区档分区、对话框、footer 按钮样式 |
 
-**包/构建/测试/文档**：`package.json` 补 devDep `@deepseek-ai/dsh-client-ui-sidebar@0.2.1-rc.2` 与 `dsh.client.inject` 项；`build.mjs`/`cordis.patch.yml` 不改；测试新增 `test/skills-plan.test.ts`、`test/workspaces.test.ts`、`test/workspace-attribution.test.ts`、`test/skill-panel.test.tsx`、`test/workspace-editor.test.tsx`，改 address/mask/session-layer/panel/control/commands/rpc/wire-contract/panel-controller/panel-client/client-index/locale-parity/bundle/tool-panel 共 15 套；文档改插件 `README.md`（能力/预期管理/降级矩阵/非目标/回滚代价/配置表）与根 `README.md`、`AGENTS.md`。
+**包/构建/测试/文档**：`package.json` 补 devDep `@deepseek-ai/dsh-client-ui-sidebar@0.2.1-rc.5` 与 `dsh.client.inject` 项；`build.mjs`/`cordis.patch.yml` 不改；测试新增 `test/skills-plan.test.ts`、`test/workspaces.test.ts`、`test/workspace-attribution.test.ts`、`test/skill-panel.test.tsx`、`test/workspace-editor.test.tsx`，改 address/mask/session-layer/panel/control/commands/rpc/wire-contract/panel-controller/panel-client/client-index/locale-parity/bundle/tool-panel 共 15 套；文档改插件 `README.md`（能力/预期管理/降级矩阵/非目标/回滚代价/配置表）与根 `README.md`、`AGENTS.md`。
 
 ### ② 证据锚（每个触达模块 ≥1 条）
 

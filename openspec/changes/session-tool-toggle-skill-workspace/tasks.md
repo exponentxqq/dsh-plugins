@@ -26,7 +26,7 @@
 ## 5. 契约与依赖先行（串行闸：组 2–4 完成 → 组 5 → 组 6）
 
 - [ ] 5.1 `src/contract.ts` 双端契约：第 5 端点 `workspace`、`WorkspaceRequest`/`WorkspaceValue`/`WorkspaceView`/`WorkspaceChoice`/`SkillView`、`PanelSnapshot` 两字段、`Mutation.hiddenSkills`、失败码 7→9、提示码 3→5、`REQUEST_PARSERS`/`PANEL_SNAPSHOT_KEYS`/`MUTATION_KEYS` 同步、`MAX_WORKSPACE_PATH_LENGTH`（H13）；改 `test/wire-contract.test.ts`（T11）；验证：`pnpm --filter dsh-plugin-session-tool-toggle exec vitest run test/wire-contract.test.ts` 退出码 0，且 `! grep -qE '^\s*import ' src/contract.ts`（零 import），表驱动用例覆盖「两种寻址字段同时出现」「set 缺 addresses」「read 带 addresses」「未知快照键」四类拒绝。
-- [ ] 5.2 `plugins/session-tool-toggle/package.json` 补 devDep `@deepseek-ai/dsh-client-ui-sidebar@0.2.1-rc.2` 与 `dsh.client.inject` 的 `@deepseek-ai/dsh-client-ui-sidebar` 项（P1）；在仓库根执行 `pnpm install` 更新锁文件；验证：`node -e "const p=require('./plugins/session-tool-toggle/package.json'); if(!p.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-sidebar')) process.exit(1)"` 退出码 0，且 `grep -q "dsh-client-ui-sidebar" pnpm-lock.yaml` 命中。
+- [ ] 5.2 `plugins/session-tool-toggle/package.json` 补 devDep `@deepseek-ai/dsh-client-ui-sidebar@0.2.1-rc.5` 与 `dsh.client.inject` 的 `@deepseek-ai/dsh-client-ui-sidebar` 项（P1）；在仓库根执行 `pnpm install` 更新锁文件；验证：`node -e "const p=require('./plugins/session-tool-toggle/package.json'); if(!p.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-sidebar')) process.exit(1)"` 退出码 0，且 `grep -q "dsh-client-ui-sidebar" pnpm-lock.yaml` 命中。
 
 ## 6. 内核与装配接线（5 项并行）
 

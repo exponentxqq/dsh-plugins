@@ -3,7 +3,7 @@
 > **本文件是代码级蓝图**：触达哪些文件、怎么改、接口与数据形状、为什么这么定。
 > 需求级结论（目标/非目标、范围边界、风险与验证策略）已由双线与 `diff-matrix.md` 收敛，**本文不复读**；本文只把已定结论**翻译成可施工的代码形状**。
 > 输入已逐字读全：`line-a.md`（248 行）、`line-b.md`（445 行）、`diff-matrix.md`（184 行，第 4–5 节 = 用户已拍板决策，本文不推翻）。
-> 事实基线（只读核实，2026-11-02）：运行中 DSH = `0.2.1-rc.2`；插件 `1.4.0`；`openspec/changes/session-tool-toggle-skill-workspace/` 已存在（`proposal.md` 33 行 + `specs/dsh-session-tool-toggle/spec.md` 149 行），旧变更已归档于 `openspec/changes/archive/2026-11-02-session-tool-toggle`，`openspec/specs/dsh-session-tool-toggle/spec.md`（130 行）已就位 → **diff-matrix §5.1.5 的「先归档旧 change」前置已完成，不再是任务**。
+> 事实基线（只读核实，2026-11-02；勘误复验 2026-11-04）：运行中 DSH = `0.2.1-rc.5`、插件 `1.5.0`（落档时为 `0.2.1-rc.2` / `1.4.0`，其间 `ee32d39` 升基线、v1.5.0 已发布；技能/工作区相关上游六包 rc.2→rc.5 lib 零差异，本文机制锚点全部复验成立，版本与发布号就地更新）；`openspec/changes/session-tool-toggle-skill-workspace/` 已存在（`proposal.md` 33 行 + `specs/dsh-session-tool-toggle/spec.md` 149 行），旧变更已归档于 `openspec/changes/archive/2026-11-02-session-tool-toggle`，`openspec/specs/dsh-session-tool-toggle/spec.md`（130 行）已就位 → **diff-matrix §5.1.5 的「先归档旧 change」前置已完成，不再是任务**。
 
 ## 0. 栈识别与 writer 豁免留痕
 
@@ -80,7 +80,7 @@
 
 | # | 文件 | 意图 | 关键改动点 |
 |---|---|---|---|
-| P1 | `package.json`（插件目录） | 类型依赖 + client 依赖声明 | devDeps 加 `@deepseek-ai/dsh-client-ui-sidebar: 0.2.1-rc.2`（footer 座位 SlotMap 类型）；`dsh.client.inject` 加 `@deepseek-ai/dsh-client-ui-sidebar`；`version` 由 `pnpm release` 统一抬（1.4.0 → 1.5.0，不手改） |
+| P1 | `package.json`（插件目录） | 类型依赖 + client 依赖声明 | devDeps 加 `@deepseek-ai/dsh-client-ui-sidebar: 0.2.1-rc.5`（footer 座位 SlotMap 类型）；`dsh.client.inject` 加 `@deepseek-ai/dsh-client-ui-sidebar`；`version` 由 `pnpm release` 统一抬（1.5.0 → 1.6.0，不手改） |
 | P2 | `build.mjs` | **不改**（已核实） | `CLIENT_EXTERNALS`（`build.mjs:35-42`）与 host `external: ['node:*']`（`:113`）恰好覆盖新增代码：新组件只用 react + primitives + 本包资源 |
 | P3 | `cordis.patch.yml` | **不改**（已核实） | 裸包名 insert 行是 client 扫描锚点（文件头注释），本变更不新增宿主行 |
 
@@ -111,7 +111,7 @@
 
 | # | 文件 | 意图 |
 |---|---|---|
-| D1 | `plugins/session-tool-toggle/README.md` | 能力、预期管理（目录消息成本、`/name` 保留）、降级矩阵（`skills`/`workspaceRegistry`/工作区档损坏）、非目标改写（删掉「不做 per-skill」「不做工作区级默认档」，新增「不做追溯」「不做上游 patch」）、**回滚代价**（回 1.4.0 丢 `skill:` 条目与工作区档）、配置表加 `workspacesFile` |
+| D1 | `plugins/session-tool-toggle/README.md` | 能力、预期管理（目录消息成本、`/name` 保留）、降级矩阵（`skills`/`workspaceRegistry`/工作区档损坏）、非目标改写（删掉「不做 per-skill」「不做工作区级默认档」，新增「不做追溯」「不做上游 patch」）、**回滚代价**（回任一不含本功能的旧版——1.4.0/1.5.0——丢 `skill:` 条目与工作区档）、配置表加 `workspacesFile` |
 | D2 | 本仓根 `README.md` | 插件一览里 `session-tool-toggle` 的一行描述加技能级开关与工作区级默认档 |
 | D3 | 本仓根 `AGENTS.md` | 「插件清单」条目同上 |
 | D4 | `openspec/changes/session-tool-toggle-skill-workspace/{design.md,tasks.md}` | 落档（阶段 2 产出，不在本文件范围；本文 ⑤ 的任务组即 tasks 的骨架） |
@@ -148,7 +148,7 @@
 | C9 `index.ts`（client） | `src/client/index.ts:71`（`inject = ['slots','locale']`）；`:111-113`（字典先于座位注册）；`:128-142`（端口对象：`resolveClient` 每次现取 `ctx.get('connection')`）；`:145-163`（座位软注册与失败只 warn） |
 | C10 `locales.ts` | `src/client/locales.ts:31`（`NS = 'sessionToolToggle'`）；`:50-53`（`section.*` 四段）；`:123-125`（`notice.*` 三码） |
 | C11 `panel.module.css` | `src/client/panel.module.css`（357 行，`section` / `chips` / `badge` 等类名被 `ToolPanelAction.tsx` 引用，新分区复用同类名即可，无新样式管线） |
-| P1 `package.json` | `plugins/session-tool-toggle/package.json` 的 `dsh.client.inject` 五项与 devDeps（`@deepseek-ai/dsh-client-ui-slots: 0.2.1-rc.2` 已装，sidebar 未装 → 本变更补） |
+| P1 `package.json` | `plugins/session-tool-toggle/package.json` 的 `dsh.client.inject` 五项与 devDeps（`@deepseek-ai/dsh-client-ui-slots: 0.2.1-rc.5` 已装，sidebar 未装 → 本变更补） |
 | P2 `build.mjs` | `build.mjs:35-42`（client externals 五项）、`:113`（host 只 external `node:*`） |
 | P3 `cordis.patch.yml` | `cordis.patch.yml:15-17`（裸包名 insert 行） |
 | T18 `bundle.test.ts` | `test/bundle.test.ts:43-56`（`CLIENT_REQUIRES` 与 `INLINED_MARKERS` 两个白名单） |
@@ -915,7 +915,7 @@ export const PANEL_ORDER = 20
 
 - **决策**：`attach` 内 `const service = agent.ctx.get('skills')`；若存在 → 直接用以完成首轮收敛（`await`）；同时仍装 `agent.ctx.inject(['skills'], cb)`，`cb` 里刷新句柄并触发一轮收敛。
 - **被否**：① 只靠 fiber（`inject` 的 pending effect 在服务缺席时不结算，且「何时就绪」不确定 → 首步前不保证生效）；② 无条件 `await` fiber（skills 缺席的组合里 `agent/created` 永不结算 → 会话创建被挂死）。
-- **理由**：`skills` 是 web profile 的常驻服务（`0.2.1-rc.2` 的 `dsh-skill` 行常挂），常态在 agent 创建前已就绪；`ctx.get` 是同步读，能给出「现在就绪」的确定性判断。
+- **理由**：`skills` 是 web profile 的常驻服务（`0.2.1-rc.5` 的 `dsh-skill` 行常挂），常态在 agent 创建前已就绪；`ctx.get` 是同步读，能给出「现在就绪」的确定性判断。
 - **反例**：若只 await fiber，一个没装 `dsh-skill` 的 headless 组合会在 `agent/created` 里永久 pending——宿主串行广播（`index.ts:387-402`）会把后续所有会话的创建一并堵死，表现为「插件装上后新会话开不出来」。
 
 ### D-6 技能清单三读：会话视图为主 + 影子前缓存 + 关闭集
@@ -1162,9 +1162,9 @@ export const PANEL_ORDER = 20
 |---|---|
 | G9-a | `plugins/session-tool-toggle/README.md`（能力、预期管理、降级矩阵、非目标改写、回滚代价、配置表） |
 | G9-b | 本仓根 `README.md` + `AGENTS.md` 的插件描述 |
-| G9-c | `pnpm release 1.5.0`（先 `--dry-run` 复核）、`lib/` 重建提交、profile 重装 + 重启 |
+| G9-c | `pnpm release 1.6.0`（先 `--dry-run` 复核）、`lib/` 重建提交、profile 重装 + 重启 |
 
-- **出口**：`pnpm release --dry-run` 打印的版本/文件清单与预期一致；`pnpm verify` 与 `pnpm dsh:check` 全绿；`docker exec dsh dsh plugin --profile web list` 显示 1.5.0；重启后 UI 冒烟第 1 条复跑通过。
+- **出口**：`pnpm release --dry-run` 打印的版本/文件清单与预期一致；`pnpm verify` 与 `pnpm dsh:check` 全绿；`docker exec dsh dsh plugin --profile web list` 显示 1.6.0；重启后 UI 冒烟第 1 条复跑通过。
 
 ---
 
