@@ -50,6 +50,8 @@
 
 **落档期增补裁定（第四轮分歧点，详见 decisions.md）**：P1=A（伪选项扩展到 tab 2，孤儿已归档有出口）；P2=A（`MAX_BATCH_TARGETS = 500`，全选截断提示 + README 分批序列）；P3=A（恢复后停在原 tab 显示结果）；**增补**：tab 2 新增「批量取消归档」——客户端循环上游 `unarchiveSession` 逐项报告（T1 同款例外），宿主端点零增量，与「删除」共享选择集合、在途互斥。
 
+**执行环境**：隔离。布局：dsh-plugins → `/home/xuqinqin/develop/person/dsh-plugins/.worktrees/web-ux-session-manager` @ `feature/web-ux-session-manager`（基点 `17fe183`）；装配：`pnpm install`（容器包装，pnpm store 共享，41.8s 完成）；环境错开：省略（纯 TS 插件仓，无端口/数据库/本地配置）；创建于 2026-11-04。代码批次提交落 worktree 分支，工件（tasks/design 等）提交落根仓主工作区；`.gitignore` 补 `.worktrees/` 行随根仓首批次提交。衔接预置：模式 `auto`、引擎 `subagent`、并行 8、apply 键 `opencode-go/deepseek-v4.1-flash`（fallback `zcode-plan/glm-5.3-flash`）。
+
 ## 触达面清单
 
 完整清单（34 文件 + 上游只读依赖 + 有意不触达）见随档 `code-design.md` ①。生产代码：

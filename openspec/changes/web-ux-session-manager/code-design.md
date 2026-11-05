@@ -771,7 +771,7 @@ export type SessionManagerDialogProps =
 | `/home/xuqinqin/develop/company/web/cloud-the-sky` | `--home-xuqinqin-develop-company-web-cloud-the-sky--` | 真实 `sessions/` 目录名 |
 | `/tmp` | `--tmp--` | 真实 `sessions/` 目录名 |
 | `/a//b` | `--a-b--` | 连续分隔符折叠 |
-| `/a/b/` | `--a-b--` | 尾分隔符（前导/尾部 `-` 处理） |
+| `/a/b/` | `--a-b---` | 尾分隔符（R1 勘误：上游 rc.5 只去前导 `-`，尾部 `-` 保留；原 `--a-b--` 系规划期预测错误，执行期实测 + 用户裁定） |
 | `/home/u/with~tilde` | `--home-u-with~007Etilde--` | `~` 转义 |
 | `C:\a\b` | `--C-a-b--` | 反斜杠与盘符冒号都折叠 |
 | `/` | `--root--` | 空主体兜底 |
@@ -789,6 +789,8 @@ grep -n "'not-migrated'\|'target-exists'" plugins/web-ux/src/contract.ts
 # 纯度：契约与 project-key 不得出现 node:/@deepseek-ai
 grep -n "node:\|@deepseek-ai" plugins/web-ux/src/contract.ts plugins/web-ux/src/project-key.ts   # 期望：无输出
 ```
+
+> **G1 组段终形态（执行期实测，2026-11-04）**：上游 `projectKey` rc.5 实测只去前导 `-`（`/a/b/` → `--a-b---`），金表第 7 行按用户裁定勘误（R1）；本地镜像与上游 82 输入差分 0 处不一致，12 个真实工作区路径 12/12 命中。验收：`typecheck` EXIT=0（engines WARN 良性，R3）；`test` 16 文件/431 用例全过、SKIPPED 0（R2：位置过滤不生效，实际全量跑）；contract.test.ts 204 用例（原 49 保留、仅两处旧集合断言更新）、project-key.test.ts 43 用例（金表 12 it + 有损 19 + 属性 4 + workspaceForProjectDir 5+）；grep 断言 1.1=17、1.2 纯度=0、1.4=24。被否方案：projectKey 尾分隔符特判（用户否决，见 R1）。
 
 ### G2 — 宿主纯流程（`delete-session.ts` 批量 + `migrated.ts` + 两个测试）
 
@@ -812,6 +814,8 @@ grep -n "export async function listMigrated\|export async function deleteMigrate
 grep -n "@deepseek-ai" plugins/web-ux/src/delete-session.ts plugins/web-ux/src/migrated.ts   # 期望：无输出
 ```
 
+> **G2 组段终形态（执行期实测，2026-11-04）**：批量五函数落位 `delete-session.ts` 219-388 行（`planDeleteBatch` 单次 headers/三码首错即止/失败不级联；`disposeBatch` rejected 非空整单拒绝零副作用、archive 档 prepare 先于写动作、`removed`=union 全量）；`migrated.ts` 733 行新建（两阶段恢复 + EXDEV 回退 copyTree 内置 12 行实现不导出；工厂方法级形状 `list→{entries,truncated}`/`remove→warnings[]`/`restore→{moved,warnings}`，已写入 JSDoc）；`announceRestored` 空 restored 也调一次（蓝图措辞），updatedAt 由 flow 提供归档 mtime、3.1 接线按 D6 真实 header 优先；类型守卫：`RejectedTarget.code:string` 经既有 `isFailureCode` 守卫入 `DeleteResult`（未知码兜底 internal，运行时不触发）。验收：`typecheck` EXIT=0；`test` 17 文件/501 用例全过、SKIPPED 0（delete-session.test.ts 61→86、migrated.test.ts 新建 45）；grep 断言 2.1=4、2.2=3、纯度=0。8.1 裁定：按触达 #29 全四文件 include（含两个新测试文件）。
+
 ### G3 — 宿主接线（`index.ts` + `test/index.test.ts`）
 
 **实现要点**
@@ -831,6 +835,8 @@ pnpm --filter dsh-plugin-web-ux build
 grep -c "list-migrated\|restore-migrated\|api-session/added" plugins/web-ux/lib/index.js   # 期望 ≥ 3
 ```
 
+> **G3 组段终形态（执行期实测，2026-11-04）**：dispatcher 七分支 + `HostPorts extends DeletePorts, MigratedPorts` + 端口 5 组落位（`announceRestored` 按 D6：一次 `sessionPersistence.list()` 建 Map，命中才广播、未命中只 warn；`attachToWorkspace` 缺失/拒绝显式抛——按降级列，非骨架的静默 no-op；`lstat` 显式投影 `{size,mtimeMs,isDirectory}`）。验收：`typecheck` EXIT=0（8.1 已提前——TS6307 清零）；`test` 17 文件/510 用例全过（index.test.ts 16→25，真实临时 `$DSH_HOME`：2001 目录 truncated、target-exists 零写、attach 拒绝 `workspaceId:null`、`api-session/added` 载荷逐字段、缺 dshHomePath 七端点 internal）；grep 断言源=4、产物=3；已构建产物 28 条运行时冒烟全过。编排裁定：8.1 提前执行（TS6307 会让组4/5 的 typecheck 验证句假红）。
+
 ### G4 — 客户端 RPC（`delete-client.ts` + `test/delete-client.test.ts`）
 
 **实现要点**
@@ -846,6 +852,8 @@ grep -c "list-migrated\|restore-migrated\|api-session/added" plugins/web-ux/lib/
 pnpm --filter dsh-plugin-web-ux test -- delete-client
 grep -n "createSessionManagerClient\|callEndpoint" plugins/web-ux/src/client/delete-client.ts
 ```
+
+> **G4 组段终形态（执行期实测，2026-11-04）**：`callEndpoint` 为模块级**私有**抽取（设计仅要求模块级；测试经公开方法断言，无需导出）；`createSessionManagerClient` 以对象展开复用 `createDeleteClient` 两方法；失败三态：传输抛错/不可读信封→`unavailable`、可读信封 code 透传不白名单、坏形状归一 `bad-response`。验收：`typecheck` EXIT=0；`test` 17 文件/525 用例全过、SKIPPED 0（delete-client.test.ts 8→23：7 端点 `toHaveBeenCalledWith` 全覆盖、新码 `not-migrated`/`target-exists` 透传、坏形状 4 种、传输抛错 `unavailable`）；grep 断言=9。本组经一次会话中断恢复（4.1 首派未落盘，按恢复协议重派）。
 
 ### G5 — 入口与浮层 UI（trigger / dialog / model / store / css + `client/index.ts`）
 
@@ -869,6 +877,10 @@ grep -n "sidebar.footer.action\|web-ux-session-manager" plugins/web-ux/src/clien
 grep -n "declare module\|SlotMap" plugins/web-ux/src/client/SessionManagerTrigger.tsx   # 期望：无输出（座位类型来自上游声明）
 ```
 
+> **G5 组段终形态（执行期实测，2026-11-04/05）**：store（88 行，`delete-store.ts:61` seq/identity 契约照抄，载荷仅 `{seq}`，`ManagerRequestSource` 增量导出）；model（707 行纯派生，判据全收敛：三域行集/伪选项聚合 P1/500 截断 P2/running 置灰 D15/`unarchiveSelected`；`ManagerAction` 取 ③.6 命名 `archive`/`dispose`/`unarchive`/`purge`/`restore`（design 概览简写弃用，映射写模块头）；`defaultWorkspaceChoice`（最近使用优先）等追加派生按「判据集中」保留；`entryKeyOf` migrated 键实测为 `migrated:<projectDir>/<dirName>` 斜杠形态）；trigger（79 行，`!ready→null`/wide 两形态/`aria-label` 恒在；**`PropsRuntime<'sidebar.footer.action'>` 需 8.3 devDeps，暂以 `SidebarFooterActionOwnerProps={wide}` 结构式镜像内联，8.3 后换装跟进**）；CSS（424 行 28 类名契约：`trigger triggerLabel toolbar workspaceButton workspaceName tabsRow modes modeRow modeText selectionBar list row rowSelected rowDisabled rowMeta badge badgeRunning badgeBlank empty truncated muted summary rejected result warnings failure detail danger`；41 处 `var(--dsw-*)` 全带兜底、零裸色值；dsw-alias 计数 37）；stubs（+7 导出，图标 `data-icon`：checklist/chevron-down/archive/refresh/clock）。验收：`typecheck` EXIT=0；`test` 19 文件/563 用例全过、SKIPPED 0（model 测试 31 it 含 store 契约、trigger 测试 7 it）；编排裁定：8.2 提前（TS6307）、7.2 提前（6.6 CSS 前置）。
+
+> **G5 组段终形态·组7 补遗（2026-11-05）**：dialog 1294 行（五阶段机 + `WORKSPACE_MENU_PORTAL` A13 单点开关 + 四动作分派 + P3 停原 tab + running 接管互斥；复用 `DeleteSessionDialog` 的 `formatSize`/`DEFAULT_DISPOSAL_MODE`）；注册 4 常量（trigger 100@`sidebar.footer.action`、overlay 520@`shell.overlay`、store 单实例桥接；`FooterActionSlots` 结构式桥待 8.3 后换装）；stub 追加 `Menu`；client-apply 7→10（注册序/id/order/软降级/座位缺失静默/双重注册）。验收：20 文件/585 用例全过。裁定：在途互斥=③.6 阶段表形态；confirm 同文案按 role 断言；`aria-haspopup` 不补；`dialog.warning.archive` 旧文案矛盾随 9.1 收口；A13 真机首验留 9.3。
+
 ### G6 — 文案（`locales.ts` + `test/locale-parity.test.ts`）
 
 **实现要点**
@@ -884,6 +896,8 @@ pnpm --filter dsh-plugin-web-ux test -- locale-parity
 grep -c "^  'manager\." plugins/web-ux/src/client/locales.ts
 grep -n "'error.not-migrated'\|'error.target-exists'\|'error.workspace/session-active'" plugins/web-ux/src/client/locales.ts
 ```
+
+> **G6 组段终形态（执行期实测，2026-11-04）**：locales.ts +150 行 = 58 新键（55 `manager.*` + 3 `error.*`，zh canonical + en `satisfies` 镜像，各 102 键无单边）；落档增补 6 键 = `manager.action.unarchive`/`manager.unarchive.{confirm,run,done,partial}`/`manager.empty.unassigned.archived`（逐项失败/整单失败/运行态复用既有 `itemFailure`/`failed`/`running`）；locale-parity required 39→77（+38）。**口径**：§3.7 表 3 个 error 键（第 3 个 `error.workspace/session-active` 为上游码 `workspace/session-active` 经 errorKeyOf 的映射键），contract 增量 2 码，两处口径同时满足。增补 6 键命名自此冻结（5.2 required 已钉），组7 组件按此消费。
 
 ### G7 — 测试收口与产物（`bundle.test.ts` / stubs / tsconfig / build）
 
@@ -902,6 +916,8 @@ pnpm --filter dsh-plugin-web-ux verify:all          # lint → typecheck → bui
 grep -n "toHaveLength(4)" plugins/web-ux/test/bundle.test.ts
 cd /home/xuqinqin/develop/person/dsh-plugins && pnpm dsh:check && pnpm -r test
 ```
+
+> **G7 组段终形态（执行期实测，2026-11-05）**：8.3 inject 9→12（§3.8 全限定名：`@deepseek-ai/dsh-client-ui-sidebar`、`@deepseek-ai/dsh-api-workspace-controller`、`@deepseek-ai/dsh-api-session-controller`；devDeps +2 @ rc.5 落锁 +6 行；验收句勘误 R4——inject 名必须全限定）；换装微任务：trigger props 改 `SidebarFooterActionOwnerProps`（声明包直出）+ `client/index.ts` 删 `FooterActionSlots` 桥改 `ctx.slots.inject` 直写（`PropsRuntime` 记法弃用口径：实为 `ui-slots` 导出且组合 8 必需钩子，占用方用 owner 份额类型为终态）；8.4 bundle.test 断言并入既有 it（注入器 4、浏览器标记 footer slot/浮层 id/5 端点、宿主 7 端点+两事件名），verify:all=lint+typecheck+build+test 全绿，产物标记 host=3/client=5；8.5 全仓回归三命令依次 0（`dsh:check` 51 包全 rc.5；`-r test` 6 插件 2182 passed/5 平台 skip；`-r typecheck` 全 Done），零文件改动。
 
 ### G8 — README / 文档
 
@@ -923,6 +939,8 @@ grep -n "restore-migrated" plugins/web-ux/README.md plugins/web-ux/cordis.patch.
 ```
 
 ### 手工冒烟（实施完成后、发布前，非 CI）
+
+> **执行结果（2026-11-05 终局，详见 `plugins/web-ux/artifacts/session-manager-smoke.md`）**：步骤 1 PASS；步骤 2 功能面 PASS（真机自动化走查，含 A13/D15/伪选项/默认工作区派生），但侧栏 footer 入口存在**组合级视觉裁切**（R5：`sidebar.footer.action` 行被 multi-root 的 Folders 整行独占，本插件与 stt 入口均被裁）——用户裁定接受现状，待统一「工作区配置」入口一并解决（仅备忘不启动）；步骤 3–5 未执行（豁免：真实数据变更类操作无素材/双窗口成本，单测覆盖面已在冒烟文件留档）。
 
 1. `pnpm --filter dsh-plugin-web-ux build` 后以 `link:` 方式装到 profile（`docker exec dsh dsh plugin --profile web add <本仓>/plugins/web-ux`），重启后刷新 GUI。
 2. 点底部「会话管理」→ 切三个 tab → 工作区选择器切换（含「未匹配工作区的归档」）→ 勾选/全选/清空。

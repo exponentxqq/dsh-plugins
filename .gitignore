@@ -11,3 +11,6 @@ node_modules/
 # 注意各插件内 scripts/lib/ 是源码，不能按名字通配忽略。
 dist/
 coverage/
+
+# spec-flow 隔离执行 worktree
+.worktrees/
