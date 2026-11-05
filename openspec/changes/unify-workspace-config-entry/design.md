@@ -73,7 +73,7 @@
 - [mrfw 是 vendored fork，文档联动是硬门] → AGENTS 不变量 5、双语 README、ADR-0013、docs/architecture 同步列入任务；rc.5 座位表属历史取证只加注记不重写。
 - [未装 holder 时 web-ux 会话管理 GUI 不可达] → 用户裁决接受（Q2/落档分歧点已确认），proposal 与 README 明示四包同装约定。
 - [stt 分节切换丢弃未保存草稿] → 设计接受项（三节皆「动作即写」），写入冒烟记录与 README。
-- [分节崩溃] → 框架 `onEntryError` 错误监督面接管，holder 不重复实现；PoC 与组合矩阵覆盖。
+- [分节崩溃] → 框架 `onEntryError` 监督面接管（框架级保障），holder 不重复实现；PoC 补崩溃分节用例钉住（归档前修缮 R13；`abdicate:true` 退场语义为 rc.5 实测哨兵，DSH 升级若改语义则按新语义更新用例而非当作回归）。
 
 ## Migration Plan
 

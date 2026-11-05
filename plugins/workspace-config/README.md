@@ -24,7 +24,7 @@ test/stubs/ui-primitives.tsx    primitives 测试替身（Modal headless / Butto
 vitest.config.ts                测试配置（primitives 替身经 alias 注入；jsdom 按用例文件头开启）
 .oxlintrc.json                  lint 配置
 
-# 以下文件属本包的客户端装配与组件（后续任务补齐，当前为骨架阶段）：
+# 以下文件属本包的客户端装配与组件（已实现并随仓库提交）：
 src/client/index.ts             客户端装配：locale 注册 + 打开桥 + 两个座位注册（trigger 50 / dialog 530 + children 声明）
 src/client/open-store.ts        打开桥（布尔快照 store）
 src/client/sections.ts          nav 行投影（id/order/label，双版本记忆）
@@ -142,7 +142,7 @@ pnpm verify:all    # lint + typecheck + build + test
 
 ## 当前状态
 
-本包当前处于**骨架阶段**（holder 骨架与类型权威）：`package.json` 双端声明与 d.ts exports、`cordis.patch.yml`、`build.mjs`、四个 tsconfig、宿主 no-op 入口、座位契约、双语文案、primitives 替身与 README 已就位；**客户端装配**（`src/client/index.ts`）与 trigger / 弹窗 / nav 投影 / 样式、以及各类测试属于后续任务（打开桥 → 入口 → 弹窗壳 → 装配 → 组件测试），首次 `pnpm build` 与产物断言也在其后。因此当前仓库里还没有 `lib/` 产物。
+本包已实现完毕并随仓库提交：宿主 no-op 锚点、座位契约与类型权威、双语文案、客户端装配（打开桥 + `sidebar.footer.action` 唯一入口 + `shell.overlay` 统一弹窗壳 + nav 投影 + 样式）与测试全部就位，构建产物 `lib/index.js` / `lib/client.js` / `lib/types/**` 随仓库提交。三个贡献方（multi-root-workspace / session-tool-toggle / web-ux）已按上文「只允许 `import type`」的约定接入各自分节，holder 侧不保留任何分节业务逻辑，也不维护贡献方清单。测试共 **55 例**（6 个测试文件；其中真 `@deepseek-ai/dsh-client-ui-renderer` 产物的座位 PoC 5 例：children 声明 / only 过滤 / label 双态 / 后装补跑 / 分节崩溃边界），四包同装的真机冒烟走查记录见 `artifacts/workspace-config-smoke.md`。
 
 ## 非目标
 

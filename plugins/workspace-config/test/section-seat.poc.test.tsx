@@ -3,7 +3,7 @@
  * 分节座位运行时 PoC（触达面 #18 / 组 4 前置风险门）。
  *
  * 目的：用**真** `@deepseek-ai/dsh-client-ui-renderer` 的浏览器产物 + 真 cordis
- * `Context`，在 jsdom 里钉住四条只有类型级证据、没有运行时自证的语义：
+ * `Context`，在 jsdom 里钉住五条只有类型级证据、没有运行时自证的语义：
  *
  * 1. children 声明：holder 的 `register({ children })` 把子座位写进声明账本，
  *    声明提交后贡献方的 `slots.inject(childKey, …)` 回调同步补跑、entry 立刻进账本。
@@ -13,6 +13,9 @@
  *    每次读取重新求值（locale 切换无需重注册）。
  * 4. 后装补跑：贡献方先 `slots.inject`（子座位尚未声明 → 回调延迟），holder 后到
  *    并声明子座位时，待命回调在声明提交后同步补跑，先到的贡献不丢。
+ * 5. 崩溃边界：某分节渲染期抛错由框架 `SlotErrorBoundary` 按 entry 隔离，并经
+ *    `onEntryError` 上报（list 种类 `abdicate: true` 退场、账本保留）；弹窗壳与兄弟
+ *    分节存活，异常不向上冒泡。holder 因此不自行 try/catch `renderSlot`。
  *
  * 为什么不是普通 `import`：上游包把浏览器半发成 `lib/client.js` 的
  * `window.__ModuleLoader__.load({ id, factory })` 壳，外部依赖（react / react-dom /
@@ -21,7 +24,7 @@
  * 捕获 factory 后调用。被测对象仍是真 renderer 实现，不 stub 任何
  * `SlotRegistry` / `register` / `inject` / `renderSlot` / `only` 语义。
  *
- * 常驻且不 skip：本文件是「children / only / label / inject 语义漂移」的长期哨兵。
+ * 常驻且不 skip：本文件是「children / only / label / inject / 崩溃边界语义漂移」的长期哨兵。
  * 测试内注释与断言话术均为 zh-CN；上游标识符保留原名。
  */
 
@@ -38,6 +41,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as Cordis from '@deepseek-ai/cordis'
@@ -450,5 +454,116 @@ describe('分节座位运行时 PoC（组 4 / 触达面 #18）', () => {
     // 补跑后的注册能正常渲染（holder 到位后装配完整）。
     render(ctx.slots.renderSlot('root', {}))
     expect(screen.getByTestId('poc-section-a')).toBeTruthy()
+  })
+
+  it('⑤ 分节崩溃壳存活：崩溃分节被框架边界接管，壳与其余分节不受影响', async () => {
+    const ctx = createRuntime()
+    const close = vi.fn()
+
+    // 框架的错误监督面上报（真 `onEntryError`，不 stub）。
+    const reports: Array<{
+      key: string
+      registration: Slots.StoredEntry | Slots.StoredFactory
+      error: unknown
+      abdicated: boolean
+    }> = []
+    const disposeReports = ctx.slots.onEntryError((key, registration, error, info) => {
+      reports.push({ key, registration, error, abdicated: info.abdicated })
+    })
+
+    // root 位声明 shell.overlay（与其余用例同形）。
+    ctx.slots.register(
+      {
+        name: 'root',
+        children: { 'shell.overlay': { kind: 'list', scope: 'root' } },
+      },
+      RootFrame,
+    )
+
+    // holder 位：真弹窗壳，声明分节座位并以 `{ close }` 为 owner 份额渲染（不过滤）。
+    ctx.slots.inject('shell.overlay', () =>
+      ctx.slots.register(
+        {
+          name: 'shell.overlay',
+          id: 'workspace-config.dialog',
+          order: 530,
+          children: { [SECTION]: { kind: 'list', scope: 'root' } },
+          inject: () => ({ close, active: undefined }),
+        },
+        OverlayHolder,
+      ),
+    )
+
+    // 正常分节（order 10）与渲染期抛错的分节（order 20）同时注册：
+    // 实测框架语义是「边界逐个 entry 隔离」，崩溃只影响它自己那一格。
+    const crashError = new Error('分节渲染期崩溃（PoC 注入）')
+    ctx.slots.inject(SECTION, () =>
+      ctx.slots.register(
+        {
+          name: SECTION,
+          id: 'healthy',
+          order: 10,
+          label: '正常分节',
+        },
+        SectionA,
+      ),
+    )
+    ctx.slots.inject(SECTION, () =>
+      ctx.slots.register(
+        {
+          name: SECTION,
+          id: 'crash',
+          order: 20,
+          label: '崩溃分节',
+        },
+        () => {
+          throw crashError
+        },
+      ),
+    )
+
+    // React 必然把边界捕获的异常打到 console.error；这是被测的预期路径，不污染输出。
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    // 初始渲染：真 `renderSlot` 不得抛错（异常由框架边界吞下，不向上冒泡）。
+    render(ctx.slots.renderSlot('root', {}))
+
+    // rc.5 语义：list 种类的崩溃上报带 `abdicate: true`，崩溃 entry 从 `entriesOfSlot`
+    // 投影里退场（注册账本保留），outlet 在同一个微任务批里把该格重投影成框架崩溃占位。
+    await waitFor(() => {
+      expect(ctx.slots.entriesOfSlot(SECTION).map((entry) => entry.options.id)).toEqual([
+        'healthy',
+      ])
+    })
+
+    // ① 页面未崩、壳仍挂载：root 与 holder 都在，正常分节文案可见且可交互。
+    expect(screen.getByTestId('poc-root')).toBeTruthy()
+    expect(screen.getByTestId('poc-overlay-holder')).toBeTruthy()
+    expect(screen.getByTestId('poc-section-a')).toBeTruthy()
+    expect(screen.getByText('分节 A（字符串 label）')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('poc-close-a'))
+    expect(close).toHaveBeenCalledTimes(1)
+
+    // ② 崩溃分节内容不可见；其格子被框架崩溃占位接管，且占位仍在弹窗壳内部
+    //    （边界隔离在分节层，没有上浮到 holder / root）。
+    expect(screen.queryByTestId('poc-section-crash')).toBeNull()
+    const crashFace = document.querySelector(`[data-slot-error="${SECTION}"]`)
+    expect(crashFace).not.toBeNull()
+    expect(crashFace?.closest('[data-testid="poc-overlay-holder"]')).not.toBeNull()
+    expect(document.querySelectorAll(`[data-slot-error="${SECTION}"]`)).toHaveLength(1)
+
+    // ③ 监督面上报一次：座位 key、崩溃 registration、原始 Error 与退场标志都属实。
+    expect(reports).toHaveLength(1)
+    expect(reports[0]!.key).toBe(SECTION)
+    expect(reports[0]!.error).toBe(crashError)
+    expect(reports[0]!.abdicated).toBe(true)
+    const crashed = reports[0]!.registration
+    expect('options' in crashed && crashed.options.id).toBe('crash')
+
+    // ④ 注册账本未丢：abdication 只改渲染投影，entry 仍在 `entries`，disposer 归贡献方。
+    expect(ctx.slots.entries(SECTION)).toHaveLength(2)
+    expect(ctx.slots.entriesOfSlot(SECTION)).toHaveLength(1)
+
+    disposeReports()
   })
 })

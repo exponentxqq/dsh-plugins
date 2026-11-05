@@ -5,15 +5,16 @@
  * + 清空 + 「只影响之后新建的会话」。三处差异：
  *
  * 1. **两形态**：`variant='section'` 是面板里的一个分区（`<section>`，无对话框根、无下拉），
- *    `variant='dialog'` 是侧栏 footer 对话框的正文（对话框根的 `role="dialog"` 由入口的
- *    `Modal` 提供，本组件只交付正文壳 + 工作区下拉）。
- *    下拉只在对话框形态出现——面板分区的作用域恒为「当前会话所属工作区」（spec「工作区配置
- *    入口」），在分区里换工作区会与「面板只改本会话工作区」的预期冲突（code-design §3.10）。
+ *    `variant='dialog'` 是统一工作区配置弹窗的分节正文（`workspace-config.section` 座位）——
+ *    `role="dialog"` 根由 holder `dsh-plugin-workspace-config` 的 `Modal` 提供，本组件只交付
+ *    正文壳 + 工作区下拉。
+ *    下拉只在分节正文形态出现——面板分区的作用域恒为「当前会话所属工作区」（spec「工作区默认档
+ *    分节」），在分区里换工作区会与「面板只改本会话工作区」的预期冲突（code-design §3.10）。
  * 2. **并集一句说明**（DQ2=A）：界面**不**标注每一项来自用户档还是工作区档，只给一句
  *    「新会话初始关闭 = 用户级默认档 ∪ 本工作区默认档」，把合并语义先说清、再让用户看到
  *    本工作区的增量。
  * 3. **工作区无法归属**（`workspace === null`）：只读降级——显示 `workspace.unresolved`，
- *    不渲染添加框/清空（写入目标不存在）；对话框形态仍可下拉切换到已登记工作区。
+ *    不渲染添加框/清空（写入目标不存在）；分节正文形态仍可下拉切换到已登记工作区。
  *
  * 与 `DefaultsEditor` 同一条纪律：**不在客户端校验文法**。输入按空白/逗号切成地址就交给宿主
  * （`action:'off'`），文法、保护名单与上限的唯一权威在宿主；失败由宿主回稳定码
@@ -38,7 +39,7 @@ import css from './panel.module.css'
 /** 本组件消费的转发函数（命名空间键联合，由 `locales.ts` 的 `declare module` 提供）。 */
 type Translate = TranslateNS<typeof NS>
 
-/** 渲染形态：面板分区，或 footer 对话框正文。 */
+/** 渲染形态：面板分区，或统一工作区配置弹窗的分节正文。 */
 export type WorkspaceDefaultsVariant = 'section' | 'dialog'
 
 /** 工作区默认档编辑器的 props（code-design §3.10 冻结形状）。 */
@@ -82,7 +83,7 @@ export interface WorkspaceDefaultsEditorProps {
 /**
  * 工作区默认档编辑器。
  * @param props - 见 {@link WorkspaceDefaultsEditorProps}。
- * @returns 面板分区或对话框正文。
+ * @returns 面板分区或分节正文。
  */
 export function WorkspaceDefaultsEditor({
   workspace,
@@ -278,10 +279,10 @@ export function WorkspaceDefaultsEditor({
     </>
   )
 
-  // 对话框形态只交付正文壳：`role="dialog"` 由 footer 入口的 `Modal`（7.3 WorkspaceEntry）
-  // 提供，本组件再带一层会构成嵌套 dialog（A11y 双根）。
-  // 正文壳**不**复用 `.dialog`（760px 卡片宽度）：footer 对话框只有 560px，嵌套固定宽度会溢出，
-  // 宽度约束归持有 `Modal` 的入口。
+  // 分节正文形态只交付正文壳：`role="dialog"` 由 holder（`dsh-plugin-workspace-config`）的
+  // 统一弹窗壳 `Modal` 提供，本组件再带一层会构成嵌套 dialog（A11y 双根）。
+  // 正文壳**不**复用 `.dialog`（760px 卡片宽度）：右栏内容列的宽度由 holder 约束，
+  // 嵌套固定宽度会溢出，宽度约束归持有 `Modal` 的 holder。
   return dialog
     ? <div className={css.workspaceBody}>{body}</div>
     : <section className={css.section}>{body}</section>
