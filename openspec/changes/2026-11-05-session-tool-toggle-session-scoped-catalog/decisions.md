@@ -1,16 +1,24 @@
-# 收敛留痕：会话工具面改会话作用域口径（scoped ∪ carried）
+# 收敛留痕：会话工具面改会话作用域口径（scoped ∪ carried）+ 工作区/用户级默认档界面对齐会话工具面
 
 > spec-plan 阶段 1.5 产物（串行 grill-me 收敛）；本文件随落档复制入变更目录，落档副本为权威。
+> v2：2026-11-05 晚间重开——新需求 B（默认档分组开关界面，见下）并入本变更范围；第一、二、三轮为原范围收敛留痕，第四、五轮为并入范围后的续轮。
 
 ## 设计树
 
 ```
-D1 掩码写路径口径（load-bearing）
- ├── D2 catalog 字段去留（依赖 D1）
- ├── D6 descriptions 读数形状（随 D1 浮出）
-D3 stats 形状（独立）
-D4 specs delta（独立）
-D5 版本号（独立）
+D1 掩码写路径口径（load-bearing，第一轮落定）
+ ├── D2 catalog 字段去留（第二轮落定）
+ ├── D6 descriptions 读数形状（第二轮落定）
+D3→P1 stats 形状（第三轮 P1 落定：两计数）
+D4 specs delta 新增场景（第一轮落定）
+D5 版本号 1.5.0（第一轮落定，并入后仍有效）
+D7 B 的工具宇宙口径（load-bearing，第四轮落定：U1）
+ ├── D8 表达力兜底（第五轮落定：完全移除自由文本）
+ ├── D9 技能区纳入（第五轮落定：纳入）
+ └── D11 默认档计数形状（第五轮落定：三计数）
+D10 用户级 DefaultsEditor 跟改（第四轮落定：一并改）
+ ├── D13 面板多套分组清单共存（第五轮落定：默认档分区默认折叠）
+D12 delta 书写基线（第四轮落定：以 unify 后文本为基）
 ```
 
 ## 第一轮（4 问，全部按推荐落定）
@@ -18,7 +26,7 @@ D5 版本号（独立）
 | # | 问题 | 答复 | 仍待决 |
 | --- | --- | --- | --- |
 | Q1/D1 | 掩码写路径（session-layer catalog 端口与 planMask 候选）是否同步改会话读数？ | **同步改**：候选 = scoped ∪ carried，三读变两读。不改则被关的无效工具名字经 carried 回流面板清单，且 toggle 回执 matched 与掩码 deny 分叉；改后 deny 空 = 纯意图，工具在会话出现时由既有 `tools/change → refresh()` 幂等链补上 | 否 |
-| Q2/D3 | stats 形状？ | **三计数**：删 catalog + shadowed，`{ visible, denied, … }`；面板统计行重排「本会话可见 N / 已关 M」 | 否 |
+| Q2/D3 | stats 形状？ | **三计数**：删 catalog + shadowed，`{ visible, denied, … }`；面板统计行重排「本会话可见 N / 已关 M」（后由 P1 精确为两计数） | 否 |
 | Q3/D4 | specs delta 是否新增条款？ | **新增场景**：「Web 配置界面」需求下加「面板清单 SHALL 只含本会话有效工具（scoped ∪ carried）」 | 否 |
 | Q4/D5 | 版本号？ | **维持 1.5.0**：与上一变更（7c38dbe，未发布未推送）同批发布 | 否 |
 
@@ -29,7 +37,7 @@ D5 版本号（独立）
 | Q5/D2 | catalog 字段（ControlDeps/PanelInputs/MaskInputs/PanelReading + session-layer 端口）删除还是保留改义？ | **全部删除**：两读宇宙下与 scoped 同源，冗余字段只会再造「catalog 何时 ≠ scoped」歧义源；类型层面强制「只有一个宇宙」 | 否 |
 | Q6/D6 | descriptions 改按会话读数的实现形状？ | **经层读数**：层加 visibleSchemas 类读数面（name+description 轻量投影），rpc 的 descriptions 闭包改经 layerFor(sessionId) 取，层未就绪降级空 Map；根 ctx 一次填的装配时机问题自然消解 | 否 |
 
-## 收敛确认
+## 收敛确认（原范围）
 
 用户明确确认「已达成共识，继续」——前沿为空，进入阶段 1.7。
 
@@ -41,10 +49,44 @@ D5 版本号（独立）
 | P2 | 描述改经会话层读数后已关条目失去悬浮描述——接受还是层内缓存兜底？ | **接受无描述**：README 写明代价；层内描述缓存留作后续小变更 | 否 |
 | P3 | 面板是否加「本清单只含本会话有效工具」说明行？ | **不加**：面板顶部已有「本会话可见 N」与关闭集；预期管理写进 README 与 proposal | 否 |
 
+## 第四轮（并入范围续轮一：3 问。D7/D12 首问时用户要求先讲清背景，复述 U1/U1'/U2 与 delta 基线机制后重问；D10 一次落定）
+
+| # | 问题 | 答复 | 仍待决 |
+| --- | --- | --- | --- |
+| D7 | 工作区默认档分组界面的工具宇宙从哪里来？ | **U1 当前会话宇宙 + 残留区**：分组清单 = 当前会话两读宇宙（与 A 改造后同源）；行状态 = 目标工作区档 `disabled` 与行地址的交；档内不在宇宙的地址进「残留区」chips（只可移除）。零跨插件耦合、默认目标（当前工作区）精确；跨工作区编辑为近似（该工作区私有 project-mcp 工具行不可见） | 否（解锁 D8/D9/D11） |
+| D10 | 会话面板第三段「用户级默认档」编辑器（同为 chips+自由文本形态）是否跟改成分组开关界面？ | **一并改**：用户级 DefaultsEditor 同步改为分组开关界面（宇宙同 U1 口径 = 当前会话宇宙 + 残留区；用户级档作用于所有新会话，跨工作区同为近似，无下拉切换） | 否（解锁 D13） |
+| D12 | A+B 合并 delta 的书写基线？ | **以 unify-workspace-config-entry 归档后的主规格文本为基**：「Web 配置界面」MODIFIED = unify 版正文 + A 宇宙句 + B 分节界面句；「工作区默认档分节」MODIFIED = unify ADDED 版正文 + B 分组开关界面要求；proposal/tasks 显式声明本变更在 unify 提交、执行完成并归档之后执行/归档 | 否 |
+
+## 第五轮（并入范围续轮二：4 问，前沿最后一层；D8 未按推荐落定）
+
+| # | 问题 | 答复 | 仍待决 |
+| --- | --- | --- | --- |
+| D8 | 分组界面是否保留自由文本添加入口？ | **完全移除**（未采推荐「保留高级添加行」）：界面只剩分组开关 + 残留区 chips（只可移除、不可添加）；跨宇宙地址的新关走 `/tools workspace off` / `/tools default off` CLI 兜底。推论：unify 的「分节切换丢草稿为接受项」自然失效（无草稿输入框）；workspace-editor 现有添加框用例删除而非迁移 | 否 |
+| D9 | 默认档分组界面是否包含技能区？ | **纳入**：与面板技能区同构——`tool:skill` 整档组开关 + `skill:<name>` 逐行开关（行状态 = 档内是否含该地址）；`skills` 服务缺席时整区降级提示（沿 SkillPanel 的 `unavailable` 纪律）；档内不在清单的技能地址进残留区 | 否 |
+| D11 | 默认档分组界面的计数摘要用几个数？ | **三计数**：「清单 N · 默认关 M · 残留 K」；残留数可读，用户能察觉档内有跨宇宙地址；契约键表与文案三键（用户级/工作区级同形状） | 否 |
+| D13 | D10 一并改之后面板内三套分组清单（本会话工具面 / 用户级默认档 / 工作区默认档分区）如何控制长度？ | **默认档两分区默认折叠**：面板结构不变，「用户级默认档」「工作区默认档」两分区默认折叠，标题行带计数摘要（「默认关 M · 残留 K」），点开才见分组清单；会话工具分组段维持现状（MCP 默认折叠） | 否 |
+
+## 收敛确认（并入范围）
+
+第五轮答毕前沿为空——D1–D13 + P1–P3 全部落定，无静默假设项，进入阶段 1.7（设计线重派，扩 code-design）。
+
+## 第六轮（落档分歧点，阶段 1.7 设计线上浮的 PB1–PB3；PB1 两问机制澄清后落定）
+
+| # | 问题 | 答复 | 仍待决 |
+| --- | --- | --- | --- |
+| PB1 | U1+D8 合成后果：统一弹窗切到其他工作区时，该工作区私有 project-mcp 工具既不在清单也无法新增（`/tools workspace` 只作用本会话所属工作区，不带 `--path`），只能手改 `workspaces.json`——如何处置？ | **接受并写清**：README 已知限制 + `workspace.cliHint` 措辞改实（本会话工作区的跨清单新关用 `/tools workspace off`；其他工作区请编辑 `workspaces.json`）；不重开 D7/D8。机制两问澄清留痕：① 清单宇宙跟随当前会话（U1）——B 私有工具对本会话被 project-mcp 隔离，进不了清单；② dsh 原生接口无「按工作区」读数维度（`schemas()` 全局层无归属信息、`ScopeKey` 为不透明运行时对象、project-mcp 无对外服务面）——U2 的跨插件/推导两案维持被否 | 否 |
+| PB2 | 版本号：unify 收口演练 release 1.6.0（不打 tag、留待下一批统一发布），本变更（A+B）很可能就是那批——版本号怎么处理？ | **不 bump，交 release 脚本**：代码/工件不动 `package.json`（维持 1.5.0 与 D-12「不在代码变更里单方面跳版本」语义），发布时由 `scripts/release.mjs` 统一升版 | 否 |
+| PB3 | 面板两个默认档分区的折叠态是否跨开合记忆？（D13 只裁默认折叠） | **不记忆**：折叠态组件本地状态，面板重开复位为收起（默认视图每次一致）；真机反馈「每次都要点」再单独立项（控制器记忆与「不动 panel-controller」的 B 纪律相碰，暂不做） | 否 |
+
 ## 裁定依据与推论（事实裁定，非用户决策）
 
 1. **D1 的必然性**（探索核验）：session-layer `plan()`（L1052-1073）与 `toggleSession`（L338/345）共用全局层 catalog；`refresh()` 由 `tools/change` 驱动幂等全量重算（L274/L453），restrict 自身也触发 tools/change（I2/I6 幂等设计）——「意图后效」兑现链在位，无需新增机制。
 2. **两态文案随口径自然更新**（用户已裁决「两态区分取消」的推论）：`closedStateText` 工具分支 matched>0/＝0 两态保留，matched=0 的措辞「服务器上线后自动生效」更新为会话口径（「出现在本会话后自动生效」类），实现期落定，不再单列决策。
 3. **同名不同义的 shadowed 保留清单**：`ClosedAddressReading.shadowed`（mcp 整组「指令段已遮蔽」）与 `SkillView.shadowed`（技能影子 stub 生效）不在删除范围。
 4. **被推翻的旧裁决**：归档变更 `2026-11-02-session-tool-toggle` 的 **R15①**（catalog 端口全局层读数）、**R18①**（shadowed = catalog \ (scoped ∪ carried) 口径）、**R20①**（catalog/descriptions 保持全局层口径、v2 再改）——本变更即其预告的 v2，diff-matrix 须留痕推翻声明。
-5. **specs 现状**：`dsh-session-tool-toggle/spec.md` 零「全局层/被其他作用域/shadowed/catalog」条款（grep 计数 0）——全局层口径纯是设计层裁决，D4 新增场景不与既有 SHALL 冲突。
+5. **specs 现状**：`dsh-session-tool-toggle/spec.md` 零「全局层/被其他作用域/shadowed/catalog」条款（grep 计数 0）——全局层口径纯是设计层裁决，D4 新增场景不与既有 SHALL SHALL 冲突。
+6. **（v2）A 原触达面与 unify 执行零冲突**（2026-11-05 晚核验）：unify 改的是客户端入口/座位/编辑器接线（WorkspaceEntry/seats/index/css 尾部/三个测试）+ README + package.json；A 触达的宿主半全部文件、contract.ts、ToolPanelGroups/ToolPanelAction、11 个测试文件均未动。锚点漂移仅 locales.ts 四键（zh +4/en +7，内容未变）；README L24/77/120、css L264 注释未漂；测试文件数仍 22。
+7. **（v2）A 的 delta 与 unify 的 delta 同改「Web 配置界面」需求**，且 unify REMOVED「工作区配置入口」、ADDED「工作区默认档分节」——D12 以 unify 后文本为基是归档无缝的必要条件；执行顺序依赖（unify 先提交/执行完成/归档）写入 proposal 与 tasks。
+8. **（v2）工作区默认档编辑器数据面**：现走 `workspace` 端点（`WorkspaceValue`：workspace 视图 + choices），不消费 `PanelSnapshot`——B 扩展该端点响应承载分组宇宙（U1），客户端不交叉引用 `panel` 端点。写路径 `off/on/reset` 与地址预检（保护/保留拒绝）语义零改动。
+9. **（v2）锁态两态**：默认档分组行锁沿 `protected`（写路径已拒）+ `reserved`（`run_code` 注册表保留名）；A 已删的 `shadowed` 锁链不出现在 B 界面。
+10. **（v2）两形态沿用 unify 裁定**：统一弹窗分节 = dialog 形态（保留下拉切换已登记工作区）；会话面板分区 = section 形态（恒当前工作区、无下拉）。
