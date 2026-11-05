@@ -2,7 +2,7 @@
 
 ## 症状
 
-- 侧边栏 footer 的"工作区文件夹"入口（`sidebar.footer.action` 槽位注册）完全不显示，但宿主半部工作正常：`/workspace-folders` 命令出现在命令面板、RPC 通道有响应。
+- 统一「工作区配置」弹窗里的"工作区文件夹"分节（`workspace-config.section` 槽位注册）完全不显示，但宿主半部工作正常：`/workspace-folders` 命令出现在命令面板、RPC 通道有响应。
 - 运行中的 web 服务返回的 `window.__DSH_BOOT__` 模块图里没有 `dsh-plugin-multi-root-workspace` 条目；直接请求 `/plugins/??dsh-plugin-multi-root-workspace/client.js` 返回 404。
 - 全程无显眼报错：增量扫描失败只进 `logger.warn`，页面控制台也没有与插件相关的错误。
 
@@ -26,6 +26,6 @@
 
 1. 给包根 `src/index.ts` 增加最小载体插件面（`inject: []` + 空实现 `apply`，有意不提供任何服务）；
 2. `cordis.patch.yml` 追加一行 `id: multi-root-client`、`name: 'dsh-plugin-multi-root-workspace'`，作为 client 扫描锚点；
-3. `pnpm build` 后重启 web 运行时，确认 `__DSH_BOOT__` 出现插件条目、`/plugins/??…client.js` 返回 200、footer 入口恢复显示。
+3. `pnpm build` 后重启 web 运行时，确认 `__DSH_BOOT__` 出现插件条目、`/plugins/??…client.js` 返回 200、「工作区配置」弹窗里的工作区文件夹分节恢复显示。
 
 回归防护：`tests/patch.spec.ts` 钉住锚点行的存在与裸包名形态；`scripts/smoke-compose.mjs` 在真实安装链上断言六行插入；`scripts/smoke-journey.mjs` web 腿断言组成的 boot graph 确实包含插件 client 条目。

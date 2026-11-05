@@ -348,8 +348,9 @@ async function runWebLeg() {
   try {
     // The bundle patch must carry a bare-package-name row, or the web
     // client-module scan never reads this package's `dsh.client` declaration
-    // and the browser is never served `lib/client.js` — the footer action then
-    // silently never registers (see docs/troubleshooting/).
+    // and the browser is never served `lib/client.js` — the
+    // `workspace-config.section` registration then silently never runs (see
+    // docs/troubleshooting/).
     const clientModules = ctx.get('clientModules')
     observed.clientEntryServed = clientModules?.graph().entries.some(entry => entry.id === PLUGIN_NAME) === true
     const { installModelSelection } = await loadRuntimeModule('@deepseek-ai/dsh-agent')

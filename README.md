@@ -46,6 +46,8 @@ docker exec dsh dsh --profile web --dump-config-schema   # 校验组合可加载
 
 `dsh plugin add` 走 pnpm：把 git spec 写进 profile 的 `package.json` 依赖，并把声明了 `dsh.bundle` 的包追加进 `dsh.profile.bundles` 激活其 patch 层。移除用 `dsh plugin --profile web remove <包名>`。
 
+**四包同装**：统一工作区配置入口由 `dsh-plugin-workspace-config`（holder）与 `dsh-plugin-multi-root-workspace` / `dsh-plugin-session-tool-toggle` / `dsh-plugin-web-ux`（分节贡献方）四个包组成，须同一 tag 一并装入才有完整分节（Folders / 工作区默认档 / 会话管理）。这是 **BREAKING**（安装矩阵语义）：三枚旧 footer 入口已硬移除、不做共存探测或配置开关——只装贡献方不装 holder 时其分节入口不存在（multi-root 仍走 Files tab 入口与 `/workspace-folders`，session-tool-toggle 仍走会话头部入口与 `/tools`，web-ux 的会话管理 GUI 不可达为已知接受项）；升级时四包须一起到同一 tag——holder 是新包、需先 `add` 一次，其余三包改 tag 后重装。
+
 两件必知的事：
 
 - **构建授权**：v1.1.1 起各插件的构建产物 `lib/` 随仓库提交且不再带 `prepare` 脚本，git 来源安装**不触发** pnpm 的构建脚本授权（pnpm 10/11 行为一致，改 tag 也无需任何表态）。唯一例外是 multi-root 插件的注册表依赖 `koffi`（原生模块，install 脚本要预编译）：pnpm ≥11 会把 `allowBuilds: koffi:` 占位写进 profile 的 `pnpm-workspace.yaml`，改成 `true` 重跑即可；pnpm 10 会以 `ERR_PNPM_IGNORED_BUILDS` 退出，把 `koffi`（用包名）加进 `onlyBuiltDependencies`——按包名匹配、不随 tag 变化，只需表态一次。背景与机制（为何 git 来源曾是硬失败、为何键里带 commit）见 [安装停在构建授权](plugins/multi-root-workspace/docs/troubleshooting/install-stops-at-build-approval.md)。
@@ -73,6 +75,7 @@ git push origin main --tags   # 3. push（容器已挂载宿主 ~/.ssh，可直�
 | 插件 | 说明 |
 | --- | --- |
 | [`dsh-plugin-multi-root-workspace`](plugins/multi-root-workspace/README.md) | 把 Workspace 的可写范围从「一个主根」扩展为「主根 + N 个附加根」；不放宽沙箱档位，附加根与主根同权。上游 `cherrchen/dsh-plugin-multi-root-workspace` 的本地 fork，含附加根一次性播种与通用附加根 `commonRoots` 两个本地扩展。 |
+| [`dsh-plugin-workspace-config`](plugins/workspace-config/README.md) | 统一工作区配置入口（holder，双端，零业务逻辑）：侧栏 footer 只留一枚「工作区配置」入口（宽栏图标 + 文案、折叠轨图标，两形态均可见）+ 统一分节弹窗（声明 `workspace-config.section` 座位，导航 + 懒渲染 + 空态），把各插件自注册的 footer 入口收敛为一处；须与 `dsh-plugin-multi-root-workspace` / `dsh-plugin-session-tool-toggle` / `dsh-plugin-web-ux` **四包同装**才有完整分节（旧入口已硬移除，未装 holder 时 web-ux 会话管理 GUI 不可达）。 |
 | [`dsh-plugin-web-ux`](plugins/web-ux/README.md) | Web 界面体验插件（双端）：状态行 provider 徽章 + 侧栏已归档会话的「删除会话」入口（两步预览确认，级联 subagent 日志、保留 fork 与共享附件）+ 命令结果通知卡（空会话首屏等结果无处渲染的场景，可展开全文，视图挂载即自隐）；宿主半承载 Connection RPC 通道 `/web-ux`，同时供 web 客户端模块扫描定位 `dsh.client` 声明。后续其他 Web 界面体验改动落在本包。 |
 | [`dsh-plugin-project-mcp`](plugins/project-mcp/README.md) | 项目级 MCP（host-only，任何 profile 可单独安装）：各工作区根 `.dsh/mcp/` 每文件一台服务器，自动发现、加载、热重载，按工作区隔离工具可见性，`/mcp-reload` 兜底；名字（资源服务器名与服务器指令段）与资源面隔离。自 `dsh-plugin-web-ux` 拆出，行为零变化。 |
 | [`dsh-plugin-user-commands`](plugins/user-commands/README.md) | 用户自定义斜杠命令（host-only，任何 profile 可单独安装）：`.md` 文件即命令，正文即 prompt 模板；三层来源（内置 / `$DSH_HOME/commands/` / 各工作区根 `.dsh/commands/`）按层遮蔽、会话级隔离、热刷新、`/commands-reload` 兜底，并内置 `/init`（生成或合并更新主根 `AGENTS.md`）与宿主侧只读的 `/inventory`（列出本会话实际可见的 MCP 服务器与可用 skill，零模型消息）。 |

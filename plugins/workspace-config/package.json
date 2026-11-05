@@ -1,0 +1,80 @@
+{
+  "name": "dsh-plugin-workspace-config",
+  "description": "DSH Web GUI 的统一「工作区配置」入口（holder，零业务逻辑）：侧栏 footer 单入口 + shell.overlay 统一模态弹窗，并声明分节座位 workspace-config.section；其他插件以纯类型依赖方式贡献分节",
+  "version": "1.5.0",
+  "type": "module",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "engines": {
+      "dsh": ">=0.2.1-rc.5 <0.3.0"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-layout"
+      ],
+      "platform": "web"
+    }
+  },
+  "files": [
+    "lib/**/*.js",
+    "lib/**/*.d.ts",
+    "src",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "license": "Apache-2.0",
+  "peerDependencies": {
+    "@deepseek-ai/dsh": ">=0.2.1-rc.5 <0.3.0",
+    "react": "^18.2.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.5",
+    "@deepseek-ai/dsh": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-client-locale": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-client-ui-layout": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-client-ui-renderer": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-client-ui-sidebar": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-client-ui-slots": "0.2.1-rc.5",
+    "@testing-library/react": "^16.3.0",
+    "@types/node": "^22.20.0",
+    "@types/react": "~18.3.1",
+    "@types/react-dom": "^18.3.5",
+    "esbuild": "^0.25.0",
+    "jsdom": "^26.1.0",
+    "oxlint": "^1.42.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  },
+  "scripts": {
+    "build": "pnpm run build:types && node build.mjs",
+    "build:types": "tsc -p tsconfig.host.json && tsc -p tsconfig.client.json",
+    "lint": "oxlint",
+    "test": "vitest run",
+    "typecheck": "tsc -b --pretty false",
+    "verify:all": "pnpm lint && pnpm typecheck && pnpm build && pnpm test",
+    "prepack": "pnpm run build"
+  }
+}

@@ -29,12 +29,11 @@ window.__ModuleLoader__.load({
 		  DELETE_DIALOG_ORDER: () => DELETE_DIALOG_ORDER,
 		  DELETE_MENU_ID: () => DELETE_MENU_ID,
 		  DELETE_MENU_ORDER: () => DELETE_MENU_ORDER,
-		  MANAGER_OVERLAY_ID: () => MANAGER_OVERLAY_ID,
-		  MANAGER_OVERLAY_ORDER: () => MANAGER_OVERLAY_ORDER,
-		  MANAGER_TRIGGER_ID: () => MANAGER_TRIGGER_ID,
-		  MANAGER_TRIGGER_ORDER: () => MANAGER_TRIGGER_ORDER,
 		  NOTICE_ID: () => NOTICE_ID,
 		  NOTICE_ORDER: () => NOTICE_ORDER,
+		  SECTION_ID: () => SECTION_ID,
+		  SECTION_ORDER: () => SECTION_ORDER,
+		  SECTION_SEAT: () => SECTION_SEAT,
 		  apply: () => apply,
 		  inject: () => inject
 		});
@@ -377,7 +376,9 @@ window.__ModuleLoader__.load({
 		  "notice.expand": "\u5C55\u5F00\u5168\u6587",
 		  "notice.collapse": "\u6536\u8D77",
 		  "notice.close": "\u5173\u95ED\u901A\u77E5",
-		  // —— 会话管理面：入口与外壳 ——
+		  // —— 会话管理面：分节入口与外壳 ——
+		  // `section.label` 是统一「工作区配置」弹窗左 nav 的行标题（label thunk 每次读取）。
+		  "section.label": "\u4F1A\u8BDD\u7BA1\u7406",
 		  "manager.action": "\u4F1A\u8BDD\u7BA1\u7406",
 		  "manager.title": "\u4F1A\u8BDD\u7BA1\u7406",
 		  "manager.description": "\u6309\u5DE5\u4F5C\u533A\u6279\u91CF\u7BA1\u7406\u4F1A\u8BDD\uFF1A\u5F52\u6863\u6D3B\u8DC3\u4F1A\u8BDD\u3001\u5904\u7F6E\u5DF2\u5F52\u6863\u4F1A\u8BDD\u3001\u6E05\u7406\u6216\u6062\u590D\u5DF2\u8FC1\u79FB\u5230\u5F52\u6863\u76EE\u5F55\u7684\u65E5\u5FD7\u3002",
@@ -487,6 +488,7 @@ window.__ModuleLoader__.load({
 		  "notice.expand": "Show full text",
 		  "notice.collapse": "Collapse",
 		  "notice.close": "Dismiss notice",
+		  "section.label": "Session manager",
 		  "manager.action": "Session manager",
 		  "manager.title": "Session manager",
 		  "manager.description": "Manage sessions per workspace: archive active sessions, dispose of archived sessions, and clean up or restore logs migrated to the archive directory.",
@@ -1018,49 +1020,9 @@ window.__ModuleLoader__.load({
 		  };
 		}
 
-		// src/client/SessionManagerTrigger.tsx
-		var import_dsh_client_ui_primitives3 = require("@deepseek-ai/dsh-client-ui-primitives");
-
-		// src/client/session-manager.module.css
-		var cssText4 = "/*\n * \u4F1A\u8BDD\u7BA1\u7406\u6D6E\u5C42\u7684\u6837\u5F0F\uFF08SessionManagerTrigger \u4E0E SessionManagerDialog \u4E24\u4E2A\u7EC4\u4EF6\uFF09\u3002\n *\n * \u53EA\u8865\u5B98\u65B9 primitives \u7ED9\u4E0D\u4E86\u7684\u4E1C\u897F\uFF1A\u4FA7\u680F\u5E95\u90E8\u7684\u89E6\u53D1\u6309\u94AE\u3001\u6D6E\u5C42\u5DE5\u5177\u680F\uFF08\u5DE5\u4F5C\u533A\u9009\u62E9\u5668 +\n * \u4E09\u4E2A tab\uFF09\u3001\u5217\u8868\u884C\u4E0E\u884C\u5185\u5FBD\u6807\u3001\u9009\u62E9\u6761\u3001\u786E\u8BA4\u4E0E\u7ED3\u679C\u533A\u7684\u6587\u5B57\u5C42\u7EA7\u3002Modal / Button /\n * SegmentedTabs / Checkbox / Menu \u7684\u9AA8\u67B6\u3001\u5C3A\u5BF8\u4E0E\u7126\u70B9\u73AF\u5168\u90E8\u7531 primitives \u8D1F\u8D23\uFF0C\u8FD9\u91CC\n * \u4E0D\u590D\u5236\u5B83\u4EEC\u7684\u914D\u8272\uFF0C\u4E5F\u4E0D\u4E0E\u5220\u9664\u786E\u8BA4\u5BF9\u8BDD\u6846\u7684\u6837\u5F0F\u6587\u4EF6\u6DF7\u7528\uFF08\u4E24\u5904\u89C6\u89C9\u8BED\u4E49\u4E0D\u540C\uFF0C\u4E14 bundle\n * \u7684\u6837\u5F0F\u6CE8\u5165\u5668\u6309\u6A21\u5757\u5404\u81EA\u8BA1\u6570\uFF09\u3002\n *\n * \u989C\u8272\u7EAA\u5F8B\uFF1A\u6BCF\u4E00\u5904\u989C\u8272\u90FD\u662F `var(--dsw-alias-*, <\u515C\u5E95>, )` \u5F62\u6001\u2014\u2014\u515C\u5E95\u503C\u53EA\u7528 CSS \u5173\u952E\u5B57\n * \uFF08`currentColor`\u3001\u5177\u540D\u8272\uFF09\u4E0E `color-mix()`\uFF0C\u4E0D\u5199\u6B7B\u5177\u4F53\u8272\u503C\u3002\u8FD9\u6837\u4EE4\u724C\u6574\u4F53\u7F3A\u5E2D\u65F6\u6700\u574F\n * \u9000\u5316\u6210\u300C\u5F53\u524D\u6587\u5B57\u8272\u7684\u6DF1\u6D45\u53D8\u5316\u300D\uFF0C\u800C\u4E0D\u662F\u67D0\u4E00\u79CD\u4E3B\u9898\u4E0B\u7684\u56FA\u5B9A\u989C\u8272\uFF08\u6DF1\u8272\u4E3B\u9898\u4E0B\u4E0D\u4F1A\u51FA\u73B0\n * \u767D\u5E95\u767D\u5B57\uFF09\u3002\u5C3A\u5BF8\u4E0E\u5706\u89D2\u540C\u6837\u4F18\u5148\u53D6\u4EE4\u724C\uFF0C\u4EE4\u724C\u7F3A\u5931\u65F6\u9000\u56DE px\u3002\n *\n * \u7C7B\u540D\u5951\u7EA6\uFF08\u7BA1\u7406\u6D6E\u5C42\u7EC4\u4EF6\u6309\u6B64\u6E05\u5355\u6D88\u8D39\uFF1B\u5747\u6309 CSS Modules \u5C40\u90E8\u7C7B\u5F15\u7528\uFF09\uFF1A\n *   trigger\u3001triggerLabel                                 \u2014\u2014 \u4FA7\u680F\u5E95\u90E8\u5165\u53E3\n *   toolbar\u3001workspaceButton\u3001workspaceName\u3001tabsRow      \u2014\u2014 \u5DE5\u5177\u680F\u4E0E\u5DE5\u4F5C\u533A\u9009\u62E9\u5668\n *   modes\u3001modeRow\u3001modeText                              \u2014\u2014 tab 2 \u7684\u5904\u7F6E\u65B9\u5F0F\u5355\u9009\n *   selectionBar\u3001list\u3001row\u3001rowSelected\u3001rowDisabled     \u2014\u2014 \u9009\u62E9\u6761\u4E0E\u5217\u8868\n *   rowMeta\u3001badge\u3001badgeRunning\u3001badgeBlank              \u2014\u2014 \u884C\u5185\u5143\u4FE1\u606F\u4E0E\u5FBD\u6807\n *   empty\u3001truncated\u3001muted                               \u2014\u2014 \u7A7A\u6001 / \u622A\u65AD / \u8FC7\u7A0B\u6587\u6848\n *   summary\u3001rejected                                     \u2014\u2014 \u786E\u8BA4\u9636\u6BB5\u7684\u6458\u8981\u4E0E\u88AB\u62D2\u6E05\u5355\n *   result\u3001warnings\u3001failure\u3001detail\u3001danger             \u2014\u2014 \u7ED3\u679C\u533A\u4E0E\u5E95\u90E8\u5371\u9669\u6309\u94AE\n *\n * \u6784\u5EFA\u671F\u7C7B\u540D\u7531\u6784\u5EFA\u811A\u672C\u7684 cssModulesPlugin \u91CD\u5199\u4E3A `wux_<local>_<hash>`\u3002\n */\n\n/* \u2014\u2014 \u4FA7\u680F\u5E95\u90E8\u5165\u53E3\uFF1A\u5BBD\u680F\u662F\u300C\u56FE\u6807 + \u6587\u6848\u300D\u6574\u884C\u6309\u94AE\uFF0C\u6298\u53E0\u680F\u9000\u5316\u6210\u65B9\u5F62\u56FE\u6807\u6309\u94AE \u2014\u2014 */\n.wux_trigger_0f32fb {\n  box-sizing: border-box;\n  display: inline-flex;\n  align-items: center;\n  justify-content: flex-start;\n  gap: 6px;\n  width: 100%;\n  min-height: 32px;\n  padding: 0 8px;\n  border: 0;\n  border-radius: var(--dsw-radius-md, 8px);\n  background: none;\n  color: var(--dsw-alias-label-secondary, currentColor);\n  font: inherit;\n  font-size: 13px;\n  line-height: 20px;\n  text-align: left;\n  cursor: pointer;\n}\n\n.wux_trigger_0f32fb:hover {\n  background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentColor 8%, transparent));\n  color: var(--dsw-alias-label-primary, currentColor);\n}\n\n.wux_trigger_0f32fb:active {\n  background: var(--dsw-alias-interactive-bg-active, color-mix(in srgb, currentColor 12%, transparent));\n}\n\n/* \u7126\u70B9\u73AF\u4E0E\u5B98\u65B9\u6309\u94AE\u540C\u6B3E\uFF1A\u5185\u7F29 2px\uFF0C\u4E0D\u6491\u7834\u4FA7\u680F\u7684\u7A84\u680F\u5BBD\u5EA6\u3002 */\n.wux_trigger_0f32fb:focus-visible {\n  outline: 2px solid var(--dsw-alias-state-business-primary, currentColor);\n  outline-offset: -2px;\n}\n\n/*\n * \u6298\u53E0\u680F\uFF0856px \u8F68\u9053\uFF09\uFF1A\u5EA7\u4F4D\u5BB9\u5668\u5BBD\u5EA6\u6536\u7F29\u6210 auto \u4E14\u53EA\u5269\u56FE\u6807\uFF0C\u6587\u6848 span \u7F3A\u5E2D\u5373\u662F\u5224\u636E\n * \u2014\u2014 \u9000\u5316\u6210 28\xD728 \u7684\u65B9\u5F62\u56FE\u6807\u6309\u94AE\uFF0C\u5C45\u4E2D\u7531\u5EA7\u4F4D\u5BB9\u5668\u8D1F\u8D23\u3002\n */\n.wux_trigger_0f32fb:not(:has(.wux_triggerLabel_0f32fb)) {\n  flex: none;\n  justify-content: center;\n  width: 28px;\n  height: 28px;\n  min-height: 28px;\n  padding: 0;\n}\n\n/* \u6587\u6848\u662F\u552F\u4E00\u7684\u5F39\u6027\u90E8\u5206\uFF1A\u5BBD\u680F\u592A\u7A84\u65F6\u7701\u7565\u53F7\u622A\u65AD\uFF0C\u4E0D\u628A\u4FA7\u680F\u6491\u51FA\u6A2A\u5411\u6EDA\u52A8\u3002 */\n.wux_triggerLabel_0f32fb {\n  min-width: 0;\n  overflow: hidden;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n}\n\n/* \u2014\u2014 \u5DE5\u5177\u680F\uFF1A\u5DE5\u4F5C\u533A\u9009\u62E9\u5668\u4E00\u884C\uFF0C\u4E09\u4E2A tab \u5360\u6EE1\u4E0B\u4E00\u884C\uFF08\u6D6E\u5C42\u5BBD\u5EA6\u6709\u9650\uFF0C\u6A2A\u6392\u4F1A\u6324\uFF09 \u2014\u2014 */\n.wux_toolbar_0f32fb {\n  display: flex;\n  flex-direction: column;\n  gap: 10px;\n  margin: 0 0 12px;\n}\n\n/* \u5DE5\u4F5C\u533A\u9009\u62E9\u5668\u7684\u89E6\u53D1\u6309\u94AE\uFF1A\u5E7D\u7075\u6309\u94AE\u5F62\u6001\uFF0C\u8FB9\u6846\u53EA\u7528\u4E00\u7EA7\u63CF\u8FB9\u3002 */\n.wux_workspaceButton_0f32fb {\n  box-sizing: border-box;\n  display: inline-flex;\n  align-items: center;\n  align-self: flex-start;\n  gap: 4px;\n  max-width: 100%;\n  padding: 4px 8px;\n  border: 1px solid var(--dsw-alias-border-l3, gray);\n  border-radius: var(--dsw-radius-sm, 6px);\n  background: none;\n  color: var(--dsw-alias-label-primary, currentColor);\n  font: inherit;\n  font-size: 13px;\n  line-height: 20px;\n  text-align: left;\n  cursor: pointer;\n}\n\n.wux_workspaceButton_0f32fb:hover,\n.wux_workspaceButton_0f32fb[aria-expanded='true'] {\n  background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentColor 8%, transparent));\n}\n\n.wux_workspaceButton_0f32fb:focus-visible {\n  outline: 2px solid var(--dsw-alias-state-business-primary, currentColor);\n  outline-offset: -2px;\n}\n\n/* \u5DE5\u4F5C\u533A\u540D\u8FC7\u957F\u65F6\u7701\u7565\uFF0C\u800C\u4E0D\u662F\u628A\u5DE5\u5177\u680F\u6491\u51FA\u5361\u7247\u5BBD\u5EA6\u3002 */\n.wux_workspaceName_0f32fb {\n  min-width: 0;\n  overflow: hidden;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n}\n\n/* SegmentedTabs \u7684\u653E\u7F6E\u7C7B\uFF1A\u4E09\u6BB5\u7B49\u5206\uFF0C\u4E0E\u5DE5\u5177\u680F\u540C\u5BBD\u3002 */\n.wux_tabsRow_0f32fb {\n  width: 100%;\n  min-width: 0;\n}\n\n/* \u2014\u2014 tab 2 \u7684\u5904\u7F6E\u65B9\u5F0F\u5355\u9009\uFF1A\u590D\u7528\u65E2\u6709\u5904\u7F6E\u65B9\u5F0F\u6587\u6848\u952E\uFF0C\u4F46\u7ED3\u6784\u5728\u672C\u6A21\u5757\u5185\u81EA\u7ED8 \u2014\u2014 */\n/* fieldset \u81EA\u5E26\u8FB9\u6846\u4E0E\u5185\u8FB9\u8DDD\uFF0C\u8FD9\u91CC\u5168\u90E8\u62B9\u5E73\u53EA\u7559\u5206\u7EC4\u95F4\u8DDD\u3002 */\n.wux_modes_0f32fb {\n  margin: 0 0 10px;\n  padding: 0;\n  border: 0;\n  min-inline-size: 0;\n}\n\n/* legend \u662F\u539F\u751F\u8BED\u4E49\u5143\u7D20\u3001\u6CA1\u6709 className\uFF0C\u53EA\u80FD\u5728\u540E\u4EE3\u91CC\u5BF9\u9F50\u5206\u533A\u6807\u9898\u7684\u5B57\u7EA7\u3002 */\n.wux_modes_0f32fb legend {\n  display: block;\n  margin: 0 0 4px;\n  padding: 0;\n  color: var(--dsw-alias-label-secondary, currentColor);\n  font-size: 13px;\n  font-weight: 600;\n  line-height: 20px;\n}\n\n/* \u9009\u9879\u884C\uFF1A\u6574\u884C\u662F label\uFF0C\u70B9\u6587\u5B57\u7B49\u4E8E\u70B9 radio\u3002 */\n.wux_modeRow_0f32fb {\n  display: flex;\n  align-items: flex-start;\n  gap: 8px;\n  padding: 2px 0;\n  cursor: pointer;\n}\n\n/* \u539F\u751F radio \u53EA\u6539\u5F3A\u8C03\u8272\uFF0C\u5C3A\u5BF8\u4E0E\u547D\u4E2D\u533A\u4FDD\u6301\u7CFB\u7EDF\u9ED8\u8BA4\u3002 */\n.wux_modeRow_0f32fb input {\n  flex: none;\n  margin: 3px 0 0;\n  accent-color: var(--dsw-alias-state-business-primary, currentColor);\n}\n\n.wux_modeText_0f32fb {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n  color: var(--dsw-alias-label-primary, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n/* \u6267\u884C\u4E2D\uFF08fieldset disabled\uFF09\uFF1A\u6574\u7EC4\u964D\u7EA7\u5230\u5F31\u5316\u8272\uFF0C\u884C\u4E5F\u4E0D\u518D\u663E\u793A\u53EF\u70B9\u624B\u52BF\u3002 */\n.wux_modes_0f32fb:disabled .wux_modeRow_0f32fb {\n  cursor: default;\n}\n\n.wux_modes_0f32fb:disabled .wux_modeText_0f32fb {\n  color: var(--dsw-alias-label-tertiary, currentColor);\n}\n\n/* \u2014\u2014 \u9009\u62E9\u6761\uFF1A\u5168\u9009 / \u5DF2\u9009\u8BA1\u6570 / \u6E05\u7A7A\uFF0C\u4E0E\u5217\u8868\u4E4B\u95F4\u7528\u4E00\u6761\u7EC6\u7EBF\u5206\u9694 \u2014\u2014 */\n.wux_selectionBar_0f32fb {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin: 0 0 8px;\n  padding: 8px 0;\n  border-top: 1px solid var(--dsw-alias-border-l1, gray);\n  border-bottom: 1px solid var(--dsw-alias-border-l1, gray);\n  color: var(--dsw-alias-label-secondary, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n/* \u8BA1\u6570\u9760\u53F3\uFF0C\u300C\u6E05\u7A7A\u300D\u7D27\u968F\u5176\u540E\uFF1B\u9009\u62E9\u6761\u53EA\u6709\u4E00\u4E2A span\uFF0C\u4E0D\u4F1A\u8BEF\u4F24\u6309\u94AE\u3002 */\n.wux_selectionBar_0f32fb > span {\n  min-width: 0;\n  margin-left: auto;\n}\n\n/* \u2014\u2014 \u5217\u8868\u4E0E\u884C\uFF1A\u884C\u5185\u662F Checkbox\uFF08\u6807\u9898\u5373 label\uFF09+ \u5143\u4FE1\u606F + \u5FBD\u6807 \u2014\u2014 */\n.wux_list_0f32fb {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n  margin: 0;\n  padding: 0;\n  list-style: none;\n  /* \u6761\u6570\u4E0A\u9650\u7531 model \u622A\u65AD\uFF0C\u8FD9\u91CC\u53EA\u515C\u4F4F\u89C6\u53E3\u9AD8\u5EA6\uFF1A\u5217\u8868\u81EA\u5DF1\u6EDA\u52A8\uFF0CModal \u4E0D\u6574\u4F53\u957F\u9AD8\u3002 */\n  max-height: min(46vh, 420px);\n  overflow-y: auto;\n  overscroll-behavior: contain;\n}\n\n.wux_row_0f32fb {\n  display: flex;\n  align-items: flex-start;\n  gap: 8px;\n  padding: 6px 8px;\n  border-radius: var(--dsw-radius-sm, 6px);\n}\n\n.wux_row_0f32fb:hover {\n  background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentColor 6%, transparent));\n}\n\n/* \u9996\u5217\u662F Checkbox\uFF1A\u5403\u6389\u5269\u4F59\u5BBD\u5EA6\uFF0C\u5143\u4FE1\u606F\u4E0E\u5FBD\u6807\u6309\u81EA\u8EAB\u6700\u5927\u5BBD\u5EA6\u9760\u53F3\u6392\u5E03\u3002 */\n.wux_row_0f32fb > :first-child {\n  flex: 1 1 auto;\n  min-width: 0;\n}\n\n/* \u5DF2\u9009\u884C\uFF1A\u54C1\u724C\u8272\u7684\u6D45\u5C42\u5E95\uFF0C\u52FE\u9009\u6001\u4E0E\u6574\u884C\u5E95\u8272\u4E92\u4E0D\u62A2\u6CE8\u610F\u529B\u3002 */\n.wux_rowSelected_0f32fb,\n.wux_rowSelected_0f32fb:hover {\n  background: var(--dsw-alias-state-business-tertiary, color-mix(in srgb, currentColor 10%, transparent));\n}\n\n/* \u8FD0\u884C\u4E2D\u7684\u884C\u4E0D\u53EF\u52FE\u9009\uFF1A\u53D6\u6D88\u60AC\u505C\u53CD\u9988\uFF0C\u52FE\u9009\u6846\u81EA\u8EAB\u7684\u7981\u7528\u964D\u7EA7\u7531 Checkbox \u8D1F\u8D23\u3002 */\n.wux_rowDisabled_0f32fb,\n.wux_rowDisabled_0f32fb:hover {\n  background: none;\n  cursor: default;\n}\n\n/* \u884C\u5185\u5143\u4FE1\u606F\uFF08\u65F6\u95F4 / \u4F53\u79EF\uFF09\uFF1A\u7B49\u5BBD\u6570\u5B57\u5BF9\u9F50\uFF0C\u5F31\u5316\u5230\u8F85\u52A9\u5C42\u7EA7\u3002 */\n.wux_rowMeta_0f32fb {\n  flex: none;\n  align-self: center;\n  color: var(--dsw-alias-label-tertiary, currentColor);\n  font-size: 12px;\n  line-height: 18px;\n  white-space: nowrap;\n  font-variant-numeric: tabular-nums;\n}\n\n/* \u5FBD\u6807\uFF1A\u884C\u5185\u72B6\u6001\u80F6\u56CA\uFF0C\u5E95\u4E0E\u63CF\u8FB9\u90FD\u53D6\u5C42\u53E0\u8272\uFF0C\u4E0D\u5F15\u5165\u7B2C\u4E09\u79CD\u5F3A\u8C03\u8272\u3002 */\n.wux_badge_0f32fb {\n  flex: none;\n  align-self: center;\n  padding: 0 6px;\n  border: 0.5px solid var(--dsw-alias-border-l2, gray);\n  border-radius: var(--dsw-radius-sm, 6px);\n  background: var(--dsw-alias-bg-layer-3, color-mix(in srgb, currentColor 8%, transparent));\n  color: var(--dsw-alias-label-secondary, currentColor);\n  font-size: 12px;\n  line-height: 18px;\n  white-space: nowrap;\n}\n\n/* \u300C\u8FD0\u884C\u4E2D\u300D\u662F\u884C\u4E0D\u53EF\u52FE\u9009\u7684\u552F\u4E00\u539F\u56E0\uFF0C\u7528\u72B6\u6001\u8272\u800C\u4E0D\u662F\u666E\u901A\u5F31\u5316\u8272\u3002 */\n.wux_badgeRunning_0f32fb {\n  color: var(--dsw-alias-state-success-primary, currentColor);\n}\n\n/* \u300C\u7A7A\u767D\u300D\u53EA\u662F\u6CA1\u6709\u5185\u5BB9\uFF0C\u4E0D\u662F\u5F02\u5E38\uFF1A\u4FDD\u6301\u5F31\u5316\uFF0C\u4E0D\u62A5\u8B66\u3002 */\n.wux_badgeBlank_0f32fb {\n  color: var(--dsw-alias-label-tertiary, currentColor);\n}\n\n/* \u2014\u2014 \u7A7A\u6001 / \u622A\u65AD / \u8FC7\u7A0B\u6587\u6848 \u2014\u2014 */\n.wux_empty_0f32fb {\n  margin: 0;\n  padding: 20px 0;\n  color: var(--dsw-alias-label-tertiary, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n  text-align: center;\n}\n\n/* \u5217\u8868\u622A\u65AD\u63D0\u793A\uFF1A\u8FD9\u662F\u9700\u8981\u7528\u6237\u52A8\u624B\u7684\u4E8B\u5B9E\uFF0C\u7528\u8B66\u544A\u8272\u800C\u4E0D\u662F\u7070\u5B57\u3002 */\n.wux_truncated_0f32fb {\n  margin: 8px 0 0;\n  color: var(--dsw-alias-state-warn-label, currentColor);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u8FDB\u884C\u4E2D\u7B49\u8FC7\u7A0B\u6587\u6848\uFF1A\u4F4E\u8C03\uFF0C\u4E0D\u4E0E\u64CD\u4F5C\u5BF9\u8C61\u62A2\u6CE8\u610F\u529B\u3002 */\n.wux_muted_0f32fb {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n/* \u2014\u2014 \u786E\u8BA4\u9636\u6BB5\uFF1A\u6458\u8981\uFF08\u76EE\u6807\u6570 / \u7EA7\u8054\u6570 / \u4F53\u79EF / \u5F52\u6863\u6839\uFF09\u4E0E\u88AB\u62D2\u6E05\u5355 \u2014\u2014 */\n.wux_summary_0f32fb {\n  margin: 0 0 12px;\n  color: var(--dsw-alias-label-secondary, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n.wux_summary_0f32fb p {\n  margin: 0 0 4px;\n}\n\n.wux_summary_0f32fb ul {\n  margin: 0;\n  padding-left: 18px;\n}\n\n.wux_summary_0f32fb li + li {\n  margin-top: 2px;\n}\n\n/* \u88AB\u62D2\u6E05\u5355\uFF1A\u5BBF\u4E3B\u56DE\u7EDD\u7684\u6761\u76EE\uFF0C\u6267\u884C\u6309\u94AE\u4F1A\u628A\u8FD9\u4E9B\u6392\u9664\u5728\u672C\u6279\u4E4B\u5916\u3002 */\n.wux_rejected_0f32fb {\n  margin: 0 0 12px;\n  color: var(--dsw-alias-state-warn-label, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n.wux_rejected_0f32fb ul {\n  margin: 4px 0 0;\n  padding-left: 18px;\n}\n\n.wux_rejected_0f32fb li {\n  word-break: break-word;\n}\n\n/* \u2014\u2014 \u7ED3\u679C\u533A\uFF1A\u6210\u529F\u8BA1\u6570 + \u9010\u9879\u5931\u8D25 + \u534A\u5931\u8D25 warnings \u2014\u2014 */\n.wux_result_0f32fb {\n  margin: 0;\n  color: var(--dsw-alias-label-primary, currentColor);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n.wux_result_0f32fb p {\n  margin: 0 0 6px;\n}\n\n.wux_result_0f32fb ul {\n  margin: 0;\n  padding-left: 18px;\n}\n\n.wux_result_0f32fb li {\n  word-break: break-word;\n}\n\n/* warnings \u662F\u5BBF\u4E3B\u7ED9\u7684\u300C\u8DEF\u5F84: \u539F\u56E0\u300D\u673A\u5668\u53EF\u8BFB\u4E32\uFF0C\u7B49\u5BBD\u5B57\u4F53\u539F\u6837\u5217\u51FA\u3002 */\n.wux_warnings_0f32fb {\n  margin: 12px 0 0;\n  color: var(--dsw-alias-label-secondary, currentColor);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n.wux_warnings_0f32fb p {\n  margin: 0 0 4px;\n}\n\n.wux_warnings_0f32fb ul {\n  margin: 0;\n  padding-left: 18px;\n}\n\n.wux_warnings_0f32fb code {\n  font-family: var(--ds-font-family-code, monospace);\n  word-break: break-all;\n}\n\n/* \u6574\u5355\u5931\u8D25\uFF1A\u9519\u8BEF\u8272\u53EA\u7ED9\u771F\u6B63\u5931\u8D25\u7684\u90A3\u4E00\u53E5\u3002 */\n.wux_failure_0f32fb {\n  margin: 0;\n  color: var(--dsw-alias-state-error-primary, crimson);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n/* \u5BBF\u4E3B\u515C\u5E95\u8BF4\u660E\uFF08\u672A\u672C\u5730\u5316\uFF09\uFF1A\u6BD4\u5931\u8D25\u539F\u56E0\u4F4E\u4E00\u5C42\u3002 */\n.wux_detail_0f32fb {\n  margin: 6px 0 0;\n  color: var(--dsw-alias-label-tertiary, currentColor);\n  font-size: 12px;\n  line-height: 18px;\n  word-break: break-word;\n}\n\n/* \u2014\u2014 \u5371\u9669\u6309\u94AE\uFF1AButton \u6CA1\u6709 danger variant\uFF0Ctab 3 \u7684\u300C\u6C38\u4E45\u5220\u9664\u6240\u9009\u300D\u7528\u5B83\u4E0A\u8272 \u2014\u2014 */\n.wux_danger_0f32fb {\n  color: var(--dsw-alias-label-primary-foreground, white);\n  background: var(--dsw-alias-state-error-primary, crimson);\n}\n\n.wux_danger_0f32fb:hover:not(:disabled) {\n  background: var(--dsw-alias-state-error-secondary, indianred);\n}\n";
-		if (typeof document !== "undefined" && document.querySelector('style[data-dsh-plugin="dsh-plugin-web-ux"][data-dsh-css="0f32fb"]') === null) {
-		  const style = document.createElement("style");
-		  style.setAttribute("data-dsh-plugin", "dsh-plugin-web-ux");
-		  style.setAttribute("data-dsh-css", "0f32fb");
-		  style.textContent = cssText4;
-		  document.head.appendChild(style);
-		}
-		var session_manager_default = { "trigger": "wux_trigger_0f32fb", "triggerLabel": "wux_triggerLabel_0f32fb", "toolbar": "wux_toolbar_0f32fb", "workspaceButton": "wux_workspaceButton_0f32fb", "workspaceName": "wux_workspaceName_0f32fb", "tabsRow": "wux_tabsRow_0f32fb", "modes": "wux_modes_0f32fb", "modeRow": "wux_modeRow_0f32fb", "modeText": "wux_modeText_0f32fb", "selectionBar": "wux_selectionBar_0f32fb", "list": "wux_list_0f32fb", "row": "wux_row_0f32fb", "rowSelected": "wux_rowSelected_0f32fb", "rowDisabled": "wux_rowDisabled_0f32fb", "rowMeta": "wux_rowMeta_0f32fb", "badge": "wux_badge_0f32fb", "badgeRunning": "wux_badgeRunning_0f32fb", "badgeBlank": "wux_badgeBlank_0f32fb", "empty": "wux_empty_0f32fb", "truncated": "wux_truncated_0f32fb", "muted": "wux_muted_0f32fb", "summary": "wux_summary_0f32fb", "rejected": "wux_rejected_0f32fb", "result": "wux_result_0f32fb", "warnings": "wux_warnings_0f32fb", "failure": "wux_failure_0f32fb", "detail": "wux_detail_0f32fb", "danger": "wux_danger_0f32fb" };
-
-		// src/client/SessionManagerTrigger.tsx
-		var import_jsx_runtime5 = require("react/jsx-runtime");
-		function SessionManagerTrigger({
-		  wide,
-		  requests,
-		  ready,
-		  t
-		}) {
-		  if (!ready) return null;
-		  return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
-		    "button",
-		    {
-		      type: "button",
-		      className: session_manager_default.trigger,
-		      "aria-label": t("manager.action"),
-		      onClick: () => {
-		        requests.request();
-		      },
-		      children: [
-		        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_dsh_client_ui_primitives3.IconChecklistOutlineRegular, {}),
-		        wide && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: session_manager_default.triggerLabel, children: t("manager.action") })
-		      ]
-		    }
-		  );
-		}
-
 		// src/client/SessionManagerDialog.tsx
 		var import_react5 = require("react");
-		var import_dsh_client_ui_primitives4 = require("@deepseek-ai/dsh-client-ui-primitives");
+		var import_dsh_client_ui_primitives3 = require("@deepseek-ai/dsh-client-ui-primitives");
 
 		// src/project-key.ts
 		function projectKey(cwd) {
@@ -1316,8 +1278,19 @@ window.__ModuleLoader__.load({
 		  return targets;
 		}
 
+		// src/client/session-manager.module.css
+		var cssText4 = "/*\n * \u4F1A\u8BDD\u7BA1\u7406\u5206\u8282\u7684\u6837\u5F0F\uFF08\u7EDF\u4E00\u300C\u5DE5\u4F5C\u533A\u914D\u7F6E\u300D\u5F39\u7A97\u53F3\u680F\u91CC\u7684\u5361\u7247\u4E3B\u4F53\uFF09\u3002\n *\n * \u53EA\u8865\u5B98\u65B9 primitives \u7ED9\u4E0D\u4E86\u7684\u4E1C\u897F\uFF1A\u5206\u8282\u5BB9\u5668\u4E0E\u884C\u5185\u52A8\u4F5C\u6761\u3001\u5DE5\u5177\u680F\uFF08\u5DE5\u4F5C\u533A\u9009\u62E9\u5668 +\n * \u4E09\u4E2A tab\uFF09\u3001\u5217\u8868\u884C\u4E0E\u884C\u5185\u5FBD\u6807\u3001\u9009\u62E9\u6761\u3001\u786E\u8BA4\u4E0E\u7ED3\u679C\u533A\u7684\u6587\u5B57\u5C42\u7EA7\u3002\u5F39\u7A97\u5916\u58F3\uFF08Modal \u7684\n * mask / \u5361\u7247 / header / \u5173\u95ED\u6309\u94AE\uFF09\u4E0E Button / SegmentedTabs / Checkbox / Menu \u7684\u9AA8\u67B6\u3001\n * \u5C3A\u5BF8\u4E0E\u7126\u70B9\u73AF\u5168\u90E8\u7531 holder \u4E0E primitives \u8D1F\u8D23\uFF0C\u8FD9\u91CC\u4E0D\u590D\u5236\u5B83\u4EEC\u7684\u914D\u8272\uFF0C\u4E5F\u4E0D\u4E0E\u5220\u9664\u786E\u8BA4\n * \u5BF9\u8BDD\u6846\u7684\u6837\u5F0F\u6587\u4EF6\u6DF7\u7528\uFF08\u4E24\u5904\u89C6\u89C9\u8BED\u4E49\u4E0D\u540C\uFF0C\u4E14 bundle \u7684\u6837\u5F0F\u6CE8\u5165\u5668\u6309\u6A21\u5757\u5404\u81EA\u8BA1\u6570\uFF09\u3002\n *\n * \u989C\u8272\u7EAA\u5F8B\uFF1A\u6BCF\u4E00\u5904\u989C\u8272\u90FD\u662F `var(--dsw-alias-*, <\u515C\u5E95>, )` \u5F62\u6001\u2014\u2014\u515C\u5E95\u503C\u53EA\u7528 CSS \u5173\u952E\u5B57\n * \uFF08`currentColor`\u3001\u5177\u540D\u8272\uFF09\u4E0E `color-mix()`\uFF0C\u4E0D\u5199\u6B7B\u5177\u4F53\u8272\u503C\u3002\u8FD9\u6837\u4EE4\u724C\u6574\u4F53\u7F3A\u5E2D\u65F6\u6700\u574F\n * \u9000\u5316\u6210\u300C\u5F53\u524D\u6587\u5B57\u8272\u7684\u6DF1\u6D45\u53D8\u5316\u300D\uFF0C\u800C\u4E0D\u662F\u67D0\u4E00\u79CD\u4E3B\u9898\u4E0B\u7684\u56FA\u5B9A\u989C\u8272\uFF08\u6DF1\u8272\u4E3B\u9898\u4E0B\u4E0D\u4F1A\u51FA\u73B0\n * \u767D\u5E95\u767D\u5B57\uFF09\u3002\u5C3A\u5BF8\u4E0E\u5706\u89D2\u540C\u6837\u4F18\u5148\u53D6\u4EE4\u724C\uFF0C\u4EE4\u724C\u7F3A\u5931\u65F6\u9000\u56DE px\u3002\n *\n * \u7C7B\u540D\u5951\u7EA6\uFF08\u5206\u8282\u7EC4\u4EF6\u6309\u6B64\u6E05\u5355\u6D88\u8D39\uFF1B\u5747\u6309 CSS Modules \u5C40\u90E8\u7C7B\u5F15\u7528\uFF09\uFF1A\n *   sectionBody\u3001actions                                  \u2014\u2014 \u5206\u8282\u5BB9\u5668\u4E0E\u6B63\u6587\u672B\u5C3E\u52A8\u4F5C\u6761\n *   toolbar\u3001workspaceButton\u3001workspaceName\u3001tabsRow      \u2014\u2014 \u5DE5\u5177\u680F\u4E0E\u5DE5\u4F5C\u533A\u9009\u62E9\u5668\n *   modes\u3001modeRow\u3001modeText                              \u2014\u2014 tab 2 \u7684\u5904\u7F6E\u65B9\u5F0F\u5355\u9009\n *   selectionBar\u3001list\u3001row\u3001rowSelected\u3001rowDisabled     \u2014\u2014 \u9009\u62E9\u6761\u4E0E\u5217\u8868\n *   rowMeta\u3001badge\u3001badgeRunning\u3001badgeBlank              \u2014\u2014 \u884C\u5185\u5143\u4FE1\u606F\u4E0E\u5FBD\u6807\n *   empty\u3001truncated\u3001muted                               \u2014\u2014 \u7A7A\u6001 / \u622A\u65AD / \u8FC7\u7A0B\u6587\u6848\n *   summary\u3001rejected                                     \u2014\u2014 \u786E\u8BA4\u9636\u6BB5\u7684\u6458\u8981\u4E0E\u88AB\u62D2\u6E05\u5355\n *   result\u3001warnings\u3001failure\u3001detail\u3001danger             \u2014\u2014 \u7ED3\u679C\u533A\u4E0E\u5E95\u90E8\u5371\u9669\u6309\u94AE\n *\n * \u6784\u5EFA\u671F\u7C7B\u540D\u7531\u6784\u5EFA\u811A\u672C\u7684 cssModulesPlugin \u91CD\u5199\u4E3A `wux_<local>_<hash>`\u3002\n */\n\n/* \u2014\u2014 \u5206\u8282\u5BB9\u5668\uFF1A\u7EB5\u5411 flex\uFF0C\u6B63\u6587\u4E0E\u52A8\u4F5C\u6761\u4E4B\u95F4\u4E0D\u7559\u9690\u5F0F\u95F4\u9699 \u2014\u2014 */\n.wux_sectionBody_0f32fb {\n  box-sizing: border-box;\n  display: flex;\n  flex-direction: column;\n  gap: 0;\n  min-width: 0;\n  /* \u5185\u5BB9\u5217\u7531 holder \u7684\u5F39\u7A97\u8D1F\u8D23\u6EDA\u52A8\uFF1B\u8FD9\u91CC\u53EA\u4FDD\u8BC1 flex \u6536\u7F29\u4E0D\u6491\u7834\u5361\u7247\u3002 */\n  min-height: 0;\n}\n\n/* \u2014\u2014 \u884C\u5185\u52A8\u4F5C\u6761\uFF1A\u7EDF\u4E00\u5F39\u7A97\u6CA1\u6709 footer\uFF0C\u9636\u6BB5\u52A8\u4F5C\u8DDF\u5728\u6B63\u6587\u4E4B\u540E\u3001\u53F3\u4E0B\u5BF9\u9F50 \u2014\u2014 */\n.wux_actions_0f32fb {\n  display: flex;\n  flex-wrap: wrap;\n  justify-content: flex-end;\n  gap: 8px;\n  margin-top: 12px;\n  padding-top: 12px;\n  border-top: 1px solid var(--dsw-alias-border-l1, gray);\n}\n\n/* \u2014\u2014 \u5DE5\u5177\u680F\uFF1A\u5DE5\u4F5C\u533A\u9009\u62E9\u5668\u4E00\u884C\uFF0C\u4E09\u4E2A tab \u5360\u6EE1\u4E0B\u4E00\u884C\uFF08\u6D6E\u5C42\u5BBD\u5EA6\u6709\u9650\uFF0C\u6A2A\u6392\u4F1A\u6324\uFF09 \u2014\u2014 */\n.wux_toolbar_0f32fb {\n  display: flex;\n  flex-direction: column;\n  gap: 10px;\n  margin: 0 0 12px;\n}\n\n/* \u5DE5\u4F5C\u533A\u9009\u62E9\u5668\u7684\u89E6\u53D1\u6309\u94AE\uFF1A\u5E7D\u7075\u6309\u94AE\u5F62\u6001\uFF0C\u8FB9\u6846\u53EA\u7528\u4E00\u7EA7\u63CF\u8FB9\u3002 */\n.wux_workspaceButton_0f32fb {\n  box-sizing: border-box;\n  display: inline-flex;\n  align-items: center;\n  align-self: flex-start;\n  gap: 4px;\n  max-width: 100%;\n  padding: 4px 8px;\n  border: 1px solid var(--dsw-alias-border-l3, gray);\n  border-radius: var(--dsw-radius-sm, 6px);\n  background: none;\n  color: var(--dsw-alias-label-primary, currentColor);\n  font: inherit;\n  font-size: 13px;\n  line-height: 20px;\n  text-align: left;\n  cursor: pointer;\n}\n\n.wux_workspaceButton_0f32fb:hover,\n.wux_workspaceButton_0f32fb[aria-expanded='true'] {\n  background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentColor 8%, transparent));\n}\n\n.wux_workspaceButton_0f32fb:focus-visible {\n  outline: 2px solid var(--dsw-alias-state-business-primary, currentColor);\n  outline-offset: -2px;\n}\n\n/* \u5DE5\u4F5C\u533A\u540D\u8FC7\u957F\u65F6\u7701\u7565\uFF0C\u800C\u4E0D\u662F\u628A\u5DE5\u5177\u680F\u6491\u51FA\u5361\u7247\u5BBD\u5EA6\u3002 */\n.wux_workspaceName_0f32fb {\n  min-width: 0;\n  overflow: hidden;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n}\n\n/* SegmentedTabs \u7684\u653E\u7F6E\u7C7B\uFF1A\u4E09\u6BB5\u7B49\u5206\uFF0C\u4E0E\u5DE5\u5177\u680F\u540C\u5BBD\u3002 */\n.wux_tabsRow_0f32fb {\n  width: 100%;\n  min-width: 0;\n}\n\n/* \u2014\u2014 tab 2 \u7684\u5904\u7F6E\u65B9\u5F0F\u5355\u9009\uFF1A\u590D\u7528\u65E2\u6709\u5904\u7F6E\u65B9\u5F0F\u6587\u6848\u952E\uFF0C\u4F46\u7ED3\u6784\u5728\u672C\u6A21\u5757\u5185\u81EA\u7ED8 \u2014\u2014 */\n/* fieldset \u81EA\u5E26\u8FB9\u6846\u4E0E\u5185\u8FB9\u8DDD\uFF0C\u8FD9\u91CC\u5168\u90E8\u62B9\u5E73\u53EA\u7559\u5206\u7EC4\u95F4\u8DDD\u3002 */\n.wux_modes_0f32fb {\n  margin: 0 0 10px;\n  padding: 0;\n  border: 0;\n  min-inline-size: 0;\n}\n\n/* legend \u662F\u539F\u751F\u8BED\u4E49\u5143\u7D20\u3001\u6CA1\u6709 className\uFF0C\u53EA\u80FD\u5728\u540E\u4EE3\u91CC\u5BF9\u9F50\u5206\u533A\u6807\u9898\u7684\u5B57\u7EA7\u3002 */\n.wux_modes_0f32fb legend {\n  display: block;\n  margin: 0 0 4px;\n  padding: 0;\n  color: var(--dsw-alias-label-secondary, currentColor);\n  font-size: 13px;\n  font-weight: 600;\n  line-height: 20px;\n}\n\n/* \u9009\u9879\u884C\uFF1A\u6574\u884C\u662F label\uFF0C\u70B9\u6587\u5B57\u7B49\u4E8E\u70B9 radio\u3002 */\n.wux_modeRow_0f32fb {\n  display: flex;\n  align-items: flex-start;\n  gap: 8px;\n  padding: 2px 0;\n  cursor: pointer;\n}\n\n/* \u539F\u751F radio \u53EA\u6539\u5F3A\u8C03\u8272\uFF0C\u5C3A\u5BF8\u4E0E\u547D\u4E2D\u533A\u4FDD\u6301\u7CFB\u7EDF\u9ED8\u8BA4\u3002 */\n.wux_modeRow_0f32fb input {\n  flex: none;\n  margin: 3px 0 0;\n  accent-color: var(--dsw-alias-state-business-primary, currentColor);\n}\n\n.wux_modeText_0f32fb {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n  color: var(--dsw-alias-label-primary, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n/* \u6267\u884C\u4E2D\uFF08fieldset disabled\uFF09\uFF1A\u6574\u7EC4\u964D\u7EA7\u5230\u5F31\u5316\u8272\uFF0C\u884C\u4E5F\u4E0D\u518D\u663E\u793A\u53EF\u70B9\u624B\u52BF\u3002 */\n.wux_modes_0f32fb:disabled .wux_modeRow_0f32fb {\n  cursor: default;\n}\n\n.wux_modes_0f32fb:disabled .wux_modeText_0f32fb {\n  color: var(--dsw-alias-label-tertiary, currentColor);\n}\n\n/* \u2014\u2014 \u9009\u62E9\u6761\uFF1A\u5168\u9009 / \u5DF2\u9009\u8BA1\u6570 / \u6E05\u7A7A\uFF0C\u4E0E\u5217\u8868\u4E4B\u95F4\u7528\u4E00\u6761\u7EC6\u7EBF\u5206\u9694 \u2014\u2014 */\n.wux_selectionBar_0f32fb {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin: 0 0 8px;\n  padding: 8px 0;\n  border-top: 1px solid var(--dsw-alias-border-l1, gray);\n  border-bottom: 1px solid var(--dsw-alias-border-l1, gray);\n  color: var(--dsw-alias-label-secondary, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n/* \u8BA1\u6570\u9760\u53F3\uFF0C\u300C\u6E05\u7A7A\u300D\u7D27\u968F\u5176\u540E\uFF1B\u9009\u62E9\u6761\u53EA\u6709\u4E00\u4E2A span\uFF0C\u4E0D\u4F1A\u8BEF\u4F24\u6309\u94AE\u3002 */\n.wux_selectionBar_0f32fb > span {\n  min-width: 0;\n  margin-left: auto;\n}\n\n/* \u2014\u2014 \u5217\u8868\u4E0E\u884C\uFF1A\u884C\u5185\u662F Checkbox\uFF08\u6807\u9898\u5373 label\uFF09+ \u5143\u4FE1\u606F + \u5FBD\u6807 \u2014\u2014 */\n.wux_list_0f32fb {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n  margin: 0;\n  padding: 0;\n  list-style: none;\n  /* \u6761\u6570\u4E0A\u9650\u7531 model \u622A\u65AD\uFF0C\u8FD9\u91CC\u53EA\u515C\u4F4F\u89C6\u53E3\u9AD8\u5EA6\uFF1A\u5217\u8868\u81EA\u5DF1\u6EDA\u52A8\uFF0CModal \u4E0D\u6574\u4F53\u957F\u9AD8\u3002 */\n  max-height: min(46vh, 420px);\n  overflow-y: auto;\n  overscroll-behavior: contain;\n}\n\n.wux_row_0f32fb {\n  display: flex;\n  align-items: flex-start;\n  gap: 8px;\n  padding: 6px 8px;\n  border-radius: var(--dsw-radius-sm, 6px);\n}\n\n.wux_row_0f32fb:hover {\n  background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentColor 6%, transparent));\n}\n\n/* \u9996\u5217\u662F Checkbox\uFF1A\u5403\u6389\u5269\u4F59\u5BBD\u5EA6\uFF0C\u5143\u4FE1\u606F\u4E0E\u5FBD\u6807\u6309\u81EA\u8EAB\u6700\u5927\u5BBD\u5EA6\u9760\u53F3\u6392\u5E03\u3002 */\n.wux_row_0f32fb > :first-child {\n  flex: 1 1 auto;\n  min-width: 0;\n}\n\n/* \u5DF2\u9009\u884C\uFF1A\u54C1\u724C\u8272\u7684\u6D45\u5C42\u5E95\uFF0C\u52FE\u9009\u6001\u4E0E\u6574\u884C\u5E95\u8272\u4E92\u4E0D\u62A2\u6CE8\u610F\u529B\u3002 */\n.wux_rowSelected_0f32fb,\n.wux_rowSelected_0f32fb:hover {\n  background: var(--dsw-alias-state-business-tertiary, color-mix(in srgb, currentColor 10%, transparent));\n}\n\n/* \u8FD0\u884C\u4E2D\u7684\u884C\u4E0D\u53EF\u52FE\u9009\uFF1A\u53D6\u6D88\u60AC\u505C\u53CD\u9988\uFF0C\u52FE\u9009\u6846\u81EA\u8EAB\u7684\u7981\u7528\u964D\u7EA7\u7531 Checkbox \u8D1F\u8D23\u3002 */\n.wux_rowDisabled_0f32fb,\n.wux_rowDisabled_0f32fb:hover {\n  background: none;\n  cursor: default;\n}\n\n/* \u884C\u5185\u5143\u4FE1\u606F\uFF08\u65F6\u95F4 / \u4F53\u79EF\uFF09\uFF1A\u7B49\u5BBD\u6570\u5B57\u5BF9\u9F50\uFF0C\u5F31\u5316\u5230\u8F85\u52A9\u5C42\u7EA7\u3002 */\n.wux_rowMeta_0f32fb {\n  flex: none;\n  align-self: center;\n  color: var(--dsw-alias-label-tertiary, currentColor);\n  font-size: 12px;\n  line-height: 18px;\n  white-space: nowrap;\n  font-variant-numeric: tabular-nums;\n}\n\n/* \u5FBD\u6807\uFF1A\u884C\u5185\u72B6\u6001\u80F6\u56CA\uFF0C\u5E95\u4E0E\u63CF\u8FB9\u90FD\u53D6\u5C42\u53E0\u8272\uFF0C\u4E0D\u5F15\u5165\u7B2C\u4E09\u79CD\u5F3A\u8C03\u8272\u3002 */\n.wux_badge_0f32fb {\n  flex: none;\n  align-self: center;\n  padding: 0 6px;\n  border: 0.5px solid var(--dsw-alias-border-l2, gray);\n  border-radius: var(--dsw-radius-sm, 6px);\n  background: var(--dsw-alias-bg-layer-3, color-mix(in srgb, currentColor 8%, transparent));\n  color: var(--dsw-alias-label-secondary, currentColor);\n  font-size: 12px;\n  line-height: 18px;\n  white-space: nowrap;\n}\n\n/* \u300C\u8FD0\u884C\u4E2D\u300D\u662F\u884C\u4E0D\u53EF\u52FE\u9009\u7684\u552F\u4E00\u539F\u56E0\uFF0C\u7528\u72B6\u6001\u8272\u800C\u4E0D\u662F\u666E\u901A\u5F31\u5316\u8272\u3002 */\n.wux_badgeRunning_0f32fb {\n  color: var(--dsw-alias-state-success-primary, currentColor);\n}\n\n/* \u300C\u7A7A\u767D\u300D\u53EA\u662F\u6CA1\u6709\u5185\u5BB9\uFF0C\u4E0D\u662F\u5F02\u5E38\uFF1A\u4FDD\u6301\u5F31\u5316\uFF0C\u4E0D\u62A5\u8B66\u3002 */\n.wux_badgeBlank_0f32fb {\n  color: var(--dsw-alias-label-tertiary, currentColor);\n}\n\n/* \u2014\u2014 \u7A7A\u6001 / \u622A\u65AD / \u8FC7\u7A0B\u6587\u6848 \u2014\u2014 */\n.wux_empty_0f32fb {\n  margin: 0;\n  padding: 20px 0;\n  color: var(--dsw-alias-label-tertiary, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n  text-align: center;\n}\n\n/* \u5217\u8868\u622A\u65AD\u63D0\u793A\uFF1A\u8FD9\u662F\u9700\u8981\u7528\u6237\u52A8\u624B\u7684\u4E8B\u5B9E\uFF0C\u7528\u8B66\u544A\u8272\u800C\u4E0D\u662F\u7070\u5B57\u3002 */\n.wux_truncated_0f32fb {\n  margin: 8px 0 0;\n  color: var(--dsw-alias-state-warn-label, currentColor);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u8FDB\u884C\u4E2D\u7B49\u8FC7\u7A0B\u6587\u6848\uFF1A\u4F4E\u8C03\uFF0C\u4E0D\u4E0E\u64CD\u4F5C\u5BF9\u8C61\u62A2\u6CE8\u610F\u529B\u3002 */\n.wux_muted_0f32fb {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n/* \u2014\u2014 \u786E\u8BA4\u9636\u6BB5\uFF1A\u6458\u8981\uFF08\u76EE\u6807\u6570 / \u7EA7\u8054\u6570 / \u4F53\u79EF / \u5F52\u6863\u6839\uFF09\u4E0E\u88AB\u62D2\u6E05\u5355 \u2014\u2014 */\n.wux_summary_0f32fb {\n  margin: 0 0 12px;\n  color: var(--dsw-alias-label-secondary, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n.wux_summary_0f32fb p {\n  margin: 0 0 4px;\n}\n\n.wux_summary_0f32fb ul {\n  margin: 0;\n  padding-left: 18px;\n}\n\n.wux_summary_0f32fb li + li {\n  margin-top: 2px;\n}\n\n/* \u88AB\u62D2\u6E05\u5355\uFF1A\u5BBF\u4E3B\u56DE\u7EDD\u7684\u6761\u76EE\uFF0C\u6267\u884C\u6309\u94AE\u4F1A\u628A\u8FD9\u4E9B\u6392\u9664\u5728\u672C\u6279\u4E4B\u5916\u3002 */\n.wux_rejected_0f32fb {\n  margin: 0 0 12px;\n  color: var(--dsw-alias-state-warn-label, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n.wux_rejected_0f32fb ul {\n  margin: 4px 0 0;\n  padding-left: 18px;\n}\n\n.wux_rejected_0f32fb li {\n  word-break: break-word;\n}\n\n/* \u2014\u2014 \u7ED3\u679C\u533A\uFF1A\u6210\u529F\u8BA1\u6570 + \u9010\u9879\u5931\u8D25 + \u534A\u5931\u8D25 warnings \u2014\u2014 */\n.wux_result_0f32fb {\n  margin: 0;\n  color: var(--dsw-alias-label-primary, currentColor);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n.wux_result_0f32fb p {\n  margin: 0 0 6px;\n}\n\n.wux_result_0f32fb ul {\n  margin: 0;\n  padding-left: 18px;\n}\n\n.wux_result_0f32fb li {\n  word-break: break-word;\n}\n\n/* warnings \u662F\u5BBF\u4E3B\u7ED9\u7684\u300C\u8DEF\u5F84: \u539F\u56E0\u300D\u673A\u5668\u53EF\u8BFB\u4E32\uFF0C\u7B49\u5BBD\u5B57\u4F53\u539F\u6837\u5217\u51FA\u3002 */\n.wux_warnings_0f32fb {\n  margin: 12px 0 0;\n  color: var(--dsw-alias-label-secondary, currentColor);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n.wux_warnings_0f32fb p {\n  margin: 0 0 4px;\n}\n\n.wux_warnings_0f32fb ul {\n  margin: 0;\n  padding-left: 18px;\n}\n\n.wux_warnings_0f32fb code {\n  font-family: var(--ds-font-family-code, monospace);\n  word-break: break-all;\n}\n\n/* \u6574\u5355\u5931\u8D25\uFF1A\u9519\u8BEF\u8272\u53EA\u7ED9\u771F\u6B63\u5931\u8D25\u7684\u90A3\u4E00\u53E5\u3002 */\n.wux_failure_0f32fb {\n  margin: 0;\n  color: var(--dsw-alias-state-error-primary, crimson);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n/* \u5BBF\u4E3B\u515C\u5E95\u8BF4\u660E\uFF08\u672A\u672C\u5730\u5316\uFF09\uFF1A\u6BD4\u5931\u8D25\u539F\u56E0\u4F4E\u4E00\u5C42\u3002 */\n.wux_detail_0f32fb {\n  margin: 6px 0 0;\n  color: var(--dsw-alias-label-tertiary, currentColor);\n  font-size: 12px;\n  line-height: 18px;\n  word-break: break-word;\n}\n\n/* \u2014\u2014 \u5371\u9669\u6309\u94AE\uFF1AButton \u6CA1\u6709 danger variant\uFF0Ctab 3 \u7684\u300C\u6C38\u4E45\u5220\u9664\u6240\u9009\u300D\u7528\u5B83\u4E0A\u8272 \u2014\u2014 */\n.wux_danger_0f32fb {\n  color: var(--dsw-alias-label-primary-foreground, white);\n  background: var(--dsw-alias-state-error-primary, crimson);\n}\n\n.wux_danger_0f32fb:hover:not(:disabled) {\n  background: var(--dsw-alias-state-error-secondary, indianred);\n}\n";
+		if (typeof document !== "undefined" && document.querySelector('style[data-dsh-plugin="dsh-plugin-web-ux"][data-dsh-css="0f32fb"]') === null) {
+		  const style = document.createElement("style");
+		  style.setAttribute("data-dsh-plugin", "dsh-plugin-web-ux");
+		  style.setAttribute("data-dsh-css", "0f32fb");
+		  style.textContent = cssText4;
+		  document.head.appendChild(style);
+		}
+		var session_manager_default = { "sectionBody": "wux_sectionBody_0f32fb", "actions": "wux_actions_0f32fb", "toolbar": "wux_toolbar_0f32fb", "workspaceButton": "wux_workspaceButton_0f32fb", "workspaceName": "wux_workspaceName_0f32fb", "tabsRow": "wux_tabsRow_0f32fb", "modes": "wux_modes_0f32fb", "modeRow": "wux_modeRow_0f32fb", "modeText": "wux_modeText_0f32fb", "selectionBar": "wux_selectionBar_0f32fb", "list": "wux_list_0f32fb", "row": "wux_row_0f32fb", "rowSelected": "wux_rowSelected_0f32fb", "rowDisabled": "wux_rowDisabled_0f32fb", "rowMeta": "wux_rowMeta_0f32fb", "badge": "wux_badge_0f32fb", "badgeRunning": "wux_badgeRunning_0f32fb", "badgeBlank": "wux_badgeBlank_0f32fb", "empty": "wux_empty_0f32fb", "truncated": "wux_truncated_0f32fb", "muted": "wux_muted_0f32fb", "summary": "wux_summary_0f32fb", "rejected": "wux_rejected_0f32fb", "result": "wux_result_0f32fb", "warnings": "wux_warnings_0f32fb", "failure": "wux_failure_0f32fb", "detail": "wux_detail_0f32fb", "danger": "wux_danger_0f32fb" };
+
 		// src/client/SessionManagerDialog.tsx
-		var import_jsx_runtime6 = require("react/jsx-runtime");
+		var import_jsx_runtime5 = require("react/jsx-runtime");
 		var WORKSPACE_MENU_PORTAL = true;
 		var TAB_IDS = {
 		  active: { tab: "web-ux-manager-tab-active", panel: "web-ux-manager-panel-active" },
@@ -1376,48 +1349,28 @@ window.__ModuleLoader__.load({
 		  const read = (0, import_react5.useMemo)(() => () => ref.current.list.getSnapshot(), []);
 		  return (0, import_react5.useSyncExternalStore)(subscribe, read, read);
 		}
-		function SessionManagerDialog({
-		  requests,
+		function SessionManagerSection({
 		  client,
 		  workspaces,
 		  sessions,
-		  t
+		  t,
+		  close
 		}) {
-		  const request = (0, import_react5.useSyncExternalStore)(
-		    requests.source.subscribe,
-		    requests.source.getSnapshot,
-		    requests.source.getSnapshot
-		  );
-		  if (request === null) return null;
-		  if (client === void 0) return null;
-		  if (workspaces === void 0 || sessions === void 0) {
-		    return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		      import_dsh_client_ui_primitives4.Modal,
-		      {
-		        open: true,
-		        onClose: () => {
-		          requests.settle();
-		        },
-		        title: t("manager.title"),
-		        description: t("manager.description"),
-		        closeLabel: t("manager.close"),
-		        children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: session_manager_default.empty, children: t("manager.unavailable") })
-		      }
-		    );
+		  if (client === void 0 || workspaces === void 0 || sessions === void 0) {
+		    return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: session_manager_default.sectionBody, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: session_manager_default.empty, children: t("manager.unavailable") }) });
 		  }
-		  return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		    SessionManagerBody,
+		  return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		    SessionManagerContent,
 		    {
-		      requests,
 		      client,
 		      workspaces,
 		      sessions,
-		      t
-		    },
-		    `web-ux-session-manager#${String(request.seq)}`
+		      t,
+		      close
+		    }
 		  );
 		}
-		function SessionManagerBody({ requests, client, workspaces, sessions, t }) {
+		function SessionManagerContent({ client, workspaces, sessions, t, close }) {
 		  const workspacesSnapshot = useWorkspacesSnapshot(workspaces);
 		  const sessionsSnapshot = useSessionsSnapshot(sessions);
 		  const choices = (0, import_react5.useMemo)(() => workspaceChoices(workspacesSnapshot), [workspacesSnapshot]);
@@ -1510,10 +1463,6 @@ window.__ModuleLoader__.load({
 		    setPending(null);
 		    setOutcome(null);
 		    setFailure(null);
-		  };
-		  const close = () => {
-		    if (phase === "running") return;
-		    requests.settle();
 		  };
 		  const changeTab = (next) => {
 		    if (phase === "running") return;
@@ -1668,8 +1617,8 @@ window.__ModuleLoader__.load({
 		  const runDanger = pending?.kind === "purge" || pending?.kind === "dispose" && pending.mode === "delete";
 		  const actionButtons = [...actionsForTab(tab, mode)].sort((left, right) => ACTION_ORDER.indexOf(left.kind) - ACTION_ORDER.indexOf(right.kind)).map((action) => {
 		    const danger = action.kind === "purge" || action.kind === "dispose" && action.mode === "delete";
-		    return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		      import_dsh_client_ui_primitives4.Button,
+		    return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		      import_dsh_client_ui_primitives3.Button,
 		      {
 		        variant: action.kind === "unarchive" ? "outline" : "primary",
 		        className: danger ? session_manager_default.danger : void 0,
@@ -1684,17 +1633,17 @@ window.__ModuleLoader__.load({
 		  });
 		  const footer = (() => {
 		    if (phase === "select") {
-		      return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(import_dsh_client_ui_primitives4.Button, { variant: "outline", onClick: close, children: t("dialog.cancel") }),
+		      return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_dsh_client_ui_primitives3.Button, { variant: "outline", onClick: close, children: t("dialog.cancel") }),
 		        actionButtons
 		      ] });
 		    }
 		    if (phase === "confirm") {
 		      const runnable = pending !== null && !(pending.kind === "dispose" && acceptedIdsOf(pending).length === 0);
-		      return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(import_dsh_client_ui_primitives4.Button, { variant: "outline", onClick: resetToSelect, children: t("manager.confirm.back") }),
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		          import_dsh_client_ui_primitives4.Button,
+		      return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_dsh_client_ui_primitives3.Button, { variant: "outline", onClick: resetToSelect, children: t("manager.confirm.back") }),
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		          import_dsh_client_ui_primitives3.Button,
 		          {
 		            variant: "primary",
 		            className: runDanger ? session_manager_default.danger : void 0,
@@ -1706,317 +1655,276 @@ window.__ModuleLoader__.load({
 		      ] });
 		    }
 		    if (phase === "running") {
-		      return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(import_dsh_client_ui_primitives4.Button, { variant: "outline", onClick: close, disabled: true, children: t("dialog.cancel") });
+		      return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_dsh_client_ui_primitives3.Button, { variant: "outline", onClick: close, disabled: true, children: t("dialog.cancel") });
 		    }
 		    if (phase === "done") {
-		      return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(import_dsh_client_ui_primitives4.Button, { variant: "outline", onClick: close, children: t("manager.close") });
+		      return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_dsh_client_ui_primitives3.Button, { variant: "outline", onClick: close, children: t("manager.close") });
 		    }
-		    return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(import_dsh_client_ui_primitives4.Button, { variant: "outline", onClick: resetToSelect, children: t("manager.confirm.back") }),
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(import_dsh_client_ui_primitives4.Button, { variant: "outline", onClick: close, children: t("manager.close") })
+		    return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_dsh_client_ui_primitives3.Button, { variant: "outline", onClick: resetToSelect, children: t("manager.confirm.back") }),
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_dsh_client_ui_primitives3.Button, { variant: "outline", onClick: close, children: t("manager.close") })
 		    ] });
 		  })();
-		  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
-		    import_dsh_client_ui_primitives4.Modal,
-		    {
-		      open: true,
-		      onClose: close,
-		      title: t("manager.title"),
-		      description: t("manager.description"),
-		      closeLabel: t("manager.close"),
-		      footer,
-		      children: [
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: session_manager_default.toolbar, children: [
-		          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		            import_dsh_client_ui_primitives4.Menu,
+		  return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: session_manager_default.sectionBody, children: [
+		    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: session_manager_default.toolbar, children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		        import_dsh_client_ui_primitives3.Menu,
+		        {
+		          open: menuOpen,
+		          anchor: /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
+		            "button",
 		            {
-		              open: menuOpen,
-		              anchor: /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
-		                "button",
-		                {
-		                  type: "button",
-		                  className: session_manager_default.workspaceButton,
-		                  "aria-label": t("manager.workspace.label"),
-		                  "aria-expanded": menuOpen,
-		                  disabled: phase === "running",
-		                  onClick: () => {
-		                    setMenuOpen((open) => !open);
-		                  },
-		                  children: [
-		                    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(import_dsh_client_ui_primitives4.IconChevronDownOutlineRegular, {}),
-		                    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: session_manager_default.workspaceName, children: choiceLabel })
-		                  ]
-		                }
-		              ),
-		              items: choices.map((item) => ({
-		                id: item.id,
-		                // 工作区标题可能为空（手改 registry）：此时用项目路径，绝不给一行空菜单项。
-		                label: item.kind === "unassigned" ? t("manager.workspace.unassigned") : item.title === "" ? item.path : item.title
-		              })),
-		              selectedId: choice,
-		              onSelect: changeChoice,
-		              onClose: () => {
-		                setMenuOpen(false);
+		              type: "button",
+		              className: session_manager_default.workspaceButton,
+		              "aria-label": t("manager.workspace.label"),
+		              "aria-expanded": menuOpen,
+		              disabled: phase === "running",
+		              onClick: () => {
+		                setMenuOpen((open) => !open);
 		              },
-		              portal: WORKSPACE_MENU_PORTAL
+		              children: [
+		                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_dsh_client_ui_primitives3.IconChevronDownOutlineRegular, {}),
+		                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: session_manager_default.workspaceName, children: choiceLabel })
+		              ]
 		            }
 		          ),
-		          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		            import_dsh_client_ui_primitives4.SegmentedTabs,
+		          items: choices.map((item) => ({
+		            id: item.id,
+		            // 工作区标题可能为空（手改 registry）：此时用项目路径，绝不给一行空菜单项。
+		            label: item.kind === "unassigned" ? t("manager.workspace.unassigned") : item.title === "" ? item.path : item.title
+		          })),
+		          selectedId: choice,
+		          onSelect: changeChoice,
+		          onClose: () => {
+		            setMenuOpen(false);
+		          },
+		          portal: WORKSPACE_MENU_PORTAL
+		        }
+		      ),
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		        import_dsh_client_ui_primitives3.SegmentedTabs,
+		        {
+		          className: session_manager_default.tabsRow,
+		          items: tabItems,
+		          value: tab,
+		          onChange: changeTab,
+		          label: t("manager.tabs.label")
+		        }
+		      )
+		    ] }),
+		    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { role: "tabpanel", id: tabIds.panel, "aria-labelledby": tabIds.tab, children: [
+		      tab === "archived" && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("fieldset", { className: session_manager_default.modes, disabled: phase === "running", children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("legend", { children: t("dialog.mode.legend") }),
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("label", { className: session_manager_default.modeRow, children: [
+		          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		            "input",
 		            {
-		              className: session_manager_default.tabsRow,
-		              items: tabItems,
-		              value: tab,
-		              onChange: changeTab,
-		              label: t("manager.tabs.label")
+		              type: "radio",
+		              name: "web-ux-manager-mode",
+		              value: "archive",
+		              checked: mode === "archive",
+		              disabled: phase === "running",
+		              onChange: () => {
+		                changeMode("archive");
+		              }
+		            }
+		          ),
+		          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: session_manager_default.modeText, children: t("dialog.mode.archive") })
+		        ] }),
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("label", { className: session_manager_default.modeRow, children: [
+		          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		            "input",
+		            {
+		              type: "radio",
+		              name: "web-ux-manager-mode",
+		              value: "delete",
+		              checked: mode === "delete",
+		              disabled: phase === "running",
+		              onChange: () => {
+		                changeMode("delete");
+		              }
+		            }
+		          ),
+		          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: session_manager_default.modeText, children: t("dialog.mode.delete") })
+		        ] })
+		      ] }),
+		      tab === "migrated" && phase === "select" && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		        import_dsh_client_ui_primitives3.Button,
+		        {
+		          variant: "ghost",
+		          icon: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_dsh_client_ui_primitives3.IconRefreshOutlineRegular, {}),
+		          onClick: reloadListing,
+		          disabled: listingPhase === "loading",
+		          children: t("manager.refresh")
+		        }
+		      ),
+		      phase === "select" && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: session_manager_default.selectionBar, children: [
+		          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		            import_dsh_client_ui_primitives3.Checkbox,
+		            {
+		              label: t("manager.selectAll"),
+		              checked: everySelected,
+		              disabled: rows.length === 0,
+		              onChange: (next) => {
+		                setSelection((current) => next ? selectAllSelection(current, tab, rows) : clearSelection(current, tab));
+		              }
+		            }
+		          ),
+		          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { children: t("manager.selected", { count: effectiveCount }) }),
+		          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		            import_dsh_client_ui_primitives3.Button,
+		            {
+		              variant: "ghost",
+		              onClick: () => {
+		                setSelection((current) => clearSelection(current, tab));
+		              },
+		              children: t("manager.clear")
 		            }
 		          )
 		        ] }),
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { role: "tabpanel", id: tabIds.panel, "aria-labelledby": tabIds.tab, children: [
-		          tab === "archived" && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("fieldset", { className: session_manager_default.modes, disabled: phase === "running", children: [
-		            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("legend", { children: t("dialog.mode.legend") }),
-		            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("label", { className: session_manager_default.modeRow, children: [
-		              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		                "input",
+		        tab === "migrated" && listingError !== null && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(FailurePanel, { failure: listingError, t }),
+		        tab === "migrated" && listing === null ? (
+		          // 拉取中沿用「正在执行…」的过程文案（locales 没有专门的列表加载键）。
+		          listingError === null ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: session_manager_default.muted, children: t("manager.running") }) : null
+		        ) : rows.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: session_manager_default.empty, children: emptyText }) : tab === "migrated" ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("ul", { className: session_manager_default.list, children: migratedRowList.map((row) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
+		          "li",
+		          {
+		            className: cx(
+		              session_manager_default.row,
+		              selection.migrated.has(row.key) && session_manager_default.rowSelected,
+		              !row.selectable && session_manager_default.rowDisabled
+		            ),
+		            children: [
+		              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		                import_dsh_client_ui_primitives3.Checkbox,
 		                {
-		                  type: "radio",
-		                  name: "web-ux-manager-mode",
-		                  value: "archive",
-		                  checked: mode === "archive",
-		                  disabled: phase === "running",
+		                  label: row.sessionId,
+		                  checked: selection.migrated.has(row.key),
+		                  disabled: !row.selectable,
 		                  onChange: () => {
-		                    changeMode("archive");
+		                    setSelection((current) => toggleSelection(current, "migrated", row.key));
 		                  }
 		                }
 		              ),
-		              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: session_manager_default.modeText, children: t("dialog.mode.archive") })
-		            ] }),
-		            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("label", { className: session_manager_default.modeRow, children: [
-		              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		                "input",
+		              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: session_manager_default.rowMeta, title: row.projectDir, children: row.projectDir }),
+		              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: session_manager_default.rowMeta, children: t("manager.meta.size", { size: formatSize(row.bytes, t) }) }),
+		              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: session_manager_default.rowMeta, children: t("manager.meta.time", { time: formatTime(row.updatedAt) }) })
+		            ]
+		          },
+		          row.key
+		        )) }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("ul", { className: session_manager_default.list, children: sessionRowList.map((row) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
+		          "li",
+		          {
+		            className: cx(
+		              session_manager_default.row,
+		              selection[tab].has(row.key) && session_manager_default.rowSelected,
+		              !row.selectable && session_manager_default.rowDisabled
+		            ),
+		            children: [
+		              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		                import_dsh_client_ui_primitives3.Checkbox,
 		                {
-		                  type: "radio",
-		                  name: "web-ux-manager-mode",
-		                  value: "delete",
-		                  checked: mode === "delete",
-		                  disabled: phase === "running",
+		                  label: row.title === "" ? t("manager.untitled") : row.title,
+		                  checked: selection[tab].has(row.key),
+		                  disabled: !row.selectable,
 		                  onChange: () => {
-		                    changeMode("delete");
+		                    setSelection((current) => toggleSelection(current, tab, row.key));
 		                  }
 		                }
 		              ),
-		              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: session_manager_default.modeText, children: t("dialog.mode.delete") })
-		            ] })
-		          ] }),
-		          tab === "migrated" && phase === "select" && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		            import_dsh_client_ui_primitives4.Button,
-		            {
-		              variant: "ghost",
-		              icon: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(import_dsh_client_ui_primitives4.IconRefreshOutlineRegular, {}),
-		              onClick: reloadListing,
-		              disabled: listingPhase === "loading",
-		              children: t("manager.refresh")
-		            }
-		          ),
-		          phase === "select" && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
-		            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: session_manager_default.selectionBar, children: [
-		              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		                import_dsh_client_ui_primitives4.Checkbox,
-		                {
-		                  label: t("manager.selectAll"),
-		                  checked: everySelected,
-		                  disabled: rows.length === 0,
-		                  onChange: (next) => {
-		                    setSelection((current) => next ? selectAllSelection(current, tab, rows) : clearSelection(current, tab));
-		                  }
-		                }
-		              ),
-		              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: t("manager.selected", { count: effectiveCount }) }),
-		              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		                import_dsh_client_ui_primitives4.Button,
-		                {
-		                  variant: "ghost",
-		                  onClick: () => {
-		                    setSelection((current) => clearSelection(current, tab));
-		                  },
-		                  children: t("manager.clear")
-		                }
-		              )
-		            ] }),
-		            tab === "migrated" && listingError !== null && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(FailurePanel, { failure: listingError, t }),
-		            tab === "migrated" && listing === null ? (
-		              // 拉取中沿用「正在执行…」的过程文案（locales 没有专门的列表加载键）。
-		              listingError === null ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: session_manager_default.muted, children: t("manager.running") }) : null
-		            ) : rows.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: session_manager_default.empty, children: emptyText }) : tab === "migrated" ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: session_manager_default.list, children: migratedRowList.map((row) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
-		              "li",
-		              {
-		                className: cx(
-		                  session_manager_default.row,
-		                  selection.migrated.has(row.key) && session_manager_default.rowSelected,
-		                  !row.selectable && session_manager_default.rowDisabled
-		                ),
-		                children: [
-		                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		                    import_dsh_client_ui_primitives4.Checkbox,
-		                    {
-		                      label: row.sessionId,
-		                      checked: selection.migrated.has(row.key),
-		                      disabled: !row.selectable,
-		                      onChange: () => {
-		                        setSelection((current) => toggleSelection(current, "migrated", row.key));
-		                      }
-		                    }
-		                  ),
-		                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: session_manager_default.rowMeta, title: row.projectDir, children: row.projectDir }),
-		                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: session_manager_default.rowMeta, children: t("manager.meta.size", { size: formatSize(row.bytes, t) }) }),
-		                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: session_manager_default.rowMeta, children: t("manager.meta.time", { time: formatTime(row.updatedAt) }) })
-		                ]
-		              },
-		              row.key
-		            )) }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { className: session_manager_default.list, children: sessionRowList.map((row) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
-		              "li",
-		              {
-		                className: cx(
-		                  session_manager_default.row,
-		                  selection[tab].has(row.key) && session_manager_default.rowSelected,
-		                  !row.selectable && session_manager_default.rowDisabled
-		                ),
-		                children: [
-		                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		                    import_dsh_client_ui_primitives4.Checkbox,
-		                    {
-		                      label: row.title === "" ? t("manager.untitled") : row.title,
-		                      checked: selection[tab].has(row.key),
-		                      disabled: !row.selectable,
-		                      onChange: () => {
-		                        setSelection((current) => toggleSelection(current, tab, row.key));
-		                      }
-		                    }
-		                  ),
-		                  /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: session_manager_default.rowMeta, children: t("manager.meta.time", { time: formatTime(row.updatedAt) }) }),
-		                  row.running && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: cx(session_manager_default.badge, session_manager_default.badgeRunning), children: t("manager.badge.running") }),
-		                  row.blank && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: cx(session_manager_default.badge, session_manager_default.badgeBlank), children: t("manager.badge.blank") })
-		                ]
-		              },
-		              row.key
-		            )) }),
-		            truncatedCount !== null && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: session_manager_default.truncated, children: t("manager.truncated", { count: truncatedCount }) })
-		          ] }),
-		          phase === "confirm" && pending !== null && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		            ConfirmPanel,
-		            {
-		              pending,
-		              archiveRoot: confirmArchiveRoot,
-		              unassigned: choice === UNASSIGNED_CHOICE,
-		              t
-		            }
-		          ),
-		          phase === "running" && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: session_manager_default.muted, children: t("manager.running") }),
-		          phase === "done" && outcome !== null && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(OutcomePanel, { outcome, t }),
-		          phase === "failed" && failure !== null && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(FailurePanel, { failure, t })
-		        ] })
-		      ]
-		    }
-		  );
+		              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: session_manager_default.rowMeta, children: t("manager.meta.time", { time: formatTime(row.updatedAt) }) }),
+		              row.running && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: cx(session_manager_default.badge, session_manager_default.badgeRunning), children: t("manager.badge.running") }),
+		              row.blank && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: cx(session_manager_default.badge, session_manager_default.badgeBlank), children: t("manager.badge.blank") })
+		            ]
+		          },
+		          row.key
+		        )) }),
+		        truncatedCount !== null && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: session_manager_default.truncated, children: t("manager.truncated", { count: truncatedCount }) })
+		      ] }),
+		      phase === "confirm" && pending !== null && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		        ConfirmPanel,
+		        {
+		          pending,
+		          archiveRoot: confirmArchiveRoot,
+		          unassigned: choice === UNASSIGNED_CHOICE,
+		          t
+		        }
+		      ),
+		      phase === "running" && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: session_manager_default.muted, children: t("manager.running") }),
+		      phase === "done" && outcome !== null && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(OutcomePanel, { outcome, t }),
+		      phase === "failed" && failure !== null && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(FailurePanel, { failure, t })
+		    ] }),
+		    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: session_manager_default.actions, children: footer })
+		  ] });
 		}
 		function ConfirmPanel({ pending, archiveRoot, unassigned, t }) {
-		  const heading = /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: t("manager.confirm.title") }) });
+		  const heading = /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("strong", { children: t("manager.confirm.title") }) });
 		  if (pending.kind === "unarchive") {
-		    return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("section", { className: session_manager_default.summary, children: [
+		    return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: session_manager_default.summary, children: [
 		      heading,
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { children: t("manager.unarchive.confirm", { count: pending.ids.length }) })
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { children: t("manager.unarchive.confirm", { count: pending.ids.length }) })
 		    ] });
 		  }
 		  if (pending.kind === "archive") {
-		    return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("section", { className: session_manager_default.summary, children: [
+		    return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: session_manager_default.summary, children: [
 		      heading,
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("li", { children: t("manager.confirm.targets", { count: pending.ids.length }) }) })
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("ul", { children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("li", { children: t("manager.confirm.targets", { count: pending.ids.length }) }) })
 		    ] });
 		  }
 		  const sizeKey = pending.kind === "restore" || pending.kind === "dispose" && pending.mode === "archive" ? "dialog.summary.moveSize" : "dialog.summary.size";
 		  const targetCount = pending.kind === "dispose" ? pending.preview.targetCount : pending.targets.length;
 		  const bytes = pending.kind === "dispose" ? pending.preview.logBytes : pending.bytes;
-		  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("section", { className: session_manager_default.summary, children: [
+		  return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+		    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: session_manager_default.summary, children: [
 		      heading,
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("ul", { children: [
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("li", { children: t("manager.confirm.targets", { count: targetCount }) }),
-		        pending.kind === "dispose" && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
-		          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("li", { children: t("dialog.summary.sessions", { count: pending.preview.sessionCount }) }),
-		          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("li", { children: t("manager.confirm.cascade", { count: pending.preview.descendantCount }) })
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("ul", { children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("li", { children: t("manager.confirm.targets", { count: targetCount }) }),
+		        pending.kind === "dispose" && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+		          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("li", { children: t("dialog.summary.sessions", { count: pending.preview.sessionCount }) }),
+		          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("li", { children: t("manager.confirm.cascade", { count: pending.preview.descendantCount }) })
 		        ] }),
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("li", { children: t(sizeKey, { size: formatSize(bytes, t) }) }),
-		        archiveRoot !== null && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("li", { children: t("manager.confirm.archiveRoot", { path: archiveRoot }) })
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("li", { children: t(sizeKey, { size: formatSize(bytes, t) }) }),
+		        archiveRoot !== null && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("li", { children: t("manager.confirm.archiveRoot", { path: archiveRoot }) })
 		      ] }),
-		      pending.kind === "dispose" && pending.mode === "delete" && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { children: t("dialog.warning.irreversible") }),
-		      pending.kind === "purge" && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { children: t("dialog.warning.irreversible") }),
-		      pending.kind === "restore" && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { children: t("manager.confirm.restore") }),
-		      pending.kind === "restore" && unassigned && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { children: t("manager.confirm.restoreUnassigned") })
+		      pending.kind === "dispose" && pending.mode === "delete" && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { children: t("dialog.warning.irreversible") }),
+		      pending.kind === "purge" && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { children: t("dialog.warning.irreversible") }),
+		      pending.kind === "restore" && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { children: t("manager.confirm.restore") }),
+		      pending.kind === "restore" && unassigned && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { children: t("manager.confirm.restoreUnassigned") })
 		    ] }),
-		    pending.kind === "dispose" && pending.preview.rejected.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("section", { className: session_manager_default.rejected, children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { children: t("manager.confirm.rejected", { count: pending.preview.rejected.length }) }),
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { children: pending.preview.rejected.map((entry) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("li", { children: t("manager.itemFailure", { id: entry.sessionId, reason: t(errorKeyOf(entry.code)) }) }, entry.sessionId)) })
+		    pending.kind === "dispose" && pending.preview.rejected.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: session_manager_default.rejected, children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { children: t("manager.confirm.rejected", { count: pending.preview.rejected.length }) }),
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("ul", { children: pending.preview.rejected.map((entry) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("li", { children: t("manager.itemFailure", { id: entry.sessionId, reason: t(errorKeyOf(entry.code)) }) }, entry.sessionId)) })
 		    ] })
 		  ] });
 		}
 		function OutcomePanel({ outcome, t }) {
 		  const summary = outcome.kind === "archive" ? t("manager.done.archive", { count: outcome.ok }) : outcome.kind === "unarchive" ? t("manager.unarchive.done", { count: outcome.ok }) : outcome.kind === "dispose" ? t("manager.done.dispose", { count: outcome.ok }) : outcome.kind === "purge" ? t("manager.done.purge", { count: outcome.ok }) : t("manager.done.restore", { count: outcome.restored.length });
 		  const unassigned = outcome.kind === "restore" ? outcome.restored.filter((entry) => entry.workspaceId === null).length : 0;
-		  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: session_manager_default.result, children: summary }),
-		    unassigned > 0 && outcome.kind === "restore" && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: session_manager_default.result, children: t("manager.done.restoreSplit", {
+		  return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+		    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: session_manager_default.result, children: summary }),
+		    unassigned > 0 && outcome.kind === "restore" && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: session_manager_default.result, children: t("manager.done.restoreSplit", {
 		      attached: outcome.restored.length - unassigned,
 		      unassigned
 		    }) }),
-		    (outcome.kind === "archive" || outcome.kind === "unarchive") && outcome.failures.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("section", { className: session_manager_default.result, children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { children: t(
+		    (outcome.kind === "archive" || outcome.kind === "unarchive") && outcome.failures.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: session_manager_default.result, children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { children: t(
 		        outcome.kind === "archive" ? "manager.partial" : "manager.unarchive.partial",
 		        { ok: outcome.ok, failed: outcome.failures.length }
 		      ) }),
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { children: outcome.failures.map((item) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("li", { children: t("manager.itemFailure", { id: item.id, reason: item.reason }) }, item.id)) })
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("ul", { children: outcome.failures.map((item) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("li", { children: t("manager.itemFailure", { id: item.id, reason: item.reason }) }, item.id)) })
 		    ] }),
-		    (outcome.kind === "dispose" || outcome.kind === "purge" || outcome.kind === "restore") && outcome.warnings.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("section", { className: session_manager_default.warnings, children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { children: t("manager.warnings") }),
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("ul", { children: outcome.warnings.map((warning) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("li", { children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("code", { children: warning }) }, warning)) })
+		    (outcome.kind === "dispose" || outcome.kind === "purge" || outcome.kind === "restore") && outcome.warnings.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: session_manager_default.warnings, children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { children: t("manager.warnings") }),
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("ul", { children: outcome.warnings.map((warning) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("li", { children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("code", { children: warning }) }, warning)) })
 		    ] })
 		  ] });
 		}
 		function FailurePanel({ failure, t }) {
-		  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: session_manager_default.failure, children: t("manager.failed", { reason: t(errorKeyOf(failure.code)) }) }),
-		    failure.message !== "" && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: session_manager_default.detail, children: failure.message })
+		  return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+		    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: session_manager_default.failure, children: t("manager.failed", { reason: t(errorKeyOf(failure.code)) }) }),
+		    failure.message !== "" && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: session_manager_default.detail, children: failure.message })
 		  ] });
-		}
-
-		// src/client/session-manager-store.ts
-		function createManagerRequestStore() {
-		  let snapshot = null;
-		  let seq = 0;
-		  const listeners = /* @__PURE__ */ new Set();
-		  const publish = (next) => {
-		    snapshot = next;
-		    for (const listener of Array.from(listeners)) listener();
-		  };
-		  return {
-		    source: {
-		      getSnapshot: () => snapshot,
-		      subscribe: (listener) => {
-		        listeners.add(listener);
-		        return () => {
-		          listeners.delete(listener);
-		        };
-		      }
-		    },
-		    // 显式点击每次都换新对象并换新序号：重复点同一入口也应重挂浮层，而不是被
-		    // identity 比较或 React 的 key 复用吃掉。
-		    request: () => {
-		      seq += 1;
-		      publish({ seq });
-		    },
-		    settle: () => {
-		      if (snapshot !== null) publish(null);
-		    }
-		  };
 		}
 
 		// src/client/index.ts
@@ -2028,10 +1936,9 @@ window.__ModuleLoader__.load({
 		var DELETE_DIALOG_ORDER = 500;
 		var NOTICE_ID = "web-ux-command-notice";
 		var NOTICE_ORDER = 10;
-		var MANAGER_TRIGGER_ID = "web-ux-session-manager-trigger";
-		var MANAGER_TRIGGER_ORDER = 100;
-		var MANAGER_OVERLAY_ID = "web-ux-session-manager";
-		var MANAGER_OVERLAY_ORDER = 520;
+		var SECTION_SEAT = "workspace-config.section";
+		var SECTION_ID = "web-ux-session-manager";
+		var SECTION_ORDER = 30;
 		function readService(ctx, name) {
 		  const reader = ctx;
 		  try {
@@ -2142,51 +2049,31 @@ window.__ModuleLoader__.load({
 		      };
 		    }
 		  });
-		  const managerRequests = createManagerRequestStore();
-		  ctx.slots.inject("sidebar.footer.action", () => {
+		  const t = ctx.locale.bind(NS);
+		  ctx.slots.inject(SECTION_SEAT, () => {
 		    try {
 		      return ctx.slots.register(
 		        {
-		          name: "sidebar.footer.action",
-		          id: MANAGER_TRIGGER_ID,
-		          order: MANAGER_TRIGGER_ORDER,
-		          locale: NS,
-		          inject: () => ({
-		            requests: managerRequests,
-		            // 渲染期解析：connection 可能晚于 apply 就绪；缺席时入口整颗不渲染。
-		            ready: ctx.get("connection") !== void 0
-		          })
-		        },
-		        SessionManagerTrigger
-		      );
-		    } catch {
-		      return () => {
-		      };
-		    }
-		  });
-		  ctx.slots.inject("shell.overlay", () => {
-		    try {
-		      return ctx.slots.register(
-		        {
-		          name: "shell.overlay",
-		          id: MANAGER_OVERLAY_ID,
-		          order: MANAGER_OVERLAY_ORDER,
+		          name: SECTION_SEAT,
+		          id: SECTION_ID,
+		          order: SECTION_ORDER,
+		          label: () => t("section.label"),
 		          locale: NS,
 		          inject: () => {
 		            const connection = ctx.get("connection");
 		            return {
-		              requests: managerRequests,
 		              client: connection === void 0 ? void 0 : createSessionManagerClient(connection),
 		              workspaces: ctx.get("workspaces"),
 		              // sessions 在客户端 Context 的服务类型表里没有声明（只经 ui-session
-		              // 传递可达），与通知卡同款 unknown 软读后按浮层的结构式声明收敛。
+		              // 传递可达），与通知卡同款 unknown 软读后按分节的结构式声明收敛。
 		              sessions: readService(ctx, "sessions")
 		            };
 		          }
 		        },
-		        SessionManagerDialog
+		        SessionManagerSection
 		      );
-		    } catch {
+		    } catch (error) {
+		      ctx.logger?.warn("web-ux: \u4F1A\u8BDD\u7BA1\u7406\u5206\u8282\u6CE8\u518C\u5931\u8D25\uFF0C\u672C\u8282\u4E0D\u663E\u793A", error);
 		      return () => {
 		      };
 		    }

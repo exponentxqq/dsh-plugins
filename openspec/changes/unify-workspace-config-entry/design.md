@@ -46,6 +46,12 @@
 | D15 打开桥 | 布尔快照 store（非 seq） | seq+key 重挂会把 nav 的 selected 一并重置，与 D8 冲突 |
 | D16 running 中关闭 | 「关闭即关闭」（请求已在宿主侧继续完成，重开看列表验证）；写进 README 与冒烟 | 扩 owner `{close,setBusy}` 破坏已定座位形状（跨版本不兼容）；自绘遮罩拦不住 Escape |
 
+### 执行环境（衔接契约；schema 权威源 = spec-workflow refs/worktree.md）
+
+- 执行环境：直用主工作区。创建于 2026-11-05
+- 决策依据：隔离判据零命中（主检出 `main` 工作区干净、无无关脏改动、无并行变更 worktree），单仓变更省去 worktree 创建与依赖重装；用户于衔接点选定（模式 auto / 引擎 subagent 由映射文件 engine 键给出）。
+- 执行键路由（spec-workflow.yaml `apply`）：opencode-go/deepseek-v4.1-flash，fallback zcode-plan/glm-5.3-flash；`verify` 键由终末 spec-done 复用。
+
 ## 深度契约承载（自 code-design.md，逐断言；全文以其为权威）
 
 **① 触达面（58 项，逐路径见 code-design.md ①）**：新建 `plugins/workspace-config/` 21 文件（契约 `src/client/contract.ts` 为座位唯一权威、`open-store.ts` 打开桥、`sections.ts` nav 投影、`WorkspaceConfigTrigger.tsx`/`WorkspaceConfigDialog.tsx`、双端 build.mjs + tsc 发 d.ts、测试 5 件含 PoC）；根仓 3 项（lockfile、README 插件一览 + 四包同装句、openspec 四件套）；mrfw 11 项（footer 注册删除 87-107、Dialog 剥壳、styles 族裁剪、AGENTS 不变量 5 措辞、ADR-0013 新建、docs:check）；stt 11 项（footer 注册删除 179-204、`WorkspaceDefaultsSection` 导出、seats 常量替换、依赖收敛）；web-ux 12 项（footer trigger 与 manager overlay 两 entry 删除、`SessionManagerDialog` 剥壳为 `SessionManagerSection`、`SessionManagerTrigger.tsx`/`session-manager-store.ts` 删除、依赖收敛）。**明确不触达**：三插件宿主半、上游包、`scripts/*`、`pnpm-workspace.yaml`、在途变更 `2026-11-05-session-tool-toggle-session-scoped-catalog`。
@@ -79,3 +85,33 @@
 ## Open Questions
 
 均可安全延后、不影响 specs/方案/任务分解（实施中钉住）：U1–U3 由 G3 PoC 断言钉住；U4/U5 由 G7 真机走查钉住（U4 失败翻既有单点开关）；U6 cordis 在场预案已前置（rail 28px 默认）；U7 仓内 pnpm 11 与容器 pnpm 10 各跑一次 install 确认 `workspace:*` 表现；U8 新增分节时复查空态文案。
+
+### 运行时实证（组 4 PoC）
+
+> 回填日期：2026-11-05。PoC 常驻文件：`plugins/workspace-config/test/section-seat.poc.test.tsx`（不 skip，作为 slots rc.5 语义漂移的回归哨兵）。验证：`pnpm --filter dsh-plugin-workspace-config test -- section-seat.poc` → 退出码 0，`Test Files 1 passed / Tests 4 passed`。
+>
+> 被测对象为**真运行时包**：`@deepseek-ai/dsh-client-ui-renderer@0.2.1-rc.5` 的 `lib/client.js` 产物 + `@deepseek-ai/dsh-client-ui-slots@0.2.1-rc.5` + `@deepseek-ai/cordis@4.0.5` 真 `Context`，jsdom 环境。未 stub `SlotRegistry` / `register` / `inject` / `renderSlot` / `only` 中任一实现；仅复刻宿主 loader（`window.__ModuleLoader__.load` + 同形外部模块表）并补装一个空 session 作用域适配器（见下「实测 API 语义摘要」第 5 条）。
+
+**四断言结果（全部 PASS）**
+
+| # | 断言 | 结果 | 运行时证据 |
+|---|---|---|---|
+| 1 | children 声明 | PASS | holder 以 `slots.inject('shell.overlay', () => slots.register({ children: { 'workspace-config.section': { kind: 'list', scope: 'root' } } }, Holder))` 注册后，`ctx.slots.spec('workspace-config.section')` 为 `{ kind: 'list', scope: 'root' }`，holder entry 的 `children` 表可读；root 先声明 `shell.overlay` 时 inject 回调同步执行。 |
+| 2 | only 过滤 | PASS | 两分节 a（order 20）/ b（order 10）注册后，`renderSlot('workspace-config.section', { close }, { only: 'a' })` 只渲染 a（**选中列表序第二项**，排除「只渲染首项」的假阳性）；b 不在 DOM，而 `ctx.slots.entries('workspace-config.section')` 仍有 2 条；a 的 close 回调经 owner 份额到达并被点击触发。 |
+| 3 | label 双态 | PASS | 字符串 label 与 `() => string` thunk 均被真 `resolveSlotLabel` 求出；注册条目里 thunk 仍以函数原样存储（未在注册期求值），改闭包变量后同一注册立即读出 v2；holder 本地 2 行解析（D2）的行投影按 order 得 `[b(10), a(20)]`，与上游解析一致。 |
+| 4 | 后装补跑 | PASS | 贡献方先 `slots.inject('workspace-config.section', …)`（此时 `spec` 未定义、entries 为 0，回调被延迟）；holder 后注册 `shell.overlay` 并提交 children 声明后，待命回调**同步补跑**，`entries` 立即为 1 且渲染可见，先到的贡献注册不丢。 |
+
+**实测 API 语义摘要（以运行时代码与运行结果为准）**
+
+1. children 表的运行时语义是「声明账本」：`register({ children })` 把子座位的 kind/scope 写入 `spec`；子 entry 不存放在父 entry 的 options 里，而写入子座位自己的 entry 账本，`entries(childKey)` 直接读该账本。声明是渲染授权：子 entry 的组件只能经声明者的 `renderSlot` 进入渲染树。
+2. `slots.inject(key, callback)` 两种时序均实测：key 已声明 → callback 在 inject 调用内**同步**执行；key 未声明 → 仅登记等待，待声明提交后（在声明者的 `register()` 内）**同步**补跑。回调返回的 disposer 由调用方 fiber 的 effect 回收。
+3. `renderSlot(key, owner, { only })`：list 座位先按 order 升序、再按 `options.id` 过滤；`only` 只裁剪渲染投影，不删除注册；owner 份额（`{ close }`）原样到达子 entry 组件。未传 `only`（undefined）等价不过滤。
+4. `SlotLabel` 双态：注册时**原样存储**（`StoredEntry.options.label` 上 thunk 仍是函数），读取时由上游 `resolveSlotLabel`（`typeof label === 'function' ? label() : label`）求值；因此 locale 切换不需要重注册。本仓 holder 按 D2 自带同式 2 行解析，PoC 已证两者结论一致。
+5. 渲染 `root` 的运行时前置：真 renderer 的 root 出口固定包 `ScopeProvider scope="session-maybe"`，它把 session-maybe 解析到已安装的 **`session` 作用域适配器**；生产由 `dsh-client-ui-session` 安装。PoC 为隔离被测语义装载了一个空绑定适配器（稳定快照 + 空订阅）。这与 children/only/label/inject 四断言无关，但**后续任何直接渲染 root 的 jsdom 套件都必须先装该适配器**。
+6. `apply(ctx)` 的装配面：真 renderer `lib/client.js` 的 `apply` 只做 `new SlotRegistry(ctx).install(createSlotRenderer())` + `ctx.reflect.provide('uiRenderer', …)`；`SlotRegistry` 以服务名 `slots` 提供 `ctx.slots`。root 之外的 key 只能经组件 props 的 `renderSlot` 渲染（ctx 级 `renderSlot` 只接受 `'root'`）。
+
+**与 code-design ②/⑤ 类型级证据的差异与补充**
+
+1. **入口形态（新增实测约束）**：`@deepseek-ai/dsh-client-ui-renderer` 的 `exports['./client']` 指向 `lib/client.js`，它是 `window.__ModuleLoader__.load({ id, factory })` 的 loader 壳，**不是可直接 `import` 的 ESM 模块**；PoC 必须复刻 loader（读源码 + 提供 react / react-dom / react-dom/client / react/jsx-runtime / slots / cordis 六个模块表词）才能拿到真 `apply`。此前的类型级证据只说明 `apply` / `SlotRegistry` 的签名，未体现这一装载约束。
+2. **slots 的 `resolveSlotLabel` 位置（与 D2 一致，补充实测）**：`@deepseek-ai/dsh-client-ui-slots` 只有 `.` / `./src/*` / `./package.json` 导出，**没有 `./client`**；`resolveSlotLabel` 在 `.` 入口。PoC 在测试侧 import 它做对照是合法的 Node 解析，但 holder 产物不能据此把它加入 `CLIENT_EXTERNALS`（D2 的「missed the module table」硬错结论不变）。
+3. **四断言未发现与类型面证据矛盾**：U1（only 只挂匹配 id 的 list entry）、U2（后装 holder 时先 inject 的贡献方补跑）、U3（label thunk 求值）均有运行时支持；A1「rc.5 运行时与类型面一致」在本次触达的三个语义面上成立。真正新增的事实是上面第 1 条装载约束与第 5 条 root 渲染的 session 适配器前置。

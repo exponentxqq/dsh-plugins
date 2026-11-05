@@ -29,7 +29,6 @@
       "inject": [
         "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-ui-renderer",
-        "@deepseek-ai/dsh-client-ui-sidebar",
         "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-commands"
@@ -62,7 +61,6 @@
     "@deepseek-ai/dsh-client-ui-primitives": "0.2.1-rc.5",
     "@deepseek-ai/dsh-client-ui-renderer": "0.2.1-rc.5",
     "@deepseek-ai/dsh-client-ui-session": "0.2.1-rc.5",
-    "@deepseek-ai/dsh-client-ui-sidebar": "0.2.1-rc.5",
     "@deepseek-ai/dsh-client-ui-slots": "0.2.1-rc.5",
     "@deepseek-ai/dsh-commands": "0.2.1-rc.5",
     "@deepseek-ai/dsh-home-paths": "0.2.1-rc.5",
@@ -74,6 +72,7 @@
     "@types/node": "^22.20.0",
     "@types/react": "~18.3.1",
     "@types/react-dom": "^18.3.5",
+    "dsh-plugin-workspace-config": "workspace:*",
     "esbuild": "^0.25.0",
     "jsdom": "^26.1.0",
     "oxlint": "^1.42.0",

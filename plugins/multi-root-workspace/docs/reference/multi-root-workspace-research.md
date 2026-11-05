@@ -310,6 +310,8 @@ runnerCommand ['<operator runner>', ...bwrap 的 profile 段]（上游契约：�
 
 `sidebar.footer.action` 是两个运行时的交集，`kind: 'list'` 且 additive（0.1.2 里 `ui-cordis` 就注册在它上面，注册形态 `{ name, id, locale, inject }`）。插件因此把面板放在这里，并用自绘对话框承载面板本体。
 
+> **注记（2026-11-05）**：以上座位面与落点是 0.1.5 时代的取证，保留不改写。面板挂载点现已迁到统一「工作区配置」弹窗的 `workspace-config.section`（由 `dsh-plugin-workspace-config` 在 `shell.overlay` 注册弹窗时用 `children` 声明），`sidebar.footer.action` 的旧入口随之删除；Files tab 紧凑入口与 `/workspace-folders` 保留。见 [ADR-0013](../decisions/ADR-0013-workspace-config-section-mount.md)。
+
 ### 11.7 在进程内驱动一轮真实 agent turn（验收与冒烟用）
 
 - web 组合进程内启动需要 launcher 事实：`provideCmdline(ctx, { args: ['--no-open','--port','0'], exit })`（`packages/boot/cmdline/src/index.ts:70-88`），否则 `web-startup` 行永远不会激活。

@@ -38,6 +38,10 @@ export const zh = {
   'action.tooltip': '会话工具开关：本会话内的工具可分组或逐个关闭',
   'action.aria': '打开会话工具面面板',
 
+  // —— 统一「工作区配置」弹窗的分节导航行（code-design ①1.4 #40 / ③3.5） ——
+  //     分节的 label 是 holder nav 每次读取时求值的 thunk；本键是该行的唯一文案来源。
+  'section.label': '工作区默认档',
+
   // —— 面板骨架（设计 §3.2：title + description + footer 的刷新/关闭） ——
   'panel.title': '会话工具面',
   'panel.description': '本会话内可用的工具与开关；改动只影响本会话之后的模型步骤。',
@@ -192,6 +196,9 @@ export const en = {
   'action.title': 'Session tool surface',
   'action.tooltip': 'Session tool switches: turn groups or single tools off for this session',
   'action.aria': 'Open the session tool surface panel',
+
+  // —— Section row of the unified workspace-settings dialog (nav label thunk) ——
+  'section.label': 'Workspace defaults',
 
   // —— 面板骨架 ——
   'panel.title': 'Session tool surface',

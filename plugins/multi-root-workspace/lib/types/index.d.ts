@@ -8,9 +8,10 @@
  * package name) because the web client-module scan reads a package's
  * `dsh.client` declaration solely from a loader row mounted at its package
  * root — subpath rows are never client rows — so without that row the browser
- * is never served `lib/client.js` and the sidebar footer action never
- * registers. The barrel itself stays side-effect free so tests can import the
- * whole public surface from a single specifier.
+ * is never served `lib/client.js` and the workspace-folders section
+ * (`workspace-config.section`) never registers. The barrel itself stays
+ * side-effect free so tests can import the whole public surface from a single
+ * specifier.
  *
  * The two facts worth remembering about this surface: a registration carries the
  * canonical directory it was GRANTED for (`recordedPath`), the panel channel

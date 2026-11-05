@@ -2,7 +2,7 @@
 
 ## 症状
 
-- 侧边栏 footer 的"工作区文件夹"面板能打开，但每次请求都显示"无法连接到 dsh 主进程。(transport failure for /multi-root-workspace/list: HTTP 405)"。
+- 统一「工作区配置」弹窗里的"工作区文件夹"分节能打开，但每次请求都显示"无法连接到 dsh 主进程。(transport failure for /multi-root-workspace/list: HTTP 405)"。
 - 宿主半部其余功能正常：`/workspace-folders` 命令可用、根登记可以落盘。
 - 运行中的 web 服务日志里**没有**任何与插件相关的报错——失败被 cordis 的 fiber 错误处理静默吞掉。
 

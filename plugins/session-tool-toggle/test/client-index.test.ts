@@ -1,15 +1,19 @@
 // @vitest-environment jsdom
 /**
- * 浏览器半的接线（`src/client/index.ts#apply`，任务 7.6 / code-design 触达面 C9）。
+ * 浏览器半的接线（`src/client/index.ts#apply`，任务 7.6 / code-design 触达面 C9；
+ * footer → `workspace-config.section` 的迁移见 #36 / #42）。
  *
  * 组件自身的行为由 `tool-panel` / `workspace-editor` 等套件覆盖；这里只钉**装配契约**：
  *
  * - `inject` 只有座位与字典两项，`connection` 不在名单里（渲染期软读）；
- * - 字典**先于**座位注册；两个座位按 `seats.ts` 的顺序 inject（先 header 后 footer）；
+ * - 字典**先于**座位注册；两个座位按 `seats.ts` 的顺序 inject（先 header 后 section）；
  * - header 座位恰好一次，参数 `{ id: PANEL_ID, order: PANEL_ORDER, locale: NS }`（既有行为零回归）；
- * - footer 座位恰好一次，参数 `{ id: FOOTER_ID, order: FOOTER_ORDER, locale: NS }`，组件是
- *   `WorkspaceFooterAction`；注入面提供 `resolveClient`（每次现取 `connection`）与
- *   `currentSessionId`（`current-session.ts` 的两步探测，服务缺席返回 `undefined`）；
+ * - **分节座位**（holder 的 `workspace-config.section`）恰好一次，参数
+ *   `{ id: SECTION_ID, order: SECTION_ORDER, locale: NS, label: () => t('section.label') }`，
+ *   组件是 `WorkspaceDefaultsSection`；注入面提供 `resolveClient`（每次现取 `connection`，与头部
+ *   同一份）与 `currentSessionId`（`current-session.ts` 的两步探测，服务缺席返回 `undefined`）；
+ * - **旧 footer 座位不再出现**：`slots.inject` 名单只有两个座位，footer 的字面量在 `src/`
+ *   与产物里都必须为零（迁移红线，`bundle.test.ts` 与任务验证句各钉一侧）；
  * - **DQ1=C**：对 `sidebar.workspaces.workspace.menu.item` **不** inject、不注册（上游工作区行
  *   菜单座位本期不实现，见 `seats.ts` 的 D-12 注释）；
  * - 座位未声明时回调不执行且不抛；`register` 抛错时只 `logger.warn`、`apply` 正常返回；
@@ -28,15 +32,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { NS, en, zh } from '../src/client/locales.ts'
 import { SEAT, apply, inject, name } from '../src/client/index.ts'
 import {
-  FOOTER_ID,
-  FOOTER_ORDER,
-  FOOTER_SEAT,
   HEADER_SEAT,
   PANEL_ID,
   PANEL_ORDER,
+  SECTION_ID,
+  SECTION_ORDER,
+  SECTION_SEAT,
 } from '../src/client/seats.ts'
-import { WorkspaceFooterAction } from '../src/client/WorkspaceEntry.tsx'
-import type { WorkspaceFooterActionProps } from '../src/client/WorkspaceEntry.tsx'
+import { WorkspaceDefaultsSection } from '../src/client/WorkspaceEntry.tsx'
+import type { WorkspaceDefaultsSectionProps } from '../src/client/WorkspaceEntry.tsx'
 import { ToolPanelAction } from '../src/client/ToolPanelAction.tsx'
 import type { ToolPanelActionInjected } from '../src/client/ToolPanelAction.tsx'
 
@@ -52,13 +56,14 @@ interface Registration {
   readonly name: string
   readonly id?: string
   readonly order?: number
+  readonly label?: unknown
   readonly locale?: string
   readonly inject?: () => unknown
   readonly component?: unknown
 }
 
-/** footer 注册面交给组件的业务份额（`t` 由 locale 合成、`wide` 由座位 owner 给）。 */
-type WorkspaceFooterActionInjected = Pick<WorkspaceFooterActionProps, 'resolveClient' | 'currentSessionId'>
+/** 分节注册面交给组件的业务份额（`t` 由 locale 合成、`close` 由 holder 弹窗给）。 */
+type WorkspaceDefaultsSectionInjected = Pick<WorkspaceDefaultsSectionProps, 'resolveClient' | 'currentSessionId'>
 
 /** 假 ctx 的开关。 */
 interface FakeOptions {
@@ -82,13 +87,17 @@ interface FakeOptions {
  */
 function fakeClient(options: FakeOptions = {}) {
   const declaredSeats = new Set<string>(
-    options.declaredSeats ?? ((options.declared ?? true) ? [HEADER_SEAT, FOOTER_SEAT] : []),
+    options.declaredSeats ?? ((options.declared ?? true) ? [HEADER_SEAT, SECTION_SEAT] : []),
   )
   const log: string[] = []
-  /** 每次 `slots.inject` 的座位键（按调用顺序；footer 恰好一次、顺序在 header 之后靠它钉）。 */
+  /** 每次 `slots.inject` 的座位键（按调用顺序；分节恰好一次、顺序在 header 之后靠它钉）。 */
   const injectCalls: string[] = []
   const registrations: Registration[] = []
   const localeCalls: Array<{ ns: string; dicts: Record<string, unknown> }> = []
+  /** 每次 `locale.bind` 的命名空间（分节 label thunk 的来源）。 */
+  const bindCalls: string[] = []
+  /** 座位未声明时登记等待的 `slots.inject` 回调（真实 SlotRegistry 的补跑语义）。 */
+  const pending = new Map<string, Array<() => unknown>>()
   const warnings: unknown[][] = []
   const errors: unknown[][] = []
   /** `ctx.effect` 收集到的 dispose 回调（下标即注册顺序：0 字典、1 命令桥）。 */
@@ -124,12 +133,25 @@ function fakeClient(options: FakeOptions = {}) {
         localeCalls.push({ ns, dicts })
         return () => {}
       },
+      // 只是把命中的中文键返回：本套件只钉「label thunk 解析到哪条文案」，不重测 locale 服务。
+      bind: (ns: string) => {
+        log.push(`locale.bind:${ns}`)
+        bindCalls.push(ns)
+        return (key: string) => (zh as Record<string, string>)[key] ?? key
+      },
     },
     slots: {
       inject: (key: string, callback: () => unknown) => {
         log.push(`slots.inject:${key}`)
         injectCalls.push(key)
-        if (declaredSeats.has(key)) callback()
+        if (declaredSeats.has(key)) {
+          callback()
+        } else {
+          // 座位未声明：只登记等待（holder 缺席时的「只贡献方」形态）。
+          const waiting = pending.get(key) ?? []
+          waiting.push(callback)
+          pending.set(key, waiting)
+        }
         return () => {}
       },
       register: (rawOptions: Registration, component?: unknown) => {
@@ -165,6 +187,7 @@ function fakeClient(options: FakeOptions = {}) {
     injectCalls,
     registrations,
     localeCalls,
+    bindCalls,
     warnings,
     errors,
     disposers,
@@ -173,21 +196,32 @@ function fakeClient(options: FakeOptions = {}) {
     seat(): Registration {
       return registrationOf(HEADER_SEAT)
     },
-    /** footer 座位的注册项。 */
-    footer(): Registration {
-      return registrationOf(FOOTER_SEAT)
+    /** 工作区默认档分节的注册项。 */
+    section(): Registration {
+      return registrationOf(SECTION_SEAT)
     },
     /** header 注入面（每次调用都重新执行注册时给的 inject 工厂，与真实渲染一致）。 */
     headerPorts(): ToolPanelActionInjected {
       return registrationOf(HEADER_SEAT).inject?.() as ToolPanelActionInjected
     },
-    /** footer 注入面。 */
-    footerPorts(): WorkspaceFooterActionInjected {
-      return registrationOf(FOOTER_SEAT).inject?.() as WorkspaceFooterActionInjected
+    /** 分节注入面。 */
+    sectionPorts(): WorkspaceDefaultsSectionInjected {
+      return registrationOf(SECTION_SEAT).inject?.() as WorkspaceDefaultsSectionInjected
     },
     /** 模拟服务在 `apply` 之后才 provide（真实 web 壳的 connection / sessions 就属于这类）。 */
     provide(next: Record<string, unknown>): void {
       Object.assign(services, next)
+    },
+    /** 该座位还在等待声明的回调数（「只贡献方」格与「后装 holder」格的观测面）。 */
+    pendingCount(seatName: string): number {
+      return pending.get(seatName)?.length ?? 0
+    },
+    /** 后装 holder：声明座位并同步补跑待命回调（真实 `SlotRegistry.inject` 的语义）。 */
+    declareSeat(seatName: string): void {
+      declaredSeats.add(seatName)
+      const waiting = pending.get(seatName) ?? []
+      pending.delete(seatName)
+      for (const callback of waiting) callback()
     },
   }
 }
@@ -222,10 +256,10 @@ describe('浏览器半的依赖与身份', () => {
 
   it('座位常量从 seats.ts 取，旧导出名仍是同一份值', () => {
     expect(SEAT).toBe(HEADER_SEAT)
-    expect(FOOTER_SEAT).toBe('sidebar.footer.action')
-    expect(FOOTER_ID).not.toBe(PANEL_ID)
+    expect(SECTION_SEAT).toBe('workspace-config.section')
+    expect(SECTION_ID).not.toBe(PANEL_ID)
     expect(PANEL_ORDER).toBe(20)
-    expect(FOOTER_ORDER).toBe(60)
+    expect(SECTION_ORDER).toBe(20)
   })
 })
 
@@ -240,12 +274,14 @@ describe('apply 的装配顺序', () => {
       'effect:session-tool-toggle: 双语文案',
       `locale:${NS}`,
       'effect:session-tool-toggle: command/executed 桥',
+      // 分节 label thunk 的翻译函数在座位注册之前绑定。
+      `locale.bind:${NS}`,
       `slots.inject:${HEADER_SEAT}`,
       `register:${HEADER_SEAT}`,
-      `slots.inject:${FOOTER_SEAT}`,
-      `register:${FOOTER_SEAT}`,
+      `slots.inject:${SECTION_SEAT}`,
+      `register:${SECTION_SEAT}`,
     ])
-    expect(fake.injectCalls).toEqual([HEADER_SEAT, FOOTER_SEAT])
+    expect(fake.injectCalls).toEqual([HEADER_SEAT, SECTION_SEAT])
   })
 
   it('locale.register 收到 NS 与 zh/en 字典，且早于两个座位的注册', () => {
@@ -255,7 +291,18 @@ describe('apply 的装配顺序', () => {
     expect(fake.localeCalls).toEqual([{ ns: NS, dicts: { zh, en } }])
     expect(NS).toBe('sessionToolToggle')
     expect(fake.log.indexOf(`locale:${NS}`)).toBeLessThan(fake.log.indexOf(`register:${HEADER_SEAT}`))
-    expect(fake.log.indexOf(`locale:${NS}`)).toBeLessThan(fake.log.indexOf(`register:${FOOTER_SEAT}`))
+    expect(fake.log.indexOf(`locale:${NS}`)).toBeLessThan(fake.log.indexOf(`register:${SECTION_SEAT}`))
+  })
+
+  it('locale.bind 绑定本命名空间且只绑一次，分节 label thunk 解析到 section.label', () => {
+    const fake = fakeClient()
+    apply(fake.ctx)
+
+    expect(fake.bindCalls).toEqual([NS])
+    const label = fake.section().label
+    expect(typeof label).toBe('function')
+    // thunk 每次读取都重新求值（上游 SlotLabel 语义）：locale 切换无需重注册。
+    expect((label as () => string)()).toBe(zh['section.label'])
   })
 })
 
@@ -287,57 +334,59 @@ describe('header 座位（既有行为零回归）', () => {
 
     expect(fake.registrations).toEqual([])
     // 两个座位都只登记等待：回调不执行、也没有 register 调用。
-    expect(fake.injectCalls).toEqual([HEADER_SEAT, FOOTER_SEAT])
+    expect(fake.injectCalls).toEqual([HEADER_SEAT, SECTION_SEAT])
     expect(fake.log.some((entry) => entry.startsWith('register:'))).toBe(false)
   })
 })
 
-describe('footer 座位（C9 / T16）', () => {
-  it('对 sidebar.footer.action 的 slots.inject 恰好一次，顺序在 header 之后', () => {
+describe('工作区默认档分节座位（holder workspace-config.section）', () => {
+  it('对 workspace-config.section 的 slots.inject 恰好一次，顺序在 header 之后', () => {
     const fake = fakeClient()
     apply(fake.ctx)
 
-    expect(fake.injectCalls.filter((seat) => seat === FOOTER_SEAT)).toHaveLength(1)
-    expect(fake.injectCalls).toEqual([HEADER_SEAT, FOOTER_SEAT])
+    expect(fake.injectCalls.filter((seat) => seat === SECTION_SEAT)).toHaveLength(1)
+    expect(fake.injectCalls).toEqual([HEADER_SEAT, SECTION_SEAT])
   })
 
-  it('footer 只注册一次，参数是 footer id + order 60 + locale NS，组件是 WorkspaceFooterAction', () => {
+  it('分节只注册一次，参数是 section id + order 20 + locale NS + label thunk，组件是 WorkspaceDefaultsSection', () => {
     const fake = fakeClient()
     apply(fake.ctx)
 
-    expect(fake.footer()).toMatchObject({
-      name: FOOTER_SEAT,
-      id: FOOTER_ID,
-      order: FOOTER_ORDER,
+    expect(fake.section()).toMatchObject({
+      name: SECTION_SEAT,
+      id: SECTION_ID,
+      order: SECTION_ORDER,
       locale: NS,
-      component: WorkspaceFooterAction,
+      component: WorkspaceDefaultsSection,
     })
+    expect(fake.section().label).toBeTypeOf('function')
   })
 
-  it('footer 注入面的 resolveClient 每次现取 connection（缺席 → undefined，就绪 → 完整客户端）', () => {
+  it('注入面的 resolveClient 每次现取 connection（缺席 → undefined，就绪 → 完整客户端）', () => {
     const fake = fakeClient()
     apply(fake.ctx)
 
-    expect(fake.footerPorts().resolveClient()).toBeUndefined()
+    expect(fake.sectionPorts().resolveClient()).toBeUndefined()
 
     fake.provide({ connection: CONNECTION })
-    expect(fake.footerPorts().resolveClient()).toMatchObject({
+    expect(fake.sectionPorts().resolveClient()).toMatchObject({
       panel: expect.any(Function),
       toggle: expect.any(Function),
       reset: expect.any(Function),
       updateDefaults: expect.any(Function),
+      workspace: expect.any(Function),
     })
   })
 
-  it('footer 注入面的 currentSessionId 每次现取当前会话（两步探测：current 优先，其次 mainView 持有）', () => {
+  it('注入面的 currentSessionId 每次现取当前会话（两步探测：current 优先，其次 mainView 持有）', () => {
     const fake = fakeClient()
     apply(fake.ctx)
 
-    // sessions 缺席是受支持状态：footer 据此提示「无当前会话」，不抛。
-    expect(fake.footerPorts().currentSessionId()).toBeUndefined()
+    // sessions 缺席是受支持状态：分节据此提示「无当前会话」，不抛。
+    expect(fake.sectionPorts().currentSessionId()).toBeUndefined()
 
     fake.provide({ sessions: SESSIONS })
-    expect(fake.footerPorts().currentSessionId()).toBe('session-main')
+    expect(fake.sectionPorts().currentSessionId()).toBe('session-main')
 
     // 显式选择优先于 mainView 持有的行。
     fake.provide({
@@ -350,15 +399,28 @@ describe('footer 座位（C9 / T16）', () => {
         },
       },
     })
-    expect(fake.footerPorts().currentSessionId()).toBe('session-explicit')
+    expect(fake.sectionPorts().currentSessionId()).toBe('session-explicit')
   })
 
-  it('只有 footer 声明时 header 不注册、footer 照常注册（两个座位互相独立）', () => {
-    const fake = fakeClient({ declaredSeats: [FOOTER_SEAT] })
+  it('分节与头部共用同一个现取客户端（同一 connection → 同一条 /session-tool-toggle 通道）', () => {
+    const fake = fakeClient()
+    apply(fake.ctx)
+
+    // 两侧在 connection 就绪前都返回空，就绪后都能取到同一通道的客户端能力面。
+    expect(fake.sectionPorts().resolveClient()).toBeUndefined()
+    expect(fake.headerPorts().resolveClient()).toBeUndefined()
+
+    fake.provide({ connection: CONNECTION })
+    expect(fake.sectionPorts().resolveClient()).toMatchObject({ workspace: expect.any(Function) })
+    expect(fake.headerPorts().resolveClient()).toMatchObject({ panel: expect.any(Function) })
+  })
+
+  it('只有分节声明时 header 不注册、分节照常注册（两个座位互相独立）', () => {
+    const fake = fakeClient({ declaredSeats: [SECTION_SEAT] })
     expect(() => { apply(fake.ctx) }).not.toThrow()
 
     expect(fake.registrations).toHaveLength(1)
-    expect(fake.footer()).toMatchObject({ name: FOOTER_SEAT, id: FOOTER_ID })
+    expect(fake.section()).toMatchObject({ name: SECTION_SEAT, id: SECTION_ID })
     expect(fake.warnings).toEqual([])
     expect(fake.errors).toEqual([])
   })
@@ -370,12 +432,12 @@ describe('footer 座位（C9 / T16）', () => {
     expect(fake.injectCalls).not.toContain(MENU_SEAT)
     expect(fake.injectCalls).toHaveLength(2)
     expect(fake.log.some((entry) => entry.includes(MENU_SEAT))).toBe(false)
-    expect(fake.registrations.map((entry) => entry.name)).toEqual([HEADER_SEAT, FOOTER_SEAT])
+    expect(fake.registrations.map((entry) => entry.name)).toEqual([HEADER_SEAT, SECTION_SEAT])
   })
 })
 
 describe('软注册失败只 warn，apply 正常返回', () => {
-  it('header 注册抛错：只 warn、返回不抛，footer 照常注册', () => {
+  it('header 注册抛错：只 warn、返回不抛，分节照常注册', () => {
     const fake = fakeClient({ rejectSeat: HEADER_SEAT })
     // 返回 undefined 本身就证明没有异常逃出 apply。
     expect(apply(fake.ctx)).toBeUndefined()
@@ -384,15 +446,15 @@ describe('软注册失败只 warn，apply 正常返回', () => {
     expect(fake.warnings[0]?.[0]).toContain('会话头部工具区座位注册失败')
     expect(fake.warnings[1]?.[0]).toBeInstanceOf(Error)
     expect(fake.errors).toEqual([])
-    expect(fake.registrations.map((entry) => entry.name)).toEqual([FOOTER_SEAT])
+    expect(fake.registrations.map((entry) => entry.name)).toEqual([SECTION_SEAT])
   })
 
-  it('footer 注册抛错：只 warn、返回不抛，header 照常注册', () => {
-    const fake = fakeClient({ rejectSeat: FOOTER_SEAT })
+  it('分节注册抛错：只 warn、返回不抛，header 照常注册', () => {
+    const fake = fakeClient({ rejectSeat: SECTION_SEAT })
     expect(apply(fake.ctx)).toBeUndefined()
 
     expect(fake.warnings).toHaveLength(2)
-    expect(fake.warnings[0]?.[0]).toContain('侧栏底部工作区默认档座位注册失败')
+    expect(fake.warnings[0]?.[0]).toContain('工作区配置分节座位注册失败')
     expect(fake.warnings[1]?.[0]).toBeInstanceOf(Error)
     expect(fake.errors).toEqual([])
     expect(fake.registrations.map((entry) => entry.name)).toEqual([HEADER_SEAT])
@@ -406,7 +468,7 @@ describe('软注册失败只 warn，apply 正常返回', () => {
     // 每个座位两条 warn：一条本地化说明 + 一条原始错误。
     expect(fake.warnings).toHaveLength(4)
     expect(fake.warnings[0]?.[0]).toContain('会话头部工具区座位注册失败')
-    expect(fake.warnings[2]?.[0]).toContain('侧栏底部工作区默认档座位注册失败')
+    expect(fake.warnings[2]?.[0]).toContain('工作区配置分节座位注册失败')
     expect(fake.errors).toEqual([])
   })
 
@@ -511,5 +573,71 @@ describe('注入面的三个端口（header）', () => {
     const off = ports.attachFocusListener?.(vi.fn())
     expect(typeof off).toBe('function')
     expect(() => { off?.() }).not.toThrow()
+  })
+})
+
+/**
+ * 四格安装组合矩阵（本包视角；code-design ⑤G6 6.2 / tasks 7.1）。
+ *
+ * 全装格与「后装 holder 补跑」由 holder 的 `test/dialog.test.tsx` 用四个真 `apply` 同 ctx
+ * 覆盖；这里钉本包的三格：**格 1**（holder 已声明分节座位 → 本节 order 20 注册，会话头部
+ * 入口 order 20 原样保留）、**格 3**（只装贡献方、无 holder → 分节 inject 待命，不注册、
+ * 不抛错、不 warn，头部入口不受影响）、**格 4**（holder 后到 → 待命回调补跑，分节立即可用）。
+ */
+describe('四格安装组合矩阵（session-tool-toggle 侧）', () => {
+  it('格 1 全装：holder 声明分节座位时本节 order 20 注册，会话头部入口（order 20）原样保留', () => {
+    const fake = fakeClient()
+    apply(fake.ctx)
+
+    expect(fake.warnings).toEqual([])
+    expect(fake.errors).toEqual([])
+    expect(fake.pendingCount(SECTION_SEAT)).toBe(0)
+    expect(fake.registrations).toHaveLength(2)
+    expect(fake.section()).toMatchObject({
+      name: SECTION_SEAT,
+      id: SECTION_ID,
+      order: SECTION_ORDER,
+      locale: NS,
+    })
+    expect(fake.section().label).toBeTypeOf('function')
+    expect((fake.section().label as () => string)()).toBe(zh['section.label'])
+    // 头部入口没有被分节迁移挪走或改序（与 /tools 共用状态的入口面）。
+    expect(fake.seat()).toMatchObject({ id: PANEL_ID, order: PANEL_ORDER })
+  })
+
+  it('格 3 只贡献方（无 holder）：分节 inject 待命不注册、不抛错也不 warn，头部入口不受影响', () => {
+    const fake = fakeClient({ declaredSeats: [HEADER_SEAT] })
+    expect(() => { apply(fake.ctx) }).not.toThrow()
+
+    // 头部座位照常注册；分节座位（holder 声明）缺席 → 回调只登记等待。
+    expect(fake.registrations.map((entry) => entry.name)).toEqual([HEADER_SEAT])
+    expect(fake.pendingCount(SECTION_SEAT)).toBe(1)
+    expect(fake.warnings).toEqual([])
+    expect(fake.errors).toEqual([])
+  })
+
+  it('格 4 后装 holder：贡献方先 apply，分节座位后声明时待命回调补跑，分节立即可用', () => {
+    const fake = fakeClient({ declaredSeats: [] })
+    apply(fake.ctx)
+
+    // 两个座位都未声明：都不注册，回调全部待命。
+    expect(fake.registrations).toEqual([])
+    expect(fake.pendingCount(SECTION_SEAT)).toBe(1)
+    expect(fake.pendingCount(HEADER_SEAT)).toBe(1)
+    expect(fake.warnings).toEqual([])
+
+    // holder 后到：只声明分节座位 → 仅分节补跑，头部入口仍待命（两个座位互相独立）。
+    fake.declareSeat(SECTION_SEAT)
+    expect(fake.pendingCount(SECTION_SEAT)).toBe(0)
+    expect(fake.registrations.map((entry) => entry.name)).toEqual([SECTION_SEAT])
+    expect(fake.section()).toMatchObject({ id: SECTION_ID, order: SECTION_ORDER })
+    expect((fake.section().label as () => string)()).toBe(zh['section.label'])
+    expect(fake.pendingCount(HEADER_SEAT)).toBe(1)
+
+    // 头部座位随后声明也能补跑，两处软注册互不连累。
+    fake.declareSeat(HEADER_SEAT)
+    expect(fake.registrations.map((entry) => entry.name)).toEqual([SECTION_SEAT, HEADER_SEAT])
+    expect(fake.warnings).toEqual([])
+    expect(fake.errors).toEqual([])
   })
 })

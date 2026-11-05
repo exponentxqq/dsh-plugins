@@ -1,33 +1,62 @@
 /**
  * Browser half of the multi-root workspace plugin.
  *
- * Sidebar footer and optional Files actions open the Workspace Folders dialog.
- * Everything it needs arrives through services the composition already
+ * Two soft seats, one panel body:
+ *
+ * - `workspace-config.section` — the Workspace Folders section inside the
+ *   unified workspace-config dialog. This is the panel's mount point since the
+ *   footer action was removed (ADR-0013): the holder declares the seat from its
+ *   `shell.overlay` registration, registers its own footer entry, and owns the
+ *   modal shell, so this registration exists exactly when the holder is
+ *   installed.
+ * - `sidebar.right.tab.files.actions` — the legacy Files-tab compact entry. On
+ *   surfaces that still declare it, the same panel body expands inline in the
+ *   tab, which keeps the panel reachable without the holder.
+ *
+ * Everything the body needs arrives through services the composition already
  * provides — `slots` to contribute, `locale` for its copy, `connection` for the
  * channel to the host half, and (optionally) `uiWorkspace` for the composed
  * directory picker and the client Session Controller for the current session.
  *
- * `slots.inject` is the soft seam: the footer action is registered when a
- * sidebar declares that slot and never otherwise, so a runtime whose sidebar
- * surface differs simply shows no panel instead of failing the client graph.
+ * `slots.inject` is the soft seam: a registration happens when the composition
+ * declares the seat and never otherwise, so a runtime whose surfaces differ
+ * simply shows no panel instead of failing the client graph. A seat that is
+ * declared but refuses the registration is caught per seat: the worst case is
+ * "this entry does not show", not a broken client half.
+ *
+ * The workspace-config holder is a **dev** dependency consumed with `import
+ * type` only (D3): no runtime import, and no row in `dsh.client.inject`. The
+ * seat literal is held locally and pinned to the holder's
+ * `WorkspaceConfigSectionSeat`, so a typo is a type error while the holder's
+ * components never reach this bundle.
  *
  * @module dsh-plugin-multi-root-workspace/client
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // Type-only: the SlotMap merge this plugin registers against, plus the CLIENT
-// faces that publish `ctx.slots` / `ctx.locale` on the browser context.
-import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+// faces that publish `ctx.slots` / `ctx.locale` / `ctx.connection` on the
+// browser context.
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
+// Type-only: the holder's seat contract. `import type {}` pulls the `SlotMap`
+// augmentation (`workspace-config.section`) into this program; the named import
+// pins the local literal below. Neither reaches the bundle (D3).
+import type {} from 'dsh-plugin-workspace-config/client'
+import type { WorkspaceConfigSectionSeat } from 'dsh-plugin-workspace-config/client'
 import { createElement } from 'react'
 import { currentSessionIdOf } from '../compat/client-session.ts'
 import { createPanelClient, type PanelClient } from './panel-client.ts'
 import { NS, en, zh } from './locales.ts'
 import { STYLES } from './styles.ts'
-import { WorkspaceFoldersAction, type Translate } from './WorkspaceFoldersAction.tsx'
+import {
+  WorkspaceFoldersLauncher,
+  WorkspaceFoldersSection,
+  type Translate,
+  type WorkspaceFoldersSectionInjected,
+} from './WorkspaceFoldersAction.tsx'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
@@ -39,8 +68,23 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-/** The footer-action cell this plugin owns. */
+/** The cell this plugin owns (an id is unique per seat, so both seats reuse it). */
 export const SLOT_ID = 'multi-root-folders'
+
+/**
+ * The section's row order in the unified dialog's navigation (D11: 10 / 20 / 30
+ * across mrfw / session-tool-toggle / web-ux).
+ */
+const SECTION_ORDER = 10
+
+/**
+ * The unified dialog's section seat, held locally.
+ *
+ * The literal is pinned to the holder's `WorkspaceConfigSectionSeat`: writing
+ * anything else is a compile error. The holder's runtime constant is
+ * deliberately not imported (D3).
+ */
+const SECTION_SEAT: WorkspaceConfigSectionSeat = 'workspace-config.section'
 
 /** The id of the `<style>` element carrying this plugin's sheet. */
 const STYLE_ELEMENT_ID = 'multi-root-workspace-styles'
@@ -84,31 +128,34 @@ export function apply(ctx: ClientContext): void {
   const sessionId = (): string | undefined => currentSessionIdOf(readService(ctx, 'sessions'))
   const t = ctx.locale.bind(NS) as unknown as Translate
 
-  ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
-    name: 'sidebar.footer.action',
-    id: SLOT_ID,
-    // After the shipped foot controls; the sidebar sorts a list slot by `order`.
-    order: 50,
-    // A thunk: the sidebar re-reads it per projection, so the label follows the
-    // active locale without re-registering.
-    label: () => t('action.label'),
-    locale: NS,
-    // The composed props include the owner share (`{ wide }`): forwarding it
-    // lets the trigger render its rail form when the sidebar collapses.
-  }, owner => {
-    const wide = (owner as { readonly wide?: boolean } | undefined)?.wide
-    return createElement(WorkspaceFoldersAction, {
-      panel,
-      pickDirectory,
-      sessionId,
-      t,
-      ...(wide === undefined ? {} : { wide }),
-    })
-  }))
-  // Optional: old surfaces without the Files actions slot retain the footer entry.
+  // The unified dialog's section (declared by the workspace-config holder). The
+  // registration is soft and separately guarded: a missing seat means the
+  // holder is not installed, while a refusing seat must not take the Files-tab
+  // entry down with it.
+  ctx.slots.inject(SECTION_SEAT, () => {
+    try {
+      return ctx.slots.register({
+        name: SECTION_SEAT,
+        id: SLOT_ID,
+        order: SECTION_ORDER,
+        // A thunk: the holder re-reads it per projection, so the label follows
+        // the active locale without re-registering.
+        label: () => t('section.label'),
+        locale: NS,
+        inject: (): WorkspaceFoldersSectionInjected => ({ panel, pickDirectory, sessionId }),
+      }, WorkspaceFoldersSection)
+    } catch (error) {
+      ctx.logger?.warn('multi-root-workspace: 工作区配置分节座位注册失败，本节不显示')
+      ctx.logger?.warn(error)
+      return () => {}
+    }
+  })
+
+  // Legacy Files-tab entry: old surfaces without the section seat (or without
+  // the holder) can still open the same panel body inline in the tab.
   ctx.slots.inject('sidebar.right.tab.files.actions', () => ctx.slots.register({
     name: 'sidebar.right.tab.files.actions', id: SLOT_ID, order: 50,
-  }, () => createElement(WorkspaceFoldersAction, { panel, pickDirectory, sessionId, t, compact: true })))
+  }, () => createElement(WorkspaceFoldersLauncher, { panel, pickDirectory, sessionId, t })))
 }
 
 /**
@@ -116,8 +163,8 @@ export function apply(ctx: ClientContext): void {
  *
  * Both lookups are deliberately untyped reads: the client Session Controller
  * and the workspace UI service are composed by the surface, not by this
- * plugin, and neither is a dependency it may assume (the footer action exists
- * on surfaces where they do not). Absence is a supported state — the panel then
+ * plugin, and neither is a dependency it may assume (the panel body exists on
+ * surfaces where they do not). Absence is a supported state — the panel then
  * shows "No active session" and does not ask the host to guess a workspace root.
  * @param ctx - the client context.
  * @param name - the service key to read.

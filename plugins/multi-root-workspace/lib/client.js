@@ -4358,6 +4358,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			"files.previewTruncated": "仅显示前 200 行",
 			"action.label": "工作区目录",
 			"action.title": "管理本会话的附属工作目录",
+			"section.label": "工作区文件夹",
 			"panel.title": "工作区目录",
 			"panel.subtitle": "主目录和附加目录遵循当前沙箱模式；workspace-write 可写，read-only 下都不可写。",
 			"panel.primary": "主工作目录",
@@ -4418,6 +4419,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			"files.previewTruncated": "Showing the first 200 lines",
 			"action.label": "Folders",
 			"action.title": "Manage this session's secondary working directories",
+			"section.label": "Workspace folders",
 			"panel.title": "Workspace folders",
 			"panel.subtitle": "The primary and additional folders follow the current sandbox mode: writable in workspace-write and read-only in read-only.",
 			"panel.primary": "Primary working directory",
@@ -4536,157 +4538,30 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		* The host ships its design tokens as CSS custom properties on `body`
 		* (`--dsw-alias-*` semantics, `--dsw-elevation-*` shadows, `--ds-*` motion and
 		* code-font tokens), so this sheet names no color of its own: light and dark
-		* theme follow the host automatically. The recipes mirror the native surfaces
-		* this UI sits beside — the sidebar footer trigger, the Modal primitive, and
-		* the capsule Button (ADR-0006 records the decision).
+		* theme follow the host automatically. It carries only the panel body and its
+		* capsule controls: the dialog shell (mask, card, header, close button) and the
+		* sidebar footer trigger belong to the workspace-config holder since ADR-0013,
+		* and the Modal primitive already styles them — this sheet deliberately has no
+		* rule for either.
 		*
 		* @module dsh-plugin-multi-root-workspace/client/styles
 		*/
 		/** The stylesheet text; every class is prefixed `mrfw-` to stay collision-free. */
 		const STYLES = `
-/* Sidebar footer row, mirroring the host ui-settings-general trigger: the row
- * wrapper overhangs each side by 2px (width calc(100% + 4px) against the
- * shell's 12px inline padding) so the icon's ink line lands at 18px from the
- * column edge — exactly where the Settings gear below sits. */
-.mrfw-triggerRow {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: calc(100% + 4px);
-  margin: 4px -2px;
-}
-
-.mrfw-triggerRow.mrfw-railRow {
-  width: 36px;
-  margin: 8px 0 10px;
-}
-
-.mrfw-trigger {
-  box-sizing: border-box;
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: auto;
-  height: 42px;
-  margin: 0;
-  padding: 0 10px 0 8px;
-  border: none;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--dsw-alias-label-primary);
-  font-family: inherit;
-  font-size: 14px;
-  line-height: 22px;
-  text-align: left;
-  cursor: pointer;
-  overflow: hidden;
-  transition: background-color var(--ds-transition-duration-fast) var(--ds-ease-in-out);
-}
-
-.mrfw-trigger:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-.mrfw-triggerIcon {
-  flex: none;
-  display: inline-flex;
-}
-
-.mrfw-triggerLabel {
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.mrfw-triggerRail {
-  flex: none;
-  width: 36px;
-  height: 36px;
-  margin: 0;
-  padding: 0;
-  gap: 0;
-  border-radius: 50%;
-  justify-content: center;
-}
-
-.mrfw-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-
-.mrfw-mask {
-  position: absolute;
-  inset: 0;
-  background: var(--dsw-alias-bg-mask-1);
-  backdrop-filter: var(--dsw-mask-blur);
-}
-
-.mrfw-dialog {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  width: min(640px, 100%);
-  max-height: 100%;
-  overflow: hidden;
-  border: none;
-  border-radius: 24px;
-  background: var(--dsw-alias-bg-layer-2);
-  box-shadow: var(--dsw-elevation-prominent);
-  color: var(--dsw-alias-label-primary);
-  font-family: inherit;
-  outline: none;
-}
-
-.mrfw-header {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 22px 14px 12px 24px;
-}
-
-.mrfw-title {
-  margin: 0;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 500;
-  color: var(--dsw-alias-label-primary);
-}
-
-.mrfw-close {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  cursor: pointer;
-  color: var(--dsw-alias-label-secondary);
-  transition: background-color var(--ds-transition-duration-fast) var(--ds-ease-in-out);
-}
-
-.mrfw-close:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
+/* The section's own column. The holder's dialog content column owns the
+ * padding and the scrolling (.panel: 20px 24px padding, overflow-y auto),
+ * so this root must not scroll a second time; it only stacks the body blocks
+ * and is allowed to shrink inside the dialog's flex column. */
 .mrfw-body {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow-y: auto;
-  padding: 0 24px 24px;
+}
+
+/* The section fills the holder's content column (flex: 1 1 auto) while still
+ * collapsing to its content height in the Files-tab inline wrapper. */
+.mrfw-sectionBody {
+  flex: 1 1 auto;
 }
 
 .mrfw-description {
@@ -5105,22 +4980,30 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		//#endregion
 		//#region src/client/WorkspaceFoldersAction.tsx
 		/**
-		* The Workspace Folders panel: one sidebar footer action that opens a dialog
-		* listing this session's workspace root and the additional roots registered for
-		* it, with the actions the milestone requires — Add (through the composed
-		* directory picker), Remove, Alias, Copy Path, Reveal, and reordering.
+		* The Workspace Folders panel body: this session's primary workspace root and
+		* the additional roots registered for it, with the actions the milestone
+		* requires — Add (through the composed directory picker), Remove, Alias, Copy
+		* Path, Reveal, reordering, and the additional-root file tree.
 		*
-		* Why a footer action and its own dialog, instead of a first-class panel: the
-		* slots that can host a full panel (`sidebar.panellist` + the keyed `main`
-		* panel) exist only in the pinned 0.1.5 surface, while `sidebar.footer.action`
-		* exists in both supported runtimes — and `sidebar.workspaces` is a single slot
-		* already owned by the workspace browser, so it cannot be extended in place.
+		* Since the unified workspace-config entry landed, the panel is a **section**
+		* (`workspace-config.section`) rather than a dialog (ADR-0013): the
+		* workspace-config holder owns the modal shell — mask, card, header, Escape,
+		* the focus trap and the close action — and declares the seat from its
+		* `shell.overlay` registration. This module therefore renders only the body:
+		* `WorkspaceFoldersSection` has no overlay, no `role="dialog"`, no Escape/Tab
+		* handling and no close button. The seat's owner share (`close`) is accepted
+		* for contract symmetry but not used: this section has no whole-window
+		* navigation of its own, so closing stays the holder's business.
+		*
+		* `WorkspaceFoldersLauncher` is the legacy Files-tab entry: on surfaces that
+		* still offer `sidebar.right.tab.files.actions` it expands the same body
+		* inline, keeping the panel reachable without the holder installed.
 		*
 		* Styling is the host's, not this file's: the elements carry `mrfw-*` classes
 		* resolved by the stylesheet the client entry injects (`styles.ts`), and every
 		* color in that sheet is a host `--dsw-*` token, so the panel inherits the
-		* native look — sidebar trigger, modal card, capsule buttons — in both themes
-		* without naming a single color here (see ADR-0006).
+		* native look — capsule buttons, native typography — in both themes without
+		* naming a single color here (see ADR-0006).
 		*
 		* @module dsh-plugin-multi-root-workspace/client/WorkspaceFoldersAction
 		*/
@@ -5157,20 +5040,6 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				children: props.icon
 			});
 		}
-		/** The 16px close glyph of the dialog's header button. */
-		function CloseIcon() {
-			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("svg", {
-				width: "16",
-				height: "16",
-				viewBox: "0 0 16 16",
-				fill: "none",
-				stroke: "currentColor",
-				strokeWidth: "1.2",
-				strokeLinecap: "round",
-				"aria-hidden": "true",
-				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M4 4l8 8M12 4l-8 8" })
-			});
-		}
 		/** The locale key for one reported root state. */
 		function stateKey(state) {
 			switch (state) {
@@ -5192,36 +5061,40 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		function displayNameOf(root) {
 			return root.alias ?? basename(root.path);
 		}
-		/** The sidebar footer action plus the dialog it opens. */
-		function WorkspaceFoldersAction(props) {
-			const [open, setOpen] = (0, react.useState)(false);
-			const rail = props.wide === false;
-			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-				className: props.compact ? "mrfw-fileLauncher" : rail ? "mrfw-triggerRow mrfw-railRow" : "mrfw-triggerRow",
-				children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+		/**
+		* The legacy Files-tab entry: a compact capsule that expands the same panel
+		* body in place.
+		*
+		* The Files tab offers no modal shell of its own, and importing the holder's
+		* open bridge is exactly the runtime coupling D3 forbids — so the entry owns a
+		* local expansion state and renders the section inline. With the holder
+		* installed the dialog is the primary surface; this entry only keeps the
+		* older `sidebar.right.tab.files.actions` surface usable on its own.
+		*/
+		function WorkspaceFoldersLauncher(props) {
+			const [expanded, setExpanded] = (0, react.useState)(false);
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: "mrfw-fileLauncher",
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 					type: "button",
-					className: props.compact ? "mrfw-btn mrfw-btnGhost" : rail ? "mrfw-trigger mrfw-triggerRail" : "mrfw-trigger",
+					className: "mrfw-btn mrfw-btnGhost",
 					title: props.t("action.title"),
-					"aria-haspopup": "dialog",
-					"aria-expanded": open,
+					"aria-label": props.t("action.label"),
+					"aria-expanded": expanded,
 					onClick: () => {
-						setOpen((value) => !value);
+						setExpanded((value) => !value);
 					},
-					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: "mrfw-triggerIcon",
+					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 						"aria-hidden": "true",
-						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconFolderClose, { size: rail ? 18 : 16 })
-					}), rail ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: "mrfw-triggerLabel",
-						children: props.t("action.label")
-					})]
-				})
-			}), open ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(WorkspaceFoldersDialog, {
-				...props,
-				onClose: () => {
-					setOpen(false);
-				}
-			}) : null] });
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconFolderClose, { size: 16 })
+					})
+				}), expanded ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(WorkspaceFoldersSection, {
+					...props,
+					close: () => {
+						setExpanded(false);
+					}
+				}) : null]
+			});
 		}
 		function entryOf(root) {
 			return {
@@ -5235,7 +5108,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			return `${root.ordinal}\u0000${root.id}\u0000${root.path}\u0000${root.addedAt}`;
 		}
 		/**
-		* The dialog: reads the view once per open, then after every mutation.
+		* The panel body: reads the view once per mount, then after every mutation.
 		*
 		* Two shapes travel back over the channel, and they are handled separately on
 		* purpose: every mutating endpoint answers with the whole refreshed view, while
@@ -5243,7 +5116,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		* (see `contract.ts`). Treating a reveal answer as a roots view is exactly the
 		* contract mismatch this split removes.
 		*/
-		function WorkspaceFoldersDialog(props) {
+		function WorkspaceFoldersSection(props) {
 			const { panel, t } = props;
 			const [state, setState] = (0, react.useState)({
 				view: void 0,
@@ -5256,7 +5129,6 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			const [aliasDraft, setAliasDraft] = (0, react.useState)("");
 			const [copiedId, setCopiedId] = (0, react.useState)(void 0);
 			const [menuFor, setMenuFor] = (0, react.useState)(void 0);
-			const dialogRef = (0, react.useRef)(null);
 			const requestEpoch = (0, react.useRef)(0);
 			const mounted = (0, react.useRef)(true);
 			(0, react.useEffect)(() => () => {
@@ -5267,35 +5139,6 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				const current = props.sessionId?.();
 				return current === void 0 || current === "" ? void 0 : { sessionId: current };
 			}, [props.sessionId]);
-			(0, react.useEffect)(() => {
-				dialogRef.current?.focus();
-			}, []);
-			const onDialogKeyDown = (event) => {
-				if (event.key === "Escape") {
-					if (menuFor !== void 0) return;
-					event.stopPropagation();
-					props.onClose();
-					return;
-				}
-				if (event.key !== "Tab") return;
-				const dialog = dialogRef.current;
-				if (dialog === null) return;
-				const focusable = Array.from(dialog.querySelectorAll("button, input, [href], [tabindex]:not([tabindex=\"-1\"])")).filter((element) => !element.hasAttribute("disabled"));
-				if (focusable.length === 0) {
-					event.preventDefault();
-					return;
-				}
-				const first = focusable[0];
-				const last = focusable[focusable.length - 1];
-				const active = dialog.ownerDocument.activeElement;
-				if (event.shiftKey && (active === first || !(active instanceof HTMLElement) || !dialog.contains(active))) {
-					event.preventDefault();
-					last.focus();
-				} else if (!event.shiftKey && (active === last || !(active instanceof HTMLElement) || !dialog.contains(active))) {
-					event.preventDefault();
-					first.focus();
-				}
-			};
 			const refresh = (0, react.useCallback)(async () => {
 				if (panel === void 0) {
 					setState({
@@ -5487,294 +5330,276 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				});
 			}, [mutate]);
 			const roots = state.view?.roots ?? [];
-			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: "mrfw-overlay",
-				role: "presentation",
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-					className: "mrfw-mask",
-					role: "presentation",
-					onClick: (event) => {
-						if (event.target === event.currentTarget) props.onClose();
-					}
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-					ref: dialogRef,
-					tabIndex: -1,
-					onKeyDown: onDialogKeyDown,
-					className: "mrfw-dialog",
-					role: "dialog",
-					"aria-modal": "true",
-					"aria-label": t("panel.title"),
-					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-						className: "mrfw-header",
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h2", {
-							className: "mrfw-title",
-							children: t("panel.title")
-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-							type: "button",
-							className: "mrfw-close",
-							title: t("panel.close"),
-							"aria-label": t("panel.close"),
-							onClick: props.onClose,
-							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(CloseIcon, {})
-						})]
-					}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-						className: "mrfw-body",
-						children: [state.noSession ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-							className: "mrfw-note",
-							children: t("panel.noSession")
-						}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-								className: "mrfw-description",
-								children: t("panel.subtitle")
-							}),
-							state.error === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
-								role: "alert",
-								className: "mrfw-alert",
-								children: [t(errorKeyOf(state.error.code)), state.error.code === "unavailable" || state.error.code === "panel/internal" ? ` (${state.error.message})` : ""]
-							}),
-							state.view?.unavailable === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-								role: "alert",
-								className: "mrfw-alert",
-								children: state.view.unavailable
-							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
-								className: "mrfw-section",
-								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-									className: "mrfw-sectionTitleRow",
-									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-										className: "mrfw-sectionTitle",
-										children: t("panel.primary")
-									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-										className: "mrfw-sectionNote",
-										children: t("panel.primaryNote")
-									})]
-								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-									className: "mrfw-row mrfw-rowBare",
-									children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-										className: "mrfw-rootText",
-										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-											className: "mrfw-rootName",
-											children: state.view === void 0 ? "…" : state.view.primaryName ?? basename(state.view.primaryRoot)
-										}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-											className: "mrfw-rootPath",
-											children: state.view?.primaryRoot ?? "…"
-										})]
-									})
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+				className: "mrfw-body mrfw-sectionBody",
+				"aria-label": t("panel.title"),
+				children: [state.noSession ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+					className: "mrfw-note",
+					children: t("panel.noSession")
+				}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: "mrfw-description",
+						children: t("panel.subtitle")
+					}),
+					state.error === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
+						role: "alert",
+						className: "mrfw-alert",
+						children: [t(errorKeyOf(state.error.code)), state.error.code === "unavailable" || state.error.code === "panel/internal" ? ` (${state.error.message})` : ""]
+					}),
+					state.view?.unavailable === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						role: "alert",
+						className: "mrfw-alert",
+						children: state.view.unavailable
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+						className: "mrfw-section",
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: "mrfw-sectionTitleRow",
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: "mrfw-sectionTitle",
+								children: t("panel.primary")
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: "mrfw-sectionNote",
+								children: t("panel.primaryNote")
+							})]
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: "mrfw-row mrfw-rowBare",
+							children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+								className: "mrfw-rootText",
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: "mrfw-rootName",
+									children: state.view === void 0 ? "…" : state.view.primaryName ?? basename(state.view.primaryRoot)
+								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: "mrfw-rootPath",
+									children: state.view?.primaryRoot ?? "…"
 								})]
+							})
+						})]
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+						className: "mrfw-section",
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								className: "mrfw-sectionTitleRow",
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: "mrfw-sectionTitle",
+									children: t("panel.additional")
+								})
 							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
-								className: "mrfw-section",
+							state.view === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+								className: "mrfw-note",
+								children: t("panel.loading")
+							}) : null,
+							state.view !== void 0 && roots.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
+								className: "mrfw-note",
 								children: [
-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-										className: "mrfw-sectionTitleRow",
-										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-											className: "mrfw-sectionTitle",
-											children: t("panel.additional")
-										})
-									}),
-									state.view === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-										className: "mrfw-note",
-										children: t("panel.loading")
-									}) : null,
-									state.view !== void 0 && roots.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
-										className: "mrfw-note",
-										children: [
-											t("panel.empty"),
-											" ",
-											t("panel.emptyHint")
-										]
-									}) : null,
-									roots.map((root, index) => {
-										const key = rowKey(root);
-										const isCommon = root.source === "common";
-										const canMoveUp = !isCommon && index > 0;
-										const canMoveDown = !isCommon && index < roots.length - 1 && roots[index + 1]?.source !== "common";
-										return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-											className: "mrfw-row",
+									t("panel.empty"),
+									" ",
+									t("panel.emptyHint")
+								]
+							}) : null,
+							roots.map((root, index) => {
+								const key = rowKey(root);
+								const isCommon = root.source === "common";
+								const canMoveUp = !isCommon && index > 0;
+								const canMoveDown = !isCommon && index < roots.length - 1 && roots[index + 1]?.source !== "common";
+								return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+									className: "mrfw-row",
+									children: [
+										/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+											className: "mrfw-rootText",
+											children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+												className: "mrfw-rootName",
+												children: displayNameOf(root)
+											}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+												className: "mrfw-rootPath",
+												children: root.path
+											})]
+										}),
+										isCommon ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+											title: t("root.sourceCommonTitle"),
+											className: "mrfw-sourceBadge",
+											children: t("root.sourceCommon")
+										}) : null,
+										root.state === "available" ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+											title: root.detail,
+											className: "mrfw-stateWarn",
+											children: t(stateKey(root.state))
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
+											onClick: () => {
+												copyPath(root);
+											},
+											icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconCopy, {}),
+											label: copiedId === key ? t("panel.copied") : t("panel.copyPath")
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
+											disabled: state.busy,
+											onClick: () => {
+												reveal(root);
+											},
+											icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconFolderOpen, {}),
+											label: t("panel.reveal")
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
+											disabled: state.busy || !canMoveUp,
+											onClick: () => {
+												move(root, roots[index - 1]);
+											},
+											icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconChevronUp, {}),
+											label: t("panel.moveUp")
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
+											disabled: state.busy || !canMoveDown,
+											onClick: () => {
+												move(root, roots[index + 2]);
+											},
+											icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconChevronDown, {}),
+											label: t("panel.moveDown")
+										}),
+										/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Menu, {
+											open: menuFor === key,
+											onClose: () => {
+												setMenuFor(void 0);
+											},
+											items: [{
+												id: "rename",
+												label: t("panel.rename"),
+												icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconEdit, {}),
+												disabled: state.busy || isCommon
+											}, {
+												id: "remove",
+												label: t("panel.remove"),
+												icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconTrash, {}),
+												danger: true,
+												disabled: state.busy || isCommon
+											}],
+											onSelect: (id) => {
+												setMenuFor(void 0);
+												if (id === "rename") {
+													setAliasFor(key);
+													setAliasDraft(root.alias ?? "");
+												}
+												if (id === "remove") mutate("remove", { entry: entryOf(root) });
+											},
+											portal: true,
+											align: "end",
+											closeOnPointerLeave: true,
+											anchor: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
+												disabled: state.busy,
+												onClick: () => {
+													setMenuFor((current) => current === key ? void 0 : key);
+												},
+												icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconEllipsis, {}),
+												label: t("panel.more")
+											})
+										}),
+										aliasFor === key ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+											className: "mrfw-aliasEditor",
 											children: [
-												/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-													className: "mrfw-rootText",
-													children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-														className: "mrfw-rootName",
-														children: displayNameOf(root)
-													}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-														className: "mrfw-rootPath",
-														children: root.path
-													})]
+												/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+													autoFocus: true,
+													className: "mrfw-input mrfw-inputInline",
+													value: aliasDraft,
+													placeholder: t("panel.aliasPlaceholder"),
+													onChange: (event) => {
+														setAliasDraft(event.target.value);
+													}
 												}),
-												isCommon ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-													title: t("root.sourceCommonTitle"),
-													className: "mrfw-sourceBadge",
-													children: t("root.sourceCommon")
-												}) : null,
-												root.state === "available" ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-													title: root.detail,
-													className: "mrfw-stateWarn",
-													children: t(stateKey(root.state))
-												}),
-												/* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
-													onClick: () => {
-														copyPath(root);
-													},
-													icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconCopy, {}),
-													label: copiedId === key ? t("panel.copied") : t("panel.copyPath")
-												}),
-												/* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
+												/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Action, {
 													disabled: state.busy,
 													onClick: () => {
-														reveal(root);
+														mutate("alias", {
+															entry: entryOf(root),
+															alias: aliasDraft
+														});
+														setAliasFor(void 0);
 													},
-													icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconFolderOpen, {}),
-													label: t("panel.reveal")
+													children: t("panel.aliasSave")
 												}),
-												/* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
-													disabled: state.busy || !canMoveUp,
+												/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Action, {
 													onClick: () => {
-														move(root, roots[index - 1]);
+														setAliasFor(void 0);
 													},
-													icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconChevronUp, {}),
-													label: t("panel.moveUp")
-												}),
-												/* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
-													disabled: state.busy || !canMoveDown,
-													onClick: () => {
-														move(root, roots[index + 2]);
-													},
-													icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconChevronDown, {}),
-													label: t("panel.moveDown")
-												}),
-												/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Menu, {
-													open: menuFor === key,
-													onClose: () => {
-														setMenuFor(void 0);
-													},
-													items: [{
-														id: "rename",
-														label: t("panel.rename"),
-														icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconEdit, {}),
-														disabled: state.busy || isCommon
-													}, {
-														id: "remove",
-														label: t("panel.remove"),
-														icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconTrash, {}),
-														danger: true,
-														disabled: state.busy || isCommon
-													}],
-													onSelect: (id) => {
-														setMenuFor(void 0);
-														if (id === "rename") {
-															setAliasFor(key);
-															setAliasDraft(root.alias ?? "");
-														}
-														if (id === "remove") mutate("remove", { entry: entryOf(root) });
-													},
-													portal: true,
-													align: "end",
-													closeOnPointerLeave: true,
-													anchor: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
-														disabled: state.busy,
-														onClick: () => {
-															setMenuFor((current) => current === key ? void 0 : key);
-														},
-														icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconEllipsis, {}),
-														label: t("panel.more")
-													})
-												}),
-												aliasFor === key ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-													className: "mrfw-aliasEditor",
-													children: [
-														/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-															autoFocus: true,
-															className: "mrfw-input mrfw-inputInline",
-															value: aliasDraft,
-															placeholder: t("panel.aliasPlaceholder"),
-															onChange: (event) => {
-																setAliasDraft(event.target.value);
-															}
-														}),
-														/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Action, {
-															disabled: state.busy,
-															onClick: () => {
-																mutate("alias", {
-																	entry: entryOf(root),
-																	alias: aliasDraft
-																});
-																setAliasFor(void 0);
-															},
-															children: t("panel.aliasSave")
-														}),
-														/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Action, {
-															onClick: () => {
-																setAliasFor(void 0);
-															},
-															children: t("panel.aliasCancel")
-														})
-													]
-												}) : null,
-												root.state === "available" && panel !== void 0 && props.sessionId !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(RootFileTree, {
-													panel,
-													entry: entryOf(root),
-													sessionId: props.sessionId,
-													t
+													children: t("panel.aliasCancel")
 												})
 											]
-										}, key);
-									})
-								]
+										}) : null,
+										root.state === "available" && panel !== void 0 && props.sessionId !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(RootFileTree, {
+											panel,
+											entry: entryOf(root),
+											sessionId: props.sessionId,
+											t
+										})
+									]
+								}, key);
 							})
-						] }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-							className: "mrfw-actions",
-							children: [
-								state.noSession || props.pickDirectory === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
-									variant: "outline",
-									disabled: state.busy,
-									onClick: () => {
-										addViaPicker();
-									},
-									icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconPlus, {}),
-									label: t("panel.add")
-								}),
-								state.noSession ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-									className: "mrfw-input",
-									value: manualPath,
-									placeholder: t("panel.addManual"),
-									onChange: (event) => {
-										setManualPath(event.target.value);
-									},
-									onKeyDown: (event) => {
-										if (event.key === "Enter") addManualPath();
-									}
-								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Action, {
-									onClick: () => {
-										addManualPath();
-									},
-									disabled: state.busy || manualPath.trim() === "",
-									variant: "primary",
-									children: t("panel.addConfirm")
-								})] }),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Action, {
-									onClick: () => {
-										refresh();
-									},
-									disabled: state.busy,
-									variant: "outline",
-									children: t("panel.retry")
-								})
-							]
-						})]
-					})]
+						]
+					})
+				] }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: "mrfw-actions",
+					children: [
+						state.noSession || props.pickDirectory === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
+							variant: "outline",
+							disabled: state.busy,
+							onClick: () => {
+								addViaPicker();
+							},
+							icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconPlus, {}),
+							label: t("panel.add")
+						}),
+						state.noSession ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+							className: "mrfw-input",
+							value: manualPath,
+							placeholder: t("panel.addManual"),
+							onChange: (event) => {
+								setManualPath(event.target.value);
+							},
+							onKeyDown: (event) => {
+								if (event.key === "Enter") addManualPath();
+							}
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Action, {
+							onClick: () => {
+								addManualPath();
+							},
+							disabled: state.busy || manualPath.trim() === "",
+							variant: "primary",
+							children: t("panel.addConfirm")
+						})] }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Action, {
+							onClick: () => {
+								refresh();
+							},
+							disabled: state.busy,
+							variant: "outline",
+							children: t("panel.retry")
+						})
+					]
 				})]
 			});
 		}
-		/** Normalize any thrown value into a `PanelError` the dialog can render. */
+		/** Normalize any thrown value into a `PanelError` the panel can render. */
 		function asPanelError(error) {
 			if (error instanceof PanelError) return error;
 			return new PanelError("fallback", error instanceof Error ? error.message : String(error));
 		}
 		//#endregion
 		//#region src/client/index.ts
-		/** The footer-action cell this plugin owns. */
+		/** The cell this plugin owns (an id is unique per seat, so both seats reuse it). */
 		const SLOT_ID = "multi-root-folders";
+		/**
+		* The section's row order in the unified dialog's navigation (D11: 10 / 20 / 30
+		* across mrfw / session-tool-toggle / web-ux).
+		*/
+		const SECTION_ORDER = 10;
+		/**
+		* The unified dialog's section seat, held locally.
+		*
+		* The literal is pinned to the holder's `WorkspaceConfigSectionSeat`: writing
+		* anything else is a compile error. The holder's runtime constant is
+		* deliberately not imported (D3).
+		*/
+		const SECTION_SEAT = "workspace-config.section";
 		/** The id of the `<style>` element carrying this plugin's sheet. */
 		const STYLE_ELEMENT_ID = "multi-root-workspace-styles";
 		/** Services the client half needs before it may activate. */
@@ -5815,32 +5640,35 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			};
 			const sessionId = () => currentSessionIdOf(readService(ctx, "sessions"));
 			const t = ctx.locale.bind(NS);
-			ctx.slots.inject("sidebar.footer.action", () => ctx.slots.register({
-				name: "sidebar.footer.action",
-				id: SLOT_ID,
-				order: 50,
-				label: () => t("action.label"),
-				locale: NS
-			}, (owner) => {
-				const wide = owner?.wide;
-				return (0, react.createElement)(WorkspaceFoldersAction, {
-					panel,
-					pickDirectory,
-					sessionId,
-					t,
-					...wide === void 0 ? {} : { wide }
-				});
-			}));
+			ctx.slots.inject(SECTION_SEAT, () => {
+				try {
+					return ctx.slots.register({
+						name: SECTION_SEAT,
+						id: SLOT_ID,
+						order: SECTION_ORDER,
+						label: () => t("section.label"),
+						locale: NS,
+						inject: () => ({
+							panel,
+							pickDirectory,
+							sessionId
+						})
+					}, WorkspaceFoldersSection);
+				} catch (error) {
+					ctx.logger?.warn("multi-root-workspace: 工作区配置分节座位注册失败，本节不显示");
+					ctx.logger?.warn(error);
+					return () => {};
+				}
+			});
 			ctx.slots.inject("sidebar.right.tab.files.actions", () => ctx.slots.register({
 				name: "sidebar.right.tab.files.actions",
 				id: SLOT_ID,
 				order: 50
-			}, () => (0, react.createElement)(WorkspaceFoldersAction, {
+			}, () => (0, react.createElement)(WorkspaceFoldersLauncher, {
 				panel,
 				pickDirectory,
 				sessionId,
-				t,
-				compact: true
+				t
 			})));
 		}
 		/**
@@ -5848,8 +5676,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		*
 		* Both lookups are deliberately untyped reads: the client Session Controller
 		* and the workspace UI service are composed by the surface, not by this
-		* plugin, and neither is a dependency it may assume (the footer action exists
-		* on surfaces where they do not). Absence is a supported state — the panel then
+		* plugin, and neither is a dependency it may assume (the panel body exists on
+		* surfaces where they do not). Absence is a supported state — the panel then
 		* shows "No active session" and does not ask the host to guess a workspace root.
 		* @param ctx - the client context.
 		* @param name - the service key to read.

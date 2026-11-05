@@ -32,7 +32,14 @@ interface Call {
 
 /** One slot registration the plugin made. */
 interface Registration {
-  readonly options: { name: string; id?: string; order?: number; label?: unknown; locale?: string }
+  readonly options: {
+    name: string
+    id?: string
+    order?: number
+    label?: unknown
+    locale?: string
+    inject?: () => Record<string, unknown>
+  }
   readonly component: () => unknown
 }
 
@@ -57,6 +64,12 @@ interface Harness {
   holdNextCall: () => void
   /** Release a call held by `holdNextCall`. */
   release: () => void
+  /** `apply` 期间收集到的 `logger.warn` 实参（四格矩阵的「不报错」断言）。 */
+  readonly warnings: unknown[][]
+  /** 分节座位还在等待声明的 `slots.inject` 回调数（「只贡献方」格）。 */
+  pendingSectionCount: () => number
+  /** 后装 holder：声明 `workspace-config.section`，补跑待命回调（格 4）。 */
+  declareSection: () => void
 }
 
 const ROOT_A: RootView = { ordinal: 1, id: 'a', path: '/repos/payments', addedAt: '2026-09-12T00:00:00.000Z', state: 'available', alias: 'payments' }
@@ -90,11 +103,21 @@ function catalogSnapshot(rows: readonly { id: string; mainView?: number }[]): {
   return { ids: rows.map(row => row.id), byId, phase: 'ready' }
 }
 
-/** Apply the real client entry to a recording stub context. */
-function mount(withFilesActions = false): Harness {
+/**
+ * Apply the real client entry to a recording stub context.
+ *
+ * @param withFilesActions - whether the shell declares the legacy Files-tab seat.
+ * @param deferSection - when true the holder's `workspace-config.section` seat is
+ *   NOT declared at apply time: the section `slots.inject` callback is parked
+ *   (the "contributor only, holder missing" composition) until `declareSection()`.
+ */
+function mount(withFilesActions = false, deferSection = false): Harness {
   const calls: Call[] = []
   const registrations: Registration[] = []
   const dictionaries: { ns: string; dicts: Record<string, unknown> }[] = []
+  const warnings: unknown[][] = []
+  /** `workspace-config.section` 的待命回调（后装 holder 时补跑）。 */
+  const pendingSection: Array<() => unknown> = []
   let view: RootsView = { primaryRoot: '/repos/primary', roots: [ROOT_A, ROOT_B] }
   let currentSession: string | undefined = 'session-1'
   // Undefined keeps the 0.1.5 / 0.1.6-alpha.1 selection snapshot (`current`).
@@ -150,14 +173,24 @@ function mount(withFilesActions = false): Harness {
     },
     slots: {
       inject: (name: string, callback: () => unknown) => {
+        expect(['workspace-config.section', 'sidebar.right.tab.files.actions']).toContain(name)
         if (name === 'sidebar.right.tab.files.actions' && !withFilesActions) return () => {}
-        expect(['sidebar.footer.action', 'sidebar.right.tab.files.actions']).toContain(name)
+        // 后装 holder：座位尚未声明，回调只登记等待（真实 SlotRegistry.inject 语义）。
+        if (name === 'workspace-config.section' && deferSection) {
+          pendingSection.push(callback)
+          return () => {}
+        }
         callback()
         return () => {}
       },
       register: (options: Registration['options'], component: () => unknown) => {
         registrations.push({ options, component })
         return () => {}
+      },
+    },
+    logger: {
+      warn: (...args: unknown[]) => {
+        warnings.push(args)
       },
     },
     get: (name: string) => {
@@ -191,17 +224,48 @@ function mount(withFilesActions = false): Harness {
     setRevealed: next => { revealed = next },
     holdNextCall: () => { gate = new Promise<void>(resolve => { releaseGate = resolve }) },
     release: () => { releaseGate?.(); releaseGate = undefined },
+    warnings,
+    pendingSectionCount: () => pendingSection.length,
+    declareSection: () => {
+      for (const callback of pendingSection.splice(0)) callback()
+    },
   }
 }
 
+/** The translator the framework synthesizes for this namespace's entries. */
+const translate = (key: string): string => `${NS}.${key}`
+
+/** Find one registration by seat. */
+function registrationOf(harness: Harness, seat: string): Registration {
+  const registration = harness.registrations.find(item => item.options.name === seat)
+  if (registration === undefined) throw new Error(`the ${seat} seat was not registered`)
+  return registration
+}
+
 /**
- * Render the component the plugin registered. The registered value is a
- * component function, so it is wrapped in an element: React does not accept a
- * bare function as a child.
+ * Render the section the plugin registered, with the composed props the
+ * renderer passes: the seat owner share (`close`), the synthesized translator
+ * and the registration's inject face. The component function is wrapped in an
+ * element because React does not accept a bare function as a child.
  * @param harness - the mounted harness whose registration to render.
  */
-function renderPanel(harness: Harness): void {
-  render(createElement(harness.registrations[0]!.component as never))
+function renderSection(harness: Harness): void {
+  const registration = registrationOf(harness, 'workspace-config.section')
+  const injected = registration.options.inject?.() ?? {}
+  render(createElement(registration.component as never, {
+    close: () => {},
+    t: translate,
+    ...injected,
+  } as never))
+}
+
+/**
+ * Render the legacy Files-tab launcher. It closes over its ports, so it takes
+ * no props — exactly like the entry's registration factory.
+ * @param harness - the mounted harness whose registration to render.
+ */
+function renderLauncher(harness: Harness): void {
+  render(createElement(registrationOf(harness, 'sidebar.right.tab.files.actions').component as never))
 }
 
 beforeEach(() => {
@@ -215,14 +279,18 @@ afterEach(() => {
 })
 
 describe('the client entry', () => {
-  it('opens the same session-derived panel from the optional Files actions slot', async () => {
+  it('expands the same session-derived panel inline from the optional Files actions slot', async () => {
     const harness = mount(true)
-    const registration = harness.registrations.find(item => item.options.name === 'sidebar.right.tab.files.actions')!
-    expect(registration).toBeDefined()
-    render(createElement(registration.component as never))
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderLauncher(harness)
+    // An entry reads nothing until the operator asks for it.
+    expect(harness.calls).toHaveLength(0)
+
+    fireEvent.click(screen.getByRole('button', { name: `${NS}.action.label` }))
+
     await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
     expect(harness.calls[0]).toEqual({ channel: PANEL_CHANNEL, endpoint: 'list', payload: { sessionId: 'session-1' } })
+    // The Files tab has no modal shell of its own: the body opens in place.
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('declares the services it needs', () => {
@@ -236,19 +304,41 @@ describe('the client entry', () => {
     expect(Object.keys(harness.dictionaries[0]?.dicts ?? {}).sort()).toEqual(['en', 'zh'])
   })
 
-  it('registers into the sidebar footer action with a localized label thunk', () => {
+  it('registers one workspace-config section with a localized label thunk', () => {
     const harness = mount()
-    const registration = harness.registrations[0]
-    expect(registration?.options.name).toBe('sidebar.footer.action')
-    expect(registration?.options.id).toBe(client.SLOT_ID)
-    expect(registration?.options.order).toBe(50)
-    expect(registration?.options.locale).toBe(NS)
-    const label = registration?.options.label
+    const registration = registrationOf(harness, 'workspace-config.section')
+    expect(registration.options.id).toBe(client.SLOT_ID)
+    // mrfw takes the first nav row: 10 / 20 / 30 across the three contributors.
+    expect(registration.options.order).toBe(10)
+    expect(registration.options.locale).toBe(NS)
+    const label = registration.options.label
     expect(typeof label).toBe('function')
-    expect((label as () => string)()).toBe(`${NS}.action.label`)
+    expect((label as () => string)()).toBe(`${NS}.section.label`)
+    // The old footer entry is gone for good (ADR-0013).
+    expect(harness.registrations.some(item => item.options.name === 'sidebar.footer.action')).toBe(false)
   })
 
-  it('registers nothing when no sidebar declares the slot', () => {
+  it('does not hard-depend on the holder: a refusing seat only loses that entry', () => {
+    const warnings: unknown[][] = []
+    const ctx = {
+      effect: (callback: () => unknown) => { callback(); return () => {} },
+      locale: { register: () => () => {}, bind: (ns: string) => (key: string) => `${ns}.${key}` },
+      logger: { warn: (...args: unknown[]) => { warnings.push(args) } },
+      slots: {
+        inject: (_name: string, callback: () => unknown) => { callback(); return () => {} },
+        register: (options: Registration['options']) => {
+          if (options.name === 'workspace-config.section') throw new Error('seat refused the registration')
+          return () => {}
+        },
+      },
+      get: () => undefined,
+    }
+    // Soft registration: the client half still applies, and the failure is logged.
+    expect(() => { client.apply(ctx as never) }).not.toThrow()
+    expect(warnings.length).toBeGreaterThan(0)
+  })
+
+  it('registers nothing when the composition declares neither seat', () => {
     const ctx = {
       effect: () => () => {},
       locale: { register: () => () => {}, bind: () => (key: string) => key },
@@ -259,12 +349,10 @@ describe('the client entry', () => {
   })
 })
 
-describe('the panel dialog', () => {
+describe('the panel section', () => {
   it('reads the roots view for the current session and lists both roots', async () => {
     const harness = mount()
-    renderPanel(harness)
-
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
 
     await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
     expect(harness.calls[0]).toEqual({ channel: PANEL_CHANNEL, endpoint: 'list', payload: { sessionId: 'session-1' } })
@@ -279,8 +367,7 @@ describe('the panel dialog', () => {
   it('shows No active session and does not call the host when there is no current session', async () => {
     const harness = mount()
     harness.setSession(undefined)
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
 
     await waitFor(() => { expect(screen.getByText(`${NS}.panel.noSession`)).toBeTruthy() })
     expect(harness.calls).toHaveLength(0)
@@ -291,8 +378,7 @@ describe('the panel dialog', () => {
   it('calls the host after a session appears', async () => {
     const harness = mount()
     harness.setSession(undefined)
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
     await waitFor(() => { expect(screen.getByText(`${NS}.panel.noSession`)).toBeTruthy() })
 
     harness.setSession('session-1')
@@ -310,8 +396,7 @@ describe('the panel dialog', () => {
       { id: 'session-other' },
       { id: 'session-main', mainView: 1 },
     ])
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
 
     await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
     expect(harness.calls[0]).toEqual({ channel: PANEL_CHANNEL, endpoint: 'list', payload: { sessionId: 'session-main' } })
@@ -321,8 +406,7 @@ describe('the panel dialog', () => {
   it('shows No active session when catalog rows exist but none is the main view', async () => {
     const harness = mount()
     harness.setCatalog([{ id: 'session-other' }])
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
 
     await waitFor(() => { expect(screen.getByText(`${NS}.panel.noSession`)).toBeTruthy() })
     expect(harness.calls).toHaveLength(0)
@@ -331,8 +415,7 @@ describe('the panel dialog', () => {
   it('follows a main-view change on retry', async () => {
     const harness = mount()
     harness.setCatalog([{ id: 'session-main', mainView: 1 }])
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
     await waitFor(() => { expect(harness.calls).toHaveLength(1) })
 
     harness.setCatalog([
@@ -347,8 +430,7 @@ describe('the panel dialog', () => {
 
   it('reads the current session again for each request', async () => {
     const harness = mount()
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
     await waitFor(() => { expect(harness.calls).toHaveLength(1) })
 
     harness.setSession('session-2')
@@ -361,8 +443,7 @@ describe('the panel dialog', () => {
   it('shows the upstream workspace title as the primary row name', async () => {
     const harness = mount()
     harness.setView({ primaryRoot: '/repos/primary', primaryName: 'Payments Platform', roots: [ROOT_A] })
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
 
     await waitFor(() => { expect(screen.getByText('Payments Platform')).toBeTruthy() })
     expect(screen.getByText('/repos/primary')).toBeTruthy()
@@ -370,8 +451,7 @@ describe('the panel dialog', () => {
 
   it('removes, reorders, and re-aliases a root through the channel', async () => {
     const harness = mount()
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
     await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
 
     fireEvent.click(screen.getAllByRole('button', { name: `${NS}.panel.moveDown` })[0]!)
@@ -411,8 +491,7 @@ describe('the panel dialog', () => {
 
   it('adds through the composed picker, then through the manual path field', async () => {
     const harness = mount()
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
     await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
 
     fireEvent.click(screen.getByRole('button', { name: `${NS}.panel.add` }))
@@ -438,8 +517,7 @@ describe('the panel dialog', () => {
   it('keeps a rejected manual path in the field', async () => {
     const harness = mount()
     harness.setFailure({ code: 'missing', message: 'host prose' })
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe(`${NS}.error.missing`) })
 
     const manual = screen.getByPlaceholderText(`${NS}.panel.addManual`)
@@ -452,8 +530,7 @@ describe('the panel dialog', () => {
 
   it('submits the typed path from the Enter key too', async () => {
     const harness = mount()
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
     await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
 
     const manual = screen.getByPlaceholderText(`${NS}.panel.addManual`)
@@ -469,8 +546,7 @@ describe('the panel dialog', () => {
 
   it('leaves the manual field alone when the operator opens the picker', async () => {
     const harness = mount()
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
     await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
 
     fireEvent.change(screen.getByPlaceholderText(`${NS}.panel.addManual`), { target: { value: '/repos/typed' } })
@@ -488,8 +564,7 @@ describe('the panel dialog', () => {
 
   it('reveals and copies a path from the row actions', async () => {
     const harness = mount()
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
     await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
 
     fireEvent.click(screen.getAllByRole('button', { name: `${NS}.panel.reveal` })[0]!)
@@ -509,8 +584,7 @@ describe('the panel dialog', () => {
     // The host answers `{ revealed }` for this endpoint. Parsing that as a roots
     // view is what made every successful reveal paint a failure.
     const harness = mount()
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
     await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
 
     fireEvent.click(screen.getAllByRole('button', { name: `${NS}.panel.reveal` })[0]!)
@@ -525,8 +599,7 @@ describe('the panel dialog', () => {
   it('reports a reveal whose answer is not a reveal result', async () => {
     const harness = mount()
     harness.setRevealed({ primaryRoot: '/repos/primary', roots: [] })
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
     await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
 
     fireEvent.click(screen.getAllByRole('button', { name: `${NS}.panel.reveal` })[0]!)
@@ -536,8 +609,7 @@ describe('the panel dialog', () => {
 
   it('reports a clipboard that refuses the copy', async () => {
     const harness = mount()
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
     await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
 
     vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'))
@@ -550,8 +622,7 @@ describe('the panel dialog', () => {
     // The hold gate keeps the remove's channel call pending, which is the only
     // way to observe the busy window deterministically.
     const harness = mount()
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
     await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
 
     harness.holdNextCall()
@@ -567,29 +638,21 @@ describe('the panel dialog', () => {
     })
   })
 
-  it('closes on Escape and keeps Tab cycling inside the dialog', async () => {
+  it('renders the body without a dialog shell of its own', async () => {
     const harness = mount()
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
     await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
 
-    // Shift-Tab from the first focusable element wraps to the last one: the
-    // dialog is modal, so Tab must not escape into the sidebar behind it.
-    const dialog = screen.getByRole('dialog')
-    const focusable = dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input')
-    focusable[0]!.focus()
-    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true })
-    expect(document.activeElement).toBe(focusable[focusable.length - 1])
-
-    fireEvent.keyDown(dialog, { key: 'Escape' })
+    // The workspace-config holder owns the mask, the card, the header and the
+    // close button; the section must not draw a second dialog underneath it.
     expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByRole('button', { name: `${NS}.panel.close` })).toBeNull()
   })
 
   it('renders a redirected root as its own state', async () => {
     const harness = mount()
     harness.setView({ primaryRoot: '/repos/primary', roots: [ROOT_C] })
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
 
     await waitFor(() => { expect(screen.getByText(`${NS}.state.redirected`)).toBeTruthy() })
   })
@@ -610,8 +673,7 @@ describe('the panel dialog', () => {
         },
       ],
     })
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
     await waitFor(() => { expect(screen.getByText('/repos/cache')).toBeTruthy() })
 
     // The badge says who owns the grant...
@@ -633,8 +695,7 @@ describe('the panel dialog', () => {
   it('localizes a failure by its code instead of showing host prose', async () => {
     const harness = mount()
     harness.setFailure({ code: 'nested', message: 'host prose the panel must not show' })
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
 
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe(`${NS}.error.nested`) })
     expect(screen.queryByText(/host prose/)).toBeNull()
@@ -643,8 +704,7 @@ describe('the panel dialog', () => {
   it('shows internal host error details for diagnosis', async () => {
     const harness = mount()
     harness.setFailure({ code: 'panel/internal', message: 'cannot get property "sessions" without inject' })
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
 
     await waitFor(() => {
       expect(screen.getByRole('alert').textContent).toContain('cannot get property "sessions" without inject')
@@ -654,8 +714,7 @@ describe('the panel dialog', () => {
   it('falls back to the generic message for a code this build does not know', async () => {
     const harness = mount()
     harness.setFailure({ code: 'brand/new-code', message: 'unexpected' })
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
 
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe(`${NS}.error.fallback`) })
   })
@@ -663,15 +722,14 @@ describe('the panel dialog', () => {
   it('shows the store failure the host reported', async () => {
     const harness = mount()
     harness.setView({ primaryRoot: '/repos/primary', roots: [], unavailable: 'multi_root_workspace: file is not valid JSON' })
-    renderPanel(harness)
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    renderSection(harness)
 
     await waitFor(() => {
       expect(screen.getByText(/file is not valid JSON/)).toBeTruthy()
     })
   })
 
-  it('renders a working entry without any panel client (no Connection in this surface)', async () => {
+  it('renders a working section without any panel client (no Connection in this surface)', async () => {
     const registrations: Registration[] = []
     const ctx = {
       effect: (callback: () => unknown) => { callback(); return () => {} },
@@ -686,9 +744,9 @@ describe('the panel dialog', () => {
       get: () => undefined,
     }
     client.apply(ctx as never)
-    render(createElement(registrations[0]!.component as never))
-
-    fireEvent.click(screen.getByRole('button', { name: /action.label/ }))
+    const registration = registrations.find(item => item.options.name === 'workspace-config.section')!
+    const injected = registration.options.inject?.() ?? {}
+    render(createElement(registration.component as never, { close: () => {}, t: translate, ...injected } as never))
     await waitFor(() => { expect(screen.getByRole('alert')).toBeTruthy() })
   })
 })
@@ -701,5 +759,67 @@ describe('the panel copy', () => {
     expect(source).toContain(zh['panel.title'])
     expect(source).toContain(en['panel.title'])
     expect(Object.keys(zh).length).toBeGreaterThan(20)
+  })
+})
+
+/**
+ * 四格安装组合矩阵（本包视角；code-design ⑤G6 6.2 / tasks 7.1）。
+ *
+ * 全装格与「后装 holder 补跑」由 holder 的 `test/dialog.test.tsx` 用四个真 `apply` 同 ctx
+ * 覆盖；这里钉的是本包在组合里的三格：**格 1**（holder 已声明分节座位 → 本节 order 10 进
+ * 账本，Files tab 入口原样保留）、**格 3**（只装贡献方、无 holder → `slots.inject` 待命，
+ * 不注册、不抛错、不 warn）、**格 4**（holder 后到 → 待命回调补跑，分节立即可用）。
+ */
+describe('四格安装组合矩阵（multi-root-workspace 侧）', () => {
+  it('格 1 全装：holder 声明分节座位时本节 order 10 注册，Files tab 入口（order 50）原样保留', () => {
+    const harness = mount(true)
+
+    expect(harness.warnings).toEqual([])
+    expect(harness.pendingSectionCount()).toBe(0)
+    const section = registrationOf(harness, 'workspace-config.section')
+    expect(section.options).toMatchObject({ id: client.SLOT_ID, order: 10, locale: NS })
+    expect(typeof section.options.label).toBe('function')
+    expect((section.options.label as () => string)()).toBe(`${NS}.section.label`)
+    // 同一个 entry id 同时挂在两个座位上：Files tab 入口没有被分节迁移挪走或改序。
+    const files = registrationOf(harness, 'sidebar.right.tab.files.actions')
+    expect(files.options).toMatchObject({ id: client.SLOT_ID, order: 50 })
+    expect(harness.registrations).toHaveLength(2)
+  })
+
+  it('格 3 只贡献方（无 holder）：分节 inject 待命不注册、不抛错也不 warn，Files tab 入口不受影响', () => {
+    const harness = mount(true, true)
+
+    // 座位未声明 = 只装了本包、没装 holder：回调只登记等待。
+    expect(harness.pendingSectionCount()).toBe(1)
+    expect(harness.registrations.map(item => item.options.name)).toEqual(['sidebar.right.tab.files.actions'])
+    expect(harness.warnings).toEqual([])
+  })
+
+  it('格 4 后装 holder：贡献方先 apply，分节座位后声明时待命回调补跑，分节立即可用', async () => {
+    const harness = mount(true, true)
+    expect(harness.registrations.map(item => item.options.name)).toEqual(['sidebar.right.tab.files.actions'])
+
+    // holder 后到并声明 `workspace-config.section`：待命回调同步补跑。
+    harness.declareSection()
+
+    expect(harness.pendingSectionCount()).toBe(0)
+    expect(harness.registrations.map(item => item.options.name)).toEqual([
+      'sidebar.right.tab.files.actions',
+      'workspace-config.section',
+    ])
+    expect(registrationOf(harness, 'workspace-config.section').options).toMatchObject({
+      id: client.SLOT_ID,
+      order: 10,
+    })
+    expect(harness.warnings).toEqual([])
+
+    // 补跑注册的分节能正常渲染正文（inject 面在补跑时构造，仍可现取会话与通道）。
+    renderSection(harness)
+    await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
+    expect(harness.calls[0]).toEqual({
+      channel: PANEL_CHANNEL,
+      endpoint: 'list',
+      payload: { sessionId: 'session-1' },
+    })
   })
 })

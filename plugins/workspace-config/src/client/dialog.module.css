@@ -1,0 +1,233 @@
+/*
+ * 统一「工作区配置」入口（footer trigger）与统一弹窗（shell.overlay）的样式。
+ *
+ * 只补官方 primitives 给不了的东西：入口的两形态几何、弹窗两列布局与空态文字层级。
+ * `Modal` 的遮罩 / 卡片骨架 / Escape / 焦点陷阱全部由 primitives 负责，这里不复制；
+ * 只用一个 `.card` 覆盖它的默认宽度与底部内距（headless 形态下卡片内是自绘 chrome）。
+ *
+ * 颜色纪律（仓内既有）：每一处颜色都是 `var(--dsw-alias-*, <兜底>)` 形态，兜底值只用
+ * `currentColor` 与 `color-mix()` 这类关键字/派生色，不写死具体色值——令牌整体缺席时
+ * 最坏退化成「当前文字色的深浅变化」，深色主题下不会出现白底白字。
+ *
+ * 几何纪律（D6，产物断言有守护）：
+ * - 宽态入口 `flex: 1 1 auto` + `min-width: 0`，只占行内可伸缩份额，不挤同列其它占用者；
+ * - 折叠态入口固定 28px 方形（宿主折叠轨内容宽仅 32px，36px 会越界）；
+ * - 入口**不使用** `flex:none` 这类不可缩声明，也不使用越过容器内边距的整行宽度。
+ *
+ * 类名契约（组件按此清单消费；均按 CSS Modules 局部类引用）：
+ *   trigger、triggerWide、triggerRail、triggerLabel  —— footer 唯一入口（两形态）
+ *   card、header、title、close                     —— 弹窗卡片与自绘 header
+ *   layout、nav、navItem、panel、empty、emptyTitle、emptyHint —— 两列布局与空态
+ *
+ * 构建期类名由构建脚本的 cssModulesPlugin 重写为 `wsc_<local>_<hash>`，样式以
+ * `<style data-dsh-plugin="dsh-plugin-workspace-config">` 注入到 document.head。
+ */
+
+/* —— footer 唯一入口：宽栏是「图标 + 文案」行内按钮，折叠栏退化成方形图标按钮 —— */
+.trigger {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--dsw-radius-md, 8px);
+  background: none;
+  color: var(--dsw-alias-label-secondary, currentColor);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+  max-width: 100%;
+}
+
+.trigger:hover {
+  background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentColor 8%, transparent));
+  color: var(--dsw-alias-label-primary, currentColor);
+}
+
+.trigger:active {
+  background: var(--dsw-alias-interactive-bg-active, color-mix(in srgb, currentColor 12%, transparent));
+}
+
+/* 焦点环与官方按钮同款：内缩 2px，不撑破侧栏的窄栏宽度。 */
+.trigger:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary, currentColor);
+  outline-offset: -2px;
+}
+
+/*
+ * 宽态：只取行内可伸缩份额。`min-width: 0` 是省略号生效的前提（没有它，长文案会把
+ * flex item 的自动最小尺寸撑到内容宽，同列其它入口被挤走——R5 的根因）。
+ */
+.triggerWide {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/*
+ * 折叠态：28×28 方形图标，居中由座位容器负责。这里不声明 flex 简写，保持默认的
+ * 可缩行为；宽高固定，且内边距清零，避免图标在 32px 轨道里越界。
+ */
+.triggerRail {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  justify-content: center;
+}
+
+/* 文案是唯一的弹性部分：宽栏太窄时省略号截断，不把侧栏撑出横向滚动。 */
+.triggerLabel {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* —— 弹窗卡片：覆盖 Modal 默认的 380px 宽与 24px 底部内距（headless 自绘 chrome） —— */
+.card {
+  width: min(760px, 100%);
+  max-height: 100%;
+  padding: 0;
+  gap: 0;
+}
+
+/* —— 自绘 header：标题与关闭按钮 —— */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 20px 16px 12px 24px;
+  border-bottom: 1px solid
+    var(--dsw-alias-border-l3, color-mix(in srgb, currentColor 16%, transparent));
+}
+
+.title {
+  margin: 0;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary, currentColor);
+}
+
+.close {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--dsw-radius-sm, 6px);
+  background: none;
+  color: var(--dsw-alias-label-secondary, currentColor);
+  cursor: pointer;
+}
+
+.close:hover {
+  background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentColor 8%, transparent));
+  color: var(--dsw-alias-label-primary, currentColor);
+}
+
+.close:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary, currentColor);
+  outline-offset: -2px;
+}
+
+/* —— 两列布局：`min-height: 0` 让内容列能在卡片 max-height 内独立滚动 —— */
+.layout {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* 左栏：固定宽度的分节导航，自身可滚。 */
+.nav {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 2px;
+  width: 168px;
+  min-width: 0;
+  padding: 12px;
+  border-right: 1px solid
+    var(--dsw-alias-border-l3, color-mix(in srgb, currentColor 16%, transparent));
+  overflow-y: auto;
+}
+
+.navItem {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm, 6px);
+  background: none;
+  color: var(--dsw-alias-label-secondary, currentColor);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.navItem:hover {
+  background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentColor 8%, transparent));
+  color: var(--dsw-alias-label-primary, currentColor);
+}
+
+/* 选中态同时是 aria-current 的视觉对应物：不只靠颜色，字重也加一级。 */
+.navItem[aria-current='true'] {
+  background: var(--dsw-alias-interactive-bg-active, color-mix(in srgb, currentColor 12%, transparent));
+  color: var(--dsw-alias-label-primary, currentColor);
+  font-weight: 500;
+}
+
+.navItem:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary, currentColor);
+  outline-offset: -2px;
+}
+
+/* 右栏：内容列的滚动归属在这里（header / nav 不跟着滚，卡片本身 overflow hidden）。 */
+.panel {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 20px 24px;
+  overflow-y: auto;
+}
+
+/* 空态：没有贡献方 / 贡献方全部退场时解释「为什么是空的」（D14：不点名具体插件）。 */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 160px;
+  padding: 24px;
+  text-align: center;
+  color: var(--dsw-alias-label-secondary, currentColor);
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary, currentColor);
+}
+
+.emptyHint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+}

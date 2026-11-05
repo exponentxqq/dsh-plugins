@@ -4,12 +4,12 @@ DSH Web GUI 插件（**双端**，`exports "."` 宿主 + `exports "./client"` �
 
 1. **Provider 徽章**——输入框下方状态行（`conversation.composer.dock`）追加一枚静态胶囊，以 `provider/model` 原始标识符显示当前会话所选模型路由；
 2. **删除已归档会话**——侧栏已归档会话行的 "..." 菜单入口 + 两步确认框，框内二选一：**移动到归档目录**（默认）或**永久删除**；宿主半的 Connection RPC 通道 `/web-ux` 承载其预览与执行两个端点（按请求里的处置模式分派）；
-3. **会话管理**——侧栏底部全局入口（`sidebar.footer.action`）打开 `shell.overlay` 浮层，按工作区批量管理活跃 / 已归档 / 已迁移三类会话：批量归档、批量删除（迁移归档 / 永久删除）、批量取消归档、物理删除归档条目与恢复；宿主通道因此从 2 个端点扩到 7 个；
+3. **会话管理**——统一「工作区配置」弹窗的一个分节（`workspace-config.section`，order 30；holder 由独立插件 `dsh-plugin-workspace-config` 提供），按工作区批量管理活跃 / 已归档 / 已迁移三类会话：批量归档、批量删除（迁移归档 / 永久删除）、批量取消归档、物理删除归档条目与恢复；宿主通道因此从 2 个端点扩到 7 个；
 4. **命令结果通知**——命令结果在当前视图无处渲染时（典型：空会话首屏），composer 上方弹一张可展开全文的临时通知卡。
 
 宿主半不再是空壳——它承载会话处置与归档目录管理的 Connection RPC 通道 `/web-ux`（单会话 2 端点 + 批量 / 已迁移 5 端点，共 7 个），同时继续充当 web 客户端模块扫描读取 `dsh.client` 声明的锚点。
 
-本包自 `split-project-mcp-plugin` 变更起**只做 Web 界面体验**——原先同包的「项目级 MCP」宿主能力已拆为独立插件 [`dsh-plugin-project-mcp`](../project-mcp/README.md)（纯宿主面，任何 profile 可单独安装）。自 `add-web-ux-archived-session-delete`（v1.2.0）起宿主半因「删除已归档会话」重新变成实载体：文件系统与工作区注册表只有宿主碰得到，这与拆出去的 MCP 能力互不相干；自 `web-ux-session-delete-archive-option` 起同一入口再补上「移动到归档目录」，宿主半因此多了一个可选配置键 `archiveRoot`（`src/config.ts`）；自 `web-ux-session-manager` 起再叠加「会话管理」——归档目录从「只能手工找回」变成可列出、可清理、可恢复（恢复只回到已归档态），通道扩到 7 个端点，配置面零增量。后续其他 Web 界面体验优化仍落在本包。
+本包自 `split-project-mcp-plugin` 变更起**只做 Web 界面体验**——原先同包的「项目级 MCP」宿主能力已拆为独立插件 [`dsh-plugin-project-mcp`](../project-mcp/README.md)（纯宿主面，任何 profile 可单独安装）。自 `add-web-ux-archived-session-delete`（v1.2.0）起宿主半因「删除已归档会话」重新变成实载体：文件系统与工作区注册表只有宿主碰得到，这与拆出去的 MCP 能力互不相干；自 `web-ux-session-delete-archive-option` 起同一入口再补上「移动到归档目录」，宿主半因此多了一个可选配置键 `archiveRoot`（`src/config.ts`）；自 `web-ux-session-manager` 起再叠加「会话管理」——归档目录从「只能手工找回」变成可列出、可清理、可恢复（恢复只回到已归档态），通道扩到 7 个端点，配置面零增量；自 `unify-workspace-config-entry` 起它的 GUI 从侧栏底部入口 + 独立浮层迁为统一「工作区配置」弹窗的分节（需与 holder 同装）。后续其他 Web 界面体验优化仍落在本包。
 
 ## Provider 徽章
 
@@ -206,22 +206,25 @@ rm -f  ~/.dsh/storages/session_projcache/sessions/<会话id>.json
 
 ## 会话管理
 
-侧栏底部的一处全局入口，打开一个按工作区定向的管理浮层：把活跃会话批量归档、把已归档会话批量删除或取消归档、把归档目录里的已迁移日志清理或恢复。它是既有单会话「...」菜单入口的**叠加**而不是替代（D17）——最短路径仍是行菜单，批量与归档目录管理才走这里。宿主通道因此从 2 个端点扩到 7 个，配置面零增量（归档根沿用既有 `archiveRoot`）。
+统一「工作区配置」弹窗里的一处分节：把活跃会话批量归档、把已归档会话批量删除或取消归档、把归档目录里的已迁移日志清理或恢复。它是既有单会话「...」菜单入口的**叠加**而不是替代（D17）——最短路径仍是行菜单，批量与归档目录管理才走这里。宿主通道因此从 2 个端点扩到 7 个，配置面零增量（归档根沿用既有 `archiveRoot`）。
 
 ### 入口与降级
 
-入口在侧栏底部动作区（`sidebar.footer.action`，order **100**）：宽栏渲染「图标 + 会话管理」整行按钮，侧栏折叠成 56px 轨道时只留图标（`aria-label` 恒为「会话管理」）。点击只往跨 entry 的请求 store 登记一次「打开」，浮层挂在 `shell.overlay`（order **520**，既有删除对话框 500 之后）上；两者是两个独立 slot 注册，不共享 React 状态。
+本包不再注册侧栏底部入口或独立浮层：会话管理以 `workspace-config.section`（order **30**，`id: web-ux-session-manager`，label thunk「会话管理 / Session manager」）软注册为统一弹窗的第三个分节，由 holder 的 `shell.overlay`（order 530）渲染。打开与关闭都由 holder 拥有——Escape、遮罩点击与关闭按钮直接关闭弹窗；分节里只有**行内动作条**（`[取消]` / `[返回]` / `[确认执行]` / `[关闭]`），不再有第二个 Modal。
 
-浮层是一个 Modal + 五个阶段（选择 → 确认 → 执行 → 完成 / 失败），不叠第二个 Modal；每次打开都是新的 `seq`，阶段、选择、预览与已迁移列表全部重置。
+**四包同装约定**：统一入口与分节座位由 [`dsh-plugin-workspace-config`](../workspace-config/README.md) 声明；未装 holder 时本分节的 `slots.inject` 永不触发，会话管理的 GUI 入口不存在（其余三项能力不受影响，`/web-ux` 通道照常）。建议与 [multi-root-workspace](../multi-root-workspace/README.md)、[session-tool-toggle](../session-tool-toggle/README.md) 及 holder 四个包一起安装。
+
+分节是五阶段机（选择 → 确认 → 执行 → 完成 / 失败），阶段切换只换同一块右栏内容，不叠第二个弹窗；分节按 holder 的 `only` 过滤懒渲染，切走即卸载，重新选中或重开弹窗都会重置阶段、选择、预览与已迁移列表。
+
+**运行中关闭（D16）**：请求发出后行内「取消」保持禁用（请求无法撤销），但关闭不再被分节否决——holder 的关闭按钮 / Escape / 遮罩点击随时关闭弹窗，请求在宿主侧继续完成，重新打开分节看列表即可验证结果。
 
 全部接触点软注册、服务在**渲染期**解析（理由同既有删除面：web 壳的工作区 / 会话服务晚于本插件 `apply` 就绪）：
 
 | 依赖 | 用途 | 失效表现 |
 | --- | --- | --- |
-| slot `sidebar.footer.action`（`dsh-client-ui-sidebar`） | 侧栏底部入口 | 入口不渲染；其余能力不受影响 |
-| slot `shell.overlay`（`dsh-client-ui-layout`） | 管理浮层 | 点入口无反应（浮层不挂载） |
-| Connection RPC `/web-ux`（client `connection`） | 批量 / 已迁移端点调用 | `connection` 服务缺席 → 入口整颗不渲染；通道不可达 → 调用失败并提示传输错误 |
-| client 服务 `workspaces` / `sessions`（渲染期软读，不在 cordis `inject`） | 三域行集、选择与动作 | 任一缺席 → 浮层保留，体内显示「服务尚未就绪」空态；服务晚于 `apply` 就绪也能正常生效 |
+| slot `workspace-config.section`（`dsh-plugin-workspace-config` 声明） | 会话管理分节 | 分节不注册；其余能力不受影响（holder 缺席即无 GUI 入口，符合四包同装约定） |
+| Connection RPC `/web-ux`（client `connection`） | 批量 / 已迁移端点调用 | `connection` 服务缺席 → 分节渲染「服务未就绪」空态；通道不可达 → 调用失败并提示传输错误 |
+| client 服务 `workspaces` / `sessions`（渲染期软读，不在 cordis `inject`） | 三域行集、选择与动作 | 任一缺席 → 分节保留并显示「服务尚未就绪」空态（不再 return null，D9）；服务晚于 `apply` 就绪也能正常生效 |
 | host 事件 `api-session/added`（**借用**） | 恢复后侧栏即时补行 | 恢复仍成功，但需手动刷新页面才看见行（spec 已声明该降级） |
 | host 事件 `api-session/removed`（**借用**，批量删除复用既有处置流程） | 批量删除后行即时消失 | 处置成功，但当前页面上的行需手动刷新才消失 |
 
@@ -231,7 +234,7 @@ rm -f  ~/.dsh/storages/session_projcache/sessions/<会话id>.json
 
 ### 工作区与三个 tab
 
-打开浮层默认选中「最近使用」的工作区（该工作区成员会话里最大的 `updatedAt`；全部为 0 时取 Host 顺序第一个；没有任何工作区时回退到伪选项）。切换工作区、tab 或处置模式都会丢弃当前确认页与结果、回到选择阶段；各 tab 的选择集合分开保存，切 tab 不丢另一边的勾选。
+进入分节（或重新打开统一弹窗）默认选中「最近使用」的工作区（该工作区成员会话里最大的 `updatedAt`；全部为 0 时取 Host 顺序第一个；没有任何工作区时回退到伪选项）。切换工作区、tab 或处置模式都会丢弃当前确认页与结果、回到选择阶段；各 tab 的选择集合分开保存，切 tab 不丢另一边的勾选。
 
 | tab | 行集 | 批量动作 |
 | --- | --- | --- |
@@ -267,7 +270,7 @@ rm -f  ~/.dsh/storages/session_projcache/sessions/<会话id>.json
 
 **在途互斥与结果**
 
-任一动作执行期间浮层进入 `running`：动作按钮与选择条一起消失，同一时刻只有一个动作在飞；`关闭` / Escape 在此期间被忽略（请求已发出，界面留在原地报告结果）。完成后：
+任一动作执行期间分节进入 `running`：动作按钮与选择条一起消失，同一时刻只有一个动作在飞；行内「取消」保持禁用（请求无法撤销），但 holder 的关闭按钮 / Escape / 遮罩点击可随时关闭弹窗——请求在宿主侧继续完成，重开分节看列表验证结果（D16）。完成后：
 
 - **成功面板**给出计数（归档 / 取消归档 / 处置 / 永久删除 / 恢复）、逐项失败清单与 warnings；恢复成功**停在原 tab** 展示结果（不自动切走，P3=A），已迁移列表在 purge / restore 成功后自动重发一次。
 - **失败面板**给出失败码文案与宿主兜底 message；`[返回]` 回到选择阶段，`[关闭]` 退出。再次打开会重置阶段、选择与列表。
@@ -345,22 +348,20 @@ src/contract.ts                       双端共享契约：通道 / 7 端点 / �
 src/project-key.ts                    双端共享纯函数：projectKey 本地镜像 + projectDir → 工作区正推匹配（零 import）
 src/delete-session.ts                 宿主处置流程：单会话与批量删除 / 迁移共用 DI 纯流程 + 文件操作工厂
 src/migrated.ts                       宿主已迁移域：枚举归档根、物理删除、恢复（两阶段；rename 优先、EXDEV 回退复制）
-src/client/                           浏览器半：provider 徽章 + 删除入口 / 确认框 + 会话管理入口 / 浮层 + 命令通知卡 + locale + CSS module
-src/client/session-manager-store.ts   管理面「打开浮层」请求 store（跨 entry 桥接）
+src/client/                           浏览器半：provider 徽章 + 删除入口 / 确认框 + 会话管理分节 + 命令通知卡 + locale + CSS module
 src/client/session-manager-model.ts   管理面纯派生：工作区选项、三域行集、伪选项聚合、500 上限
-src/client/SessionManagerTrigger.tsx  侧栏底部入口（宽栏图标 + 文案 / 折叠栏图标）
-src/client/SessionManagerDialog.tsx   管理浮层：五阶段机 + 三 tab + 工作区选择 + 批量动作
-src/client/session-manager.module.css 管理面样式（复用 --dsw-alias-* 令牌）
+src/client/SessionManagerDialog.tsx   会话管理分节：五阶段机 + 三 tab + 工作区选择 + 批量动作（无 Modal 外壳）
+src/client/session-manager.module.css 分节样式（复用 --dsw-alias-* 令牌）
 test/                                 单测：宿主 *.test.ts（node 环境）与浏览器 *.test.tsx（jsdom）
 ```
 
-宿主半对 `@deepseek-ai/*` 一律 **type-only import**，运行时只靠 `inject` 字符串拿服务，产物 `lib/index.js` self-contained（仅 `node:*` 外置）。**唯一例外是 `src/config.ts` 的 Schemastery `Config`**：它必须是**原生 Schemastery** 图（`--dump-config-schema` 只认原生图，换成 zod / 手写对象会把 profile 的 schema dump 拖红），由 esbuild 在构建期**内联**进宿主产物——因此只是构建依赖，运行时不解析任何 `@deepseek-ai/*`（`test/bundle.test.ts` 的模块词断言守护这一点）。它在宿主侧除处置与归档目录管理职责外仍是**客户端模块扫描的锚点**：web 客户端模块扫描只从 **bare 包名行**读取 `dsh.client` 声明，所以 bundle patch 必须继续按包名插入本包，徽章、删除入口与会话管理入口才会被浏览器加载——宿主半因此不能删。
+宿主半对 `@deepseek-ai/*` 一律 **type-only import**，运行时只靠 `inject` 字符串拿服务，产物 `lib/index.js` self-contained（仅 `node:*` 外置）。**唯一例外是 `src/config.ts` 的 Schemastery `Config`**：它必须是**原生 Schemastery** 图（`--dump-config-schema` 只认原生图，换成 zod / 手写对象会把 profile 的 schema dump 拖红），由 esbuild 在构建期**内联**进宿主产物——因此只是构建依赖，运行时不解析任何 `@deepseek-ai/*`（`test/bundle.test.ts` 的模块词断言守护这一点）。它在宿主侧除处置与归档目录管理职责外仍是**客户端模块扫描的锚点**：web 客户端模块扫描只从 **bare 包名行**读取 `dsh.client` 声明，所以 bundle patch 必须继续按包名插入本包，徽章、删除入口与会话管理分节才会被浏览器加载——宿主半因此不能删。
 
 ## 构建
 
 双端自包含产物，`build.mjs`（esbuild）一次产出两个文件，external 列表里只有 `node:*` 与浏览器壳提供的运行时模块：
 
-- `lib/client.js` — `src/client/index.ts` 打成单个 CJS bundle 并包进 `window.__ModuleLoader__.load({ id, factory })` 外壳（`react` / `react-dom` / `react/jsx-runtime` / `@deepseek-ai/dsh-client-ui-primitives` 由浏览器壳经 loader `require` 提供），CSS modules 编译为运行时 `<style>` 注入，因此**没有独立样式文件**，也不依赖本包 `dependencies`；bundle 里含徽章、单会话删除入口 / 确认框、会话管理入口 / 浮层与命令通知卡。
+- `lib/client.js` — `src/client/index.ts` 打成单个 CJS bundle 并包进 `window.__ModuleLoader__.load({ id, factory })` 外壳（`react` / `react-dom` / `react/jsx-runtime` / `@deepseek-ai/dsh-client-ui-primitives` 由浏览器壳经 loader `require` 提供），CSS modules 编译为运行时 `<style>` 注入，因此**没有独立样式文件**，也不依赖本包 `dependencies`；bundle 里含徽章、单会话删除入口 / 确认框、会话管理分节与命令通知卡。
 - `lib/index.js` — 宿主半的单个 self-contained ESM 产物，承载 `/web-ux` Connection RPC 通道的 7 个端点与恢复后的 `api-session/added` 广播，同时是客户端模块扫描的 bare 包名锚点；Schemastery 已由 esbuild 内联，外置项仍只有 `node:*`。
 
 类型工程是一个 solution（`tsconfig.json` 只汇总 references）+ 两个 composite 子工程，共享 `tsconfig.base.json` 的编译选项；两个子工程都是 `noEmit` 纯检查（不产 d.ts，只留 `.tsbuildinfo`，已被 `.gitignore` 忽略）：
@@ -376,7 +377,7 @@ pnpm install
 pnpm typecheck     # tsc -b：host + client 双工程
 pnpm test          # vitest：徽章 + 删除/迁移 + 会话管理流程与界面用例
 pnpm lint          # oxlint
-pnpm build         # esbuild → lib/index.js（宿主 RPC 载体，Schemastery 内联）、lib/client.js（徽章 + 删除 / 会话管理入口）
+pnpm build         # esbuild → lib/index.js（宿主 RPC 载体，Schemastery 内联）、lib/client.js（徽章 + 删除 / 会话管理分节）
 pnpm verify:all    # lint + typecheck + build + test
 
 # 只查单侧类型（等价于 tsc -b 的对应子工程）
@@ -424,6 +425,11 @@ docker exec dsh dsh --profile web --dump-config | grep -A2 'id: web-ux'
 
 - **源码改动要重启 profile**：`link:` 安装的插件不在 profile 目录内，dsh-hmr 默认的模块监听根不含它，重建产物不会自动热替换。要免重启，可在 profile patch 里给 hmr 行加模块监听根（`- id: hmr` / `config.root` 指向本包目录）——属开发便利，非必需。
 - git 安装形态与 `insteadOf` 陷阱见仓库根 [README](../../README.md#装入-profile)。
+
+### 版本迁移（统一工作区配置入口）
+
+- **升级**：本批变更把会话管理的 GUI 从「侧栏底部入口 + 独立浮层」迁为统一「工作区配置」弹窗的分节：删除 `sidebar.footer.action` 与旧的 `shell.overlay`（order 520）两个 entry、`SessionManagerTrigger` 组件与插件内打开请求 store；新增 `workspace-config.section`（order 30）软注册。`dsh.client.inject` 因此收敛为 11 项（删 `dsh-client-ui-sidebar`），devDependencies 增加 `dsh-plugin-workspace-config`（仅类型，`workspace:*`）。**必须与 holder 四包同装**，否则会话管理没有 GUI 入口；`/web-ux` 七端点、宿主行为与 `archiveRoot` 配置零变化。
+- **回滚**：改指上一发布 tag 重装并重启即可（旧入口与旧浮层随旧版客户端回来）；本变更不迁移任何落盘数据、不改配置键，回滚无数据影响。
 
 ## 非目标（本版本）
 

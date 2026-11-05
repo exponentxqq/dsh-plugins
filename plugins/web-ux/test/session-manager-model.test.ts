@@ -1,13 +1,14 @@
 /**
- * 管理浮层纯派生模型（`src/client/session-manager-model.ts`）与打开请求 store
- * （`src/client/session-manager-store.ts`）的单测。
+ * 会话管理分节纯派生模型（`src/client/session-manager-model.ts`）的单测。
  *
  * 纯 node 环境（vitest 默认 environment），不引 jsdom、不挂 React、不 import 任何
  * 上游包：全部输入都是手写的 Plain 投影（工作区快照 / 会话快照 / `list-migrated`
  * 响应），所以每条判据都能逐项断言。用例逐条对齐 code-design ③.6 的行派生表与动作
  * 分派表：三域行集、伪选项聚合（P1=A）、500 截断（P2=A / D13）、运行中置灰（D15）、
- * 子代理过滤（D14）、选择操作与双动作分派；末尾的 store 契约（seq / identity）是
- * 触达 #21 对 `session-manager-store.ts` 落档要求。
+ * 子代理过滤（D14）、选择操作与双动作分派。
+ *
+ * 打开桥已随分节迁移移交 holder（`dsh-plugin-workspace-config` 的布尔 open-store），
+ * 旧的 `session-manager-store.ts` 与它的 seq 契约用例一并删除（#49）。
  *
  * @module dsh-plugin-web-ux/test/session-manager-model
  */
@@ -39,7 +40,6 @@ import {
   type WorkspaceRowView,
   type WorkspacesSnapshotView,
 } from '../src/client/session-manager-model.ts'
-import { createManagerRequestStore } from '../src/client/session-manager-store.ts'
 
 /** 工作区 A 的项目路径。 */
 const PATH_A = '/home/dev/alpha'
@@ -664,84 +664,5 @@ describe('双动作分派', () => {
       { projectDir: PROJECT_A, dirName: 'alpha-old' },
     ])
     expect(selectedMigratedTargets(rows, new Set())).toEqual([])
-  })
-})
-
-describe('打开请求 store 契约（seq / identity）', () => {
-  it('初始为空闲；连续 request 每次都换新对象并自增 seq', () => {
-    const store = createManagerRequestStore()
-    expect(store.source.getSnapshot()).toBeNull()
-
-    store.request()
-    const first = store.source.getSnapshot()
-    expect(first).not.toBeNull()
-    expect(first?.seq).toBe(1)
-
-    store.request()
-    const second = store.source.getSnapshot()
-    expect(second).not.toBe(first)
-    expect(second?.seq).toBe(2)
-  })
-
-  it('订阅者在通知时读到的是当时快照', () => {
-    const store = createManagerRequestStore()
-    const seen: Array<number | null> = []
-    const unsubscribe = store.source.subscribe(() => {
-      seen.push(store.source.getSnapshot()?.seq ?? null)
-    })
-
-    store.request()
-    store.request()
-    store.settle()
-    expect(seen).toEqual([1, 2, null])
-    unsubscribe()
-  })
-
-  it('settle 回 null 且幂等：重复调用不重复通知，下次 request 继续递增序号', () => {
-    const store = createManagerRequestStore()
-    let notifications = 0
-    const unsubscribe = store.source.subscribe(() => {
-      notifications += 1
-    })
-
-    store.request()
-    expect(notifications).toBe(1)
-    store.settle()
-    expect(store.source.getSnapshot()).toBeNull()
-    expect(notifications).toBe(2)
-
-    store.settle()
-    expect(store.source.getSnapshot()).toBeNull()
-    expect(notifications).toBe(2)
-
-    store.request()
-    expect(store.source.getSnapshot()?.seq).toBe(2)
-    unsubscribe()
-  })
-
-  it('退订后不再收到通知，其他订阅者仍保持订阅', () => {
-    const store = createManagerRequestStore()
-    let firstCalls = 0
-    let secondCalls = 0
-    const unsubscribeFirst = store.source.subscribe(() => {
-      firstCalls += 1
-    })
-    const unsubscribeSecond = store.source.subscribe(() => {
-      secondCalls += 1
-    })
-
-    store.request()
-    expect(firstCalls).toBe(1)
-    expect(secondCalls).toBe(1)
-
-    unsubscribeFirst()
-    store.request()
-    expect(firstCalls).toBe(1)
-    expect(secondCalls).toBe(2)
-
-    unsubscribeSecond()
-    store.settle()
-    expect(firstCalls).toBe(1)
-    expect(secondCalls).toBe(2)
   })
 })

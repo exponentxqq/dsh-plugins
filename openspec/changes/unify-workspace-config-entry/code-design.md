@@ -466,6 +466,12 @@ test "$(grep -cE 'from "[^"]+"' plugins/workspace-config/lib/index.js)" -eq 0   
 pnpm dsh:check
 ```
 
+> **【执行期终形态 · 2026-11-05 组 2 核对通过后回填】**
+> - **实测**：骨架 15 文件落地（较 2.1 清单多建 `test/stubs/ui-primitives.tsx` 与插件 `README.md`，均在 # 清单内）；验证句 1 exit 0；`contract.ts` 座位字面量 4 处；oxlint 0/0；临时 harness（链 web-ux rc.5 依赖）`tsc` host/client/-b 三路 exit 0 并发出 `lib/types/client/{contract,locales}.d.ts`；临时副本 build 冒烟 exit 0——宿主半零 import、client.js 恰 1 个 ModuleLoader 壳、`lib/types` 不被清、缺入口守卫 exit 1。
+> - **偏差与裁决**：① `build.mjs` 不整目录清 `lib/`（保 `lib/types` 先发的 d.ts）+ 新增缺 `src/client/index.ts` 诊断守卫（正常双端行为不变）；② `tsconfig.client.json` 只含 `src/client`（`rootDir:src` 与测试目录冲突，同 multi-root 取舍；`tsc -b` 不查 test/ 类型，由 vitest esbuild 转译）；③ 文案 `dialog.empty.hint` 按 **D14 泛化**——本文 ③3.5 表格同名键点名三包与 D14 冲突，**以 D14 为准**（3.5 原文不改，以此裁决为准）。
+> - **交接（组 5 必须遵循）**：#13 `src/client/index.ts` 必须从 `./contract` re-export `WorkspaceConfigSectionSeat` / `WorkspaceConfigSectionOwnerProps` 类型并导出契约运行时常量，否则贡献方 `import type … from 'dsh-plugin-workspace-config/client'` 取不到类型，D3/D4 类型权威落空。
+> - **P0 顺序依赖（待用户裁决，见 diff-matrix R5）**：2.2/2.3/2.5（= tasks.md 组 3）的产物断言依赖组 5 装配出的 `src/client/index.ts`（#13）——骨架状态下 `lib/client.js` 与 `lib/types/client/index.d.ts` 必然不存在（已实证）。
+
 ### G3 — 分节座位运行时 PoC（**前置风险批**，3 任务，串行）
 
 1. **3.1 真 renderer 的 jsdom PoC**：`test/section-seat.poc.test.tsx`
@@ -486,6 +492,8 @@ grep -c "renderSlot('workspace-config.section'\|renderSlot(\"workspace-config.se
 
 > 若 `Context` + `apply` 在 jsdom 下无法装配（<2h 内解决不了），降级方案：在 holder 的 `test/dialog.test.tsx` 用**假 ctx** 固定 `children` 声明与 `only` 参数，另开一个**真机 PoC**（临时给 holder 加一个 `probe` 分节，link: 安装后走 GUI 看左 nav 是否列出），二者都落档；**不得**因为 PoC 困难就跳过。
 
+> **【执行期终形态 · 2026-11-05 组 4 核对通过后回填】** 降级方案未启用——`Context` + 真 `apply` 在 jsdom 装配成功，四断言全 PASS（`Test Files 1 passed / Tests 4 passed`），PoC 常驻 `test/section-seat.poc.test.tsx`；完整结果与实测 API 语义回填于本文兄弟文件 design.md「### 运行时实证（组 4 PoC）」（**该小节为运行时语义的权威载体**）。后续组必须遵循的四条实测约束：① renderer `exports['./client']` 是 `window.__ModuleLoader__.load` loader 壳而非 ESM 入口，jsdom 测试侧需复刻宿主 loader（模块表六词：react / react-dom / react-dom/client / react/jsx-runtime / slots / cordis）；② 直渲 `root` 出口需先装 session 作用域适配器（空绑定即可，生产由 dsh-client-ui-session 提供）；③ children 运行时语义 = 「声明账本」——子 entry 写入子座位自身账本（`entries(childKey)` 读），非父 entry options 字段；④ slots 包无 `./client` 导出，`resolveSlotLabel` 在 `.` 入口（D2 结论不变，仅测试侧可 import 对照）。U1/U2/U3 全部钉住，A1 在触达面上成立。
+
 ### G4 — 统一入口与弹窗壳（6 任务，1→2→3 串行，4/5 可并行）
 
 1. **4.1 打开桥**：`src/client/open-store.ts`（布尔快照 + `open/close`），照 web-ux store 的 uSES 契约。
@@ -504,6 +512,12 @@ test "$(grep -c 'aria-label' plugins/workspace-config/src/client/WorkspaceConfig
 ```
 
 ### G5 — 三插件迁移（3 任务，**组内三包并行**；每包内部按 1→2→3 顺序）
+
+> **【执行期终形态 · 2026-11-05 组 5（= 本图 G4）核对通过后回填】**
+> - **落地实测**：6 实现文件 + 5 测试文件全新建（open-store / sections / Trigger / Dialog / dialog.module.css / client index.ts；sections 9 + trigger 6 + dialog 9 + apply 11 + bundle 12 = 47 条 + PoC 4 = 51 用例全绿）；`lib/` 三件齐（client.js 23.5KB、7 个 d.ts）；client require 白名单 = primitives / react / react/jsx-runtime（D2 防线）；D3/D4 类型权威端到端实证（临时消费者直连 `dsh-plugin-workspace-config/client` 编译通过）。
+> - **取舍留痕**：① 座位名在 children 声明与 renderSlot 两个语义点**字面量直写**（共享常量经 esbuild 内联后产物只余 1 份字面量会使验证句 grep 计数退化；类型面由 `PropsRenderSlots` 逐字校验兜住，契约常量仍是权威）；② `bundle.test.ts` 新建（骨架原无此文件），已覆盖 #19 全部断言并含 platform/inject、engines/peer 额外断言；③ `sections.ts` 按 #10 用 `entries`（未用 `entriesOfSlot` 影子优胜者投影，同 id 同优先级注册上游拒绝、当前无影响）；④ `apply.test.ts` 为 #13 之外的补充装配契约测试。
+> - **门禁基线（5.2 实测）**：`dsh:check` / `-r typecheck` / `-r test` 三连 exit 0；全仓 114 文件 2590 passed + 5 skipped（multi-root 既有平台门控，R8 口径）；干净窗口两步法核对通过。
+
 
 - **5.1 multi-root-workspace**（①1.3 #25-35）：剥壳 → 注册替换 → 测试迁移 → 文档/ADR/`docs:check` → 重建 `lib/`。
   验证：
@@ -536,6 +550,14 @@ test "$(grep -c 'aria-label' plugins/workspace-config/src/client/WorkspaceConfig
 
 ### G6 — 集成回归与组合矩阵（4 任务，串行）
 
+> **【执行期终形态 · 2026-11-05 组 6（= 本图 G5）核对通过后回填】**
+> - **三包迁移实测**：mrfw 31 文件（含 AGENTS 不变量 5 + 双语 README + ADR-0013 新建 + 14 处文档同步 + `docs:check` 10 项全 PASS；408 tests + 5 既有平台 skip）；stt 11 文件（999 tests，`/tools` 共用状态双向回归 PASS，工作区下拉保留）；web-ux 15 文件（576 tests，五阶段内联 + D9 空态 + D16 用例；旧 Trigger/store/触发测试三文件删除）。三包 `lib/` 全部重建且产物纯度一致：含 `workspace-config.section`、零 `sidebar.footer.action`、零 holder 包名、require 词表仍三词。
+> - **主会话裁决 1（D16 分层）**：holder 侧关闭（按钮/Escape/遮罩）无条件直通「关闭即关闭」+ 分节内 running 行内 [取消] 禁用保留——D16 与 #48 原文语义，未扩 owner `setBusy`。
+> - **主会话裁决 2（Files tab 入口语义，用户终末呈证可再调）**：mrfw Files tab 紧凑胶囊**就地展开同一分节本体**（`WorkspaceFoldersLauncher`，不自绘弹窗、不引 holder 运行时桥）——design Goals 只要求入口保留未定打开形态；「打开统一弹窗」需跨包运行时桥违反 D3。
+> - **主会话裁决 3（D13 延伸 mrfw，详见 diff-matrix R9）**：footer 座位删除后 `@deepseek-ai/dsh-client-ui-sidebar` 在 mrfw 实证零使用点（Files tab 座位实由 `dsh-client-ui-sidebar-files` 声明），按 D13 精神删除（devDeps + inject + 类型 import；回退点 3 处：package.json 两项、index.ts 一行 import、client-bundle.spec inject 期望）。**本文 ③3.6「mrfw inject 不变」/#29「其余不动」就此条被实测修订**，其余 ③3.6 断言不变。
+> - **stt 取舍留痕**：`.workspaceDialog` 死样式一并删除（唯一消费者为已移除 Modal）；`WorkspaceDefaultsSectionProps.close` 必填（严格对齐 owner 份额）；分节唯一可写面为工作区默认档，工具开关 ↔ `/tools` 原路径由既有套件覆盖。web-ux 取舍：`SessionManagerSection` 内部以私有 Content 承载 hooks（防缺席↔就绪切换 hooks 数量变化）；`manager.action` 键无使用点暂留（parity 覆盖）。
+
+
 1. **6.1 递归门禁**：`pnpm build && pnpm typecheck && pnpm test && pnpm lint && pnpm dsh:check && pnpm docs:check`（`docs:check` 只有 mrfw 有该脚本，`-r` 会自动跳过其余）。
 2. **6.2 组合矩阵单测**（容器无关，jsdom/node）：四格 = 全装 / 只 holder（nav 空态）/ 只贡献者×3（`slots.inject` 不触发、不抛错、各包其它 entry 数量不变）/ 后装 holder（贡献方先 apply，座位后声明由 G3 的「补跑」语义覆盖）。落点为各包既有 fake-ctx 测试的扩展（mrfw `tests/client-panel.spec.tsx`、stt `test/client-index.test.ts`、web-ux `test/client-apply.test.ts`），holder 侧落 `test/dialog.test.tsx`。
 3. **6.3 产物断言收口**：三插件 `bundle.test.ts` 各加一条「产物含 `workspace-config.section`、不含 `sidebar.footer.action`、不含 holder 包名」；holder 侧对偶断言。
@@ -551,6 +573,13 @@ test "$(grep -c 'aria-label' plugins/workspace-config/src/client/WorkspaceConfig
 
 ### G7 — 真机验收（5 任务，串行；GUI token 链接取自 `docker logs dsh`）
 
+> **【执行期终形态 · 2026-11-05 组 7（= 本图 G6）核对通过后回填】**
+> - **四格矩阵落地**：12 用例分布于四包既有 fake-ctx 套件（holder dialog.test 12 / mrfw client-panel 36 / stt client-index 28 / web-ux client-apply 14 中的矩阵 describe）——格 1 全装（注册序刻意打乱 web-ux→mrfw→stt，nav 仍按 order 10/20/30；only 切换、共享打开桥、三贡献方既有 entry 保留）/ 格 2 只 holder（D5 入口恒在 + D14 泛化空态）/ 格 3 只贡献方（待命不注册不报错不 warn）/ 格 4 后装补跑，全部 PASS。
+> - **门禁基线（复跑两次一致）**：`build && typecheck && test && lint && dsh:check` 五连 exit 0；全仓 113 文件 2606 passed + 5 skipped（R8 既有口径）；三包产物纯净断言无 FAIL（seat 计数 mrfw 2 / stt 1 / web-ux 1）。
+> - **主会话裁决（跨包导入长期形态）**：格 1 在 holder 套件内以**测试侧相对导入**三贡献方 `src/client` 实现（不进产物、零 devDep、不反转 D3 依赖方向）；贡献方 client 入口路径/primitives 具名导入变化会打红 holder 矩阵套件 = **预期哨兵面**，作为长期形态保留（证据日志 `/home/docker/.cache/spec-evidence/unify-workspace-config-entry/group7/`，R1 落点）。
+> - **stubs 扩容**：holder `test/stubs/ui-primitives.tsx` 补 13 具名导出（Input/Switch/Checkbox/SegmentedTabs/Menu/MenuItemButton + 10 图标，含 mrfw 加载期按名探针 7 个），仅服务导入期。
+
+
 > 进 GUI：从 `docker logs dsh` 取带 token 的链接（本机曾为 `http://127.0.0.1:3080`），浏览器打开后按 7.1–7.4 逐项走查。
 
 1. **7.1 宽栏 256px**：footer 只剩一颗「工作区配置」（图标 + 文案完整、无横向溢出/裁切）；a11y 树 `button "工作区配置"`；`aria-expanded` 随开合翻转。证据：截图 + a11y 树文本落 `plugins/workspace-config/artifacts/workspace-config-smoke.md`。
@@ -563,6 +592,11 @@ test "$(grep -c 'aria-label' plugins/workspace-config/src/client/WorkspaceConfig
 
 ### G8 — 收口（4 任务，串行）
 
+> **【执行期终形态 · 2026-11-05 组 9（= 本图 G7）核对通过后回填】**
+> - **正例 14/14 PASS**（冒烟 `plugins/workspace-config/artifacts/workspace-config-smoke.md`，17 处 PASS；证据 55 截图 + CDP 脚本 + store 前后副本 + d16-timing.json 落 `/home/docker/.cache/spec-evidence/…/group9/`）：宽栏 280 栏 / 256 入口 / a11y 名（GUI locale=en 为 `Workspace settings`，zh 镜像「工作区配置」）；折叠 56 轨 / 28 图标居中；nav 三节 order 10/20/30；Folders 增删别名（ship-v2 往返，store sha256 零净变更）；默认档写读 ↔ `/tools workspace` 回执一致；会话管理三 tab + 批量两段式 UI；行菜单删除 500 弹窗与 530 不叠放；Menu portal Escape 两跳分层（U4 通过，未启用兜底开关）；D16 32ms Running→73ms Escape→86ms 关闭、请求宿主侧继续完成（真删证据 = 2026-10-26 仅 header 零消息空会话 `session-7ff2f8a5`，**已向用户披露**）；D8 跨开合选中记忆。
+> - **降级反例（用户裁决完整真机）**：轮 1 卸 stt → nav 三节变两节、零报错；轮 2 卸 holder → footer 入口消失 + 会话管理 GUI 不可达（约定接受项）+ stt/mrfw 独立入口保留；终态四包 @link: 恢复 + nav 三节齐。**3 次重启均由用户手动**（执行流程在 dsh 容器内不可自重启）——反例段由主会话以浏览器工具实测并补全冒烟。
+> - **残留清理**：测试会话 `session-6da5fc6b` 以容器身份删除（宿主 shell 无 `/home/docker/.dsh` 写权，先半删后 `docker exec dsh` 补齐）；`workspaces.json` 空档键移除还原为 `{"version":1,"workspaces":{}}`。
+
 1. **8.1 文档收口**：根 README（插件一览 + 四包同装）、四包 README、mrfw AGENTS 不变量 5、ADR-0013。
 2. **8.2 openspec 归档准备**：`tasks.md` 全勾选；`openspec validate --all`；变更目录保留在 `changes/`（归档动作按仓内流程在实施结束后做）。
 3. **8.3 发布自检**：`pnpm verify`（递归 `verify:all`，mrfw 的 smoke 需运行中的 dsh）；`pnpm release <next> --dry-run` 只打印不写入。
@@ -574,6 +608,12 @@ pnpm verify                                    # 退出码 0
 node scripts/release.mjs 1.6.0 --dry-run       # 打印四个 package.json 目标版本，且不产生 git 变更
 git status --porcelain | grep -c "openspec/changes/2026-11-05-unify-workspace-config-entry"  # >0（四件套已落）
 ```
+
+> **【执行期终形态 · 2026-11-05 组 10（= 本图 G8）核对通过后回填】**
+> - **收口实测**：`validate --strict` exit 0；`pnpm verify` exit 0（7/7 项目全绿，mrfw smoke compose 46/46 + behavior 99/99 + journey 60/60；verify 递归重建 lib 后 git status 字节不变）；`release 1.6.0 --dry-run` 按任务文本以双证满足（真实仓 exit 1 = 脏工作区门禁前置，结构上不可能写文件；/tmp 干净副本同一命令 **EXIT 0** 打印 8 目标 1.5.0→1.6.0 无写入无 tag；提交后主会话复跑取 0——时序口径见 R12②）。
+> - **R4 落实**：根 `AGENTS.md` +4/−3（插件清单 7 包行、「其余六个」、「web 侧四包同装」、「六个软插件」）；验收句全名 ≥2 的口径瑕疵按「实质满足」裁决（清单行全名 + 短名 3 行，R12①）。
+> - **沉淀回流清单**已入 tasks.md 附录（AGENTS 落库去向 / 既存 rc.2 漂移待决 / 证据目录 / 编排修订索引），随最后批次提交入库。
+
 
 ---
 

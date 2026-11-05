@@ -1117,14 +1117,14 @@ window.__ModuleLoader__.load({
 		var import_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 
 		// src/client/panel.module.css
-		var cssText = "/*\n * \u4F1A\u8BDD\u5DE5\u5177\u9762\u9762\u677F\u7684\u5C42\u7EA7\u6837\u5F0F\uFF08\u8BBE\u8BA1\u9644\u5F55 \xA71.1 \u7684 `panel.stt_module_41d0f6.stt_css_41d0f6` \u884C\uFF09\u3002\n *\n * \u9AA8\u67B6\uFF08\u906E\u7F69\u3001\u5361\u7247\u3001\u6807\u9898\u3001\u5173\u95ED\u6309\u94AE\u3001\u6309\u94AE\u3001\u5F00\u5173\u3001\u8F93\u5165\u6846\uFF09\u5168\u90E8\u7531\u5B98\u65B9 primitives \u63D0\u4F9B\uFF0C\u672C\u6587\u4EF6\n * \u53EA\u8865 Modal \u9AA8\u67B6\u4E4B\u5916\u7684\u5C42\u7EA7\uFF1A\u5206\u533A\u6807\u9898\u3001\u884C\u9AD8\u3001\u5FBD\u6807\u3001\u7981\u7528\u6001\u3001\u6298\u53E0\u7BAD\u5934\u3001chip\u3002\u989C\u8272\u4E00\u5F8B\u53D6\u5B98\u65B9\n * `--dsw-alias-*` \u8BBE\u8BA1\u4EE4\u724C\u5E76\u5E26\u9759\u6001\u515C\u5E95\u2014\u2014\u4EE4\u724C\u6539\u540D\u65F6\u6700\u574F\u9000\u5316\u6210\u53EF\u8BFB\u7684\u9ED1\u767D\u800C\u4E0D\u662F\u900F\u660E\u3002\n *\n * \u4E24\u5904\u4E0E\u5B98\u65B9\u7EC4\u4EF6\u540C\u540D\u7684\u8986\u76D6\uFF08`.stt_trigger_41d0f6` \u538B Button \u7684\u5C3A\u5BF8\u4E0E\u914D\u8272\uFF09\u6CBF\u7528\u4ED3\u5185\u5148\u4F8B\n * \uFF08`plugins/web-ux/src/client/delete.stt_module_41d0f6.stt_css_41d0f6` \u7684 `.stt_danger_41d0f6`\uFF09\uFF1Aprimitives \u7684\u6837\u5F0F\u540C\u6837\u662F\n * \u5355\u7C7B\u9009\u62E9\u5668\uFF0C\u63D2\u4EF6\u6837\u5F0F\u5728\u5176\u540E\u6CE8\u5165\u5373\u751F\u6548\u3002\n */\n\n/* \u2014\u2014 \u4F1A\u8BDD\u5934\u90E8\u7684\u5165\u53E3\u6309\u94AE\uFF1A28px \u5706\u5F62\uFF0C\u89C6\u89C9\u4E0E\u540C\u5EA7\u4F4D\u7684\u5B98\u65B9\u89E6\u53D1\u5668\u4E00\u81F4\uFF08\u8BBE\u8BA1 \xA73.1\uFF09 \u2014\u2014 */\n.stt_trigger_41d0f6 {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  width: 28px;\n  min-width: 28px;\n  height: 28px;\n  padding: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  border-radius: 28px;\n}\n\n.stt_trigger_41d0f6:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary, #000);\n  background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 6%));\n}\n\n/* \u2014\u2014 \u9762\u677F\u5361\u7247\u4E0E\u6EDA\u52A8\u533A\uFF1A\u5BBD min(760px, 100vw - 32px)\uFF0C\u6B63\u6587\u533A\u81EA\u5DF1\u6EDA\uFF08\u8BBE\u8BA1 \xA73.2\uFF09 \u2014\u2014 */\n.stt_dialog_41d0f6 {\n  box-sizing: border-box;\n  display: flex;\n  flex-direction: column;\n  width: min(760px, calc(100vw - 32px));\n  max-width: min(760px, calc(100vw - 32px));\n  max-height: calc(100vh - 96px);\n}\n\n.stt_content_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 18px;\n  min-height: 0;\n  overflow-y: auto;\n}\n\n/* \u2014\u2014 \u5206\u533A\u4E0E\u5206\u533A\u6807\u9898\uFF08\u56DB\u6BB5\u81EA\u4E0A\u800C\u4E0B\uFF09 \u2014\u2014 */\n.stt_section_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n}\n\n.stt_sectionTitle_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 13px;\n  font-weight: 600;\n  line-height: 20px;\n  letter-spacing: 0.01em;\n}\n\n/* \u2014\u2014 \u72B6\u6001\u6458\u8981\uFF1A\u56DB\u8BA1\u6570\u4E00\u884C + \u4E09\u6761\u4E8B\u5B9E\u884C \u2014\u2014 */\n.stt_counters_41d0f6 {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 2px 18px;\n  margin: 0;\n  padding: 0;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 13px;\n  line-height: 20px;\n  list-style: none;\n}\n\n.stt_meta_41d0f6 {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 2px 12px;\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n.stt_muted_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n/* \u53D8\u66F4\u4EE3\u4EF7\u5F62\u72B6\uFF08`mutation.stt_kv_41d0f6`\uFF09\uFF1A\u4FE1\u606F\u6027\u63D0\u793A\uFF0C\u7528\u4E1A\u52A1\u84DD\u800C\u4E0D\u662F\u8B66\u544A\u8272\u3002 */\n.stt_notice_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-state-business-primary, #1a67e0);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u964D\u7EA7\u63D0\u793A\uFF08`persistence-degraded`\uFF09\u4E0E\u9ED8\u8BA4\u6863\u635F\u574F\uFF1A\u5FC5\u987B\u8BFB\u5230\u7684\u574F\u6D88\u606F\u3002 */\n.stt_warning_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-state-warn-primary, #dd8629);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u2014\u2014 \u5931\u8D25\u884C\uFF1A\u4E3B\u6587\u6848\u672C\u5730\u5316\uFF0C\u5BBF\u4E3B\u539F\u6587\u53EA\u4F5C\u4E8C\u7EA7\u7070\u5B57\uFF08\u8BBE\u8BA1 \xA73.5\uFF09 \u2014\u2014 */\n.stt_error_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-state-error-primary, #ec1313);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n.stt_detail_41d0f6 {\n  margin: 4px 0 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n  word-break: break-word;\n}\n\n/* \u4E0D\u53EF\u7528\u964D\u7EA7\uFF1A\u6CA1\u6709\u5FEB\u7167\u65F6\u72EC\u5360\u6B63\u6587\u533A\uFF0C\u7ED9\u8FD9\u5757\u5360\u4F4D\u4E00\u70B9\u5185\u8FB9\u8DDD\u3002 */\n.stt_failureBlock_41d0f6 {\n  padding: 10px 0;\n}\n\n.stt_loading_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n/* \u2014\u2014 \u5206\u7EC4\u6E05\u5355 \u2014\u2014 */\n.stt_groups_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.stt_group_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n  border-top: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n}\n\n.stt_group_41d0f6:first-child {\n  border-top: none;\n}\n\n.stt_groupHeader_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  min-height: 32px;\n}\n\n/* \u6807\u9898\u533A\u662F\u6298\u53E0\u76EE\u6807\uFF1A\u94FA\u6EE1\u5269\u4F59\u5BBD\u5EA6\uFF0C\u5F00\u5173\u5728\u53F3\u4FA7\u72EC\u7ACB\u6210\u547D\u4E2D\u533A\uFF08\u70B9\u5F00\u5173\u4E0D\u6298\u53E0\uFF09\u3002 */\n.stt_groupToggle_41d0f6 {\n  display: flex;\n  flex: 1 1 auto;\n  align-items: center;\n  gap: 8px;\n  min-width: 0;\n  padding: 4px 6px;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 8px;\n}\n\n.stt_groupToggle_41d0f6:hover {\n  background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 6%));\n}\n\n.stt_groupTitle_41d0f6 {\n  color: var(--dsw-alias-label-primary, #000);\n  font-size: 13px;\n  font-weight: 600;\n  white-space: nowrap;\n}\n\n.stt_groupName_41d0f6 {\n  overflow: hidden;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n}\n\n.stt_groupCounts_41d0f6 {\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  white-space: nowrap;\n}\n\n/* \u5185\u7F6E\u5DE5\u5177\u5206\u533A\u7684\u672C\u5730\u8FC7\u6EE4\u8F93\u5165\uFF08\u53EA\u5F71\u54CD\u5C55\u793A\uFF09\u3002 */\n.stt_filterRow_41d0f6 {\n  padding: 0 6px 6px;\n}\n\n.stt_filter_41d0f6 {\n  display: inline-flex;\n  width: 100%;\n}\n\n.stt_filter_41d0f6 input {\n  width: 100%;\n}\n\n/* \u7EC4\u5185\u5DE5\u5177\u884C\uFF1A\u4E00\u884C\u4E00\u4E2A\u5F00\u5173\uFF0C\u884C\u9AD8\u5BF9\u9F50 Switch \u7684 28px \u547D\u4E2D\u533A\u3002 */\n.stt_rows_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  margin: 0 0 6px;\n  padding: 0 6px 0 26px;\n  list-style: none;\n}\n\n/* \u2014\u2014 \u6280\u80FD\u884C\uFF08C11 / \u4EFB\u52A1 7.7\uFF09\uFF1A`SkillPanel` \u590D\u7528\u540C\u4E00\u5957 `.stt_rows_41d0f6` / `.stt_row_41d0f6` / `.stt_tag_41d0f6` / `.stt_pending_41d0f6`\uFF0C\n *    \u4F46\u5B83\u7684\u5217\u8868**\u76F4\u63A5\u6302\u5728\u5206\u533A\u4E0B**\uFF08\u6CA1\u6709\u5206\u7EC4\u6807\u9898\u884C\uFF09\uFF0C26px \u7684\u5C42\u7EA7\u7F29\u8FDB\u5728\u8FD9\u91CC\u4F1A\u4E0E\u5206\u533A\u6807\u9898\u9519\u4F4D\uFF0C\n *    \u6240\u4EE5\u53EA\u53D6\u6D88\u7F29\u8FDB\u3001\u5176\u4F59\u4E0E\u5DE5\u5177\u884C\u5B8C\u5168\u4E00\u81F4\uFF08\u4E00\u884C\u4E00\u4E2A\u5F00\u5173\u3001\u7B49\u5BBD\u540D\u5B57\u3001\u72B6\u6001\u6807\u7B7E\uFF09\u3002\n *    \u5DE5\u5177\u884C\u7684 `.stt_rows_41d0f6` \u5D4C\u5728 `.stt_group_41d0f6` \u91CC\uFF0C\u4E0D\u53D7\u8FD9\u6761\u76F4\u63A5\u5B50\u9009\u62E9\u5668\u5F71\u54CD\u3002 \u2014\u2014 */\n.stt_section_41d0f6 > .stt_rows_41d0f6 {\n  padding-left: 0;\n}\n\n.stt_row_41d0f6 {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n  min-height: 30px;\n}\n\n.stt_rowName_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n}\n\n.stt_name_41d0f6 {\n  overflow: hidden;\n  color: var(--dsw-alias-label-primary, #000);\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n}\n\n/* \u884C\u7EA7\u9501\u5B9A\u77ED\u6807\u7B7E\uFF08`entry.stt_protected_41d0f6` / `entry.stt_reserved_41d0f6` / `entry.stt_shadowed_41d0f6`\uFF09\u3002 */\n.stt_tag_41d0f6 {\n  flex: none;\n  padding: 0 6px;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 11px;\n  line-height: 16px;\n  border: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 12%));\n  border-radius: 999px;\n}\n\n/* \u300C\u6B63\u5728\u5E94\u7528\u2026\u300D\uFF1A\u4E0E\u884C\u6807\u7B7E\u540C\u7EA7\uFF0C\u4E0D\u62A2\u6CE8\u610F\u529B\u3002 */\n.stt_pending_41d0f6 {\n  flex: none;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 11px;\n  line-height: 16px;\n}\n\n.stt_empty_41d0f6 {\n  padding: 2px 0 6px;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u2014\u2014 \u5173\u95ED\u96C6 / \u9ED8\u8BA4\u6863\u5171\u7528\u7684 chip \u5217\u8868 \u2014\u2014 */\n.stt_chips_41d0f6 {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.stt_chip_41d0f6 {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  max-width: 100%;\n  padding: 2px 4px 2px 8px;\n  background: var(--dsw-alias-bg-layer-2, #f7f7f8);\n  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n  border-radius: 999px;\n}\n\n.stt_address_41d0f6 {\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  color: var(--dsw-alias-label-secondary, #545557);\n  word-break: break-all;\n}\n\n/* `intent` \u5FBD\u6807\uFF1A\u8BE5\u5730\u5740\u5F53\u524D 0 \u5339\u914D\uFF0C\u610F\u56FE\u5DF2\u8BB0\u5F55\uFF08\u8BBE\u8BA1 \xA73.2 \u7B2C 4 \u6BB5\uFF09\u3002 */\n.stt_badge_41d0f6 {\n  flex: none;\n  padding: 0 6px;\n  color: var(--dsw-alias-label-primary-inverted, #fff);\n  font-size: 11px;\n  line-height: 16px;\n  background: var(--dsw-alias-state-business-primary, #1a67e0);\n  border-radius: 999px;\n}\n\n/* \u2014\u2014 \u9ED8\u8BA4\u6863\u7F16\u8F91\u533A \u2014\u2014 */\n.stt_path_41d0f6 {\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  word-break: break-all;\n}\n\n.stt_addRow_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n}\n\n.stt_addInput_41d0f6 {\n  display: inline-flex;\n  flex: 1 1 auto;\n  min-width: 0;\n}\n\n.stt_addInput_41d0f6 input {\n  width: 100%;\n}\n\n/* \u2014\u2014 \u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u4E0B\u62C9\uFF08\u5BF9\u8BDD\u6846\u5F62\u6001\uFF09\uFF1A\u539F\u751F select\uFF0C\u4E0E\u8F93\u5165\u6846\u540C\u9AD8\uFF08C2\uFF09 \u2014\u2014 */\n.stt_select_41d0f6 {\n  flex: 1 1 auto;\n  min-width: 0;\n  height: 32px;\n  padding: 0 8px;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 13px;\n  background: var(--dsw-alias-bg-layer-2, #f7f7f8);\n  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n  border-radius: 6px;\n}\n\n/* \u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u5BF9\u8BDD\u6846\u6B63\u6587\uFF1A\u53EA\u505A\u7EB5\u5411\u6392\u5E03\uFF0C**\u4E0D**\u91CD\u590D Modal \u5361\u7247\u7684\u5BBD\u5EA6/\u9AD8\u5EA6\u7EA6\u675F\n * \uFF08footer \u5BF9\u8BDD\u6846\u7531 7.3 \u7684 `WorkspaceEntry` \u6301\u6709\uFF0C\u5BBD\u5EA6\u538B\u5230 560px\uFF09\u3002 */\n.stt_workspaceBody_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n}\n\n.stt_actions_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 10px;\n  margin-top: 4px;\n}\n\n/* \u300C\u5DF2\u4FDD\u5B58\uFF08\u672C\u4F1A\u8BDD\u4E0D\u53D8\uFF09\u300D\uFF1A\u4FDD\u5B58\u6210\u529F\u7684\u77AC\u65F6\u786E\u8BA4\uFF0C\u7528\u6210\u529F\u8272\u3002 */\n.stt_saved_41d0f6 {\n  color: var(--dsw-alias-state-success-primary, #16955f);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u2014\u2014 \u4FA7\u680F footer \u7684\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u5165\u53E3\uFF087.3\uFF0CC3\uFF09\uFF1A\u5BBD\u6001\u662F\u4E00\u884C\u300C\u56FE\u6807 + \u6587\u6848\u300D\uFF0C\n *    \u6298\u53E0\u6001\u53EA\u5269 28px \u65B9\u5F62\u56FE\u6807\uFF08`wide === false` \u7684\u9762\u5305\u5C51\u680F\uFF09\u3002 \u2014\u2014 */\n.stt_workspaceEntry_41d0f6 {\n  display: flex;\n  align-items: center;\n  min-width: 0;\n}\n\n/* \u5BBD\u6001\uFF1A\u6574\u884C\u53EF\u70B9\uFF0C\u6587\u6848\u5DE6\u5BF9\u9F50\uFF1B\u989C\u8272\u6CBF\u7528\u4FA7\u680F footer \u7684\u6B21\u7EA7\u6587\u5B57 token\u3002 */\n.stt_workspaceEntryTrigger_41d0f6 {\n  justify-content: flex-start;\n  gap: 8px;\n  width: 100%;\n  min-width: 0;\n  color: var(--dsw-alias-label-secondary, #545557);\n}\n\n/* \u6298\u53E0\u6001\uFF1A28px \u65B9\u5F62\uFF08\u4E0E\u5934\u90E8\u5165\u53E3\u540C\u5C3A\u5BF8\uFF09\uFF0C\u53EA\u6709\u56FE\u6807\u3002 */\n.stt_workspaceEntryRail_41d0f6 {\n  justify-content: center;\n  width: 28px;\n  min-width: 28px;\n  height: 28px;\n  padding: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n}\n\n.stt_workspaceEntryLabel_41d0f6 {\n  overflow: hidden;\n  font-size: 13px;\n  line-height: 18px;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n/* footer \u5BF9\u8BDD\u6846\u6BD4\u9762\u677F\u7A84\uFF1A\u53EA\u7F16\u8F91\u4E00\u4E2A\u5DE5\u4F5C\u533A\u7684\u6863\uFF0C\u4E0D\u9700\u8981 760px \u7684\u5BBD\u5EA6\uFF08D-13\uFF1A\u590D\u7528\u540C\u4E00\u5957\n * Modal \u9AA8\u67B6\u4E0E --dsw-* \u4EE4\u724C\uFF0C\u53EA\u8986\u76D6\u5BBD\u5EA6\u4E0E\u6700\u5927\u9AD8\u5EA6\uFF09\u3002 */\n.stt_workspaceDialog_41d0f6 {\n  box-sizing: border-box;\n  display: flex;\n  flex-direction: column;\n  width: min(560px, calc(100vw - 32px));\n  max-width: min(560px, calc(100vw - 32px));\n  max-height: calc(100vh - 96px);\n}\n";
+		var cssText = "/*\n * \u4F1A\u8BDD\u5DE5\u5177\u9762\u9762\u677F\u7684\u5C42\u7EA7\u6837\u5F0F\uFF08\u8BBE\u8BA1\u9644\u5F55 \xA71.1 \u7684 `panel.stt_module_41d0f6.stt_css_41d0f6` \u884C\uFF09\u3002\n *\n * \u9AA8\u67B6\uFF08\u906E\u7F69\u3001\u5361\u7247\u3001\u6807\u9898\u3001\u5173\u95ED\u6309\u94AE\u3001\u6309\u94AE\u3001\u5F00\u5173\u3001\u8F93\u5165\u6846\uFF09\u5168\u90E8\u7531\u5B98\u65B9 primitives \u63D0\u4F9B\uFF0C\u672C\u6587\u4EF6\n * \u53EA\u8865 Modal \u9AA8\u67B6\u4E4B\u5916\u7684\u5C42\u7EA7\uFF1A\u5206\u533A\u6807\u9898\u3001\u884C\u9AD8\u3001\u5FBD\u6807\u3001\u7981\u7528\u6001\u3001\u6298\u53E0\u7BAD\u5934\u3001chip\u3002\u989C\u8272\u4E00\u5F8B\u53D6\u5B98\u65B9\n * `--dsw-alias-*` \u8BBE\u8BA1\u4EE4\u724C\u5E76\u5E26\u9759\u6001\u515C\u5E95\u2014\u2014\u4EE4\u724C\u6539\u540D\u65F6\u6700\u574F\u9000\u5316\u6210\u53EF\u8BFB\u7684\u9ED1\u767D\u800C\u4E0D\u662F\u900F\u660E\u3002\n *\n * \u4E24\u5904\u4E0E\u5B98\u65B9\u7EC4\u4EF6\u540C\u540D\u7684\u8986\u76D6\uFF08`.stt_trigger_41d0f6` \u538B Button \u7684\u5C3A\u5BF8\u4E0E\u914D\u8272\uFF09\u6CBF\u7528\u4ED3\u5185\u5148\u4F8B\n * \uFF08`plugins/web-ux/src/client/delete.stt_module_41d0f6.stt_css_41d0f6` \u7684 `.stt_danger_41d0f6`\uFF09\uFF1Aprimitives \u7684\u6837\u5F0F\u540C\u6837\u662F\n * \u5355\u7C7B\u9009\u62E9\u5668\uFF0C\u63D2\u4EF6\u6837\u5F0F\u5728\u5176\u540E\u6CE8\u5165\u5373\u751F\u6548\u3002\n */\n\n/* \u2014\u2014 \u4F1A\u8BDD\u5934\u90E8\u7684\u5165\u53E3\u6309\u94AE\uFF1A28px \u5706\u5F62\uFF0C\u89C6\u89C9\u4E0E\u540C\u5EA7\u4F4D\u7684\u5B98\u65B9\u89E6\u53D1\u5668\u4E00\u81F4\uFF08\u8BBE\u8BA1 \xA73.1\uFF09 \u2014\u2014 */\n.stt_trigger_41d0f6 {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  width: 28px;\n  min-width: 28px;\n  height: 28px;\n  padding: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  border-radius: 28px;\n}\n\n.stt_trigger_41d0f6:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary, #000);\n  background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 6%));\n}\n\n/* \u2014\u2014 \u9762\u677F\u5361\u7247\u4E0E\u6EDA\u52A8\u533A\uFF1A\u5BBD min(760px, 100vw - 32px)\uFF0C\u6B63\u6587\u533A\u81EA\u5DF1\u6EDA\uFF08\u8BBE\u8BA1 \xA73.2\uFF09 \u2014\u2014 */\n.stt_dialog_41d0f6 {\n  box-sizing: border-box;\n  display: flex;\n  flex-direction: column;\n  width: min(760px, calc(100vw - 32px));\n  max-width: min(760px, calc(100vw - 32px));\n  max-height: calc(100vh - 96px);\n}\n\n.stt_content_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 18px;\n  min-height: 0;\n  overflow-y: auto;\n}\n\n/* \u2014\u2014 \u5206\u533A\u4E0E\u5206\u533A\u6807\u9898\uFF08\u56DB\u6BB5\u81EA\u4E0A\u800C\u4E0B\uFF09 \u2014\u2014 */\n.stt_section_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n}\n\n.stt_sectionTitle_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 13px;\n  font-weight: 600;\n  line-height: 20px;\n  letter-spacing: 0.01em;\n}\n\n/* \u2014\u2014 \u72B6\u6001\u6458\u8981\uFF1A\u56DB\u8BA1\u6570\u4E00\u884C + \u4E09\u6761\u4E8B\u5B9E\u884C \u2014\u2014 */\n.stt_counters_41d0f6 {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 2px 18px;\n  margin: 0;\n  padding: 0;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 13px;\n  line-height: 20px;\n  list-style: none;\n}\n\n.stt_meta_41d0f6 {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 2px 12px;\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n.stt_muted_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n/* \u53D8\u66F4\u4EE3\u4EF7\u5F62\u72B6\uFF08`mutation.stt_kv_41d0f6`\uFF09\uFF1A\u4FE1\u606F\u6027\u63D0\u793A\uFF0C\u7528\u4E1A\u52A1\u84DD\u800C\u4E0D\u662F\u8B66\u544A\u8272\u3002 */\n.stt_notice_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-state-business-primary, #1a67e0);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u964D\u7EA7\u63D0\u793A\uFF08`persistence-degraded`\uFF09\u4E0E\u9ED8\u8BA4\u6863\u635F\u574F\uFF1A\u5FC5\u987B\u8BFB\u5230\u7684\u574F\u6D88\u606F\u3002 */\n.stt_warning_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-state-warn-primary, #dd8629);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u2014\u2014 \u5931\u8D25\u884C\uFF1A\u4E3B\u6587\u6848\u672C\u5730\u5316\uFF0C\u5BBF\u4E3B\u539F\u6587\u53EA\u4F5C\u4E8C\u7EA7\u7070\u5B57\uFF08\u8BBE\u8BA1 \xA73.5\uFF09 \u2014\u2014 */\n.stt_error_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-state-error-primary, #ec1313);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n.stt_detail_41d0f6 {\n  margin: 4px 0 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n  word-break: break-word;\n}\n\n/* \u4E0D\u53EF\u7528\u964D\u7EA7\uFF1A\u6CA1\u6709\u5FEB\u7167\u65F6\u72EC\u5360\u6B63\u6587\u533A\uFF0C\u7ED9\u8FD9\u5757\u5360\u4F4D\u4E00\u70B9\u5185\u8FB9\u8DDD\u3002 */\n.stt_failureBlock_41d0f6 {\n  padding: 10px 0;\n}\n\n.stt_loading_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n/* \u2014\u2014 \u5206\u7EC4\u6E05\u5355 \u2014\u2014 */\n.stt_groups_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.stt_group_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n  border-top: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n}\n\n.stt_group_41d0f6:first-child {\n  border-top: none;\n}\n\n.stt_groupHeader_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  min-height: 32px;\n}\n\n/* \u6807\u9898\u533A\u662F\u6298\u53E0\u76EE\u6807\uFF1A\u94FA\u6EE1\u5269\u4F59\u5BBD\u5EA6\uFF0C\u5F00\u5173\u5728\u53F3\u4FA7\u72EC\u7ACB\u6210\u547D\u4E2D\u533A\uFF08\u70B9\u5F00\u5173\u4E0D\u6298\u53E0\uFF09\u3002 */\n.stt_groupToggle_41d0f6 {\n  display: flex;\n  flex: 1 1 auto;\n  align-items: center;\n  gap: 8px;\n  min-width: 0;\n  padding: 4px 6px;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 8px;\n}\n\n.stt_groupToggle_41d0f6:hover {\n  background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 6%));\n}\n\n.stt_groupTitle_41d0f6 {\n  color: var(--dsw-alias-label-primary, #000);\n  font-size: 13px;\n  font-weight: 600;\n  white-space: nowrap;\n}\n\n.stt_groupName_41d0f6 {\n  overflow: hidden;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n}\n\n.stt_groupCounts_41d0f6 {\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  white-space: nowrap;\n}\n\n/* \u5185\u7F6E\u5DE5\u5177\u5206\u533A\u7684\u672C\u5730\u8FC7\u6EE4\u8F93\u5165\uFF08\u53EA\u5F71\u54CD\u5C55\u793A\uFF09\u3002 */\n.stt_filterRow_41d0f6 {\n  padding: 0 6px 6px;\n}\n\n.stt_filter_41d0f6 {\n  display: inline-flex;\n  width: 100%;\n}\n\n.stt_filter_41d0f6 input {\n  width: 100%;\n}\n\n/* \u7EC4\u5185\u5DE5\u5177\u884C\uFF1A\u4E00\u884C\u4E00\u4E2A\u5F00\u5173\uFF0C\u884C\u9AD8\u5BF9\u9F50 Switch \u7684 28px \u547D\u4E2D\u533A\u3002 */\n.stt_rows_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  margin: 0 0 6px;\n  padding: 0 6px 0 26px;\n  list-style: none;\n}\n\n/* \u2014\u2014 \u6280\u80FD\u884C\uFF08C11 / \u4EFB\u52A1 7.7\uFF09\uFF1A`SkillPanel` \u590D\u7528\u540C\u4E00\u5957 `.stt_rows_41d0f6` / `.stt_row_41d0f6` / `.stt_tag_41d0f6` / `.stt_pending_41d0f6`\uFF0C\n *    \u4F46\u5B83\u7684\u5217\u8868**\u76F4\u63A5\u6302\u5728\u5206\u533A\u4E0B**\uFF08\u6CA1\u6709\u5206\u7EC4\u6807\u9898\u884C\uFF09\uFF0C26px \u7684\u5C42\u7EA7\u7F29\u8FDB\u5728\u8FD9\u91CC\u4F1A\u4E0E\u5206\u533A\u6807\u9898\u9519\u4F4D\uFF0C\n *    \u6240\u4EE5\u53EA\u53D6\u6D88\u7F29\u8FDB\u3001\u5176\u4F59\u4E0E\u5DE5\u5177\u884C\u5B8C\u5168\u4E00\u81F4\uFF08\u4E00\u884C\u4E00\u4E2A\u5F00\u5173\u3001\u7B49\u5BBD\u540D\u5B57\u3001\u72B6\u6001\u6807\u7B7E\uFF09\u3002\n *    \u5DE5\u5177\u884C\u7684 `.stt_rows_41d0f6` \u5D4C\u5728 `.stt_group_41d0f6` \u91CC\uFF0C\u4E0D\u53D7\u8FD9\u6761\u76F4\u63A5\u5B50\u9009\u62E9\u5668\u5F71\u54CD\u3002 \u2014\u2014 */\n.stt_section_41d0f6 > .stt_rows_41d0f6 {\n  padding-left: 0;\n}\n\n.stt_row_41d0f6 {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n  min-height: 30px;\n}\n\n.stt_rowName_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n}\n\n.stt_name_41d0f6 {\n  overflow: hidden;\n  color: var(--dsw-alias-label-primary, #000);\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n}\n\n/* \u884C\u7EA7\u9501\u5B9A\u77ED\u6807\u7B7E\uFF08`entry.stt_protected_41d0f6` / `entry.stt_reserved_41d0f6` / `entry.stt_shadowed_41d0f6`\uFF09\u3002 */\n.stt_tag_41d0f6 {\n  flex: none;\n  padding: 0 6px;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 11px;\n  line-height: 16px;\n  border: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 12%));\n  border-radius: 999px;\n}\n\n/* \u300C\u6B63\u5728\u5E94\u7528\u2026\u300D\uFF1A\u4E0E\u884C\u6807\u7B7E\u540C\u7EA7\uFF0C\u4E0D\u62A2\u6CE8\u610F\u529B\u3002 */\n.stt_pending_41d0f6 {\n  flex: none;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 11px;\n  line-height: 16px;\n}\n\n.stt_empty_41d0f6 {\n  padding: 2px 0 6px;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u2014\u2014 \u5173\u95ED\u96C6 / \u9ED8\u8BA4\u6863\u5171\u7528\u7684 chip \u5217\u8868 \u2014\u2014 */\n.stt_chips_41d0f6 {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.stt_chip_41d0f6 {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  max-width: 100%;\n  padding: 2px 4px 2px 8px;\n  background: var(--dsw-alias-bg-layer-2, #f7f7f8);\n  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n  border-radius: 999px;\n}\n\n.stt_address_41d0f6 {\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  color: var(--dsw-alias-label-secondary, #545557);\n  word-break: break-all;\n}\n\n/* `intent` \u5FBD\u6807\uFF1A\u8BE5\u5730\u5740\u5F53\u524D 0 \u5339\u914D\uFF0C\u610F\u56FE\u5DF2\u8BB0\u5F55\uFF08\u8BBE\u8BA1 \xA73.2 \u7B2C 4 \u6BB5\uFF09\u3002 */\n.stt_badge_41d0f6 {\n  flex: none;\n  padding: 0 6px;\n  color: var(--dsw-alias-label-primary-inverted, #fff);\n  font-size: 11px;\n  line-height: 16px;\n  background: var(--dsw-alias-state-business-primary, #1a67e0);\n  border-radius: 999px;\n}\n\n/* \u2014\u2014 \u9ED8\u8BA4\u6863\u7F16\u8F91\u533A \u2014\u2014 */\n.stt_path_41d0f6 {\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  word-break: break-all;\n}\n\n.stt_addRow_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n}\n\n.stt_addInput_41d0f6 {\n  display: inline-flex;\n  flex: 1 1 auto;\n  min-width: 0;\n}\n\n.stt_addInput_41d0f6 input {\n  width: 100%;\n}\n\n/* \u2014\u2014 \u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u4E0B\u62C9\uFF08\u5BF9\u8BDD\u6846\u5F62\u6001\uFF09\uFF1A\u539F\u751F select\uFF0C\u4E0E\u8F93\u5165\u6846\u540C\u9AD8\uFF08C2\uFF09 \u2014\u2014 */\n.stt_select_41d0f6 {\n  flex: 1 1 auto;\n  min-width: 0;\n  height: 32px;\n  padding: 0 8px;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 13px;\n  background: var(--dsw-alias-bg-layer-2, #f7f7f8);\n  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n  border-radius: 6px;\n}\n\n/* \u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u5206\u8282\u7684\u6B63\u6587\u58F3\uFF08\u7EDF\u4E00\u300C\u5DE5\u4F5C\u533A\u914D\u7F6E\u300D\u5F39\u7A97\u7684\u4E00\u4E2A\u5206\u8282\uFF09\uFF1A\u53EA\u505A\u7EB5\u5411\u6392\u5E03\u3002\n * \u5BBD\u5EA6 / \u9AD8\u5EA6 / \u6EDA\u52A8\u7EA6\u675F\u5F52 holder \u5F39\u7A97\u7684\u5185\u5BB9\u5217\uFF08`workspace-config` \u7684 dialog.stt_module_41d0f6.stt_css_41d0f6\uFF09\uFF0C\n * \u672C\u8282**\u4E0D**\u81EA\u5E26\u5361\u7247\u5BBD\u5EA6\uFF0C\u4E5F\u4E0D\u81EA\u5E26 Modal\u3002 */\n.stt_workspaceBody_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n}\n\n.stt_actions_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 10px;\n  margin-top: 4px;\n}\n\n/* \u300C\u5DF2\u4FDD\u5B58\uFF08\u672C\u4F1A\u8BDD\u4E0D\u53D8\uFF09\u300D\uFF1A\u4FDD\u5B58\u6210\u529F\u7684\u77AC\u65F6\u786E\u8BA4\uFF0C\u7528\u6210\u529F\u8272\u3002 */\n.stt_saved_41d0f6 {\n  color: var(--dsw-alias-state-success-primary, #16955f);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n";
 		if (typeof document !== "undefined" && document.querySelector('style[data-dsh-plugin="dsh-plugin-session-tool-toggle"]') === null) {
 		  const style = document.createElement("style");
 		  style.setAttribute("data-dsh-plugin", "dsh-plugin-session-tool-toggle");
 		  style.textContent = cssText;
 		  document.head.appendChild(style);
 		}
-		var panel_default = { "module": "stt_module_41d0f6", "css": "stt_css_41d0f6", "trigger": "stt_trigger_41d0f6", "danger": "stt_danger_41d0f6", "dialog": "stt_dialog_41d0f6", "content": "stt_content_41d0f6", "section": "stt_section_41d0f6", "sectionTitle": "stt_sectionTitle_41d0f6", "counters": "stt_counters_41d0f6", "meta": "stt_meta_41d0f6", "muted": "stt_muted_41d0f6", "kv": "stt_kv_41d0f6", "notice": "stt_notice_41d0f6", "warning": "stt_warning_41d0f6", "error": "stt_error_41d0f6", "detail": "stt_detail_41d0f6", "failureBlock": "stt_failureBlock_41d0f6", "loading": "stt_loading_41d0f6", "groups": "stt_groups_41d0f6", "group": "stt_group_41d0f6", "groupHeader": "stt_groupHeader_41d0f6", "groupToggle": "stt_groupToggle_41d0f6", "groupTitle": "stt_groupTitle_41d0f6", "groupName": "stt_groupName_41d0f6", "groupCounts": "stt_groupCounts_41d0f6", "filterRow": "stt_filterRow_41d0f6", "filter": "stt_filter_41d0f6", "rows": "stt_rows_41d0f6", "row": "stt_row_41d0f6", "tag": "stt_tag_41d0f6", "pending": "stt_pending_41d0f6", "rowName": "stt_rowName_41d0f6", "name": "stt_name_41d0f6", "protected": "stt_protected_41d0f6", "reserved": "stt_reserved_41d0f6", "shadowed": "stt_shadowed_41d0f6", "empty": "stt_empty_41d0f6", "chips": "stt_chips_41d0f6", "chip": "stt_chip_41d0f6", "address": "stt_address_41d0f6", "badge": "stt_badge_41d0f6", "path": "stt_path_41d0f6", "addRow": "stt_addRow_41d0f6", "addInput": "stt_addInput_41d0f6", "select": "stt_select_41d0f6", "workspaceBody": "stt_workspaceBody_41d0f6", "actions": "stt_actions_41d0f6", "saved": "stt_saved_41d0f6", "workspaceEntry": "stt_workspaceEntry_41d0f6", "workspaceEntryTrigger": "stt_workspaceEntryTrigger_41d0f6", "workspaceEntryRail": "stt_workspaceEntryRail_41d0f6", "workspaceEntryLabel": "stt_workspaceEntryLabel_41d0f6", "workspaceDialog": "stt_workspaceDialog_41d0f6" };
+		var panel_default = { "module": "stt_module_41d0f6", "css": "stt_css_41d0f6", "trigger": "stt_trigger_41d0f6", "danger": "stt_danger_41d0f6", "dialog": "stt_dialog_41d0f6", "content": "stt_content_41d0f6", "section": "stt_section_41d0f6", "sectionTitle": "stt_sectionTitle_41d0f6", "counters": "stt_counters_41d0f6", "meta": "stt_meta_41d0f6", "muted": "stt_muted_41d0f6", "kv": "stt_kv_41d0f6", "notice": "stt_notice_41d0f6", "warning": "stt_warning_41d0f6", "error": "stt_error_41d0f6", "detail": "stt_detail_41d0f6", "failureBlock": "stt_failureBlock_41d0f6", "loading": "stt_loading_41d0f6", "groups": "stt_groups_41d0f6", "group": "stt_group_41d0f6", "groupHeader": "stt_groupHeader_41d0f6", "groupToggle": "stt_groupToggle_41d0f6", "groupTitle": "stt_groupTitle_41d0f6", "groupName": "stt_groupName_41d0f6", "groupCounts": "stt_groupCounts_41d0f6", "filterRow": "stt_filterRow_41d0f6", "filter": "stt_filter_41d0f6", "rows": "stt_rows_41d0f6", "row": "stt_row_41d0f6", "tag": "stt_tag_41d0f6", "pending": "stt_pending_41d0f6", "rowName": "stt_rowName_41d0f6", "name": "stt_name_41d0f6", "protected": "stt_protected_41d0f6", "reserved": "stt_reserved_41d0f6", "shadowed": "stt_shadowed_41d0f6", "empty": "stt_empty_41d0f6", "chips": "stt_chips_41d0f6", "chip": "stt_chip_41d0f6", "address": "stt_address_41d0f6", "badge": "stt_badge_41d0f6", "path": "stt_path_41d0f6", "addRow": "stt_addRow_41d0f6", "addInput": "stt_addInput_41d0f6", "select": "stt_select_41d0f6", "workspaceBody": "stt_workspaceBody_41d0f6", "actions": "stt_actions_41d0f6", "saved": "stt_saved_41d0f6" };
 
 		// src/client/DefaultsEditor.tsx
 		var import_jsx_runtime = require("react/jsx-runtime");
@@ -1593,6 +1593,9 @@ window.__ModuleLoader__.load({
 		  "action.title": "\u4F1A\u8BDD\u5DE5\u5177\u9762",
 		  "action.tooltip": "\u4F1A\u8BDD\u5DE5\u5177\u5F00\u5173\uFF1A\u672C\u4F1A\u8BDD\u5185\u7684\u5DE5\u5177\u53EF\u5206\u7EC4\u6216\u9010\u4E2A\u5173\u95ED",
 		  "action.aria": "\u6253\u5F00\u4F1A\u8BDD\u5DE5\u5177\u9762\u9762\u677F",
+		  // —— 统一「工作区配置」弹窗的分节导航行（code-design ①1.4 #40 / ③3.5） ——
+		  //     分节的 label 是 holder nav 每次读取时求值的 thunk；本键是该行的唯一文案来源。
+		  "section.label": "\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863",
 		  // —— 面板骨架（设计 §3.2：title + description + footer 的刷新/关闭） ——
 		  "panel.title": "\u4F1A\u8BDD\u5DE5\u5177\u9762",
 		  "panel.description": "\u672C\u4F1A\u8BDD\u5185\u53EF\u7528\u7684\u5DE5\u5177\u4E0E\u5F00\u5173\uFF1B\u6539\u52A8\u53EA\u5F71\u54CD\u672C\u4F1A\u8BDD\u4E4B\u540E\u7684\u6A21\u578B\u6B65\u9AA4\u3002",
@@ -1728,6 +1731,8 @@ window.__ModuleLoader__.load({
 		  "action.title": "Session tool surface",
 		  "action.tooltip": "Session tool switches: turn groups or single tools off for this session",
 		  "action.aria": "Open the session tool surface panel",
+		  // —— Section row of the unified workspace-settings dialog (nav label thunk) ——
+		  "section.label": "Workspace defaults",
 		  // —— 面板骨架 ——
 		  "panel.title": "Session tool surface",
 		  "panel.description": "Tools available in this session and their switches; changes only affect this session from the next model step on.",
@@ -2182,7 +2187,6 @@ window.__ModuleLoader__.load({
 
 		// src/client/WorkspaceEntry.tsx
 		var import_react5 = require("react");
-		var import_dsh_client_ui_primitives6 = require("@deepseek-ai/dsh-client-ui-primitives");
 		var import_jsx_runtime6 = require("react/jsx-runtime");
 		var CLIENT_MISSING_MESSAGE2 = "\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u5BA2\u6237\u7AEF\u5C1A\u672A\u5C31\u7EEA\uFF1Aconnection \u53EF\u80FD\u665A\u4E8E\u63D2\u4EF6 apply \u6302\u8F7D";
 		var NO_SESSION_MESSAGE = "\u5F53\u524D\u6CA1\u6709\u53EF\u5B9A\u4F4D\u7684\u4F1A\u8BDD\uFF1A\u5148\u6253\u5F00\u4E00\u4E2A\u4F1A\u8BDD\uFF0C\u6216\u7528\u4E0B\u62C9\u5207\u6362\u5230\u5DF2\u767B\u8BB0\u7684\u5DE5\u4F5C\u533A";
@@ -2311,14 +2315,13 @@ window.__ModuleLoader__.load({
 		  }, [read]);
 		  return { ...state, read, update, select };
 		}
-		function WorkspaceFooterAction(props) {
+		function WorkspaceDefaultsSection(props) {
 		  const { resolveClient, currentSessionId, t } = props;
-		  const [open, setOpen] = (0, import_react5.useState)(false);
 		  const initialTarget = (0, import_react5.useCallback)(() => {
 		    const sessionId = currentSessionId();
 		    return sessionId === void 0 || sessionId === "" ? {} : { sessionId };
 		  }, [currentSessionId]);
-		  const { phase, value, error, saving, saved, read, update, select } = useWorkspaceDefaults({
+		  const { value, error, saving, saved, read, update, select } = useWorkspaceDefaults({
 		    resolveClient,
 		    initialTarget
 		  });
@@ -2332,83 +2335,28 @@ window.__ModuleLoader__.load({
 		    }
 		    return failureOf2(error, t);
 		  }, [error, t]);
-		  const close = (0, import_react5.useCallback)(() => {
-		    setOpen(false);
-		  }, []);
-		  const toggle = () => {
-		    const next = !open;
-		    setOpen(next);
-		    if (next) void read();
-		  };
-		  const footer = /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		      import_dsh_client_ui_primitives6.Button,
-		      {
-		        variant: "ghost",
-		        size: "sm",
-		        icon: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(import_dsh_client_ui_primitives6.IconRefreshOutlineRegular, {}),
-		        "aria-label": t("workspace.refresh"),
-		        disabled: phase === "loading" || saving,
-		        onClick: () => {
-		          void read();
-		        },
-		        children: t("workspace.refresh")
-		      }
-		    ),
-		    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(import_dsh_client_ui_primitives6.Button, { variant: "outline", size: "sm", onClick: close, children: t("panel.close") })
-		  ] });
-		  const rail = props.wide === false;
-		  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: panel_default.workspaceEntry, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		      import_dsh_client_ui_primitives6.Button,
-		      {
-		        variant: "ghost",
-		        size: "sm",
-		        className: rail ? panel_default.workspaceEntryRail : panel_default.workspaceEntryTrigger,
-		        icon: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(import_dsh_client_ui_primitives6.IconWorkspaceTreeOutlineRegular, {}),
-		        "aria-label": rail ? t("workspace.title") : void 0,
-		        "aria-haspopup": "dialog",
-		        "aria-expanded": open,
-		        title: t("workspace.scope"),
-		        onClick: toggle,
-		        children: rail ? null : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: panel_default.workspaceEntryLabel, children: t("workspace.title") })
-		      }
-		    ) }),
-		    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		      import_dsh_client_ui_primitives6.Modal,
-		      {
-		        open,
-		        onClose: close,
-		        title: t("workspace.title"),
-		        closeLabel: t("panel.close"),
-		        className: panel_default.workspaceDialog,
-		        contentClassName: panel_default.content,
-		        footer,
-		        children: value === void 0 ? failure === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.loading, children: t("workspace.loading") }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.failureBlock, role: "alert", children: [
-		          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.error, children: failure.text }),
-		          failure.detail !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.detail, children: failure.detail })
-		        ] }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		          WorkspaceDefaultsEditor,
-		          {
-		            workspace: value.workspace,
-		            choices: value.choices,
-		            variant: "dialog",
-		            saving,
-		            saved,
-		            failure,
-		            onSelect: select,
-		            onUpdate: (action, addresses) => {
-		              void update(action, addresses);
-		            },
-		            onRefresh: () => {
-		              void read();
-		            },
-		            t
-		          }
-		        )
-		      }
-		    )
-		  ] });
+		  return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: panel_default.workspaceBody, children: value === void 0 ? failure === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.loading, children: t("workspace.loading") }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.failureBlock, role: "alert", children: [
+		    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.error, children: failure.text }),
+		    failure.detail !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.detail, children: failure.detail })
+		  ] }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+		    WorkspaceDefaultsEditor,
+		    {
+		      workspace: value.workspace,
+		      choices: value.choices,
+		      variant: "dialog",
+		      saving,
+		      saved,
+		      failure,
+		      onSelect: select,
+		      onUpdate: (action, addresses) => {
+		        void update(action, addresses);
+		      },
+		      onRefresh: () => {
+		        void read();
+		      },
+		      t
+		    }
+		  ) });
 		}
 
 		// src/client/current-session.ts
@@ -2456,9 +2404,9 @@ window.__ModuleLoader__.load({
 		var HEADER_SEAT = "conversation.session.header.utilities";
 		var PANEL_ID = "session-tool-toggle-panel";
 		var PANEL_ORDER = 20;
-		var FOOTER_SEAT = "sidebar.footer.action";
-		var FOOTER_ID = "session-tool-toggle-workspace-defaults";
-		var FOOTER_ORDER = 60;
+		var SECTION_SEAT = "workspace-config.section";
+		var SECTION_ID = "session-tool-toggle-workspace-defaults";
+		var SECTION_ORDER = 20;
 
 		// src/client/index.ts
 		var name = "session-tool-toggle";
@@ -2484,6 +2432,7 @@ window.__ModuleLoader__.load({
 		      off();
 		    };
 		  }, "session-tool-toggle: command/executed \u6865");
+		  const t = ctx.locale.bind(NS);
 		  const ports = {
 		    resolveClient: () => {
 		      const connection = ctx.get("connection");
@@ -2516,25 +2465,28 @@ window.__ModuleLoader__.load({
 		      };
 		    }
 		  });
-		  ctx.slots.inject(FOOTER_SEAT, () => {
+		  ctx.slots.inject(SECTION_SEAT, () => {
 		    try {
 		      return ctx.slots.register(
 		        {
-		          name: FOOTER_SEAT,
-		          id: FOOTER_ID,
-		          order: FOOTER_ORDER,
+		          name: SECTION_SEAT,
+		          id: SECTION_ID,
+		          order: SECTION_ORDER,
+		          // thunk：holder 的 nav 每次读取都重新求值，locale 切换无需重注册（上游 SlotLabel 语义）。
+		          label: () => t("section.label"),
 		          locale: NS,
 		          inject: () => ({
-		            // 复用头部入口的现取客户端：两个入口对 `connection` 是同一份纪律。
+		            // 复用头部入口的现取客户端：两个入口对 `connection` 是同一份纪律（同一 RPC 通道、
+		            // 同一宿主控制内核，因此与 `/tools` 读到的是同一份状态）。
 		            resolveClient: ports.resolveClient,
 		            // 每次动作现取当前会话（`current-session.ts` 的两步探测，服务缺席返回 undefined）。
 		            currentSessionId: () => currentSessionIdOf(ctx)
 		          })
 		        },
-		        WorkspaceFooterAction
+		        WorkspaceDefaultsSection
 		      );
 		    } catch (error) {
-		      ctx.logger.warn("%s: \u4FA7\u680F\u5E95\u90E8\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u5EA7\u4F4D\u6CE8\u518C\u5931\u8D25\uFF0C\u672C\u5165\u53E3\u4E0D\u663E\u793A", LOG_LABEL);
+		      ctx.logger.warn("%s: \u5DE5\u4F5C\u533A\u914D\u7F6E\u5206\u8282\u5EA7\u4F4D\u6CE8\u518C\u5931\u8D25\uFF0C\u672C\u8282\u4E0D\u663E\u793A", LOG_LABEL);
 		      ctx.logger.warn(error);
 		      return () => {
 		      };

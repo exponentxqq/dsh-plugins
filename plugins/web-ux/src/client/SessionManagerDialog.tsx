@@ -1,16 +1,17 @@
 /**
- * 会话管理浮层：`shell.overlay` 上的一个 list entry，一次「打开请求」挂载一个 Modal。
+ * 会话管理分节：统一「工作区配置」弹窗里的第三项（`workspace-config.section`，order 30）。
  *
- * ## 座位与打开路径
+ * ## 座位与挂载形态
  *
- * 入口按钮在 `sidebar.footer.action`（`SessionManagerTrigger`），浮层在 `shell.overlay`：
- * 两者是两个独立的 slot 注册，跨 entry 通信走插件内的 `ManagerRequestStore`。浮层订阅
- * 请求 store，空闲时返回 `null`；每次请求换新 `seq`，主体按 `key` 重挂——阶段机、选择、
- * 预览、已迁移列表全部重置，关掉再点一次不会残留上一次的状态。
+ * 本文件不再注册任何 slot，也不拥有弹窗：`client/index.ts` 以贡献方统一形状把
+ * {@link SessionManagerSection} 注册到 holder 声明的 `workspace-config.section` 上，由统一
+ * 弹窗按 nav 选中项经 `renderSlot(..., { only })` 渲染。因此**五阶段状态机整体内联在分节
+ * 里**（换的只是弹窗右栏的卡片主体），分节自身不渲染 `Modal`、不处理 Escape / 遮罩点击，
+ * 关闭由座位 owner 份额提供（`close`，弹窗开合归 holder 所有）。
  *
- * ## 一个 Modal，五个阶段（D8）
+ * ## 一个分节，五个阶段（D8 / D10）
  *
- * | phase | 主体 | footer |
+ * | phase | 主体 | 行内动作条 |
  * |---|---|---|
  * | `select` | 三 tab 列表 + 选择条 | `[取消]` + 该 tab 的动作按钮 |
  * | `confirm` | 摘要 / 被拒清单 / 恢复或删除警示 | `[返回]` + `[确认执行]` |
@@ -18,9 +19,15 @@
  * | `done` | 结果计数 + 逐项失败 + warnings | `[关闭]` |
  * | `failed` | 失败码文案 + 宿主兜底 message | `[返回]` + `[关闭]` |
  *
- * 确认不叠第二个 Modal（`Modal` 的隐藏约束：嵌套需要自管 Escape/焦点优先级与两层遮罩），
- * 阶段切换只换同一张卡片的主体与 footer。`关闭`/Escape 在 `running` 阶段被忽略：请求已经
- * 发出，界面要留在原地报告结果（与既有删除对话框同策略）。
+ * 统一弹窗没有统一 footer（D10）：动作条随阶段变化，阶段知识只在本分节里，所以它作为
+ * 正文末尾的行内动作条渲染，而不是塞进 holder 的壳。
+ *
+ * ## 关闭语义（D16）
+ *
+ * `running` 阶段请求已经发出，界面不能撤销它——分节里的「取消」保持禁用；但**关闭不再被
+ * 分节否决**：统一弹窗的关闭按钮 / Escape / 遮罩点击由 holder 直接执行 `open.close()`，
+ * 不经过本分节的任何判断。请求在宿主侧继续完成，重新打开分节看列表即可验证结果。这条
+ * 行为同时写进 README 与冒烟清单。
  *
  * ## 数据面：判据全部在 model
  *
@@ -52,26 +59,18 @@
  * 更彻底，也避免用户在请求已发出后继续改选择），同一时刻只可能有一个动作在飞。tab 2 的
  * 双动作因此天然互斥，不需要额外的锁。
  *
- * ## 软降级（D18 / spec「管理面软降级」）
+ * ## 软降级（D9 / D18）
  *
- * - `client === undefined`（connection 服务缺席）→ 整颗浮层 `return null`；
- * - `workspaces` / `sessions` 任一缺席 → 仍渲染 Modal，体内是 `manager.unavailable` 空态
- *   （通道可用但本地快照缺席时，用户需要看到解释，而不是什么都不出现）；
- * - 列不出工作区（`items` 为空）时选择器只剩伪选项，活跃域给 `manager.workspace.empty`。
+ * `client` / `workspaces` / `sessions` 任一缺席 → 分节渲染 `manager.unavailable` 空态。
+ * 旧壳里 `client === undefined` 是整颗浮层 `return null`；迁移后 null 等于右列一片空白，
+ * 而 nav 仍高亮着「会话管理」，用户既无解释也无从重试——所以改成可见空态（D9）。
  *
- * ## A13 首验：`Menu` 的 portal 在 Modal 内
+ * ## A13：`Menu` 的 portal 在统一弹窗内
  *
  * 工作区选择器用 primitives 的 `Menu`，且默认 `portal: true`（列表渲染到 `document.body`，
- * 否则会被 Modal 的滚动容器/遮罩裁剪）。A13 假设它和 Modal 的焦点、层级不冲突，**实施首验
- * 的验证路径**如下（开关唯一：{@link WORKSPACE_MENU_PORTAL}）：
- *
- * 1. jsdom：portal 出去的列表仍在 `document` 里，用 `getByRole('menuitem')` 能选到、点击
- *    能回填选择——查询按 role 而非 DOM 层级，因此不依赖 portal 落点；
- * 2. 真机：Modal 内打开菜单 → 菜单不被遮罩裁剪、层级在 Modal 之上；`Escape` 先关菜单
- *    （焦点回到触发按钮）再关 Modal；选中后焦点回到触发按钮，Modal 不丢焦点陷阱。
- *
- * 若上述任一验证失败：把 {@link WORKSPACE_MENU_PORTAL} 改成 `false` 即可让菜单退回原地
- * 渲染（纯 CSS 定位，仍可操作，只是受 Modal 的溢出裁剪约束）——单点退化，不动其他代码。
+ * 否则会被弹窗的滚动容器/遮罩裁剪）。A13 的验证路径：jsdom 按 role 查询不依赖 portal
+ * 落点；真机走查菜单不被裁剪、Escape 先关菜单再关弹窗。失败时把
+ * {@link WORKSPACE_MENU_PORTAL} 改成 `false` 即可单点退回原地渲染。
  *
  * @module dsh-plugin-web-ux/client/SessionManagerDialog
  */
@@ -83,14 +82,13 @@ import {
   IconChevronDownOutlineRegular,
   IconRefreshOutlineRegular,
   Menu,
-  Modal,
   SegmentedTabs,
   type SegmentedTab,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-// Type-only：拉 ui-layout 的 SlotMap merge（`shell.overlay` 座位的声明方）。注册本身不在
-// 本文件：浮层由 `client/index.ts` 软注册，这里只消费座位类型。
-import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
+// 类型专用：统一「工作区配置」分节的 owner 份额（只有 `close`）。holder 不进 bundle，
+// 这里只消费类型（D3）。
+import type { WorkspaceConfigSectionOwnerProps } from 'dsh-plugin-workspace-config/client'
 import {
   MAX_BATCH_TARGETS,
   MAX_LISTED_MIGRATED,
@@ -131,7 +129,6 @@ import {
   type WorkspaceChoiceId,
   type WorkspacesSnapshotView,
 } from './session-manager-model.ts'
-import type { ManagerRequestStore } from './session-manager-store.ts'
 import { NS, type Key } from './locales.ts'
 import css from './session-manager.module.css'
 
@@ -141,7 +138,7 @@ export type ManagerPhase = 'select' | 'confirm' | 'running' | 'done' | 'failed'
 /**
  * 工作区选择菜单是否用 portal 渲染（A13 的唯一开关）。
  *
- * 默认 `true`：Modal 的正文在滚动容器里，原地菜单会被裁剪。若真机验证发现它与 Modal 的
+ * 默认 `true`：统一弹窗的正文在滚动容器里，原地菜单会被裁剪。若真机验证发现它与弹窗的
  * 焦点/层级冲突（详见模块注释的验证路径），把它改成 `false` 即退回原地渲染。
  */
 export const WORKSPACE_MENU_PORTAL = true
@@ -229,11 +226,9 @@ export interface SessionsSource {
   }
 }
 
-/** 本 entry 的注入面。 */
-export interface SessionManagerDialogInjected {
-  /** 跨 entry 的打开请求 store（读取面 + 结束面）。 */
-  readonly requests: Pick<ManagerRequestStore, 'source' | 'settle'>
-  /** `/web-ux` 通道客户端；connection 服务未就绪时为 `undefined`（浮层静默不渲染）。 */
+/** 本分节的注入面（三个服务都在渲染期解析，可能缺席）。 */
+export interface SessionManagerSectionInjected {
+  /** `/web-ux` 通道客户端；connection 服务未就绪时为 `undefined`（渲染不可用空态）。 */
   readonly client: SessionManagerClient | undefined
   /** 工作区快照与归档/取消归档动作；服务未就绪时为 `undefined`（渲染不可用空态）。 */
   readonly workspaces: WorkspacesSource | undefined
@@ -241,10 +236,13 @@ export interface SessionManagerDialogInjected {
   readonly sessions: SessionsSource | undefined
 }
 
-/** 完整 props：覆盖层座位的运行时份额 + 本命名空间的 `t` + 注入面。 */
-export type SessionManagerDialogProps = PropsRuntime<'shell.overlay'>
+/**
+ * 完整 props：分节座位的 owner 份额（`{ close }`，弹窗开合归 holder）+ 本命名空间的
+ * `t` + 分节注入面。
+ */
+export type SessionManagerSectionProps = WorkspaceConfigSectionOwnerProps
   & PropsLocale<typeof NS>
-  & SessionManagerDialogInjected
+  & SessionManagerSectionInjected
 
 /** 一次动作里逐项失败的一行：`reason` 已本地化（失败码查表或上游 message）。 */
 interface ItemFailure {
@@ -386,64 +384,8 @@ function useSessionsSnapshot(source: SessionsSource): SessionsSnapshotView {
   return useSyncExternalStore(subscribe, read, read)
 }
 
-/**
- * 管理浮层：空闲返回 `null`，一次请求挂载一个 {@link SessionManagerBody}（`key` 带请求
- * 序号：关掉再打开也要重挂主体、重置全部本地状态）。
- * @param props - 覆盖层运行时份额、请求 store、三个注入面与 `t`。
- * @returns 模态框，或 `null`（没有请求 / 通道未就绪）。
- */
-export function SessionManagerDialog({
-  requests,
-  client,
-  workspaces,
-  sessions,
-  t,
-}: SessionManagerDialogProps): ReactNode {
-  // 第三个参数是 SSR 快照（`renderToStaticMarkup` 必需；本插件只跑在浏览器里，但探针
-  // 与将来的服务端渲染都不该因此报错）。读取面与客户端快照同一个函数，语义不变。
-  const request = useSyncExternalStore(
-    requests.source.subscribe,
-    requests.source.getSnapshot,
-    requests.source.getSnapshot,
-  )
-
-  // 没有打开请求：不渲染任何 DOM（覆盖层是常驻座位的 list entry）。
-  if (request === null) return null
-  // 没有连接通道就没有管理面：与既有删除对话框同策略，静默不渲染。
-  if (client === undefined) return null
-  // 通道在、本地快照缺席：不 return null，否则用户看不到任何解释（D18 的降级形态）。
-  if (workspaces === undefined || sessions === undefined) {
-    return (
-      <Modal
-        open
-        onClose={() => {
-          requests.settle()
-        }}
-        title={t('manager.title')}
-        description={t('manager.description')}
-        closeLabel={t('manager.close')}
-      >
-        <p className={css.empty}>{t('manager.unavailable')}</p>
-      </Modal>
-    )
-  }
-
-  return (
-    <SessionManagerBody
-      key={`web-ux-session-manager#${String(request.seq)}`}
-      requests={requests}
-      client={client}
-      workspaces={workspaces}
-      sessions={sessions}
-      t={t}
-    />
-  )
-}
-
-/** 浮层主体的 props：三个注入面都已确定（外层已把缺席形态挡掉）。 */
-export interface SessionManagerBodyProps {
-  /** 打开请求 store（只用到结束面）。 */
-  readonly requests: SessionManagerDialogInjected['requests']
+/** 分节主体的 props：三个服务都已确定（外层已把缺席形态挡掉）。 */
+interface SessionManagerContentProps {
   /** 通道客户端（确定可用）。 */
   readonly client: SessionManagerClient
   /** 工作区快照与归档/取消归档动作（确定可用）。 */
@@ -451,18 +393,54 @@ export interface SessionManagerBodyProps {
   /** 会话列表快照（确定可用）。 */
   readonly sessions: SessionsSource
   /** 本命名空间的翻译函数。 */
-  readonly t: SessionManagerDialogProps['t']
+  readonly t: SessionManagerSectionProps['t']
+  /** 座位 owner 的关闭动作（关闭统一弹窗；弹窗开合归 holder）。 */
+  readonly close: () => void
 }
 
 /** 本文件里的 `t` 形状（从 props 派生，避免重复声明键域）。 */
-type Translate = SessionManagerDialogProps['t']
+type Translate = SessionManagerSectionProps['t']
 
 /**
- * 一次打开请求的完整交互：工作区选择 → 三 tab 列表 → 动作 →（预览）确认 → 执行 → 结果。
- * @param props - 三个注入面、请求 store 与 `t`。
- * @returns 模态框。
+ * 会话管理分节：统一「工作区配置」弹窗右栏里的卡片主体。
+ *
+ * 三个服务任一缺席时渲染 `manager.unavailable` 空态而不是 `null`（D9）：新壳里 null 等于
+ * 右列一片空白，nav 却高亮着本节。确定可用时交给 {@link SessionManagerContent} 持有五阶段
+ * 状态机（hooks 只在服务齐全后调用，避免缺席 ↔ 就绪切换时 hooks 数量变化）。
+ * @param props - 座位 owner 的 `close`、三个注入面与 `t`。
+ * @returns 空态或完整管理面。
  */
-export function SessionManagerBody({ requests, client, workspaces, sessions, t }: SessionManagerBodyProps): ReactNode {
+export function SessionManagerSection({
+  client,
+  workspaces,
+  sessions,
+  t,
+  close,
+}: SessionManagerSectionProps): ReactNode {
+  if (client === undefined || workspaces === undefined || sessions === undefined) {
+    return (
+      <div className={css.sectionBody}>
+        <p className={css.empty}>{t('manager.unavailable')}</p>
+      </div>
+    )
+  }
+  return (
+    <SessionManagerContent
+      client={client}
+      workspaces={workspaces}
+      sessions={sessions}
+      t={t}
+      close={close}
+    />
+  )
+}
+
+/**
+ * 五阶段管理面本体：工作区选择 → 三 tab 列表 → 动作 →（预览）确认 → 执行 → 结果。
+ * @param props - 三个注入面、座位 owner 的关闭动作与 `t`。
+ * @returns 分节正文（含正文末尾的行内动作条）。
+ */
+function SessionManagerContent({ client, workspaces, sessions, t, close }: SessionManagerContentProps): ReactNode {
   const workspacesSnapshot = useWorkspacesSnapshot(workspaces)
   const sessionsSnapshot = useSessionsSnapshot(sessions)
   const choices = useMemo(() => workspaceChoices(workspacesSnapshot), [workspacesSnapshot])
@@ -588,12 +566,6 @@ export function SessionManagerBody({ requests, client, workspaces, sessions, t }
     setPending(null)
     setOutcome(null)
     setFailure(null)
-  }
-
-  /** 关闭浮层：`running` 阶段忽略（请求已发出，界面留在原地报告结果）。 */
-  const close = (): void => {
-    if (phase === 'running') return
-    requests.settle()
   }
 
   /**
@@ -878,14 +850,7 @@ export function SessionManagerBody({ requests, client, workspaces, sessions, t }
   })()
 
   return (
-    <Modal
-      open
-      onClose={close}
-      title={t('manager.title')}
-      description={t('manager.description')}
-      closeLabel={t('manager.close')}
-      footer={footer}
-    >
+    <div className={css.sectionBody}>
       <div className={css.toolbar}>
         {/*
           * 工作区选择器：`Menu` 自带触发按钮的包装与键盘漫游，锚点是我们渲染的按钮
@@ -935,8 +900,8 @@ export function SessionManagerBody({ requests, client, workspaces, sessions, t }
       </div>
 
       {/*
-        * 一个 Modal、一个 tabpanel：tab / panel 通过常量 id 互指，切换只换 panel 内容。
-        * 阶段切换也发生在 panel 内，不叠第二个 Modal（D8）。
+        * 分节只有一个 tabpanel：tab / panel 通过常量 id 互指，切换只换 panel 内容。
+        * 阶段切换也发生在 panel 内，分节不叠第二个弹窗（D8 / D10）。
         */}
       <div role="tabpanel" id={tabIds.panel} aria-labelledby={tabIds.tab}>
         {/*
@@ -1104,7 +1069,10 @@ export function SessionManagerBody({ requests, client, workspaces, sessions, t }
 
         {phase === 'failed' && failure !== null && <FailurePanel failure={failure} t={t} />}
       </div>
-    </Modal>
+
+      {/* 行内动作条：统一弹窗没有统一 footer（D10），阶段动作跟着正文一起渲染。 */}
+      <div className={css.actions}>{footer}</div>
+    </div>
   )
 }
 

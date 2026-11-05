@@ -26,7 +26,7 @@ dsh plugin --profile web add "github:exponentxqq/dsh-plugins#${TAG}&path:plugins
 dsh --profile web
 ```
 
-Once it is up, the **Folders** action (`🗂`) appears at the sidebar foot — or, straight in a session:
+Once it is up, click the **Workspace settings** entry at the sidebar foot — the **Workspace folders** section inside its dialog is this plugin's panel — or, straight in a session:
 
 ```text
 /workspace-folders add ~/code/another-repo
@@ -144,7 +144,7 @@ dsh plugin --profile web add "$PWD"
 dsh --profile web --dump-config
 ```
 
-Expected: **only** the `fs-sandbox` and `sandbox` rows are replaced by the plugin's `multi-root-fs` / `multi-root-sandbox`, with eleven rows inserted (`multi-root-compat` / `fs` / `sandbox` / `scope` / `registry` / `instructions` / `lsp` / `workspace-files` / `file-references` / `command`, plus the client carrier row `multi-root-client`); `bash-sandbox` stays upstream (bash and the PTY backend take their roots from `ctx.sandbox`). After starting `dsh --profile web`, the Folders action appears at the sidebar foot.
+Expected: **only** the `fs-sandbox` and `sandbox` rows are replaced by the plugin's `multi-root-fs` / `multi-root-sandbox`, with eleven rows inserted (`multi-root-compat` / `fs` / `sandbox` / `scope` / `registry` / `instructions` / `lsp` / `workspace-files` / `file-references` / `command`, plus the client carrier row `multi-root-client`); `bash-sandbox` stays upstream (bash and the PTY backend take their roots from `ctx.sandbox`). After starting `dsh --profile web`, the workspace-config entry at the sidebar foot opens the unified dialog, and its "Workspace folders" section is this plugin's panel (the mount point is `workspace-config.section`, declared by the workspace-config dialog — see [ADR-0013](./docs/decisions/ADR-0013-workspace-config-section-mount.md)).
 
 ## Usage
 
@@ -167,7 +167,7 @@ Workspace root (primary; access follows the current sandbox mode): /home/me/mono
 Writable additional roots: 2 of 2.
 ```
 
-**The panel** (Web GUI): the **Folders** dialog at the sidebar foot lists the primary root and the additional roots, and offers add (through the composed directory picker or a typed path), remove, alias, copy path, reveal in the file manager, and move up/down. Its copy is bilingual and follows the interface language. A root's state is shown honestly: `missing` (absent right now) and `redirected` (replaced by a symlink pointing elsewhere) keep their registration but are **not granted**; once the directory is back, a `list` or a panel refresh grants it again — no restart.
+**The panel** (Web GUI): the **Workspace folders** section inside the unified "Workspace settings" dialog (seat `workspace-config.section`, declared and rendered by the workspace-config dialog) lists the primary root and the additional roots, and offers add (through the composed directory picker or a typed path), remove, alias, copy path, reveal in the file manager, and move up/down. Its copy is bilingual and follows the interface language. Surfaces that still offer `sidebar.right.tab.files.actions` keep a compact entry that expands the same section in place, and the `/workspace-folders` command is unchanged; without workspace-config installed the panel has no GUI entry (installing all four packages together is recommended). A root's state is shown honestly: `missing` (absent right now) and `redirected` (replaced by a symlink pointing elsewhere) keep their registration but are **not granted**; once the directory is back, a `list` or a panel refresh grants it again — no restart.
 
 **The model side**: the additional-root topology reaches the model through a `systemPrompt.context` snapshot attached to every request (same workspace, cwd unchanged) — no introspection tool needed. The full authorization semantics (canonicalization, `recordedPath` against symlink transplants, conflict rejection) live in the [architecture document](./docs/architecture/multi-root-workspace.md).
 
@@ -192,7 +192,7 @@ src/
   compat/         the adapters: version differences (dsh-version / sandbox-confine / agent-instructions / llm-message) and the @ search vehicle (file-reference-search); optional peers are all loaded on demand
   command.ts      the /workspace-folders command and the host half of the panel RPC
   contract.ts     the panel wire protocol (zod-validated on both ends, inlinable into the browser bundle)
-  client/         the browser half: sidebar action, dialog, bilingual dictionaries
+  client/         the browser half: the workspace folders section (workspace-config.section), the Files-tab compact entry, bilingual dictionaries
 tests/            differential parity, real-execution dialect matrix, contract round-trips, component and locale gates, cross-process lease e2e, instruction injection
 scripts/          smoke batteries (compose / behavior / journey) plus the docs, kernel-runner, compatibility-contract and upgrade checks
 docs/             requirements, architecture, decision records (ADRs), plans, development workflow
@@ -215,12 +215,12 @@ Issues and PRs are welcome:
 - The supported matrix is an exact-version allowlist: on a host whose release is not on the list, or whose core packages disagree about the release, the `fs` / `sandbox` / `registry` / `instructions` / `lsp` / `workspace-files` / `file-references` rows **do not start** and the composition degrades to "the plugin is not installed" ([ADR-0009](./docs/decisions/ADR-0009-dsh-compat-contract.md)).
 - The Windows multi-root runner inherits upstream partial enforcement, caller-owned directory requirements, and private-temp isolation. Running processes retain their initial roots; later processes use the updated set ([ADR-0011](./docs/decisions/ADR-0011-multi-root-workspace-consumers.md)).
 - An additional root has the same rights as the primary root (no per-root read-only), and cannot become the default working directory of bash/PTY (session cwd semantics are unchanged).
-- Browse additional roots in the Workspace Folders dialog with manual refresh, expandable directories, and previews of up to 200 text lines. The native primary-root Files tab remains and offers a dialog action where supported. LSP uses the containing additional root as its own workspace; the host must configure the relevant language server ([ADR-0011](./docs/decisions/ADR-0011-multi-root-workspace-consumers.md)).
+- Browse additional roots in the "Workspace folders" section (inside the unified "Workspace settings" dialog) with manual refresh, expandable directories, and previews of up to 200 text lines. The native primary-root Files tab remains and, where `sidebar.right.tab.files.actions` exists, offers a compact entry that expands the same section in place. LSP uses the containing additional root as its own workspace; the host must configure the relevant language server ([ADR-0011](./docs/decisions/ADR-0011-multi-root-workspace-consumers.md)).
 - The candidate breadcrumbs of an `@` mention cannot jump back to an intermediate directory inside an additional root: upstream breadcrumbs split paths under the primary root's relative semantics, and an absolute-path candidate's levels sit outside that frame, so clicking a middle segment does not navigate there (this heals itself once upstream fixes it).
 - When an additional root's own absolute path contains an excluded directory segment (a segment named `build`, `node_modules`, and so on), drilling into that root yields nothing: the search vehicle skips such directories per the upstream exclusion table, and this plugin deliberately does not bypass it — a hand-rolled directory listing would drift from the upstream exclusion semantics.
 - Bare fuzzy search does not cross roots: additional roots participate in `@` completion only as root-directory candidates and through absolute-path drilling; an `@` plus a file-name fragment still searches only the primary root (the first full index of a large additional root stalls the query, and cross-root ranking carries no meaning). The trade-offs are recorded in [ADR-0012](./docs/decisions/ADR-0012-additional-root-file-references.md).
 - The command's own output text is English (a host-side handler has no active locale to consult); the panel is bilingual.
-- The Workspace Folders panel is a sidebar footer action plus a dialog rather than a full panel: `sidebar.footer.action` is offered by every supported release, whereas `sidebar.panellist` / `main` are not.
+- The panel's mount point is the `workspace-config.section` section inside the unified "Workspace settings" dialog (declared with `children` when `dsh-plugin-workspace-config` registers its `shell.overlay` dialog) — not a full panel, and no longer the `sidebar.footer.action` cell (that entry was removed by this migration): `sidebar.panellist` / `main` are not offered by every supported release, while the section seat is declared by the holder. The Files-tab compact entry and `/workspace-folders` are retained; without workspace-config installed the panel has no GUI entry (installing all four packages together is recommended). See [ADR-0013](./docs/decisions/ADR-0013-workspace-config-section-mount.md).
 
 ## Documentation
 

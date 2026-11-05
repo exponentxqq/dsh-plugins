@@ -52,6 +52,24 @@ describe('the client bundle artifact', () => {
     expect(required).toEqual(['@deepseek-ai/dsh-client-ui-primitives', 'react', 'react/jsx-runtime'])
   })
 
+  it('registers the unified dialog section, never the removed footer seat', () => {
+    const source = readFileSync(clientPath, 'utf8')
+    // The panel's mount point is the section the workspace-config holder
+    // declares (ADR-0013); the footer seat is gone for good.
+    expect(source).toContain('workspace-config.section')
+    expect(source).not.toContain('sidebar.footer.action')
+    // The legacy Files-tab entry is deliberately retained.
+    expect(source).toContain('sidebar.right.tab.files.actions')
+  })
+
+  it('keeps the holder out of the runtime bundle: the dependency is types-only', () => {
+    const source = readFileSync(clientPath, 'utf8')
+    // `import type` is erased (D3): no holder code and no extra require word.
+    expect(source).not.toContain('dsh-plugin-workspace-config')
+    const required = [...source.matchAll(/require\("([^"]+)"\)/g)].map(match => match[1]).sort()
+    expect(required).toEqual(['@deepseek-ai/dsh-client-ui-primitives', 'react', 'react/jsx-runtime'])
+  })
+
   it('inlines its own contract instead of importing the host half', () => {
     const source = readFileSync(clientPath, 'utf8')
     expect(source).not.toContain(`require("${PACKAGE_NAME}`)
@@ -69,11 +87,12 @@ describe('the client bundle artifact', () => {
 describe('the dsh.client declaration', () => {
   it('declares the web platform and the client packages it needs', () => {
     expect(manifest.dsh?.client?.platform).toBe('web')
+    // No sidebar row any more: the footer seat is gone and the Files-tab
+    // actions seat is declared by dsh-client-ui-sidebar-files (D13).
     expect(manifest.dsh?.client?.inject).toEqual([
       '@deepseek-ai/dsh-client-connection',
       '@deepseek-ai/dsh-client-locale',
       '@deepseek-ai/dsh-client-ui-renderer',
-      '@deepseek-ai/dsh-client-ui-sidebar',
     ])
   })
 

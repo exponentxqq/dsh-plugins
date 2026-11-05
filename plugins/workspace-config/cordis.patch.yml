@@ -1,0 +1,21 @@
+# dsh-plugin-workspace-config 的 bundle patch：把统一「工作区配置」入口的注册行插进 profile 名单。
+# 应用方式：作为 profile 的 bundle 层（package.json 的 `dsh.bundle.patch` 字段）叠加在
+# dsh-base 之上；`dsh plugin --profile web add <本目录>` 即可激活。
+#
+# 该行以「裸包名」（不给路径、不给 config）插入，这一形态是 REQUIRED：Web 侧的
+# client-module scan 正是从这一行读取 package.json 里的 `dsh.client` 声明，浏览器半
+# （`exports "./client"` → `/plugins/<id>/client.js`）才会进入启动图。本包同时是：
+#   - 宿主半（`exports "."`）：**no-op 锚点**，只为让上面的 scan 找到包根并读到
+#     `dsh.client`（`src/index.ts` 只有 `inject: []` 与空 `apply`）；holder 不承载任何
+#     RPC 通道、不读写任何落盘文件、不新增配置键；
+#   - 浏览器半（`exports "./client"`）：侧栏 footer 的唯一入口（`sidebar.footer.action`，
+#     order 50）+ 统一模态弹窗（`shell.overlay`，order 530）+ 分节座位
+#     `workspace-config.section` 的声明与渲染。贡献方（multi-root-workspace /
+#     session-tool-toggle / web-ux）以 `slots.inject` 软注册分节，未安装 holder 时它们
+#     不报错也不残留入口。
+# 去掉裸包名行 = 浏览器半静默消失，footer 入口与统一弹窗一起不见。
+#
+# profile 级不带 `config:` 段：holder 刻意不提供任何配置键（已定结论「不做配置开关」）。
+- insert:
+    - id: workspace-config
+      name: 'dsh-plugin-workspace-config'

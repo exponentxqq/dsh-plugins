@@ -1,15 +1,34 @@
 /**
  * Browser half of the multi-root workspace plugin.
  *
- * Sidebar footer and optional Files actions open the Workspace Folders dialog.
- * Everything it needs arrives through services the composition already
+ * Two soft seats, one panel body:
+ *
+ * - `workspace-config.section` — the Workspace Folders section inside the
+ *   unified workspace-config dialog. This is the panel's mount point since the
+ *   footer action was removed (ADR-0013): the holder declares the seat from its
+ *   `shell.overlay` registration, registers its own footer entry, and owns the
+ *   modal shell, so this registration exists exactly when the holder is
+ *   installed.
+ * - `sidebar.right.tab.files.actions` — the legacy Files-tab compact entry. On
+ *   surfaces that still declare it, the same panel body expands inline in the
+ *   tab, which keeps the panel reachable without the holder.
+ *
+ * Everything the body needs arrives through services the composition already
  * provides — `slots` to contribute, `locale` for its copy, `connection` for the
  * channel to the host half, and (optionally) `uiWorkspace` for the composed
  * directory picker and the client Session Controller for the current session.
  *
- * `slots.inject` is the soft seam: the footer action is registered when a
- * sidebar declares that slot and never otherwise, so a runtime whose sidebar
- * surface differs simply shows no panel instead of failing the client graph.
+ * `slots.inject` is the soft seam: a registration happens when the composition
+ * declares the seat and never otherwise, so a runtime whose surfaces differ
+ * simply shows no panel instead of failing the client graph. A seat that is
+ * declared but refuses the registration is caught per seat: the worst case is
+ * "this entry does not show", not a broken client half.
+ *
+ * The workspace-config holder is a **dev** dependency consumed with `import
+ * type` only (D3): no runtime import, and no row in `dsh.client.inject`. The
+ * seat literal is held locally and pinned to the holder's
+ * `WorkspaceConfigSectionSeat`, so a typo is a type error while the holder's
+ * components never reach this bundle.
  *
  * @module dsh-plugin-multi-root-workspace/client
  */
@@ -27,7 +46,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
         };
     }
 }
-/** The footer-action cell this plugin owns. */
+/** The cell this plugin owns (an id is unique per seat, so both seats reuse it). */
 export declare const SLOT_ID = "multi-root-folders";
 /** Services the client half needs before it may activate. */
 export declare const inject: string[];

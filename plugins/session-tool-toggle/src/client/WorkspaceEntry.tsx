@@ -1,24 +1,37 @@
 /**
- * 侧栏 footer 的工作区默认档入口 + 自绘对话框（code-design §3.10 / 触达面 C3，任务 7.3）。
+ * 工作区默认档分节（统一「工作区配置」弹窗的贡献方组件）+ 它的状态机
+ * （code-design §3.4 / ① 触达面 #37，原 footer 入口与自绘对话框在本次变更中拆除）。
  *
- * 为什么是 footer：基线 `0.2.1-rc.5` 的工作区行 `...` 菜单在 `dsh-client-ui-workspace`
- * 内部硬编码、没有插件座位（DQ1=C：上游座位软注册本期不实现，见 `seats.ts` 的注释与
- * D-12）。可用的 additive 座位是 `sidebar.footer.action`（list / root，owner 只有
- * `{wide}`），本文件只交付**组件与它的状态机**，座位注册归任务 7.6 的
- * `src/client/index.ts`（`register` 包 try/catch，失败只 warn）。
+ * **挂载面迁移**：旧实现是 `sidebar.footer.*` 座位上的「触发按钮 + 自绘 `Modal` 对话框」；
+ * 现在弹窗壳（header / nav / 内容列 / 关闭）属于 holder `dsh-plugin-workspace-config`，
+ * 本文件只交付分节正文 `WorkspaceDefaultsSection`——holder 以 `children` 声明
+ * `workspace-config.section`，本插件用 `ctx.slots.inject` 软注册（`src/client/index.ts`
+ * 的 `register` 包 try/catch，失败只 warn）。旧触发按钮、footer 动作条（刷新/关闭）与
+ * `Modal` 壳一并删除：刷新按钮由编辑器 dialog 形态自带（`WorkspaceDefaultsEditor.tsx`
+ * 的 addRow），关闭由统一弹窗提供。
  *
  * 三个职责，按数据流自上而下：
  *
  * 1. **`useWorkspaceDefaults`**：工作区档的读写状态机（`phase` / `value` / `error` /
  *    `saving` / `saved`）。它不碰 DOM、不依赖座位，因此能脱离渲染单测；动作方法
- *    **不抛错**（失败落进状态），与 `panel-controller.ts` 同一纪律。
- * 2. **`WorkspaceFooterAction`**：footer 触发按钮（宽态带文案、折叠态只有图标）+ 打开时
- *    渲染的模态对话框。对话框复用 primitives 的 `Modal`（body portal），内部交给
- *    `WorkspaceDefaultsEditor` 的 `dialog` 形态（任务 7.2）。
+ *    **不抛错**（失败落进状态），与 `panel-controller.ts` 同一纪律。**原样保留**，迁移
+ *    只剥壳、不动状态机（既有 13 条 editor 用例继续覆盖它）。
+ * 2. **`WorkspaceDefaultsSection`**：分节正文。挂载即读一次（`read()`），loading / failure
+ *    两态沿用旧对话框的渲染分支；正文交给 `WorkspaceDefaultsEditor` 的 `dialog` 形态——
+ *    **保留工作区下拉**（用户落档裁决：不改当前会话也能预先设默认档，去掉下拉等于删能力，
+ *    见 code-design 待决问题 Q2 选项 a / D-13）。
  * 3. **目标寻址**：默认按**当前会话**（`{sessionId}` 形态）——宿主据此解析 cwd 的归属并
  *    返回 `workspace.key`；下拉切换后改用 `{workspacePath}` 形态（D-11：只接受已登记
  *    工作区的规范路径）。未登记目录也能读：`{sessionId}` 形态允许未归属（`registered:false`），
- *    此时 choices 仍可切换，不会把入口卡死。
+ *    此时 choices 仍可切换，不会把本节卡死。
+ *
+ * **与 `/tools` 共用状态（零回归红线）**：本节不维护第二份关闭集。读与写都走
+ * `resolveClient()` 现取的 `PanelClient`——与头部面板同一个 `connection`、同一条
+ * `/session-tool-toggle` 通道、同一组端点（`workspace` / `panel`）；宿主侧所有入口共用
+ * `src/host/control.ts` 的同一控制内核与同一 `workspaces.json`。因此节内写入后
+ * `/tools workspace status` 读到同一条记录，命令面写入后本节下一次 `read()`（刷新 / 重开
+ * 统一弹窗）也看到同一状态。`test/workspace-editor.test.tsx` 的「与 /tools 共用状态」
+ * 回归用例钉住这条链路。
  *
  * **失败展示的唯一实现点**是面板容器（`ToolPanelAction.tsx` 的 `failureOf`）：本文件复用它
  * 把 `PanelError` 映射成 `error.<code>` 文案与宿主的二级灰字，不再复制一份映射。唯一例外是
@@ -33,12 +46,6 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import {
-  Button,
-  IconRefreshOutlineRegular,
-  IconWorkspaceTreeOutlineRegular,
-  Modal,
-} from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { WorkspaceAction, WorkspaceRequest, WorkspaceValue } from '../contract.ts'
 import type { PanelFailure } from './DefaultsEditor.tsx'
@@ -305,34 +312,44 @@ export function useWorkspaceDefaults(options: UseWorkspaceDefaultsOptions): Work
 }
 
 /**
- * footer 触发按钮 + 对话框的 props（code-design §3.10 冻结）。
+ * 工作区默认档分节的 props（code-design §3.4 的迁移对照：`close` + `t` + 注入面）。
  *
- * 座位是 `sidebar.footer.action`（list / root），owner 只有 `{wide}`；`resolveClient` 与
- * `currentSessionId` 由座位注册面的 `inject` 提供，`t` 由 `locale: NS` 合成。
+ * 座位是 `workspace-config.section`（list / root），owner 份额只有 `{ close }`（holder
+ * 统一弹窗注入）；`resolveClient` 与 `currentSessionId` 由座位注册面的 `inject` 提供，
+ * `t` 由 `locale: NS` 合成。旧 footer 入口 props 的 `wide` 随该座位一起消失——分节宽度由
+ * holder 的内容列决定，本组件不感知宽窄形态。
  */
-export interface WorkspaceFooterActionProps {
-  /** footer 座位只给 `wide`（`SidebarFooterActionOwnerProps`；`false` = 折叠成 56px 图标栏）。 */
-  readonly wide?: boolean
+export interface WorkspaceDefaultsSectionProps {
   /** 每次动作现取（`connection` 可能晚于 `apply` 就绪，与头部入口同一纪律）。 */
   readonly resolveClient: () => PanelClient | undefined
-  /** 当前会话 id 的探测（任务 7.4 的 `current-session.ts` 在装配层注入；没有会话时返回 `undefined`）。 */
+  /** 当前会话 id 的探测（`current-session.ts` 在装配层注入；没有会话时返回 `undefined`）。 */
   readonly currentSessionId: () => string | undefined
   /** 本命名空间的翻译函数。 */
   readonly t: Translate
+  /**
+   * holder 弹窗的关闭动作（座位 owner 份额，`renderSlot` 时注入）。
+   *
+   * 本节没有整窗跳转流程，不消费它（关闭统一由 holder 弹窗提供）；声明它是为了让本组件的
+   * props 与 `WorkspaceConfigSectionOwnerProps` 的份额严格对齐。
+   */
+  readonly close: () => void
 }
 
 /**
- * 侧栏 footer 的工作区默认档入口。
+ * 统一「工作区配置」弹窗里的工作区默认档分节。
  *
- * 触发按钮**恒渲染**（不因 `connection` 缺席而隐藏：入口是唯一发现面）；挂载即读一次
- * 以预热 choices，每次打开对话框再读一次（会话可能已切换）。折叠态（`wide === false`）
- * 只剩图标，`title` / `aria-label` 承担可发现性（U4 的截图确认项在组 8）。
+ * 分节由 holder 的 `renderSlot('workspace-config.section', { close }, { only })` 挂载：一次
+ * 只渲染一个选中分节（D8），切走即卸载、切回重新挂载并重读。挂载即读一次以预热 choices
+ * 与当前工作区的档；失败也只是节内的一句话（不阻塞其它分节）。
+ *
+ * 正文交给 `WorkspaceDefaultsEditor` 的 `dialog` 形态：**保留工作区下拉**（Q2=a 的用户裁决），
+ * 关闭/外壳由 holder 弹窗提供，本节不再自带 `Modal`、没有对话框根（不渲染 `role="dialog"`）。
+ *
  * @param props - 座位 owner 份额、注入的探测面与 `t`。
- * @returns footer 触发器与（打开时的）模态对话框。
+ * @returns 分节正文（loading / failure / 编辑器三态之一）。
  */
-export function WorkspaceFooterAction(props: WorkspaceFooterActionProps): ReactNode {
+export function WorkspaceDefaultsSection(props: WorkspaceDefaultsSectionProps): ReactNode {
   const { resolveClient, currentSessionId, t } = props
-  const [open, setOpen] = useState(false)
 
   // `initialTarget` 每次读时现取当前会话；用 useCallback 让 hook 的 ref 骑住同一函数。
   const initialTarget = useCallback((): WorkspaceRequest => {
@@ -340,12 +357,13 @@ export function WorkspaceFooterAction(props: WorkspaceFooterActionProps): ReactN
     return sessionId === undefined || sessionId === '' ? {} : { sessionId }
   }, [currentSessionId])
 
-  const { phase, value, error, saving, saved, read, update, select } = useWorkspaceDefaults({
+  const { value, error, saving, saved, read, update, select } = useWorkspaceDefaults({
     resolveClient,
     initialTarget,
   })
 
-  // 挂载 refresh：footer 常挂，先把 choices 与当前工作区的档拉到手；失败也只是对话框里的一句话。
+  // 挂载即读一次：分节在弹窗打开（`only` 命中本节）时挂载，先把 choices 与当前工作区的档
+  // 拉到手；失败也只是节内的一句话。刷新走编辑器 dialog 形态自带的按钮（`onRefresh`）。
   useEffect(() => {
     void read()
   }, [read])
@@ -362,93 +380,35 @@ export function WorkspaceFooterAction(props: WorkspaceFooterActionProps): ReactN
     return failureOf(error, t)
   }, [error, t])
 
-  const close = useCallback((): void => {
-    setOpen(false)
-  }, [])
-
-  const toggle = (): void => {
-    const next = !open
-    setOpen(next)
-    // 打开时重读：会话可能已切换，工作区档也可能被命令面改过。
-    if (next) void read()
-  }
-
-  const footer = (
-    <>
-      <Button
-        variant="ghost"
-        size="sm"
-        icon={<IconRefreshOutlineRegular />}
-        aria-label={t('workspace.refresh')}
-        disabled={phase === 'loading' || saving}
-        onClick={() => {
-          void read()
-        }}
-      >
-        {t('workspace.refresh')}
-      </Button>
-      <Button variant="outline" size="sm" onClick={close}>
-        {t('panel.close')}
-      </Button>
-    </>
-  )
-
-  const rail = props.wide === false
-
   return (
-    <>
-      <div className={css.workspaceEntry}>
-        <Button
-          variant="ghost"
-          size="sm"
-          className={rail ? css.workspaceEntryRail : css.workspaceEntryTrigger}
-          icon={<IconWorkspaceTreeOutlineRegular />}
-          aria-label={rail ? t('workspace.title') : undefined}
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          title={t('workspace.scope')}
-          onClick={toggle}
-        >
-          {rail ? null : <span className={css.workspaceEntryLabel}>{t('workspace.title')}</span>}
-        </Button>
-      </div>
-      <Modal
-        open={open}
-        onClose={close}
-        title={t('workspace.title')}
-        closeLabel={t('panel.close')}
-        className={css.workspaceDialog}
-        contentClassName={css.content}
-        footer={footer}
-      >
-        {value === undefined
-          ? (failure === undefined
-            ? <p className={css.loading}>{t('workspace.loading')}</p>
-            : (
-              <div className={css.failureBlock} role="alert">
-                <p className={css.error}>{failure.text}</p>
-                {failure.detail !== undefined && <p className={css.detail}>{failure.detail}</p>}
-              </div>
-            ))
+    <div className={css.workspaceBody}>
+      {value === undefined
+        ? (failure === undefined
+          ? <p className={css.loading}>{t('workspace.loading')}</p>
           : (
-            <WorkspaceDefaultsEditor
-              workspace={value.workspace}
-              choices={value.choices}
-              variant="dialog"
-              saving={saving}
-              saved={saved}
-              failure={failure}
-              onSelect={select}
-              onUpdate={(action, addresses) => {
-                void update(action, addresses)
-              }}
-              onRefresh={() => {
-                void read()
-              }}
-              t={t}
-            />
-          )}
-      </Modal>
-    </>
+            <div className={css.failureBlock} role="alert">
+              <p className={css.error}>{failure.text}</p>
+              {failure.detail !== undefined && <p className={css.detail}>{failure.detail}</p>}
+            </div>
+          ))
+        : (
+          <WorkspaceDefaultsEditor
+            workspace={value.workspace}
+            choices={value.choices}
+            variant="dialog"
+            saving={saving}
+            saved={saved}
+            failure={failure}
+            onSelect={select}
+            onUpdate={(action, addresses) => {
+              void update(action, addresses)
+            }}
+            onRefresh={() => {
+              void read()
+            }}
+            t={t}
+          />
+        )}
+    </div>
   )
 }

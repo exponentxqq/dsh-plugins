@@ -64,7 +64,9 @@ export const zh = {
   'notice.collapse': '收起',
   'notice.close': '关闭通知',
 
-  // —— 会话管理面：入口与外壳 ——
+  // —— 会话管理面：分节入口与外壳 ——
+  // `section.label` 是统一「工作区配置」弹窗左 nav 的行标题（label thunk 每次读取）。
+  'section.label': '会话管理',
   'manager.action': '会话管理',
   'manager.title': '会话管理',
   'manager.description':
@@ -197,6 +199,7 @@ export const en = {
   'notice.collapse': 'Collapse',
   'notice.close': 'Dismiss notice',
 
+  'section.label': 'Session manager',
   'manager.action': 'Session manager',
   'manager.title': 'Session manager',
   'manager.description':

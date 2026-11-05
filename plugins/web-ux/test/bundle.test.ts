@@ -69,11 +69,13 @@ describe('浏览器半产物', () => {
     expect(source).toContain('delete-session')
     expect(source).toContain('sidebar.workspaces.session.menu.item')
     expect(source).toContain('shell.overlay')
-    // 会话管理面：侧栏底部的 footer action 入口 + shell.overlay 浮层（靠 id 区分），
+    // 会话管理面：统一「工作区配置」弹窗的分节座位（holder 声明、本包软注册），
     // 以及管理面调用的五个新端点（批量 2 个、迁移域 3 个）。
-    expect(source).toContain('sidebar.footer.action')
-    // 加引号是为了区分浮层 id 与 `web-ux-session-manager-trigger`（入口 id）。
+    expect(source).toContain('workspace-config.section')
+    // 加引号是为了区分分节 id 与文案/端点里出现的同名前缀。
     expect(source).toContain(JSON.stringify('web-ux-session-manager'))
+    // D3：holder 只以 `import type` 消费，产物里不得出现它的包名。
+    expect(source).not.toContain('dsh-plugin-workspace-config')
     for (const endpoint of [
       'preview-delete-batch',
       'delete-session-batch',
@@ -156,5 +158,10 @@ describe('包声明', () => {
     ]) {
       expect(inject).toContain(dependency)
     }
+    // D13：footer 入口删除后不再使用 ui-sidebar，inject 与 devDeps 同步收敛。
+    expect(inject).not.toContain('@deepseek-ai/dsh-client-ui-sidebar')
+    const devDependencies = (manifest as { devDependencies?: Record<string, string> }).devDependencies ?? {}
+    expect(devDependencies).not.toHaveProperty('@deepseek-ai/dsh-client-ui-sidebar')
+    expect(devDependencies['dsh-plugin-workspace-config']).toBe('workspace:*')
   })
 })

@@ -1,15 +1,15 @@
 # dsh-plugin-session-tool-toggle
 
-DSH 插件（**双端**，`exports "."` 宿主 + `exports "./client"` 浏览器）：**会话级工具面开关**——在单个会话内关掉不需要的模型可见工具（`mcp:<server>` 整组、`mcp:<server>::<tool>` 或尾部 `*` 单工具、`tool:<name>` 内置工具，以及 `skill:<name>` 技能级开关），**下一次模型步骤生效**：工具侧由 `tools.restrict` 掩码与 dispatch guard 双层强制；技能侧由每 agent 层的影子注册让该技能对**模型**隐身（目录行消失、`skill` 工具拒调），`/<技能名>` 手动调用完整保留。全部入口共用**同一份状态**：`/tools` 命令面、会话头部工具区的 **Web 面板**（Connection RPC 通道 `/session-tool-toggle`）与侧栏 footer 的工作区默认档对话框。用户级默认档在 `$DSH_HOME/session-tool-toggle/defaults.json`，工作区级默认档在 `$DSH_HOME/session-tool-toggle/workspaces.json`（键 = 工作区规范绝对路径）：新会话初始关闭集 = **用户档 ∪ 工作区档**，会话创建时拍快照，之后改档不追溯。
+DSH 插件（**双端**，`exports "."` 宿主 + `exports "./client"` 浏览器）：**会话级工具面开关**——在单个会话内关掉不需要的模型可见工具（`mcp:<server>` 整组、`mcp:<server>::<tool>` 或尾部 `*` 单工具、`tool:<name>` 内置工具，以及 `skill:<name>` 技能级开关），**下一次模型步骤生效**：工具侧由 `tools.restrict` 掩码与 dispatch guard 双层强制；技能侧由每 agent 层的影子注册让该技能对**模型**隐身（目录行消失、`skill` 工具拒调），`/<技能名>` 手动调用完整保留。全部入口共用**同一份状态**：`/tools` 命令面、会话头部工具区的 **Web 面板**（Connection RPC 通道 `/session-tool-toggle`）与统一「工作区配置」弹窗里的**工作区默认档分节**（弹窗壳由 holder `dsh-plugin-workspace-config` 提供）。用户级默认档在 `$DSH_HOME/session-tool-toggle/defaults.json`，工作区级默认档在 `$DSH_HOME/session-tool-toggle/workspaces.json`（键 = 工作区规范绝对路径）：新会话初始关闭集 = **用户档 ∪ 工作区档**，会话创建时拍快照，之后改档不追溯。
 
-宿主半不含 Web 组件依赖，**任何 profile 都可单独安装**（命令面完整可用）；浏览器半只在 Web 组合下加载，入口是会话头部工具区的一枚图标按钮与侧栏 footer 的工作区档按钮。平台范围 DSH `>=0.2.1-rc.5 <0.3.0`。**安装/升级后必须重启 web profile**：浏览器半的 bundle 由宿主在启动图里提供，热装不生效。
+宿主半不含 Web 组件依赖，**任何 profile 都可单独安装**（命令面完整可用）；浏览器半只在 Web 组合下加载，入口是会话头部工具区的一枚图标按钮与统一「工作区配置」弹窗里的工作区默认档分节；弹窗壳由 holder 提供，**四包同装**（holder + multi-root-workspace / session-tool-toggle / web-ux 三个贡献方）才有完整入口。平台范围 DSH `>=0.2.1-rc.5 <0.3.0`。**安装/升级后必须重启 web profile**：浏览器半的 bundle 由宿主在启动图里提供，热装不生效。
 
 ## 双端结构
 
 ```text
 src/index.ts / src/host/   宿主半：/tools 命令面、每 agent 掩码层与技能阴影分面、状态持久化、用户档与工作区档、RPC 通道 /session-tool-toggle
 src/contract.ts            两端共享的线上契约（零 import，两端各内联一份）
-src/client/                浏览器半：会话头部工具区入口 + 组件内 Modal 面板（技能开关、工作区档）+ 侧栏 footer 工作区档对话框 + locale + CSS module
+src/client/                浏览器半：会话头部工具区入口 + 组件内 Modal 面板（技能开关、工作区档）+ 统一「工作区配置」弹窗的工作区默认档分节（WorkspaceDefaultsSection）+ locale + CSS module
 test/                      单测（宿主 node 环境 / 浏览器 jsdom）
 lib/index.js               宿主产物（单文件 ESM，只外置 node:*）
 lib/client.js              浏览器产物（CJS bundle，包在 window.__ModuleLoader__.load 壳里）
@@ -60,7 +60,7 @@ lib/client.js              浏览器产物（CJS bundle，包在 window.__Module
 
 **工作区默认档只对新会话生效，且与用户档取并集。** 新会话初始关闭集 = 用户档 ∪ 本工作区档（工作区档只能追加关闭项，不能反开用户档里的条目）；写档不改变任何已存在会话。工作区键是会话 cwd 的**规范绝对路径**（realpath；命中 `workspaceRegistry` 时用登记路径），同一工作区的不同进入方式（子目录、符号链接）因此归到同一个键，但这串路径**不可跨机移植**——换机器或换挂载点后要重写键。
 
-**面板不是第二份状态。** 面板开关、footer 工作区档与 `/tools`、`/tools workspace` 共用同一控制内核、同一状态存储、同一掩码层与同一技能分面：任一处写入，另一处在下一次读取 / 刷新时看到同一条记录（详见「Web 面板」）。
+**面板不是第二份状态。** 面板开关、统一弹窗里的工作区默认档分节与 `/tools`、`/tools workspace` 共用同一控制内核、同一状态存储、同一掩码层与同一技能分面：任一处写入，另一处在下一次读取 / 刷新时看到同一条记录（详见「Web 面板」）。
 
 **保护名单只增不减。** 硬编码基线 `bash` / `pwsh` / `read` / `write` / `edit` / `glob` / `grep` 永远在名单里，配置只能追加（`protectedTools`），不能移除；`run_code` 是注册表保留名，同样拒绝关闭。名单内工具在面板上呈现为不可切换。
 
@@ -72,7 +72,7 @@ lib/client.js              浏览器产物（CJS bundle，包在 window.__Module
 
 ## Web 面板
 
-**两个入口座位**：会话头部 `conversation.session.header.utilities`（list / scope `session`，entry id `session-tool-toggle-panel`、order **20**，官方三项 -10 / -5 / 0 之后）打开工具面板；侧栏 footer `sidebar.footer.action`（list / scope `root`，entry id `session-tool-toggle-workspace-defaults`、order **60**）直接打开工作区默认档对话框。面板是组件内 Modal，六段自上而下：状态摘要 → 本会话开关（MCP 服务器 / 技能整档 / 内置工具三组，可折叠）→ 技能逐行开关 → 工作区默认档 → 用户级默认档 → 关闭集；面板底部左「刷新」右「关闭」。footer 对话框自带工作区下拉（只列 `workspaceRegistry` 里的已登记工作区），作用域恒为「所选工作区之后新建的会话」。
+**两个挂载面**：会话头部 `conversation.session.header.utilities`（list / scope `session`，entry id `session-tool-toggle-panel`、order **20**，官方三项 -10 / -5 / 0 之后）打开工具面板；统一「工作区配置」弹窗的分节 `workspace-config.section`（list / scope `root`，entry id `session-tool-toggle-workspace-defaults`、order **20**，座位由 holder `dsh-plugin-workspace-config` 用 `children` 声明）承载工作区默认档编辑器。旧 `sidebar.footer.*` 入口已移除：侧栏 footer 只剩 holder 的统一入口，四包同装约定见仓库根 README。面板是组件内 Modal，六段自上而下：状态摘要 → 本会话开关（MCP 服务器 / 技能整档 / 内置工具三组，可折叠）→ 技能逐行开关 → 工作区默认档 → 用户级默认档 → 关闭集；面板底部左「刷新」右「关闭」。分节（旧对话框的替代）自带工作区下拉（只列 `workspaceRegistry` 里的已登记工作区），作用域恒为「所选工作区之后新建的会话」；统一弹窗的关闭 / 分节导航由 holder 提供。
 
 技能行开关的是**模型可见性**（关闭后行内标注「对模型隐藏，`/技能名` 手动调用保留」）；整档 `tool:skill` 关闭时逐行开关置灰并给一行提示。开关方向是**开 = 工具可用**：点击一个打开的组开关发出的是「把 `mcp:<server>` 加进关闭集」。分组清单里受保护 / 保留名 / 被其他作用域隐藏的行**禁用**并给出 `title` 理由；关闭集区可逐条「开启」，「恢复创建时快照」是两段式确认。
 
@@ -87,7 +87,7 @@ lib/client.js              浏览器产物（CJS bundle，包在 window.__Module
 | 依赖 | 用途 | 失效表现 |
 | --- | --- | --- |
 | **RPC 通道** `/session-tool-toggle`（宿主 `connection.rpc.handle`） | 浏览器↔宿主唯一数据面 | 面板打开后显示 `unavailable`（「无法连接到 dsh 主进程」）且不渲染任何开关；**命令面仍可用** |
-| **座位** `conversation.session.header.utilities` / `sidebar.footer.action` | 会话头部工具面板入口 / 侧栏工作区档入口 | 对应入口不出现（软注册整段 `try/catch` 吞掉拒绝，只 warn）；**另一个入口与命令面仍可用** |
+| **座位** `conversation.session.header.utilities` / `workspace-config.section` | 会话头部工具面板入口 / 工作区默认档分节 | 对应入口不出现（软注册整段 `try/catch` 吞掉拒绝，只 warn）；**另一个入口与命令面仍可用**；holder 缺席时分节座位未声明，`slots.inject` 回调不触发（不报错） |
 | **client 服务 `connection`**（渲染期软取，不在 `inject` 名单） | 每次动作现取 RPC 客户端 | 首次打开按 `unavailable` 降级；服务晚到后下一次打开/刷新**自动恢复**，无需重载页面 |
 | host 服务 `connection` / `webServer`（cordis `inject`） | 通道挂载点 | 通道不挂载（只 warn 一行）；命令面照常 |
 | host 服务 `commands` | `/tools` 注册 | 没有 `/tools`；面板不受影响（通道独立挂载） |
@@ -121,7 +121,7 @@ lib/client.js              浏览器产物（CJS bundle，包在 window.__Module
 - **无 skills 的 Web 组合受限（上游硬依赖）**：上游 agent preset 需要 `skill-filesystem` / `tool-skill`，`skills` 缺席时新会话创建直接失败（`agent-preset/invalid … waiting for skills`），因此该组合下没有可调整的活会话；这是上游 preset 的硬依赖，不是本插件的降级失败。此时命令面照常可用，技能地址只记意图，RPC 面板快照按 `skills-unavailable` 降级（技能区不渲染开关）。
 - **跨窗口不广播**：`command/executed` 只在命令提交的那个窗口发出，另一个窗口要靠 focus 或手动「刷新」才收敛；两处并发修改按「后写者胜」。
 - **`--dump-config-schema` 整体可能 exit 1**：本部署的 web profile 自带 4 条 `unrecognized Loader tree carrier` 诊断（`/186`–`/189`，与本插件无关，全新空 `DSH_HOME` 同样红）。核对本插件的口径是 `x-cordis.entries` 中本插件条目的 `status` 为 `"schema"` 且没有指向本插件的诊断，不要追全局 exit 0。
-- **非目标**：不做追溯（默认档与工作区档都只对之后新建的会话生效，`/tools reset` 只回本会话创建时快照）；不做上游 patch（ADR-0002：`@deepseek-ai/dsh*` 零修改、零 import，技能影子只走公开 `skills.register`，不替换 `dsh-tool-skill` / `dsh-skill` 行）；上游工作区行菜单入口留作**后续变更**（上游座位定名后另立变更，本期只有侧栏 footer 入口）；不做全局 / 进程级服务器启停（`plugin_manager` 已有）、不做子代理继承会话开关、不做投影 wire 实时推送或轮询、不改写历史、不适配 DSH `>=0.3.0`（走既有基线升级流程）。
+- **非目标**：不做追溯（默认档与工作区档都只对之后新建的会话生效，`/tools reset` 只回本会话创建时快照）；不做上游 patch（ADR-0002：`@deepseek-ai/dsh*` 零修改、零 import，技能影子只走公开 `skills.register`，不替换 `dsh-tool-skill` / `dsh-skill` 行）；上游工作区行菜单入口留作**后续变更**（上游座位定名后另立变更，本期工作区默认档只有统一「工作区配置」弹窗的分节入口，依赖 holder 同装）；不做全局 / 进程级服务器启停（`plugin_manager` 已有）、不做子代理继承会话开关、不做投影 wire 实时推送或轮询、不改写历史、不适配 DSH `>=0.3.0`（走既有基线升级流程）。
 - 无 Web 组合时只有命令面；面板入口与通道都不出现，也不报错。
 
 ## 排障
@@ -148,7 +148,7 @@ docker logs dsh 2>&1 | grep dsh-plugin-session-tool-toggle
 - **默认档写坏 / 想手改**：文件是 `{"version": 1, "disabled": [...]}`（地址用规范形），原子写落盘权限 `0o600`、新建目录 `0o700`；损坏或半写会被读成空档并记 warn，改好后下一个新会话生效。
 - **工作区档写坏 / 想手改**：文件是 `{"version": 1, "workspaces": {"/abs/workspace": {"disabled": ["skill:foo"]}}}`，键是工作区**规范绝对路径**（realpath；`/tools workspace` 会显示本会话的键与文件路径）。权限位同默认档（文件 `0o600`、目录 `0o700`）；缺失按空档且不告警，损坏 / `version` 不符按空档 + 一条 warn。改好后**下一个在该工作区新建的会话**生效，当前会话不变。键不可跨机移植：换机器或换挂载点后要重写键。
 - **技能开关「记了但没生效」**：看 `/tools status` 的「技能」段——「意图 N」大于 0 表示有已关但未遮蔽的技能。若整段是「技能：不可用」，说明本组合没有 `skills` 服务（技能地址只记意图，模型目录不会变）；若是单个技能失败，面板给 `skill-shadow-failed`（同层已有同名 runtime 先到先得），解决命名冲突后下一次 `skills/change` 自动重试。
-- **面板入口不出现**：依次确认 bundle patch 里那条**裸包名行**还在、profile 已重启、座位属于当前 Web 组合；用 `docker exec dsh dsh --profile web --dump-config | grep -A2 'id: session-tool-toggle'` 看装配行。座位注册被拒时浏览器控制台会有一条 `session-tool-toggle: 会话头部工具区座位注册失败`（或 footer 同款）的 warn（client 侧日志不进 `docker logs`）。
+- **面板入口不出现**：依次确认 bundle patch 里那条**裸包名行**还在、profile 已重启、座位属于当前 Web 组合；用 `docker exec dsh dsh --profile web --dump-config | grep -A2 'id: session-tool-toggle'` 看装配行。座位注册被拒时浏览器控制台会有一条 `session-tool-toggle: 会话头部工具区座位注册失败`（或 `工作区配置分节座位注册失败` 的 warn）（client 侧日志不进 `docker logs`）。
 - **改了源码或升级了版本**：`cd ~/develop/docker && docker compose restart dsh` 重启 web profile 生效（`link:` 安装的插件不在 hmr 的模块监听根内）。
 
 ## 构建与测试

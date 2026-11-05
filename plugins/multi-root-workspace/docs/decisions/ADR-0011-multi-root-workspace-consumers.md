@@ -42,7 +42,7 @@ restricted-token 的读取、网络、Everyone/hard-link 等边界及各版本�
 
 浏览器复用 ADR-0005 的 Connection 通道，增加 `files` / `readFile`，每个端点有自己的 response schema；均必须有 live `sessionId`。host 从 session 得主根，`registry.refresh()` 重验根，再根据 exact entry 定位；只接收所选根内的相对路径，canonical 包含性拦截 traversal / symlink escape，I/O 后重验登记与路径身份。新端点复用原 `workspaceFiles.list` / `read`，保留 host 配置的资源上限。preview 最多请求前 200 行，非 EOF 明示截断。
 
-附加根的 lazy tree 放在现有 Workspace Folders 对话框，每个 available 根可展开；目录点击加载下一层，文件点击显示文本 preview，手动刷新重建树。主根的原生 Files tab 保留；存在 `sidebar.right.tab.files.actions` 时加入打开该对话框的动作，旧版仍从 footer 进入。浏览器不替换 DOM，不建立 Typert namespace，不安装一份私有客户端服务身份。
+附加根的 lazy tree 放在现有 Workspace Folders 对话框，每个 available 根可展开；目录点击加载下一层，文件点击显示文本 preview，手动刷新重建树。主根的原生 Files tab 保留；存在 `sidebar.right.tab.files.actions` 时加入就地展开同一分节的紧凑入口。面板自 [ADR-0013](./ADR-0013-workspace-config-section-mount.md) 起挂在统一「工作区配置」弹窗的 `workspace-config.section` 分节上，旧的 footer 入口已删除。浏览器不替换 DOM，不建立 Typert namespace，不安装一份私有客户端服务身份。
 
 ### 兼容与验证
 

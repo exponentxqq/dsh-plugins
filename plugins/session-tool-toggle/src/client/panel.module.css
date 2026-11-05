@@ -363,8 +363,9 @@
   border-radius: 6px;
 }
 
-/* 工作区默认档对话框正文：只做纵向排布，**不**重复 Modal 卡片的宽度/高度约束
- * （footer 对话框由 7.3 的 `WorkspaceEntry` 持有，宽度压到 560px）。 */
+/* 工作区默认档分节的正文壳（统一「工作区配置」弹窗的一个分节）：只做纵向排布。
+ * 宽度 / 高度 / 滚动约束归 holder 弹窗的内容列（`workspace-config` 的 dialog.module.css），
+ * 本节**不**自带卡片宽度，也不自带 Modal。 */
 .workspaceBody {
   display: flex;
   flex-direction: column;
@@ -385,48 +386,3 @@
   line-height: 18px;
 }
 
-/* —— 侧栏 footer 的工作区默认档入口（7.3，C3）：宽态是一行「图标 + 文案」，
- *    折叠态只剩 28px 方形图标（`wide === false` 的面包屑栏）。 —— */
-.workspaceEntry {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-
-/* 宽态：整行可点，文案左对齐；颜色沿用侧栏 footer 的次级文字 token。 */
-.workspaceEntryTrigger {
-  justify-content: flex-start;
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
-  color: var(--dsw-alias-label-secondary, #545557);
-}
-
-/* 折叠态：28px 方形（与头部入口同尺寸），只有图标。 */
-.workspaceEntryRail {
-  justify-content: center;
-  width: 28px;
-  min-width: 28px;
-  height: 28px;
-  padding: 0;
-  color: var(--dsw-alias-label-tertiary, #7f8287);
-}
-
-.workspaceEntryLabel {
-  overflow: hidden;
-  font-size: 13px;
-  line-height: 18px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* footer 对话框比面板窄：只编辑一个工作区的档，不需要 760px 的宽度（D-13：复用同一套
- * Modal 骨架与 --dsw-* 令牌，只覆盖宽度与最大高度）。 */
-.workspaceDialog {
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  width: min(560px, calc(100vw - 32px));
-  max-width: min(560px, calc(100vw - 32px));
-  max-height: calc(100vh - 96px);
-}

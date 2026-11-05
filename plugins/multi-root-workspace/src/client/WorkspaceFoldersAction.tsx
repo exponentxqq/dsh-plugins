@@ -1,25 +1,33 @@
 /**
- * The Workspace Folders panel: one sidebar footer action that opens a dialog
- * listing this session's workspace root and the additional roots registered for
- * it, with the actions the milestone requires — Add (through the composed
- * directory picker), Remove, Alias, Copy Path, Reveal, and reordering.
+ * The Workspace Folders panel body: this session's primary workspace root and
+ * the additional roots registered for it, with the actions the milestone
+ * requires — Add (through the composed directory picker), Remove, Alias, Copy
+ * Path, Reveal, reordering, and the additional-root file tree.
  *
- * Why a footer action and its own dialog, instead of a first-class panel: the
- * slots that can host a full panel (`sidebar.panellist` + the keyed `main`
- * panel) exist only in the pinned 0.1.5 surface, while `sidebar.footer.action`
- * exists in both supported runtimes — and `sidebar.workspaces` is a single slot
- * already owned by the workspace browser, so it cannot be extended in place.
+ * Since the unified workspace-config entry landed, the panel is a **section**
+ * (`workspace-config.section`) rather than a dialog (ADR-0013): the
+ * workspace-config holder owns the modal shell — mask, card, header, Escape,
+ * the focus trap and the close action — and declares the seat from its
+ * `shell.overlay` registration. This module therefore renders only the body:
+ * `WorkspaceFoldersSection` has no overlay, no `role="dialog"`, no Escape/Tab
+ * handling and no close button. The seat's owner share (`close`) is accepted
+ * for contract symmetry but not used: this section has no whole-window
+ * navigation of its own, so closing stays the holder's business.
+ *
+ * `WorkspaceFoldersLauncher` is the legacy Files-tab entry: on surfaces that
+ * still offer `sidebar.right.tab.files.actions` it expands the same body
+ * inline, keeping the panel reachable without the holder installed.
  *
  * Styling is the host's, not this file's: the elements carry `mrfw-*` classes
  * resolved by the stylesheet the client entry injects (`styles.ts`), and every
  * color in that sheet is a host `--dsw-*` token, so the panel inherits the
- * native look — sidebar trigger, modal card, capsule buttons — in both themes
- * without naming a single color here (see ADR-0006).
+ * native look — capsule buttons, native typography — in both themes without
+ * naming a single color here (see ADR-0006).
  *
  * @module dsh-plugin-multi-root-workspace/client/WorkspaceFoldersAction
  */
 
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   IconChevronDown,
@@ -40,24 +48,38 @@ import { RootFileTree } from './RootFileTree.tsx'
 /** Translate one key of this plugin's namespace. */
 export type Translate = (key: Key, params?: Record<string, unknown>) => string
 
-/** What the registered action receives from the plugin body. */
-export interface WorkspaceFoldersActionProps {
+/**
+ * The panel body's props: the seat owner share, the framework-synthesized
+ * translator, and the business face the registration injects.
+ *
+ * The owner share is declared structurally (`close`) instead of importing the
+ * holder's `WorkspaceConfigSectionOwnerProps`: the holder is a **dev**
+ * dependency consumed with `import type` only (D3), so the published `.d.ts`
+ * must not reference it. `index.ts` still pins the seat literal to the
+ * holder's `WorkspaceConfigSectionSeat`, which is what keeps the two halves
+ * from drifting.
+ */
+export interface WorkspaceFoldersSectionProps {
+  /** Seat owner share: close the unified dialog (unused here — the holder owns it). */
+  readonly close: () => void
+  /** Bound translator for this plugin's namespace. */
+  readonly t: Translate
   /** The channel client; absent when this composition has no host Connection. */
   readonly panel: PanelClient | undefined
   /** Opens the composed directory picker, when one is composed. */
   readonly pickDirectory: (() => Promise<string | null>) | undefined
-  /** Bound translator for this plugin's namespace. */
-  readonly t: Translate
   /**
    * The current session id, read when a request is built. A function rather
    * than a value because the selection changes while the panel stays mounted.
    */
   readonly sessionId?: () => string | undefined
-  /** Whether the sidebar renders wide content (`false` in the icon rail). */
-  readonly wide?: boolean
-  /** Compact launcher in the upstream Files tab's public actions slot. */
-  readonly compact?: boolean
 }
+
+/** The business face the `workspace-config.section` registration injects. */
+export type WorkspaceFoldersSectionInjected = Omit<WorkspaceFoldersSectionProps, 'close' | 't'>
+
+/** The Files-tab launcher's props (translator and ports arrive from the entry's closure). */
+export type WorkspaceFoldersLauncherProps = Omit<WorkspaceFoldersSectionProps, 'close'>
 
 /** The visual family of one capsule button, mirroring the host Button kit. */
 type ActionVariant = 'ghost' | 'outline' | 'primary' | 'danger'
@@ -115,15 +137,6 @@ function IconButton(props: {
   )
 }
 
-/** The 16px close glyph of the dialog's header button. */
-function CloseIcon(): ReactNode {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" aria-hidden="true">
-      <path d="M4 4l8 8M12 4l-8 8" />
-    </svg>
-  )
-}
-
 /** The locale key for one reported root state. */
 function stateKey(state: RootState): Key {
   switch (state) {
@@ -148,35 +161,39 @@ function displayNameOf(root: RootView): string {
   return root.alias ?? basename(root.path)
 }
 
-/** The sidebar footer action plus the dialog it opens. */
-export function WorkspaceFoldersAction(props: WorkspaceFoldersActionProps): ReactNode {
-  const [open, setOpen] = useState(false)
-  const rail = props.wide === false
+/**
+ * The legacy Files-tab entry: a compact capsule that expands the same panel
+ * body in place.
+ *
+ * The Files tab offers no modal shell of its own, and importing the holder's
+ * open bridge is exactly the runtime coupling D3 forbids — so the entry owns a
+ * local expansion state and renders the section inline. With the holder
+ * installed the dialog is the primary surface; this entry only keeps the
+ * older `sidebar.right.tab.files.actions` surface usable on its own.
+ */
+export function WorkspaceFoldersLauncher(props: WorkspaceFoldersLauncherProps): ReactNode {
+  const [expanded, setExpanded] = useState(false)
   return (
-    <>
-      {/* The row wrapper mirrors the host `.triggerRow`: its 2px side overhang
-          (`calc(100% + 4px)` + negative margins) is what puts this row's icon
-          on the same 18px ink line as the Settings gear below it. */}
-      <div className={props.compact ? 'mrfw-fileLauncher' : rail ? 'mrfw-triggerRow mrfw-railRow' : 'mrfw-triggerRow'}>
-        <button
-          type="button"
-          className={props.compact ? 'mrfw-btn mrfw-btnGhost' : rail ? 'mrfw-trigger mrfw-triggerRail' : 'mrfw-trigger'}
-          title={props.t('action.title')}
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          onClick={() => { setOpen(value => !value) }}
-        >
-          <span className="mrfw-triggerIcon" aria-hidden="true"><IconFolderClose size={rail ? 18 : 16} /></span>
-          {rail ? null : <span className="mrfw-triggerLabel">{props.t('action.label')}</span>}
-        </button>
-      </div>
-      {open ? <WorkspaceFoldersDialog {...props} onClose={() => { setOpen(false) }} /> : null}
-    </>
+    <div className="mrfw-fileLauncher">
+      <button
+        type="button"
+        className="mrfw-btn mrfw-btnGhost"
+        title={props.t('action.title')}
+        aria-label={props.t('action.label')}
+        aria-expanded={expanded}
+        onClick={() => { setExpanded(value => !value) }}
+      >
+        <span aria-hidden="true"><IconFolderClose size={16} /></span>
+      </button>
+      {expanded
+        ? <WorkspaceFoldersSection {...props} close={() => { setExpanded(false) }} />
+        : null}
+    </div>
   )
 }
 
-/** State of one dialog instance. */
-interface DialogState {
+/** State of one section instance. */
+interface SectionState {
   readonly view: RootsView | undefined
   readonly error: PanelError | undefined
   readonly busy: boolean
@@ -193,7 +210,7 @@ function rowKey(root: RootView): string {
 }
 
 /**
- * The dialog: reads the view once per open, then after every mutation.
+ * The panel body: reads the view once per mount, then after every mutation.
  *
  * Two shapes travel back over the channel, and they are handled separately on
  * purpose: every mutating endpoint answers with the whole refreshed view, while
@@ -201,9 +218,9 @@ function rowKey(root: RootView): string {
  * (see `contract.ts`). Treating a reveal answer as a roots view is exactly the
  * contract mismatch this split removes.
  */
-function WorkspaceFoldersDialog(props: WorkspaceFoldersActionProps & { onClose: () => void }): ReactNode {
+export function WorkspaceFoldersSection(props: WorkspaceFoldersSectionProps): ReactNode {
   const { panel, t } = props
-  const [state, setState] = useState<DialogState>({
+  const [state, setState] = useState<SectionState>({
     view: undefined,
     error: undefined,
     busy: false,
@@ -214,7 +231,6 @@ function WorkspaceFoldersDialog(props: WorkspaceFoldersActionProps & { onClose: 
   const [aliasDraft, setAliasDraft] = useState('')
   const [copiedId, setCopiedId] = useState<string | undefined>(undefined)
   const [menuFor, setMenuFor] = useState<string | undefined>(undefined)
-  const dialogRef = useRef<HTMLDivElement | null>(null)
   const requestEpoch = useRef(0)
   const mounted = useRef(true)
 
@@ -227,40 +243,6 @@ function WorkspaceFoldersDialog(props: WorkspaceFoldersActionProps & { onClose: 
     const current = props.sessionId?.()
     return current === undefined || current === '' ? undefined : { sessionId: current }
   }, [props.sessionId])
-
-  // The dialog is modal: it takes focus when it opens, Escape closes it, and
-  // Tab cycles within it instead of escaping into the sidebar behind it.
-  useEffect(() => { dialogRef.current?.focus() }, [])
-  const onDialogKeyDown = (event: ReactKeyboardEvent): void => {
-    if (event.key === 'Escape') {
-      // A row menu owns Escape while it is open: its own listener closes just
-      // the menu, and this handler must not close the dialog underneath it.
-      if (menuFor !== undefined) return
-      event.stopPropagation()
-      props.onClose()
-      return
-    }
-    if (event.key !== 'Tab') return
-    const dialog = dialogRef.current
-    if (dialog === null) return
-    const focusable = Array.from(
-      dialog.querySelectorAll<HTMLElement>('button, input, [href], [tabindex]:not([tabindex="-1"])'),
-    ).filter(element => !element.hasAttribute('disabled'))
-    if (focusable.length === 0) {
-      event.preventDefault()
-      return
-    }
-    const first = focusable[0]!
-    const last = focusable[focusable.length - 1]!
-    const active = dialog.ownerDocument.activeElement
-    if (event.shiftKey && (active === first || !(active instanceof HTMLElement) || !dialog.contains(active))) {
-      event.preventDefault()
-      last.focus()
-    } else if (!event.shiftKey && (active === last || !(active instanceof HTMLElement) || !dialog.contains(active))) {
-      event.preventDefault()
-      first.focus()
-    }
-  }
 
   const refresh = useCallback(async () => {
     if (panel === undefined) {
@@ -395,207 +377,178 @@ function WorkspaceFoldersDialog(props: WorkspaceFoldersActionProps & { onClose: 
 
   const roots = state.view?.roots ?? []
   return (
-    <div className="mrfw-overlay" role="presentation">
-      <div
-        className="mrfw-mask"
-        role="presentation"
-        onClick={event => { if (event.target === event.currentTarget) props.onClose() }}
-      />
-      <div
-        ref={dialogRef}
-        tabIndex={-1}
-        onKeyDown={onDialogKeyDown}
-        className="mrfw-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label={t('panel.title')}
-      >
-        <div className="mrfw-header">
-          <h2 className="mrfw-title">{t('panel.title')}</h2>
-          <button
-            type="button"
-            className="mrfw-close"
-            title={t('panel.close')}
-            aria-label={t('panel.close')}
-            onClick={props.onClose}
-          >
-            <CloseIcon />
-          </button>
+    <section className="mrfw-body mrfw-sectionBody" aria-label={t('panel.title')}>
+      {state.noSession ? (
+        <p className="mrfw-note">{t('panel.noSession')}</p>
+      ) : (
+        <>
+      <p className="mrfw-description">{t('panel.subtitle')}</p>
+
+      {state.error === undefined ? null : (
+        <p role="alert" className="mrfw-alert">
+          {t(errorKeyOf(state.error.code))}
+          {(state.error.code === 'unavailable' || state.error.code === 'panel/internal') ? ` (${state.error.message})` : ''}
+        </p>
+      )}
+      {state.view?.unavailable === undefined ? null : (
+        <p role="alert" className="mrfw-alert">{state.view.unavailable}</p>
+      )}
+
+      <section className="mrfw-section">
+        <div className="mrfw-sectionTitleRow">
+          <span className="mrfw-sectionTitle">{t('panel.primary')}</span>
+          <span className="mrfw-sectionNote">{t('panel.primaryNote')}</span>
         </div>
-        <div className="mrfw-body">
-          {state.noSession ? (
-            <p className="mrfw-note">{t('panel.noSession')}</p>
-          ) : (
-            <>
-          <p className="mrfw-description">{t('panel.subtitle')}</p>
-
-          {state.error === undefined ? null : (
-            <p role="alert" className="mrfw-alert">
-              {t(errorKeyOf(state.error.code))}
-              {(state.error.code === 'unavailable' || state.error.code === 'panel/internal') ? ` (${state.error.message})` : ''}
-            </p>
-          )}
-          {state.view?.unavailable === undefined ? null : (
-            <p role="alert" className="mrfw-alert">{state.view.unavailable}</p>
-          )}
-
-          <section className="mrfw-section">
-            <div className="mrfw-sectionTitleRow">
-              <span className="mrfw-sectionTitle">{t('panel.primary')}</span>
-              <span className="mrfw-sectionNote">{t('panel.primaryNote')}</span>
-            </div>
-            <div className="mrfw-row mrfw-rowBare">
-              <div className="mrfw-rootText">
-                <span className="mrfw-rootName">
-                  {state.view === undefined ? '…' : (state.view.primaryName ?? basename(state.view.primaryRoot))}
-                </span>
-                <span className="mrfw-rootPath">{state.view?.primaryRoot ?? '…'}</span>
-              </div>
-            </div>
-          </section>
-
-          <section className="mrfw-section">
-            <div className="mrfw-sectionTitleRow">
-              <span className="mrfw-sectionTitle">{t('panel.additional')}</span>
-            </div>
-            {state.view === undefined ? <p className="mrfw-note">{t('panel.loading')}</p> : null}
-            {state.view !== undefined && roots.length === 0 ? (
-              <p className="mrfw-note">
-                {t('panel.empty')} {t('panel.emptyHint')}
-              </p>
-            ) : null}
-            {roots.map((root, index) => {
-              const key = rowKey(root)
-              // A `common` row is granted by the plugin configuration to every
-              // workspace: it is listed (and browsable) like any other root, but
-              // this panel cannot rename, remove or reorder it — the host answers
-              // `common-root` if it tries. The move anchors are computed from the
-              // rendered neighbours and the common rows always sit after every
-              // registration, so the last registration has nothing to swap with
-              // below it and a common row can never move at all.
-              const isCommon = root.source === 'common'
-              const canMoveUp = !isCommon && index > 0
-              const canMoveDown = !isCommon && index < roots.length - 1 && roots[index + 1]?.source !== 'common'
-              return <div key={key} className="mrfw-row">
-                <div className="mrfw-rootText">
-                  <span className="mrfw-rootName">{displayNameOf(root)}</span>
-                  <span className="mrfw-rootPath">{root.path}</span>
-                </div>
-                {isCommon ? (
-                  <span title={t('root.sourceCommonTitle')} className="mrfw-sourceBadge">
-                    {t('root.sourceCommon')}
-                  </span>
-                ) : null}
-                {root.state === 'available' ? null : (
-                  <span title={root.detail} className="mrfw-stateWarn">
-                    {t(stateKey(root.state))}
-                  </span>
-                )}
-                <IconButton
-                  onClick={() => { void copyPath(root) }}
-                  icon={<IconCopy />}
-                  label={copiedId === key ? t('panel.copied') : t('panel.copyPath')}
-                />
-                <IconButton
-                  disabled={state.busy}
-                  onClick={() => { void reveal(root) }}
-                  icon={<IconFolderOpen />}
-                  label={t('panel.reveal')}
-                />
-                <IconButton
-                  disabled={state.busy || !canMoveUp}
-                  onClick={() => { void move(root, roots[index - 1]) }}
-                  icon={<IconChevronUp />}
-                  label={t('panel.moveUp')}
-                />
-                <IconButton
-                  disabled={state.busy || !canMoveDown}
-                  onClick={() => { void move(root, roots[index + 2]) }}
-                  icon={<IconChevronDown />}
-                  label={t('panel.moveDown')}
-                />
-                <Menu
-                  open={menuFor === key}
-                  onClose={() => { setMenuFor(undefined) }}
-                  items={[
-                    { id: 'rename', label: t('panel.rename'), icon: <IconEdit />, disabled: state.busy || isCommon },
-                    { id: 'remove', label: t('panel.remove'), icon: <IconTrash />, danger: true, disabled: state.busy || isCommon },
-                  ]}
-                  onSelect={(id) => {
-                    setMenuFor(undefined)
-                    if (id === 'rename') {
-                      setAliasFor(key)
-                      setAliasDraft(root.alias ?? '')
-                    }
-                    if (id === 'remove') void mutate('remove', { entry: entryOf(root) })
-                  }}
-                  portal
-                  align="end"
-                  closeOnPointerLeave
-                  anchor={(
-                    <IconButton
-                      disabled={state.busy}
-                      onClick={() => { setMenuFor(current => (current === key ? undefined : key)) }}
-                      icon={<IconEllipsis />}
-                      label={t('panel.more')}
-                    />
-                  )}
-                />
-                {aliasFor === key ? (
-                  <span className="mrfw-aliasEditor">
-                    <input
-                      autoFocus
-                      className="mrfw-input mrfw-inputInline"
-                      value={aliasDraft}
-                      placeholder={t('panel.aliasPlaceholder')}
-                      onChange={event => { setAliasDraft(event.target.value) }}
-                    />
-                    <Action disabled={state.busy} onClick={() => { void mutate('alias', { entry: entryOf(root), alias: aliasDraft }); setAliasFor(undefined) }}>
-                      {t('panel.aliasSave')}
-                    </Action>
-                    <Action onClick={() => { setAliasFor(undefined) }}>{t('panel.aliasCancel')}</Action>
-                  </span>
-                ) : null}
-                {root.state === 'available' && panel !== undefined && props.sessionId !== undefined && <RootFileTree panel={panel} entry={entryOf(root)} sessionId={props.sessionId} t={t} />}
-              </div>
-            })}
-          </section>
-            </>
-          )}
-
-          <div className="mrfw-actions">
-            {state.noSession || props.pickDirectory === undefined ? null : (
-              <IconButton
-                variant="outline"
-                disabled={state.busy}
-                onClick={() => { void addViaPicker() }}
-                icon={<IconPlus />}
-                label={t('panel.add')}
-              />
-            )}
-            {state.noSession ? null : (
-              <>
-            <input
-              className="mrfw-input"
-              value={manualPath}
-              placeholder={t('panel.addManual')}
-              onChange={event => { setManualPath(event.target.value) }}
-              onKeyDown={event => { if (event.key === 'Enter') void addManualPath() }}
-            />
-            <Action onClick={() => { void addManualPath() }} disabled={state.busy || manualPath.trim() === ''} variant="primary">
-              {t('panel.addConfirm')}
-            </Action>
-              </>
-            )}
-            <Action onClick={() => { void refresh() }} disabled={state.busy} variant="outline">{t('panel.retry')}</Action>
+        <div className="mrfw-row mrfw-rowBare">
+          <div className="mrfw-rootText">
+            <span className="mrfw-rootName">
+              {state.view === undefined ? '…' : (state.view.primaryName ?? basename(state.view.primaryRoot))}
+            </span>
+            <span className="mrfw-rootPath">{state.view?.primaryRoot ?? '…'}</span>
           </div>
         </div>
+      </section>
+
+      <section className="mrfw-section">
+        <div className="mrfw-sectionTitleRow">
+          <span className="mrfw-sectionTitle">{t('panel.additional')}</span>
+        </div>
+        {state.view === undefined ? <p className="mrfw-note">{t('panel.loading')}</p> : null}
+        {state.view !== undefined && roots.length === 0 ? (
+          <p className="mrfw-note">
+            {t('panel.empty')} {t('panel.emptyHint')}
+          </p>
+        ) : null}
+        {roots.map((root, index) => {
+          const key = rowKey(root)
+          // A `common` row is granted by the plugin configuration to every
+          // workspace: it is listed (and browsable) like any other root, but
+          // this panel cannot rename, remove or reorder it — the host answers
+          // `common-root` if it tries. The move anchors are computed from the
+          // rendered neighbours and the common rows always sit after every
+          // registration, so the last registration has nothing to swap with
+          // below it and a common row can never move at all.
+          const isCommon = root.source === 'common'
+          const canMoveUp = !isCommon && index > 0
+          const canMoveDown = !isCommon && index < roots.length - 1 && roots[index + 1]?.source !== 'common'
+          return <div key={key} className="mrfw-row">
+            <div className="mrfw-rootText">
+              <span className="mrfw-rootName">{displayNameOf(root)}</span>
+              <span className="mrfw-rootPath">{root.path}</span>
+            </div>
+            {isCommon ? (
+              <span title={t('root.sourceCommonTitle')} className="mrfw-sourceBadge">
+                {t('root.sourceCommon')}
+              </span>
+            ) : null}
+            {root.state === 'available' ? null : (
+              <span title={root.detail} className="mrfw-stateWarn">
+                {t(stateKey(root.state))}
+              </span>
+            )}
+            <IconButton
+              onClick={() => { void copyPath(root) }}
+              icon={<IconCopy />}
+              label={copiedId === key ? t('panel.copied') : t('panel.copyPath')}
+            />
+            <IconButton
+              disabled={state.busy}
+              onClick={() => { void reveal(root) }}
+              icon={<IconFolderOpen />}
+              label={t('panel.reveal')}
+            />
+            <IconButton
+              disabled={state.busy || !canMoveUp}
+              onClick={() => { void move(root, roots[index - 1]) }}
+              icon={<IconChevronUp />}
+              label={t('panel.moveUp')}
+            />
+            <IconButton
+              disabled={state.busy || !canMoveDown}
+              onClick={() => { void move(root, roots[index + 2]) }}
+              icon={<IconChevronDown />}
+              label={t('panel.moveDown')}
+            />
+            <Menu
+              open={menuFor === key}
+              onClose={() => { setMenuFor(undefined) }}
+              items={[
+                { id: 'rename', label: t('panel.rename'), icon: <IconEdit />, disabled: state.busy || isCommon },
+                { id: 'remove', label: t('panel.remove'), icon: <IconTrash />, danger: true, disabled: state.busy || isCommon },
+              ]}
+              onSelect={(id) => {
+                setMenuFor(undefined)
+                if (id === 'rename') {
+                  setAliasFor(key)
+                  setAliasDraft(root.alias ?? '')
+                }
+                if (id === 'remove') void mutate('remove', { entry: entryOf(root) })
+              }}
+              portal
+              align="end"
+              closeOnPointerLeave
+              anchor={(
+                <IconButton
+                  disabled={state.busy}
+                  onClick={() => { setMenuFor(current => (current === key ? undefined : key)) }}
+                  icon={<IconEllipsis />}
+                  label={t('panel.more')}
+                />
+              )}
+            />
+            {aliasFor === key ? (
+              <span className="mrfw-aliasEditor">
+                <input
+                  autoFocus
+                  className="mrfw-input mrfw-inputInline"
+                  value={aliasDraft}
+                  placeholder={t('panel.aliasPlaceholder')}
+                  onChange={event => { setAliasDraft(event.target.value) }}
+                />
+                <Action disabled={state.busy} onClick={() => { void mutate('alias', { entry: entryOf(root), alias: aliasDraft }); setAliasFor(undefined) }}>
+                  {t('panel.aliasSave')}
+                </Action>
+                <Action onClick={() => { setAliasFor(undefined) }}>{t('panel.aliasCancel')}</Action>
+              </span>
+            ) : null}
+            {root.state === 'available' && panel !== undefined && props.sessionId !== undefined && <RootFileTree panel={panel} entry={entryOf(root)} sessionId={props.sessionId} t={t} />}
+          </div>
+        })}
+      </section>
+        </>
+      )}
+
+      <div className="mrfw-actions">
+        {state.noSession || props.pickDirectory === undefined ? null : (
+          <IconButton
+            variant="outline"
+            disabled={state.busy}
+            onClick={() => { void addViaPicker() }}
+            icon={<IconPlus />}
+            label={t('panel.add')}
+          />
+        )}
+        {state.noSession ? null : (
+          <>
+        <input
+          className="mrfw-input"
+          value={manualPath}
+          placeholder={t('panel.addManual')}
+          onChange={event => { setManualPath(event.target.value) }}
+          onKeyDown={event => { if (event.key === 'Enter') void addManualPath() }}
+        />
+        <Action onClick={() => { void addManualPath() }} disabled={state.busy || manualPath.trim() === ''} variant="primary">
+          {t('panel.addConfirm')}
+        </Action>
+          </>
+        )}
+        <Action onClick={() => { void refresh() }} disabled={state.busy} variant="outline">{t('panel.retry')}</Action>
       </div>
-    </div>
+    </section>
   )
 }
 
-/** Normalize any thrown value into a `PanelError` the dialog can render. */
+/** Normalize any thrown value into a `PanelError` the panel can render. */
 function asPanelError(error: unknown): PanelError {
   if (error instanceof PanelError) return error
   return new PanelError('fallback', error instanceof Error ? error.message : String(error))

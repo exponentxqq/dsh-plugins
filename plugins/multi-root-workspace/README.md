@@ -28,7 +28,7 @@ dsh --profile web
 
 其他安装来源（npm 注册表上的上游包 / GitHub 仓库 / tarball）与源码方式运行 DSH 的命令差异，见[安装](#安装)。
 
-启动后侧栏底部出现 **Folders**（`🗂`）动作，或直接在会话里：
+启动后，点击侧栏底部的统一入口 **工作区配置**，其弹窗内的 **工作区文件夹** 分节就是本插件的面板；或直接在会话里：
 
 ```text
 /workspace-folders add ~/code/another-repo
@@ -144,7 +144,7 @@ dsh plugin --profile web add "$PWD"
 dsh --profile web --dump-config
 ```
 
-预期：组合里**仅** `fs-sandbox` 与 `sandbox` 两行被替换为插件的 `multi-root-fs` / `multi-root-sandbox`，并插入 11 行（`multi-root-compat` / `fs` / `sandbox` / `scope` / `registry` / `instructions` / `lsp` / `workspace-files` / `file-references` / `command` 与 client 载体行 `multi-root-client`）；`bash-sandbox` 保持上游（bash 与 PTY 经 `ctx.sandbox` 取根）。启动 `dsh --profile web` 后，侧栏底部出现 Folders 动作。
+预期：组合里**仅** `fs-sandbox` 与 `sandbox` 两行被替换为插件的 `multi-root-fs` / `multi-root-sandbox`，并插入 11 行（`multi-root-compat` / `fs` / `sandbox` / `scope` / `registry` / `instructions` / `lsp` / `workspace-files` / `file-references` / `command` 与 client 载体行 `multi-root-client`）；`bash-sandbox` 保持上游（bash 与 PTY 经 `ctx.sandbox` 取根）。启动 `dsh --profile web` 后，侧栏底部的「工作区配置」入口打开统一弹窗，其中的「工作区文件夹」分节即本插件的面板（面板挂载点 `workspace-config.section`，由 workspace-config 弹窗声明，见 [ADR-0013](./docs/decisions/ADR-0013-workspace-config-section-mount.md)）。
 
 ## 使用方法
 
@@ -167,7 +167,7 @@ Workspace root (primary; access follows the current sandbox mode): /home/me/mono
 Writable additional roots: 2 of 2.
 ```
 
-**面板**（Web GUI）：侧栏底部的 **Folders** 对话框列出主根与附加根，支持添加（走组合好的目录选择器或手输路径）、移除、别名、复制路径、在文件管理器中显示与上下移排序；文案中英双语跟随界面语言。根目录的状态会如实显示：`missing`（暂时不存在）、`redirected`（被替换成指向别处的符号链接）的根**保留登记但暂不授予**，目录恢复后 `list` 或面板刷新即自动重新授予，无需重启。
+**面板**（Web GUI）：统一「工作区配置」弹窗里的 **工作区文件夹** 分节（`workspace-config.section`，由 workspace-config 弹窗声明并渲染）列出主根与附加根，支持添加（走组合好的目录选择器或手输路径）、移除、别名、复制路径、在文件管理器中显示与上下移排序；文案中英双语跟随界面语言。存在 `sidebar.right.tab.files.actions` 的旧界面仍保留就地展开同一分节的紧凑入口，`/workspace-folders` 命令不变；未装 workspace-config 时面板没有 GUI 入口（推荐四包同装）。根目录的状态会如实显示：`missing`（暂时不存在）、`redirected`（被替换成指向别处的符号链接）的根**保留登记但暂不授予**，目录恢复后 `list` 或面板刷新即自动重新授予，无需重启。
 
 **模型侧**：附加根拓扑经 `systemPrompt.context` 快照随每次请求告知模型（同 workspace、cwd 不变），无需新增内省工具。授权规则（canonical 化、`recordedPath` 防符号链接转移、冲突拒绝）的完整语义见[架构文档](./docs/architecture/multi-root-workspace.md)。
 
@@ -192,7 +192,7 @@ src/
   compat/         适配层：版本差异（dsh-version / sandbox-confine / agent-instructions / llm-message）与 @ 检索载体（file-reference-search），可选 peer 均按需加载
   command.ts      /workspace-folders 命令与面板 RPC 的 host 半部
   contract.ts     面板线协议（zod 双端校验，可内联进浏览器 bundle）
-  client/         浏览器半部：侧栏动作、对话框、双语词典
+  client/         浏览器半部：工作区文件夹分节（workspace-config.section）、Files tab 紧凑入口、双语词典
 tests/            差分 parity、方言真实执行矩阵、契约往返、组件与 locale 门禁、跨进程 lease e2e、指令注入
 scripts/          冒烟（compose / behavior / journey）、文档与内核 runner 检查、兼容性契约检查、升级流程
 docs/             需求、架构、决策记录（ADR）、计划、开发工作流
@@ -215,12 +215,12 @@ docs/             需求、架构、决策记录（ADR）、计划、开发工�
 - 支持矩阵是精确版本 allowlist：宿主版本不在清单上、或核心包混装了不同版本时，`fs` / `sandbox` / `registry` / `instructions` / `lsp` / `workspace-files` / `file-references` 七行**不启动**，组合退化为"没装这个插件"（[ADR-0009](./docs/decisions/ADR-0009-dsh-compat-contract.md)）。
 - Windows 多根 runner 继承上游 partial enforcement、caller-owned 目录及 private temp 分离条件；已启动进程保留启动时根集合，后续进程使用更新后的集合（[ADR-0011](./docs/decisions/ADR-0011-multi-root-workspace-consumers.md)）。
 - 附加根与主根同权（无 per-root read-only）；附加根不能作为 bash/PTY 的默认工作目录（session cwd 语义不变）。
-- 附加根文件树位于“工作区目录”对话框，采用手动刷新；可展开目录和预览前 200 行文本。主根原生 Files tab 保留，有 actions slot 时提供打开该对话框的入口。LSP 按附加文件所在根初始化独立 workspace；需要宿主配置对应语言服务器（[ADR-0011](./docs/decisions/ADR-0011-multi-root-workspace-consumers.md)）。
+- 附加根文件树位于「工作区文件夹」分节（统一「工作区配置」弹窗内），采用手动刷新；可展开目录和预览前 200 行文本。主根原生 Files tab 保留，存在 `sidebar.right.tab.files.actions` 时提供就地展开同一分节的紧凑入口。LSP 按附加文件所在根初始化独立 workspace；需要宿主配置对应语言服务器（[ADR-0011](./docs/decisions/ADR-0011-multi-root-workspace-consumers.md)）。
 - `@` 文件提及的候选面包屑在附加根的中间层目录上无法回跳：上游面包屑按主根相对语义切分路径，绝对路径候选的层级不在其坐标系内，点中间层段不会跳到该目录（上游修复后自动消失）。
 - 附加根自身的绝对路径含有排除目录段名（某一段叫 `build`、`node_modules` 等）时，钻入该根的结果为空：检索载体按上游排除表忽略这类目录，本插件刻意不绕过——自写列目录会与上游排除语义漂移。
 - 裸模糊搜索不跨根：附加根只以「根目录候选 + 绝对路径钻入」两种方式参与 `@` 补全，`@` 加文件名片段的模糊查询仍只搜主根（附加根大目录首查全量索引卡顿、跨根排名无语义）。取舍与理由见 [ADR-0012](./docs/decisions/ADR-0012-additional-root-file-references.md)。
 - 命令的输出文案为英文（host 侧没有活动语言信息），面板文案中英双语跟随界面语言。
-- Workspace Folders 面板是「侧栏底部动作 + 对话框」，不是独立全屏面板：`sidebar.footer.action` 是所有受支持版本都提供的插槽，而 `sidebar.panellist`/`main` 不是。
+- 面板挂载点是统一「工作区配置」弹窗里的 `workspace-config.section` 分节（由 `dsh-plugin-workspace-config` 在 `shell.overlay` 注册弹窗时用 `children` 声明），不是独立全屏面板，也不再占用 `sidebar.footer.action`（该入口已随本次迁移删除）：`sidebar.panellist`/`main` 不是所有受支持版本都提供，而分节座位由 holder 声明。Files tab 紧凑入口与 `/workspace-folders` 保留；未装 workspace-config 时面板没有 GUI 入口（推荐四包同装）。取舍见 [ADR-0013](./docs/decisions/ADR-0013-workspace-config-section-mount.md)。
 
 ## 文档
 

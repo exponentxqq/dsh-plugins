@@ -144,7 +144,7 @@ dsh plugin --profile web add <本仓库路径>
 
 `dsh plugin` 是 pnpm 的转发器：它在 profile 目录里执行 pnpm，并把解析到 `dsh.bundle` 声明的依赖回填进 `dsh.profile.bundles`。桌面端（Electron）保留自己的 `$DSH_HOME/profiles/desktop`，安装方式同源。
 
-**client 扫描锚点（不变量）**：web 的 client-module 扫描只从挂在**裸包名**上的 loader 行读取 `dsh.client` 声明——子路径行永远不是 client 行（上游 `locatePkgJson` 对子路径 specifier 短路，见 [troubleshooting 记录](../troubleshooting/client-bundle-not-in-boot-graph.md)）。因此 patch 必须始终包含 `id: multi-root-client`、`name: 'dsh-plugin-multi-root-workspace'` 这一行（载体插件，`apply` 有意为空）；少了它，`lib/client.js` 不会进启动图，`sidebar.footer.action` 的注册静默失效。
+**client 扫描锚点（不变量）**：web 的 client-module 扫描只从挂在**裸包名**上的 loader 行读取 `dsh.client` 声明——子路径行永远不是 client 行（上游 `locatePkgJson` 对子路径 specifier 短路，见 [troubleshooting 记录](../troubleshooting/client-bundle-not-in-boot-graph.md)）。因此 patch 必须始终包含 `id: multi-root-client`、`name: 'dsh-plugin-multi-root-workspace'` 这一行（载体插件，`apply` 有意为空）；少了它，`lib/client.js` 不会进启动图，`workspace-config.section` 的注册静默失效。
 
 发布形态的 `files` 现在包含 `lib/*.js`（含 `lib/client.js`）与两面的 `lib/types/**/*.d.ts`；client 制品必须在 `pnpm pack` 之前构建好（宿主直接读盘，不做编译）。
 
@@ -228,7 +228,7 @@ LSP 源码回传断言应比较读盘得到的完整源码。夹具里的路径�
 | `pnpm <script>` 报 `EPERM ... /Library/pnpm/.tools` | 仓库 pin 的 pnpm 版本需要写用户级 pnpm 目录 | 在可写该目录的终端（或提权）执行；仅跑门禁时可用 `sh node_modules/.bin/<tool>` 绕过 pnpm |
 | `pnpm <script>` 报 `ERR_PNPM_UNEXPECTED_STORE` 或 `ABORTED_REMOVE_MODULES_DIR_NO_TTY` | checkout 里存在一个陈旧的 `.pnpm-store/`（被 gitignore），而 `node_modules` 是从磁盘级 store（如 `<挂载点>/.pnpm-store/v11`）链接的；pnpm 运行脚本前的依赖自检因此想重装，而在没有 TTY 时无法确认删除 | 最快解除：`CI=true pnpm <script>`（pnpm 只在 CI 下继续而不交互确认）。根治：删掉陈旧的仓库内 `.pnpm-store/`；或 `pnpm config set store-dir <node_modules 实际链接的 store>`；或直接用 `sh node_modules/.bin/<tool>` / `node scripts/<smoke>.mjs` 跑门禁（CI 不受影响，它本来就有 `CI=true`） |
 | `ERR_PNPM_IGNORED_BUILDS` | 有构建脚本的依赖未在 `pnpm-workspace.yaml` 声明 | 把该依赖加入 `allowBuilds`（需要构建）或 `allowBuilds: false`（明确不需要）；当前 `esbuild`（经 vite/vitest 引入）声明为 `false` |
-| 面板在 Web GUI 里看不到 | 组合里没有声明 `sidebar.footer.action` 的侧栏，或该面没有 host `connection`（headless 组合） | 面板是软注册（`slots.inject` 不触发即不出现）；用 `/workspace-folders list` 确认注册表本身可用 |
+| 面板在 Web GUI 里看不到 | 组合里没有声明 `workspace-config.section` 的 holder 弹窗（未装/未启用 `dsh-plugin-workspace-config`），或该面没有 host `connection`（headless 组合） | 面板是软注册（`slots.inject` 不触发即不出现）；装了 holder 后入口在统一弹窗的分节里；用 `/workspace-folders list` 确认注册表本身可用 |
 | 面板显示「当前没有活动会话」 | 浏览器当前没有被主视图持有的 Session；或客户端仍在读已删除的 `list.current`（0.1.6-alpha.2 起导航在 `retainedBy.mainView` 上） | 确认主界面已打开会话后点重试。host 不会猜测主根（ADR-0008）。若会话明明开着仍出现这条，检查 `src/compat/client-session.ts` 是否同时认 `current` 与 `retainedBy.mainView`，且没有回退 `ids[0]` |
 | 面板报 "根目录登记的存储不可用" | `$DSH_HOME/storages/multi_root_workspace.json` 损坏或版本不符 | 按提示修复或删除该文件后重启 dsh；插件不会因此拒绝启动（ADR-0004） |
 | 面板报 "无法连接到 dsh 主进程" 且括号里是 **HTTP 405** | 通道前缀路由未注册，请求落到了 SPA 静态回退——典型根因是 `rpc.handle` 的调用形态违反 cordis 属性解析纪律（服务必须从根上下文读取，依赖必须同时声明 `connection` 与 `webServer`） | 用 `curl -X POST http://127.0.0.1:<port>/multi-root-workspace/list` 区分：401 = 路由在（只是 curl 未认证），405 = 路由缺；详见[故障排查：面板 HTTP 405](../troubleshooting/panel-channel-http-405.md) |

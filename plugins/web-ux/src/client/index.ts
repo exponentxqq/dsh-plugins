@@ -1,64 +1,53 @@
 /**
- * Browser half of dsh-plugin-web-ux.
+ * dsh-plugin-web-ux 的浏览器半装配。
  *
- * Four features share one entry:
+ * 四项 Web 界面体验共用一个入口：
  *
- * - The provider badge (unchanged) appends one static capsule to the
- *   `conversation.composer.dock` list slot, the ambient row below the composer
- *   card that the official stats capsule already occupies.
- * - The archived-session delete feature contributes two soft entries: the
- *   sidebar row menu item (`sidebar.workspaces.session.menu.item`, order 500,
- *   archived rows only) and its confirmation dialog (`shell.overlay`). The two
- *   talk through one in-plugin request store, because a slot's `inject.hooks`
- *   can only be supplied by the slot's declarer and a third-party entry cannot
- *   add one.
- * - The command-result notice feature bridges the browser-local
- *   `command/executed` event into one in-plugin notice store and mounts a
- *   dismissible card on `conversation.input.overlay` (order 10, behind the
- *   official command popup at order 1) — the fallback surface for results with
- *   nowhere to render (empty-session welcome view). The card reads the
- *   main-view retain count per session (`sessions.retainInfo`) and hides
- *   itself the moment the session view (transcript) is open.
- * - The session-manager feature contributes two more soft entries bridged by
- *   one in-plugin request store (the same pattern as the delete pair): a
- *   footer action in the sidebar (`sidebar.footer.action`, order 100) and its
- *   dialog on `shell.overlay` (order 520, behind the delete dialog's 500 so
- *   the two never show together).
+ * - **Provider 徽章**（不变）：向 `conversation.composer.dock` 追加一枚静态胶囊；
+ * - **删除已归档会话**：两个软注册——侧栏行菜单项（`sidebar.workspaces.session.menu.item`，
+ *   order 500，仅已归档行）与确认弹窗（`shell.overlay`，order 500）。两者通过插件内的
+ *   删除请求 store 通信：slot 的 `inject.hooks` 只能由声明方提供，第三方 entry 无法新增；
+ * - **会话管理**：作为统一「工作区配置」弹窗的一个**分节**贡献
+ *   （`workspace-config.section`，order 30），由 holder 的 `shell.overlay` 统一弹窗渲染。
+ *   分节只做三 tab / 五阶段的管理面本体，打开与关闭都由 holder 拥有；本包不再注册
+ *   侧栏 footer 入口或独立浮层（旧的两条 entry 与打开桥已删除）；
+ * - **命令结果通知**：把浏览器本地 `command/executed` 事件桥进通知 store，并在
+ *   `conversation.input.overlay`（order 10，官方命令弹层 order 1 之后）挂一张可关闭卡片。
  *
- * Everything touching an upstream surface is soft: all entries register
- * through `slots.inject` (a shell without the declaration simply never mounts
- * them), the event bridge and `sessions` are read defensively (a shell without
- * either degrades to "no notice card" / "no auto-hide"), and `connection` /
- * `workspaces` / `sessions` are read with `ctx.get` **inside the inject
- * faces** — never at apply time, because the web shell provides `workspaces`
- * only after its remote gateway is ready. A shell missing one of them hides the
- * affected entry only — the manager trigger without `connection`, the manager
- * dialog's list without `workspaces` / `sessions` — and leaves the badge and
- * every other entry untouched.
+ * 一切接触上游的面都是软的：entry 全部经 `slots.inject` 注册（没有座位声明就永不挂载），
+ * 事件桥与 `sessions` 防御式读取（缺事件面 / 缺服务分别退化成「没有通知卡」/「不自动隐藏」），
+ * `connection` / `workspaces` / `sessions` 在**注入面（渲染期）**才 `ctx.get`，绝不在 apply 期
+ * 读取——web 壳的 `workspaces` 要等 remote 网关就绪后才 provide，apply 期读会永久丢掉对应
+ * entry。任一项缺席只隐藏受影响的能力，徽章与其它 entry 不受影响。
+ *
+ * 分节注册采用「贡献方统一形状」（code-design ③3.2）：
+ * `slots.inject(SECTION_SEAT, () => register({ name, id, order, label thunk, locale, inject }))`，
+ * 失败只 warn、不影响其它注册。`dsh-plugin-workspace-config` 只以 `import type` 消费
+ * （devDependency + 类型断言），**不**写进 `dsh.client.inject`：四包之间只有编译期类型依赖，
+ * 没有运行时加载边（D3）。
  *
  * @module dsh-plugin-web-ux/client
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-// Type-only: pulls the renderer's ctx.slots merge (the renderer owns the slot
-// registry), ui-conversation's SlotMap merge (the composer dock key), and
-// ui-session's SessionStandardProps merge (sessionId on session-scope slots).
+// 类型专用：拉 renderer 的 `ctx.slots`、ui-conversation 的 composer 座位、ui-session 的
+// session 作用域 props 与 ui-commands 的 `command/executed` 事件声明。
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
-// Type-only: ui-sidebar's SlotMap merge — the `sidebar.footer.action` seat this
-// module registers into (the entry's own props ride SessionManagerTrigger.tsx).
-import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
-// Type-only: the sidebar row-menu slot contract, plus the CLIENT faces that
-// publish `ctx.locale` / `ctx.connection` / `ctx.workspaces` on the browser
-// context. `shell.overlay`'s SlotMap merge rides DeleteSessionDialog.tsx.
+// 类型专用：侧栏行菜单座位（`sidebar.workspaces.session.menu.item`）与
+// `ctx.locale` / `ctx.connection` / `ctx.workspaces` 的客户端 face。
+// `shell.overlay` 的 SlotMap 增补随 DeleteSessionDialog.tsx 进入本程序。
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
-// Type-only: the `command/executed` event name on the cordis Events merge.
+// 类型专用：`command/executed` 事件名在 cordis Events 上的增补。
 import type {} from '@deepseek-ai/dsh-client-ui-commands/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+// 类型专用：统一「工作区配置」分节的座位增补与 owner 份额类型（仅编译期，运行时零产物）。
+import type {} from 'dsh-plugin-workspace-config/client'
+import type { WorkspaceConfigSectionSeat } from 'dsh-plugin-workspace-config/client'
 import { ProviderBadge, type ProviderBadgeInjected } from './ProviderBadge.tsx'
 import { DeleteSessionMenuItem, type DeleteMenuItemInjected } from './DeleteSessionMenuItem.tsx'
 import { DeleteSessionDialog, type DeleteDialogInjected } from './DeleteSessionDialog.tsx'
@@ -67,52 +56,52 @@ import { createNoticeStore } from './notice-store.ts'
 import { projectCountSource } from './notice-visibility.ts'
 import { createDeleteClient, createSessionManagerClient } from './delete-client.ts'
 import { createDeleteRequestStore } from './delete-store.ts'
-import { SessionManagerTrigger, type SessionManagerTriggerInjected } from './SessionManagerTrigger.tsx'
 import {
-  SessionManagerDialog,
-  type SessionManagerDialogInjected,
+  SessionManagerSection,
+  type SessionManagerSectionInjected,
   type SessionsSource,
 } from './SessionManagerDialog.tsx'
-import { createManagerRequestStore } from './session-manager-store.ts'
 import { NS, en, zh } from './locales.ts'
 
-/** Required services: the slot registry, the dictionaries, the model directory. */
+/** 必需的客户端服务：座位注册表、字典与模型目录。 */
 export const inject = ['slots', 'locale', 'modelDirectories']
 
 /**
- * The badge's seat in the dock: after the official stats capsule (`order: 0`)
- * and far enough below any plausible sibling that the two never interleave.
+ * 徽章在 dock 座位里的顺序：官方统计胶囊（order 0）之后，且离任何合理兄弟足够远，
+ * 两者不会交错。
  */
 export const BADGE_ORDER = 10
 
-/** The delete row's slot id and order: after the shipped archive row (400). */
+/** 删除行菜单的座位 id 与顺序：官方归档行（400）之后。 */
 export const DELETE_MENU_ID = 'web-ux-delete-session'
 export const DELETE_MENU_ORDER = 500
 
-/** The confirmation dialog's overlay id and order. */
+/** 删除确认弹窗的浮层 id 与顺序。 */
 export const DELETE_DIALOG_ID = 'web-ux-delete-session-dialog'
 export const DELETE_DIALOG_ORDER = 500
 
 /**
- * The notice card's seat in the composer overlay: behind the official command
- * popup (`order: 1`) so the two never fight for the same sight line.
+ * 通知卡在 composer 浮层里的顺序：官方命令弹层（order 1）之后，两者不抢同一视线。
  */
 export const NOTICE_ID = 'web-ux-command-notice'
 export const NOTICE_ORDER = 10
 
 /**
- * The session-manager trigger's seat in the sidebar footer: after the shipped
- * foot controls (the sidebar sorts a list slot by `order`).
+ * 会话管理分节的座位名。
+ *
+ * 贡献方各持一份字面量、由 `WorkspaceConfigSectionSeat` 做类型断言（D3）；
+ * `dsh-plugin-workspace-config` 只出现在编译期，不进 bundle。
  */
-export const MANAGER_TRIGGER_ID = 'web-ux-session-manager-trigger'
-export const MANAGER_TRIGGER_ORDER = 100
+export const SECTION_SEAT: WorkspaceConfigSectionSeat = 'workspace-config.section'
 
 /**
- * The session-manager dialog's overlay id and order: behind the delete dialog
- * (`order: 500`) so the two never show together.
+ * 分节 entry id：沿用旧浮层 id（`web-ux-session-manager`），让日志、断言与排障话术
+ * 保持连续；id 只在座位内唯一，跨座位无冲突。
  */
-export const MANAGER_OVERLAY_ID = 'web-ux-session-manager'
-export const MANAGER_OVERLAY_ORDER = 520
+export const SECTION_ID = 'web-ux-session-manager'
+
+/** 分节在统一弹窗 nav 中的顺序：Folders 10 / 工作区默认档 20 / 会话管理 30。 */
+export const SECTION_ORDER = 30
 
 /** 按任意键名软读一个服务（形状由调用方防御式对待；同 multi-root 的 readService）。 */
 function readService(ctx: ClientContext, name: string): unknown {
@@ -125,14 +114,11 @@ function readService(ctx: ClientContext, name: string): unknown {
 }
 
 /**
- * Client plugin body: the status-row badge, the archived-session delete entries
- * (when the shell provides the connection and workspace services), and the
- * command-result notice card (when the shell emits command executions).
- * @param ctx - client root context.
+ * 客户端插件主体：状态行徽章、已归档会话删除面、会话管理分节与命令结果通知卡。
+ * @param ctx - 客户端根上下文。
  */
 export function apply(ctx: ClientContext): void {
-  // Dictionaries first: an entry that declares `locale: NS` renders through the
-  // installed face and fails loud without one, and every styled entry declares it.
+  // 字典先行：声明 `locale: NS` 的 entry 经已安装的 face 渲染，缺字典会 fail loud。
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'web-ux: dictionaries')
 
   ctx.slots.inject('conversation.composer.dock', () => {
@@ -149,7 +135,7 @@ export function apply(ctx: ClientContext): void {
         ProviderBadge,
       )
     } catch {
-      // A shell that rejects the entry keeps its official status row untouched.
+      // 壳拒绝这个 entry 时，官方状态行保持原样。
       return () => {}
     }
   })
@@ -199,18 +185,14 @@ export function apply(ctx: ClientContext): void {
         CommandNoticeCard,
       )
     } catch {
-      // A shell without the composer overlay seat simply shows no notice card.
+      // 没有 composer 浮层座位的壳只是不显示通知卡。
       return () => {}
     }
   })
 
-  // The two delete entries resolve `connection` / `workspaces` in their inject
-  // faces, i.e. at render time, not here: the web shell provides `workspaces`
-  // only after its remote gateway is ready, which is later than this plugin's
-  // `apply`. An apply-time `ctx.get` would therefore read `undefined` and lose
-  // the entries forever, while the badge — unaffected by those services — keeps
-  // working. Reading late also preserves the soft-degradation contract: a shell
-  // that never provides them renders neither entry and nothing breaks.
+  // 删除面与它会话管理分节的两个注入面都在渲染期解析 `connection` / `workspaces` /
+  // `sessions`：web 壳的工作区服务晚于本插件 `apply` 就绪，apply 期读取会把入口永久
+  // 弄丢。晚读同时保住软降级契约——永远不提供这些服务的壳既不渲染入口也不报错。
   const requests = createDeleteRequestStore()
 
   ctx.slots.inject('sidebar.workspaces.session.menu.item', () => {
@@ -229,7 +211,7 @@ export function apply(ctx: ClientContext): void {
         DeleteSessionMenuItem,
       )
     } catch {
-      // A shell without the row-menu seat simply shows no delete row.
+      // 没有行菜单座位的壳只是不显示删除行。
       return () => {}
     }
   })
@@ -250,65 +232,42 @@ export function apply(ctx: ClientContext): void {
         DeleteSessionDialog,
       )
     } catch {
-      // A shell without the overlay seat keeps every other overlay untouched.
+      // 没有浮层座位的壳保持其它浮层不受影响。
       return () => {}
     }
   })
 
-  // 会话管理面与删除面同构：入口（侧栏底部）与浮层（shell 层）是两个独立 entry，
-  // 通过一个请求 store 桥接——slot 的 inject.hooks 只能由声明方提供，第三方无法新增
-  // （D7）。三个服务一律在注入面（渲染期）解析，理由同上方删除面：web 壳的工作区 /
-  // 会话服务晚于本插件 `apply` 就绪，apply 期读取会把入口永久弄丢（D18）。连接通道
-  // 缺席只藏入口、浮层静默；工作区或会话快照缺席时浮层保留「服务未就绪」空态，让
-  // 用户看到解释而不是什么都没有。
-  const managerRequests = createManagerRequestStore()
+  // 会话管理分节（统一「工作区配置」弹窗的第三项，order 30）。holder 在注册
+  // `shell.overlay` 时以 `children` 声明 `workspace-config.section`；本包的
+  // `slots.inject` 在座位就绪前只登记，就绪后由框架补跑。label 用 thunk：
+  // locale 切换时 nav 重新求值，不需要重注册。
+  const t = ctx.locale.bind(NS)
 
-  ctx.slots.inject('sidebar.footer.action', () => {
+  ctx.slots.inject(SECTION_SEAT, () => {
     try {
       return ctx.slots.register(
         {
-          name: 'sidebar.footer.action',
-          id: MANAGER_TRIGGER_ID,
-          order: MANAGER_TRIGGER_ORDER,
+          name: SECTION_SEAT,
+          id: SECTION_ID,
+          order: SECTION_ORDER,
+          label: () => t('section.label'),
           locale: NS,
-          inject: (): SessionManagerTriggerInjected => ({
-            requests: managerRequests,
-            // 渲染期解析：connection 可能晚于 apply 就绪；缺席时入口整颗不渲染。
-            ready: ctx.get('connection') !== undefined,
-          }),
-        },
-        SessionManagerTrigger,
-      )
-    } catch {
-      // A shell without the footer-action seat simply shows no manager entry.
-      return () => {}
-    }
-  })
-
-  ctx.slots.inject('shell.overlay', () => {
-    try {
-      return ctx.slots.register(
-        {
-          name: 'shell.overlay',
-          id: MANAGER_OVERLAY_ID,
-          order: MANAGER_OVERLAY_ORDER,
-          locale: NS,
-          inject: (): SessionManagerDialogInjected => {
+          inject: (): SessionManagerSectionInjected => {
             const connection = ctx.get('connection')
             return {
-              requests: managerRequests,
               client: connection === undefined ? undefined : createSessionManagerClient(connection),
               workspaces: ctx.get('workspaces'),
               // sessions 在客户端 Context 的服务类型表里没有声明（只经 ui-session
-              // 传递可达），与通知卡同款 unknown 软读后按浮层的结构式声明收敛。
+              // 传递可达），与通知卡同款 unknown 软读后按分节的结构式声明收敛。
               sessions: readService(ctx, 'sessions') as SessionsSource | undefined,
             }
           },
         },
-        SessionManagerDialog,
+        SessionManagerSection,
       )
-    } catch {
-      // A shell without the overlay seat keeps every other overlay untouched.
+    } catch (error) {
+      // 分节座位被拒绝时只丢这一节，徽章、删除面与通知卡不受影响。
+      ctx.logger?.warn('web-ux: 会话管理分节注册失败，本节不显示', error)
       return () => {}
     }
   })

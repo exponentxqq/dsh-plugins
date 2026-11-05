@@ -4,158 +4,31 @@
  * The host ships its design tokens as CSS custom properties on `body`
  * (`--dsw-alias-*` semantics, `--dsw-elevation-*` shadows, `--ds-*` motion and
  * code-font tokens), so this sheet names no color of its own: light and dark
- * theme follow the host automatically. The recipes mirror the native surfaces
- * this UI sits beside — the sidebar footer trigger, the Modal primitive, and
- * the capsule Button (ADR-0006 records the decision).
+ * theme follow the host automatically. It carries only the panel body and its
+ * capsule controls: the dialog shell (mask, card, header, close button) and the
+ * sidebar footer trigger belong to the workspace-config holder since ADR-0013,
+ * and the Modal primitive already styles them — this sheet deliberately has no
+ * rule for either.
  *
  * @module dsh-plugin-multi-root-workspace/client/styles
  */
 
 /** The stylesheet text; every class is prefixed `mrfw-` to stay collision-free. */
 export const STYLES = /* css */ `
-/* Sidebar footer row, mirroring the host ui-settings-general trigger: the row
- * wrapper overhangs each side by 2px (width calc(100% + 4px) against the
- * shell's 12px inline padding) so the icon's ink line lands at 18px from the
- * column edge — exactly where the Settings gear below sits. */
-.mrfw-triggerRow {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: calc(100% + 4px);
-  margin: 4px -2px;
-}
-
-.mrfw-triggerRow.mrfw-railRow {
-  width: 36px;
-  margin: 8px 0 10px;
-}
-
-.mrfw-trigger {
-  box-sizing: border-box;
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: auto;
-  height: 42px;
-  margin: 0;
-  padding: 0 10px 0 8px;
-  border: none;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--dsw-alias-label-primary);
-  font-family: inherit;
-  font-size: 14px;
-  line-height: 22px;
-  text-align: left;
-  cursor: pointer;
-  overflow: hidden;
-  transition: background-color var(--ds-transition-duration-fast) var(--ds-ease-in-out);
-}
-
-.mrfw-trigger:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-.mrfw-triggerIcon {
-  flex: none;
-  display: inline-flex;
-}
-
-.mrfw-triggerLabel {
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.mrfw-triggerRail {
-  flex: none;
-  width: 36px;
-  height: 36px;
-  margin: 0;
-  padding: 0;
-  gap: 0;
-  border-radius: 50%;
-  justify-content: center;
-}
-
-.mrfw-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-
-.mrfw-mask {
-  position: absolute;
-  inset: 0;
-  background: var(--dsw-alias-bg-mask-1);
-  backdrop-filter: var(--dsw-mask-blur);
-}
-
-.mrfw-dialog {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  width: min(640px, 100%);
-  max-height: 100%;
-  overflow: hidden;
-  border: none;
-  border-radius: 24px;
-  background: var(--dsw-alias-bg-layer-2);
-  box-shadow: var(--dsw-elevation-prominent);
-  color: var(--dsw-alias-label-primary);
-  font-family: inherit;
-  outline: none;
-}
-
-.mrfw-header {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 22px 14px 12px 24px;
-}
-
-.mrfw-title {
-  margin: 0;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 500;
-  color: var(--dsw-alias-label-primary);
-}
-
-.mrfw-close {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  cursor: pointer;
-  color: var(--dsw-alias-label-secondary);
-  transition: background-color var(--ds-transition-duration-fast) var(--ds-ease-in-out);
-}
-
-.mrfw-close:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
+/* The section's own column. The holder's dialog content column owns the
+ * padding and the scrolling (.panel: 20px 24px padding, overflow-y auto),
+ * so this root must not scroll a second time; it only stacks the body blocks
+ * and is allowed to shrink inside the dialog's flex column. */
 .mrfw-body {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow-y: auto;
-  padding: 0 24px 24px;
+}
+
+/* The section fills the holder's content column (flex: 1 1 auto) while still
+ * collapsing to its content height in the Files-tab inline wrapper. */
+.mrfw-sectionBody {
+  flex: 1 1 auto;
 }
 
 .mrfw-description {

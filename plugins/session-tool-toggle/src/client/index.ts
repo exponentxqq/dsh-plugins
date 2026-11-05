@@ -3,12 +3,23 @@
  *
  * **双端职责**：宿主半（`src/host/index.ts`）承载 `/tools` 命令面与 Connection RPC 通道
  * `/session-tool-toggle`——工具面的状态、校验、落盘全在那边；本文件只把**同一份状态**
- * 接到 Web：会话头部工具区放一个入口按钮，点开就是 `/tools` 的可视面；侧栏底部再放一个
- * 工作区默认档入口（footer 对话框）。两半共用 `src/contract.ts` 的通道/端点常量，client
- * 侧的 `panel-client.ts` 直接内联同一组字面量（D16：两端各持一份手写 parser），因此浏览器
- * bundle 不依赖宿主产物、也不需要运行时解析彼此的模块。
+ * 接到 Web：会话头部工具区放一个入口按钮，点开就是 `/tools` 的可视面；统一「工作区配置」
+ * 弹窗（holder `dsh-plugin-workspace-config`）里再放一个**工作区默认档分节**。两半共用
+ * `src/contract.ts` 的通道/端点常量，client 侧的 `panel-client.ts` 直接内联同一组字面量
+ * （D16：两端各持一份手写 parser），因此浏览器 bundle 不依赖宿主产物、也不需要运行时解析
+ * 彼此的模块。
  *
- * 装配三件事，按依赖顺序：
+ * **挂载面迁移（本次变更 #36）**：旧 `sidebar.footer.*` 注册已删除，原地不动的是
+ * 会话头部入口；工作区默认档从「自绘 footer 对话框」改为「统一弹窗的一个分节」——弹窗壳
+ * 属于 holder，本插件只交付分节正文。三处关系：
+ *
+ * | 面 | 座位 | 归属 |
+ * |---|---|---|
+ * | 会话头部工具面入口 | `conversation.session.header.utilities` | 本插件（不变） |
+ * | 工作区默认档分节 | `workspace-config.section` | 本插件（新增，旧 footer 的替代） |
+ * | 统一弹窗壳 / footer 单入口 | `shell.overlay` / `sidebar.footer.*` | holder（本插件不再占用 footer） |
+ *
+ * 装配四件事，按依赖顺序：
  *
  * 1. **文案注册**：`ctx.effect(() => ctx.locale.register(NS, { zh, en }))`。座位 entry 声明
  *    `locale: NS`，渲染时由框架合成 `t` 座；字典缺席会 fail loud，所以它必须排在注册之前，
@@ -17,15 +28,19 @@
  *    处理函数按面板开合进出集合——多会话的头部可能同时挂着多份入口，共用一份宿主事件即可，
  *    不必每开一次面板往 fiber 上叠一个 effect（`ctx.on` 本身已经是一个 effect，见
  *    `@deepseek-ai/cordis/lib/index.js:335-345`）。
- * 3. **座位软注册**（两处，按 `seats.ts` 的常量与顺序）：
+ * 3. **分节 label 的翻译函数**：`const t = ctx.locale.bind(NS)`。分节 nav 行的 `label` 是
+ *    注册时给 holder 的 thunk（`() => t('section.label')`），locale 切换无需重注册；旧 footer
+ *    入口的文案由框架按 `locale: NS` 合成 `t` 座，本文件从未绑定过翻译函数（#36 新增）。
+ * 4. **座位软注册**（两处，按 `seats.ts` 的常量与顺序）：
  *    - 会话头部工具区 `conversation.session.header.utilities`（list / scope `session`，
  *      order 20，设计 §3.1）；
- *    - 侧栏底部 `sidebar.footer.action`（list / scope `root`，order 60，工作区默认档入口）。
+ *    - 工作区默认档分节 `workspace-config.section`（list / scope `root`，order 20）。
  *
  *    两处 `register` 各自整体包 `try/catch`：**座位缺席或拒绝注册时，最坏结果是该入口不出现**，
  *    而不是 client 半整体装配失败——同一个 shell 里还有别的插件、别的座位（设计 §4 R2：
  *    utilities 座位的会话由框架保证，座位本身却可能不在这个壳里）；两处互相独立，一个座位
- *    注册失败不连累另一个。
+ *    注册失败不连累另一个。分节座位由 holder 以 `children` 声明：**holder 缺席时
+ *    `slots.inject` 回调永不触发**，不报错、不残留 UI（组合矩阵「只贡献方」格）。
  *
  * **`connection` 为什么不在 `inject` 里**：Web 壳的 `connection` 由 api-gateway 在 remote
  * 网关就绪后才 provide，**晚于**本插件 `apply`（web-ux v1.2.0 的踩坑，
@@ -48,25 +63,27 @@
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-// 类型专用 import：把 renderer 的 ctx.slots、conversation / sidebar 的座位契约（SlotMap 键）、
-// session 的 SessionStandardProps（sessionId 座）、locale 的 ctx.locale、commands 的
+// 类型专用 import：把 renderer 的 ctx.slots、conversation 的座位契约（SlotMap 键）、
+// session 的 SessionStandardProps（sessionId 座）、locale 的 ctx.locale 与 bind、commands 的
 // `command/executed` 事件声明并进本文件的程序。少任何一个，下面 register / on / locale
 // 的调用点都会类型不成立（这些合并声明只在被 import 后才可见）。
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
-import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-commands/client'
+// 类型专用 import：只取 holder 的 `workspace-config.section` 座位契约（SlotMap 增补）。
+// `verbatimModuleSyntax` 下零产物，浏览器 bundle 不含 holder 包名（D3 类型纪律）。
+import type {} from 'dsh-plugin-workspace-config/client'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type { CommandExecutedHandler } from './panel-controller.ts'
 import type { PanelClient } from './panel-client.ts'
-import type { WorkspaceFooterActionProps } from './WorkspaceEntry.tsx'
+import type { WorkspaceDefaultsSectionProps } from './WorkspaceEntry.tsx'
 import type { ToolPanelActionInjected } from './ToolPanelAction.tsx'
 import { ToolPanelAction } from './ToolPanelAction.tsx'
-import { WorkspaceFooterAction } from './WorkspaceEntry.tsx'
+import { WorkspaceDefaultsSection } from './WorkspaceEntry.tsx'
 import { currentSessionIdOf } from './current-session.ts'
-import { FOOTER_ID, FOOTER_ORDER, FOOTER_SEAT, HEADER_SEAT, PANEL_ID, PANEL_ORDER } from './seats.ts'
+import { HEADER_SEAT, PANEL_ID, PANEL_ORDER, SECTION_ID, SECTION_ORDER, SECTION_SEAT } from './seats.ts'
 import { NS, en, zh } from './locales.ts'
 import { createPanelClient } from './panel-client.ts'
 
@@ -85,7 +102,7 @@ export const inject: readonly string[] = ['slots', 'locale']
  *
  * 这里保留 `SEAT` / `PANEL_ID` / `PANEL_ORDER` 三个旧导出名（值不变）：它们已是本模块
  * 对外的注册契约，外部调用方与既有套件按名引用；新代码应直接从 `seats.ts` 取
- * `HEADER_SEAT` / `FOOTER_SEAT` / 两个 entry 的 id 与 order。
+ * `HEADER_SEAT` / `SECTION_SEAT` / 各 entry 的 id 与 order。
  */
 export { HEADER_SEAT as SEAT, PANEL_ID, PANEL_ORDER }
 
@@ -93,14 +110,14 @@ export { HEADER_SEAT as SEAT, PANEL_ID, PANEL_ORDER }
 const LOG_LABEL = 'session-tool-toggle'
 
 /**
- * footer 注册面交给组件的业务份额。
+ * 分节注册面交给组件的业务份额。
  *
- * `WorkspaceFooterActionProps` 里剩下的两项由框架与座位 owner 提供：`t` 来自
- * 注册选项的 `locale: NS`（`PropsLocale` 合成），`wide` 来自 `sidebar.footer.action`
- * 的 owner 份额（`{ wide: boolean }`）。注入面的两个端口都**不缓存服务**：每次动作
- * 现取，与头部入口同一纪律（`connection` / `sessions` 都可能晚于 `apply` 就绪）。
+ * `WorkspaceDefaultsSectionProps` 里剩下的部分由框架与座位 owner 提供：`t` 来自注册选项的
+ * `locale: NS`（`PropsLocale` 合成），`close` 来自 `workspace-config.section` 的 owner
+ * 份额（holder 弹窗注入；本分节没有整窗流程，不使用）。注入面的两个端口都**不缓存服务**：
+ * 每次动作现取，与头部入口同一纪律（`connection` / `sessions` 都可能晚于 `apply` 就绪）。
  */
-type WorkspaceFooterActionInjected = Pick<WorkspaceFooterActionProps, 'resolveClient' | 'currentSessionId'>
+type WorkspaceDefaultsSectionInjected = Pick<WorkspaceDefaultsSectionProps, 'resolveClient' | 'currentSessionId'>
 
 /**
  * 把 `window` 的 `focus` 事件接到一个回调上。
@@ -139,7 +156,12 @@ export function apply(ctx: ClientContext): void {
     }
   }, 'session-tool-toggle: command/executed 桥')
 
-  // ③ 注入面：三个端口都是稳定单例（组件用 ref 骑住注入面，稳定引用让订阅/摘除更省心）。
+  // ③ 分节 nav 行的翻译函数：`label` thunk 需要它（旧 footer 入口的文案由框架按
+  //    `locale: NS` 合成 `t` 座，本文件此前没有绑定过翻译函数）。挂在 `apply` 期常量上，
+  //    locale 切换时 thunk 每次读取都能拿到当前语言的同一条文案，无需重注册。
+  const t = ctx.locale.bind(NS)
+
+  // ④ 注入面：三个端口都是稳定单例（组件用 ref 骑住注入面，稳定引用让订阅/摘除更省心）。
   const ports: ToolPanelActionInjected = {
     resolveClient: (): PanelClient | undefined => {
       // 每次动作现取：connection 可能晚于 apply 就绪，取不到就返回 undefined 让控制器降级。
@@ -155,7 +177,7 @@ export function apply(ctx: ClientContext): void {
     attachFocusListener,
   }
 
-  // ④ 头部座位软注册：座位被声明时回调才执行；被拒绝时只丢这个入口。
+  // ⑤ 头部座位软注册：座位被声明时回调才执行；被拒绝时只丢这个入口。
   ctx.slots.inject(HEADER_SEAT, () => {
     try {
       return ctx.slots.register(
@@ -176,28 +198,32 @@ export function apply(ctx: ClientContext): void {
     }
   })
 
-  // ⑤ footer 实注册：侧栏底部的工作区默认档入口（list / root，owner 只给 `{wide}`）。
+  // ⑥ 工作区默认档分节软注册：holder 以 `children` 声明 `workspace-config.section` 后
+  //    回调才执行（Declaring is claiming）；holder 缺席时永不触发、不报错、不留 UI。
   //    与头部各自 try/catch：一个座位拒绝注册不连累另一个，`apply` 始终正常返回。
-  ctx.slots.inject(FOOTER_SEAT, () => {
+  ctx.slots.inject(SECTION_SEAT, () => {
     try {
       return ctx.slots.register(
         {
-          name: FOOTER_SEAT,
-          id: FOOTER_ID,
-          order: FOOTER_ORDER,
+          name: SECTION_SEAT,
+          id: SECTION_ID,
+          order: SECTION_ORDER,
+          // thunk：holder 的 nav 每次读取都重新求值，locale 切换无需重注册（上游 SlotLabel 语义）。
+          label: () => t('section.label'),
           locale: NS,
-          inject: (): WorkspaceFooterActionInjected => ({
-            // 复用头部入口的现取客户端：两个入口对 `connection` 是同一份纪律。
+          inject: (): WorkspaceDefaultsSectionInjected => ({
+            // 复用头部入口的现取客户端：两个入口对 `connection` 是同一份纪律（同一 RPC 通道、
+            // 同一宿主控制内核，因此与 `/tools` 读到的是同一份状态）。
             resolveClient: ports.resolveClient,
             // 每次动作现取当前会话（`current-session.ts` 的两步探测，服务缺席返回 undefined）。
             currentSessionId: () => currentSessionIdOf(ctx),
           }),
         },
-        WorkspaceFooterAction,
+        WorkspaceDefaultsSection,
       )
     } catch (error) {
-      // 同头部：座位在但拒绝了这次注册时，工作区默认档入口不显示，其余照常。
-      ctx.logger.warn('%s: 侧栏底部工作区默认档座位注册失败，本入口不显示', LOG_LABEL)
+      // 同头部：座位在但拒绝了这次注册时，工作区默认档分节不显示，其余照常。
+      ctx.logger.warn('%s: 工作区配置分节座位注册失败，本节不显示', LOG_LABEL)
       ctx.logger.warn(error)
       return () => {}
     }

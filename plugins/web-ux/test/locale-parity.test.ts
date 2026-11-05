@@ -62,7 +62,8 @@ describe('webUx 文案', () => {
       'error.unavailable',
       'error.bad-response',
       'error.fallback',
-      // —— 会话管理面：入口、外壳与三 tab ——
+      // —— 会话管理面：分节 nav、入口与三 tab ——
+      'section.label',
       'manager.action',
       'manager.title',
       'manager.close',

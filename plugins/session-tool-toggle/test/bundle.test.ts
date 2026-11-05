@@ -48,9 +48,12 @@ const CLIENT_REQUIRES = ['@deepseek-ai/dsh-client-ui-primitives', 'react', 'reac
 /**
  * 浏览器 bundle 必须以字面量内联的契约事实（通道 / 五端点 / 两个座位 / 命名空间）。
  *
- * 第 5 端点 `'workspace'` 与 footer 座位 `'sidebar.footer.action'`（T18）按**字面量**直写：
+ * 第 5 端点 `'workspace'` 与分节座位 `'workspace-config.section'`（#36/#44）按**字面量**直写：
  * 产物纯度门禁（G8-a）也按这两个字面量 grep `lib/client.js`。字面量与契约常量的对应
  * 由断言里的 `WORKSPACE_ENDPOINT` 等式钉住，防止手写漂移。
+ *
+ * 旧 footer 座位名**必须不在**产物里（迁移红线，见下一条断言）：它一旦残留，说明还有一份
+ * 未迁移的注册/注释被打进 bundle。
  *
  * 一旦它们没被打进 client bundle，浏览器就会在运行时去解析宿主模块（D16 破防）。
  */
@@ -63,9 +66,18 @@ const INLINED_MARKERS = [
   'workspace',
   'session-tool-toggle-panel',
   'conversation.session.header.utilities',
-  'sidebar.footer.action',
+  'workspace-config.section',
   'sessionToolToggle',
 ]
+
+/**
+ * 浏览器 bundle 里**必须缺席**的字面量。
+ *
+ * - 旧 footer 座位名：迁移后本插件不再占用该座位（已定结论 2「旧入口硬移除」）；
+ * - holder 的包名：分节只以 `import type` 消费 holder 的类型（D3），运行时零依赖——产物
+ *   里出现包名意味着某处退化成了值 import，会把 holder 打进本包。
+ */
+const ABSENT_MARKERS = ['sidebar.footer.action', 'dsh-plugin-workspace-config']
 
 /**
  * 读取一个构建产物。
@@ -129,6 +141,15 @@ describe('浏览器半产物（lib/client.js）', () => {
     for (const marker of INLINED_MARKERS) {
       expect(source).toContain(JSON.stringify(marker))
     }
+  })
+
+  it('旧 footer 座位与 holder 包名都不在产物里（迁移红线 + D3 零运行时依赖）', () => {
+    const source = readArtifact('client.js')
+    for (const marker of ABSENT_MARKERS) {
+      expect(source).not.toContain(marker)
+    }
+    // 显式再说一遍：分节类型只以 `import type` 消费，产物不得出现 holder 的模块词。
+    expect(importedWords(source).filter((word) => word.includes('dsh-plugin-workspace-config'))).toEqual([])
   })
 })
 

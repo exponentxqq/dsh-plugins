@@ -19,6 +19,7 @@ export declare const zh: {
     'files.previewTruncated': string;
     'action.label': string;
     'action.title': string;
+    'section.label': string;
     'panel.title': string;
     'panel.subtitle': string;
     'panel.primary': string;
@@ -81,6 +82,7 @@ export declare const en: {
     'files.previewTruncated': string;
     'action.label': string;
     'action.title': string;
+    'section.label': string;
     'panel.title': string;
     'panel.subtitle': string;
     'panel.primary': string;

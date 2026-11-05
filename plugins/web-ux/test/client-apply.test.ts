@@ -1,20 +1,20 @@
 /**
  * 浏览器半的接线（`src/client/index.ts#apply`）。
  *
- * 组件自身的行为由 `delete-menu-item` / `delete-dialog` / `session-manager-trigger` /
- * `session-manager-dialog` 四个套件覆盖；这里覆盖的是
- * **注册契约**，也就是 spec「入口仅出现在已归档行（order 500）」「侧栏底部提供全局
- * 会话管理入口」「上游接触点全部软降级」几条要求真正落在哪几个座位上：
+ * 组件自身的行为由 `delete-menu-item` / `delete-dialog` / `session-manager-dialog` 三个
+ * 套件覆盖；这里覆盖的是**注册契约**，也就是 spec「入口仅出现在已归档行（order 500）」
+ * 「会话管理作为统一工作区配置弹窗的分节（order 30）」与「上游接触点全部软降级」几条
+ * 要求真正落在哪几个座位上：
  *
  * - 字典注册先于任何带 `locale` 的 entry；
- * - 徽章、删除菜单项（order 500）、删除对话框、会话管理入口（`sidebar.footer.action`，
- *   order 100）与管理浮层（`shell.overlay`，order 520）都注册——**不依赖服务是否已就绪**：
- *   真实 web 壳的 `workspaces` 由 api-workspace-controller 在 remote 网关就绪后才 provide，
- *   晚于本插件 `apply`，所以这些 entry 在注入面里**渲染期**才 `ctx.get` 服务；
- * - 服务缺席时对应能力静默不渲染（删除面 `archived` / `client` 为 `undefined`；管理入口
- *   `ready=false`、浮层的 `client` / `workspaces` / `sessions` 为 `undefined`），徽章不受
- *   影响；服务随后就绪后同一注入面能立即解析到它们；
- * - 座位缺失（壳未声明底部动作 / 覆盖层座位）或座位拒绝注册时，`apply` 一律不抛，
+ * - 徽章、删除菜单项（order 500）、删除对话框（`shell.overlay`，order 500）与会话管理
+ *   分节（`workspace-config.section`，order 30，label 为 thunk）都注册——**不依赖服务是否
+ *   已就绪**：真实 web 壳的 `workspaces` 由 api-workspace-controller 在 remote 网关就绪后
+ *   才 provide，晚于本插件 `apply`，所以这些 entry 在注入面里**渲染期**才 `ctx.get` 服务；
+ * - 服务缺席时对应能力静默降级（删除面 `archived` / `client` 为 `undefined`；分节的
+ *   `client` / `workspaces` / `sessions` 为 `undefined`，由分节渲染「服务未就绪」空态），
+ *   徽章不受影响；服务随后就绪后同一注入面能立即解析到它们；
+ * - 座位缺失（壳未声明行菜单 / 覆盖层 / 分节座位）或座位拒绝注册时，`apply` 一律不抛，
  *   只丢对应的 entry，其余既有能力不受影响。
  *
  * 不渲染任何组件，因此是普通 node 环境。
@@ -29,18 +29,16 @@ import {
   DELETE_DIALOG_ORDER,
   DELETE_MENU_ID,
   DELETE_MENU_ORDER,
-  MANAGER_OVERLAY_ID,
-  MANAGER_OVERLAY_ORDER,
-  MANAGER_TRIGGER_ID,
-  MANAGER_TRIGGER_ORDER,
   NOTICE_ID,
   NOTICE_ORDER,
+  SECTION_ID,
+  SECTION_ORDER,
+  SECTION_SEAT,
   apply,
   inject,
 } from '../src/client/index.ts'
 import type { CommandNoticeCardProps } from '../src/client/CommandNoticeCard.tsx'
-import type { SessionManagerDialogInjected } from '../src/client/SessionManagerDialog.tsx'
-import type { SessionManagerTriggerInjected } from '../src/client/SessionManagerTrigger.tsx'
+import type { SessionManagerSectionInjected } from '../src/client/SessionManagerDialog.tsx'
 
 /** 一次 `slots.register` 调用（注入面也一并记下，供渲染期解析断言）。 */
 interface Registration {
@@ -48,6 +46,7 @@ interface Registration {
   readonly id: string
   readonly order: number
   readonly locale?: string
+  readonly label?: string | (() => string)
   readonly inject?: () => Record<string, unknown>
 }
 
@@ -55,9 +54,9 @@ interface Registration {
 const DECLARED_SLOTS = [
   'conversation.composer.dock',
   'conversation.input.overlay',
-  'sidebar.footer.action',
   'sidebar.workspaces.session.menu.item',
   'shell.overlay',
+  'workspace-config.section',
 ] as const
 
 /** 软读服务的一个最小替身。 */
@@ -86,10 +85,13 @@ interface FakeOptions {
  * @returns fake context 与观测到的注册、日志、事件监听、以及「服务随后就绪」的入口。
  */
 function fakeClient(initial: Services, behavior: FakeOptions = {}) {
-  const missingSeats = behavior.missingSeats ?? []
+  // 可变副本：`declareSeat` 会把「后装 holder」的座位从缺席名单里移出。
+  const missingSeats = [...(behavior.missingSeats ?? [])]
   const log: string[] = []
   const registrations: Registration[] = []
   const slotInjections: string[] = []
+  /** 座位未声明时登记等待的 `slots.inject` 回调（真实 SlotRegistry 的补跑语义）。 */
+  const pending = new Map<string, Array<() => unknown>>()
   const eventListeners = new Map<string, Array<(...args: never[]) => void>>()
   const services: Services = { ...initial }
 
@@ -104,11 +106,22 @@ function fakeClient(initial: Services, behavior: FakeOptions = {}) {
         log.push(`locale:${namespace}`)
         return () => {}
       },
+      // 分节 label 是 thunk：`apply` 期 bind 一次，读取期由 thunk 求值。替身直接回键名，
+      // 用例据此断言「label 是函数且取到 section.label」。
+      bind: (_namespace: string) => (key: string) => key,
     },
     slots: {
       inject: (name: string, callback: () => unknown) => {
         slotInjections.push(name)
-        if ((DECLARED_SLOTS as readonly string[]).includes(name) && !missingSeats.includes(name)) callback()
+        const declared = (DECLARED_SLOTS as readonly string[]).includes(name)
+        if (declared && !missingSeats.includes(name)) {
+          callback()
+        } else if (declared) {
+          // 座位在壳里但本次组合未声明（只贡献方 / holder 缺席）：只登记等待。
+          const waiting = pending.get(name) ?? []
+          waiting.push(callback)
+          pending.set(name, waiting)
+        }
       },
       register: (options: Registration, _component: unknown) => {
         log.push(`register:${options.name}`)
@@ -146,7 +159,24 @@ function fakeClient(initial: Services, behavior: FakeOptions = {}) {
     services.sessions = next.sessions
   }
 
-  return { ctx: ctx as never, log, registrations, slotInjections, eventListeners, provideLater }
+  return {
+    ctx: ctx as never,
+    log,
+    registrations,
+    slotInjections,
+    eventListeners,
+    provideLater,
+    /** 该座位还在等待声明的回调数（「只贡献方」格与「后装 holder」格的观测面）。 */
+    pendingCount: (name: string): number => pending.get(name)?.length ?? 0,
+    /** 后装 holder：声明座位并同步补跑待命回调（真实 `SlotRegistry.inject` 的语义）。 */
+    declareSeat: (name: string): void => {
+      const index = missingSeats.indexOf(name)
+      if (index >= 0) missingSeats.splice(index, 1)
+      const waiting = pending.get(name) ?? []
+      pending.delete(name)
+      for (const callback of waiting) callback()
+    },
+  }
 }
 
 /** 一次 `command/executed` 派发（走 apply 注册的监听器）。 */
@@ -172,7 +202,7 @@ function bySlot(registrations: readonly Registration[], name: string): Registrat
   return found
 }
 
-/** 按 entry id 取注册项（`shell.overlay` 座位上有两个 entry，座位名不再唯一）。 */
+/** 按 entry id 取注册项（`shell.overlay` 座位上的删除、分节座位上的管理面各有一个 id）。 */
 function byId(registrations: readonly Registration[], id: string): Registration {
   const found = registrations.find((registration) => registration.id === id)
   if (found === undefined) throw new Error(`missing registration: ${id}`)
@@ -184,7 +214,7 @@ describe('客户端半的注册契约', () => {
     expect(inject).toEqual(['slots', 'locale', 'modelDirectories'])
   })
 
-  it('全部服务就绪时：字典先注册，随后是徽章、通知卡（order 10）、菜单项（order 500）、删除对话框、会话管理入口（order 100）与浮层（order 520），并挂上事件监听', () => {
+  it('全部服务就绪时：字典先注册，随后是徽章、通知卡（order 10）、菜单项（order 500）、删除对话框与会话管理分节（order 30），并挂上事件监听', () => {
     const fake = fakeClient(READY_SERVICES)
     apply(fake.ctx)
 
@@ -196,11 +226,10 @@ describe('客户端半的注册契约', () => {
       'register:conversation.input.overlay',
       'register:sidebar.workspaces.session.menu.item',
       'register:shell.overlay',
-      'register:sidebar.footer.action',
-      'register:shell.overlay',
+      'register:workspace-config.section',
     ])
-    // 六条 entry：徽章 / 通知卡 / 删除菜单项 / 删除对话框 / 管理入口 / 管理浮层。
-    expect(fake.registrations).toHaveLength(6)
+    // 五条 entry：徽章 / 通知卡 / 删除菜单项 / 删除对话框 / 会话管理分节。
+    expect(fake.registrations).toHaveLength(5)
 
     const badge = bySlot(fake.registrations, 'conversation.composer.dock')
     expect(badge).toMatchObject({ id: 'web-ux-provider', order: BADGE_ORDER })
@@ -210,38 +239,33 @@ describe('客户端半的注册契约', () => {
     expect(menu).toMatchObject({ id: DELETE_MENU_ID, order: DELETE_MENU_ORDER, locale: 'webUx' })
     const dialog = bySlot(fake.registrations, 'shell.overlay')
     expect(dialog).toMatchObject({ id: DELETE_DIALOG_ID, order: DELETE_DIALOG_ORDER, locale: 'webUx' })
-    const trigger = bySlot(fake.registrations, 'sidebar.footer.action')
-    expect(trigger).toMatchObject({ id: MANAGER_TRIGGER_ID, order: MANAGER_TRIGGER_ORDER, locale: 'webUx' })
-    const manager = byId(fake.registrations, MANAGER_OVERLAY_ID)
-    expect(manager).toMatchObject({ name: 'shell.overlay', order: MANAGER_OVERLAY_ORDER, locale: 'webUx' })
     expect(NOTICE_ORDER).toBeGreaterThan(1)
     expect(DELETE_MENU_ORDER).toBeGreaterThan(400)
-    expect(MANAGER_TRIGGER_ORDER).toBe(100)
-    expect(MANAGER_OVERLAY_ORDER).toBe(520)
-    // 两个浮层同座位：管理浮层必须晚于删除对话框，二者永不叠在一起。
-    expect(MANAGER_OVERLAY_ORDER).toBeGreaterThan(DELETE_DIALOG_ORDER)
+
+    // 会话管理分节：注册进 holder 声明的座位，id 沿用旧浮层 id、label 是 locale thunk。
+    expect(SECTION_SEAT).toBe('workspace-config.section')
+    const section = bySlot(fake.registrations, SECTION_SEAT)
+    expect(section).toMatchObject({ id: SECTION_ID, order: SECTION_ORDER, locale: 'webUx' })
+    expect(SECTION_ORDER).toBe(30)
+    expect(typeof section.label).toBe('function')
+    expect((section.label as () => string)()).toBe('section.label')
 
     // 删除面注入面在渲染期解析到真实服务。
     expect(menu.inject?.()).toMatchObject({ archived: READY_SERVICES.workspaces.list })
     expect(dialog.inject?.()).toMatchObject({ client: expect.objectContaining({ preview: expect.any(Function) }) })
 
-    // 管理面注入面：入口的 ready 口径 + 浮层的四项软读；两个 entry 共用一个请求 store
-    // （入口写入、浮层订阅）——这是跨 entry 通信的唯一通道（inject.hooks 不能第三方新增）。
-    const triggerInjected = trigger.inject?.() as unknown as SessionManagerTriggerInjected
-    const managerInjected = manager.inject?.() as unknown as SessionManagerDialogInjected
-    expect(triggerInjected.ready).toBe(true)
-    expect(triggerInjected.requests).toBe(managerInjected.requests)
-    triggerInjected.requests.request()
-    expect(managerInjected.requests.source.getSnapshot()).toMatchObject({ seq: 1 })
-    expect(managerInjected.client).toEqual(
+    // 分节注入面：三项软读都在渲染期解析；打开桥归 holder，本节不再持有请求 store。
+    const sectionInjected = section.inject?.() as unknown as SessionManagerSectionInjected
+    expect(sectionInjected.client).toEqual(
       expect.objectContaining({
         preview: expect.any(Function),
         previewBatch: expect.any(Function),
         disposeBatch: expect.any(Function),
       }),
     )
-    expect(managerInjected.workspaces).toBe(READY_SERVICES.workspaces)
-    expect(managerInjected.sessions).toBe(READY_SERVICES.sessions)
+    expect(sectionInjected.workspaces).toBe(READY_SERVICES.workspaces)
+    expect(sectionInjected.sessions).toBe(READY_SERVICES.sessions)
+    expect(Object.keys(sectionInjected).sort()).toEqual(['client', 'sessions', 'workspaces'])
 
     // 通知卡注入面：store 读取/关闭面（运行时传全 store，类型收敛为读取面）
     // + 可见性源解析到计数 1。
@@ -278,7 +302,7 @@ describe('客户端半的注册契约', () => {
     expect(injected.visibilityFor?.('session-1')).toBeUndefined()
   })
 
-  it('服务尚未就绪时六个 entry 仍全部注册；注入面解析为 undefined（静默降级）', () => {
+  it('服务尚未就绪时五条 entry 仍全部注册；注入面解析为 undefined（静默降级）', () => {
     const fake = fakeClient({})
     expect(() => { apply(fake.ctx) }).not.toThrow()
 
@@ -290,28 +314,23 @@ describe('客户端半的注册契约', () => {
       'register:conversation.input.overlay',
       'register:sidebar.workspaces.session.menu.item',
       'register:shell.overlay',
-      'register:sidebar.footer.action',
-      'register:shell.overlay',
+      'register:workspace-config.section',
     ])
-    expect(fake.registrations).toHaveLength(6)
-    // 五个座位各注入一次；shell.overlay 承载两个 entry，因此注入两次。
+    expect(fake.registrations).toHaveLength(5)
+    // 五个座位各注入一次（shell.overlay 现在只承载删除对话框，管理面已迁到分节座位）。
     expect([...new Set(fake.slotInjections)].sort()).toEqual([...DECLARED_SLOTS].sort())
-    expect(fake.slotInjections.filter((name) => name === 'shell.overlay')).toHaveLength(2)
+    expect(fake.slotInjections.filter((name) => name === 'shell.overlay')).toHaveLength(1)
 
     const menu = bySlot(fake.registrations, 'sidebar.workspaces.session.menu.item')
     const dialog = bySlot(fake.registrations, 'shell.overlay')
     expect(menu.inject?.()).toMatchObject({ archived: undefined })
     expect(dialog.inject?.()).toMatchObject({ client: undefined })
 
-    // 管理面：没有连接通道 → 入口 ready=false（整颗不渲染）；浮层的三项服务全部
-    // undefined（客户端缺席 → 浮层静默不挂载），但请求 store 仍在——它决定浮层是否挂载。
-    const trigger = bySlot(fake.registrations, 'sidebar.footer.action')
-    expect(trigger.inject?.()).toMatchObject({ ready: false })
-    const managerInjected = byId(fake.registrations, MANAGER_OVERLAY_ID).inject?.() as unknown as SessionManagerDialogInjected
-    expect(managerInjected.client).toBeUndefined()
-    expect(managerInjected.workspaces).toBeUndefined()
-    expect(managerInjected.sessions).toBeUndefined()
-    expect(managerInjected.requests.source.getSnapshot()).toBeNull()
+    // 分节：没有连接通道 → client undefined；两个快照同样 undefined（分节渲染空态）。
+    const sectionInjected = bySlot(fake.registrations, SECTION_SEAT).inject?.() as unknown as SessionManagerSectionInjected
+    expect(sectionInjected.client).toBeUndefined()
+    expect(sectionInjected.workspaces).toBeUndefined()
+    expect(sectionInjected.sessions).toBeUndefined()
   })
 
   it('服务在 apply 之后才 provide 时，同一注入面立刻能解析到它们', () => {
@@ -320,23 +339,20 @@ describe('客户端半的注册契约', () => {
 
     const menu = bySlot(fake.registrations, 'sidebar.workspaces.session.menu.item')
     const dialog = bySlot(fake.registrations, 'shell.overlay')
-    const trigger = bySlot(fake.registrations, 'sidebar.footer.action')
-    const manager = byId(fake.registrations, MANAGER_OVERLAY_ID)
+    const section = bySlot(fake.registrations, SECTION_SEAT)
     expect(menu.inject?.()).toMatchObject({ archived: undefined })
-    expect(trigger.inject?.()).toMatchObject({ ready: false })
-    const managerBefore = manager.inject?.() as unknown as SessionManagerDialogInjected
-    expect(managerBefore.workspaces).toBeUndefined()
+    const sectionBefore = section.inject?.() as unknown as SessionManagerSectionInjected
+    expect(sectionBefore.workspaces).toBeUndefined()
 
     fake.provideLater(READY_SERVICES)
 
     expect(menu.inject?.()).toMatchObject({ archived: READY_SERVICES.workspaces.list })
     expect(dialog.inject?.()).toMatchObject({ client: expect.objectContaining({ preview: expect.any(Function) }) })
-    // 入口的就绪标记与浮层的两个快照同样在注入面（渲染期）解析。
-    expect(trigger.inject?.()).toMatchObject({ ready: true })
-    const managerInjected = manager.inject?.() as unknown as SessionManagerDialogInjected
-    expect(managerInjected.client).toEqual(expect.objectContaining({ previewBatch: expect.any(Function) }))
-    expect(managerInjected.workspaces).toBe(READY_SERVICES.workspaces)
-    expect(managerInjected.sessions).toBe(READY_SERVICES.sessions)
+    // 分节的三个注入面同样在渲染期解析。
+    const sectionInjected = section.inject?.() as unknown as SessionManagerSectionInjected
+    expect(sectionInjected.client).toEqual(expect.objectContaining({ previewBatch: expect.any(Function) }))
+    expect(sectionInjected.workspaces).toBe(READY_SERVICES.workspaces)
+    expect(sectionInjected.sessions).toBe(READY_SERVICES.sessions)
 
     const notice = bySlot(fake.registrations, 'conversation.input.overlay')
     const injected = notice.inject?.() as unknown as CommandNoticeCardProps
@@ -347,50 +363,115 @@ describe('客户端半的注册契约', () => {
     const fake = fakeClient(READY_SERVICES)
     apply(fake.ctx)
 
-    // 五个座位各注入一次；shell.overlay 上并列两个 entry，因此注入两次。
+    // 五个座位各注入一次；shell.overlay 上现在只有删除对话框一个 entry。
     expect([...new Set(fake.slotInjections)].sort()).toEqual([...DECLARED_SLOTS].sort())
-    expect(fake.slotInjections.filter((name) => name === 'shell.overlay')).toHaveLength(2)
+    expect(fake.slotInjections.filter((name) => name === 'shell.overlay')).toHaveLength(1)
   })
 
-  it('通道就绪但工作区/会话快照缺席时：入口仍可用，浮层保留客户端、两个快照为 undefined（渲染不可用空态）', () => {
+  it('通道就绪但工作区/会话快照缺席时：分节仍注册，客户端在、两个快照为 undefined（渲染不可用空态）', () => {
     const fake = fakeClient({ connection: READY_SERVICES.connection })
     expect(() => { apply(fake.ctx) }).not.toThrow()
 
-    // connection 在 → 入口可点；工作区 / 会话快照缺席不再是入口的就绪条件。
-    expect(bySlot(fake.registrations, 'sidebar.footer.action').inject?.()).toMatchObject({ ready: true })
-
-    // 浮层不 return null（否则用户什么解释都看不到），而是带着客户端与两个 undefined
-    // 快照挂载，由组件渲染 `manager.unavailable` 空态。
-    const managerInjected = byId(fake.registrations, MANAGER_OVERLAY_ID).inject?.() as unknown as SessionManagerDialogInjected
-    expect(managerInjected.client).toEqual(expect.objectContaining({ previewBatch: expect.any(Function) }))
-    expect(managerInjected.workspaces).toBeUndefined()
-    expect(managerInjected.sessions).toBeUndefined()
+    // 分节不 return null（否则用户什么解释都看不到），而是带着客户端与两个 undefined
+    // 快照挂载，由组件渲染 `manager.unavailable` 空态（D9）。
+    const sectionInjected = bySlot(fake.registrations, SECTION_SEAT).inject?.() as unknown as SessionManagerSectionInjected
+    expect(sectionInjected.client).toEqual(expect.objectContaining({ previewBatch: expect.any(Function) }))
+    expect(sectionInjected.workspaces).toBeUndefined()
+    expect(sectionInjected.sessions).toBeUndefined()
   })
 
-  it('两个新 entry 的座位缺失时静默：apply 不抛，缺座位的 entry 不注册、其余 entry 不受影响', () => {
-    // 底部动作座位未声明：管理入口不出现，管理浮层与既有四条 entry 照常注册。
-    const noFooter = fakeClient(READY_SERVICES, { missingSeats: ['sidebar.footer.action'] })
-    expect(() => { apply(noFooter.ctx) }).not.toThrow()
-    expect(noFooter.registrations.map((registration) => registration.id)).not.toContain(MANAGER_TRIGGER_ID)
-    expect(noFooter.registrations).toHaveLength(5)
-    expect(byId(noFooter.registrations, MANAGER_OVERLAY_ID)).toMatchObject({ name: 'shell.overlay' })
+  it('分节座位缺失时静默：apply 不抛，分节不注册、其余 entry 不受影响', () => {
+    const noSection = fakeClient(READY_SERVICES, { missingSeats: [SECTION_SEAT] })
+    expect(() => { apply(noSection.ctx) }).not.toThrow()
+    expect(noSection.registrations.map((registration) => registration.id)).not.toContain(SECTION_ID)
+    expect(noSection.registrations).toHaveLength(4)
+    expect(byId(noSection.registrations, DELETE_DIALOG_ID)).toMatchObject({ name: 'shell.overlay' })
+  })
 
-    // 覆盖层座位未声明：同座位上的删除对话框与管理浮层都不出现，入口与其余 entry 照常。
+  it('覆盖层座位缺失时：删除对话框不出现，分节与其余 entry 照常注册', () => {
     const noOverlay = fakeClient(READY_SERVICES, { missingSeats: ['shell.overlay'] })
     expect(() => { apply(noOverlay.ctx) }).not.toThrow()
-    expect(noOverlay.registrations.map((registration) => registration.id)).not.toContain(MANAGER_OVERLAY_ID)
     expect(noOverlay.registrations.map((registration) => registration.id)).not.toContain(DELETE_DIALOG_ID)
     expect(noOverlay.registrations).toHaveLength(4)
-    expect(bySlot(noOverlay.registrations, 'sidebar.footer.action')).toMatchObject({ id: MANAGER_TRIGGER_ID })
+    expect(bySlot(noOverlay.registrations, SECTION_SEAT)).toMatchObject({ id: SECTION_ID })
   })
 
-  it('座位拒绝注册时 try/catch 静默：apply 不抛，六条 entry 全部缺席（client 半不崩）', () => {
+  it('座位拒绝注册时 try/catch 静默：apply 不抛，五条 entry 全部缺席（client 半不崩）', () => {
     const fake = fakeClient(READY_SERVICES, { rejectRegister: true })
     expect(() => { apply(fake.ctx) }).not.toThrow()
 
     expect(fake.registrations).toEqual([])
-    // 六次注册都尝试过，只是每次都被 try/catch 吞掉；其余能力（字典/事件桥）不受影响。
-    expect(fake.log.filter((line) => line.startsWith('register:'))).toHaveLength(6)
+    // 五次注册都尝试过，只是每次都被 try/catch 吞掉；其余能力（字典/事件桥）不受影响。
+    expect(fake.log.filter((line) => line.startsWith('register:'))).toHaveLength(5)
     expect(fake.eventListeners.get('command/executed')).toHaveLength(1)
+  })
+})
+
+/**
+ * 四格安装组合矩阵（本包视角；code-design ⑤G6 6.2 / tasks 7.1）。
+ *
+ * 全装格与「后装 holder 补跑」由 holder 的 `test/dialog.test.tsx` 用四个真 `apply` 同 ctx
+ * 覆盖；这里钉本包的三格：**格 1**（holder 已声明分节座位 → 本节 order 30 注册，其余四条
+ * entry 原样保留）、**格 3**（只装贡献方、无 holder → 分节 inject 待命，不注册、不抛错，
+ * 其余四条 entry 不受影响）、**格 4**（holder 后到 → 待命回调补跑，分节立即可用）。
+ */
+describe('四格安装组合矩阵（web-ux 侧）', () => {
+  it('格 1 全装：holder 声明分节座位时本节 order 30 注册，其余四条 entry 原样保留', () => {
+    const fake = fakeClient(READY_SERVICES)
+    apply(fake.ctx)
+
+    expect(fake.pendingCount(SECTION_SEAT)).toBe(0)
+    expect(fake.registrations).toHaveLength(5)
+    expect(bySlot(fake.registrations, SECTION_SEAT)).toMatchObject({
+      id: SECTION_ID,
+      order: SECTION_ORDER,
+      locale: 'webUx',
+    })
+    expect(SECTION_ORDER).toBe(30)
+    // 徽章 / 通知卡 / 删除行菜单 / 删除弹窗四条既有 entry 的 id 与 order 原样保留。
+    expect(byId(fake.registrations, 'web-ux-provider')).toMatchObject({ name: 'conversation.composer.dock' })
+    expect(byId(fake.registrations, NOTICE_ID)).toMatchObject({ name: 'conversation.input.overlay', order: NOTICE_ORDER })
+    expect(byId(fake.registrations, DELETE_MENU_ID)).toMatchObject({ name: 'sidebar.workspaces.session.menu.item', order: DELETE_MENU_ORDER })
+    expect(byId(fake.registrations, DELETE_DIALOG_ID)).toMatchObject({ name: 'shell.overlay', order: DELETE_DIALOG_ORDER })
+  })
+
+  it('格 3 只贡献方（无 holder）：分节 inject 待命不注册、不抛错，其余四条 entry 不受影响', () => {
+    const fake = fakeClient(READY_SERVICES, { missingSeats: [SECTION_SEAT] })
+    expect(() => { apply(fake.ctx) }).not.toThrow()
+
+    expect(fake.pendingCount(SECTION_SEAT)).toBe(1)
+    expect(fake.registrations).toHaveLength(4)
+    expect(fake.registrations.map((registration) => registration.id)).not.toContain(SECTION_ID)
+    // 徽章、通知卡、删除行菜单与删除弹窗照常注册（缺 holder 不连累其它面）。
+    expect(byId(fake.registrations, DELETE_MENU_ID)).toMatchObject({ order: DELETE_MENU_ORDER })
+    expect(byId(fake.registrations, DELETE_DIALOG_ID)).toMatchObject({ order: DELETE_DIALOG_ORDER })
+    expect(fake.eventListeners.get('command/executed')).toHaveLength(1)
+  })
+
+  it('格 4 后装 holder：贡献方先 apply，分节座位后声明时待命回调补跑，分节立即可用', () => {
+    const fake = fakeClient(READY_SERVICES, { missingSeats: [SECTION_SEAT] })
+    apply(fake.ctx)
+    expect(fake.registrations).toHaveLength(4)
+    expect(fake.pendingCount(SECTION_SEAT)).toBe(1)
+
+    // holder 后到并声明 `workspace-config.section`：待命回调同步补跑。
+    fake.declareSeat(SECTION_SEAT)
+
+    expect(fake.pendingCount(SECTION_SEAT)).toBe(0)
+    expect(fake.registrations).toHaveLength(5)
+    const section = bySlot(fake.registrations, SECTION_SEAT)
+    expect(section).toMatchObject({ id: SECTION_ID, order: SECTION_ORDER })
+    expect(typeof section.label).toBe('function')
+    expect((section.label as () => string)()).toBe('section.label')
+    // 补跑注册的注入面照常解析到已就绪的通道与两个快照。
+    const injected = section.inject?.() as unknown as SessionManagerSectionInjected
+    expect(injected.client).toEqual(expect.objectContaining({ previewBatch: expect.any(Function) }))
+    expect(injected.workspaces).toBe(READY_SERVICES.workspaces)
+    expect(injected.sessions).toBe(READY_SERVICES.sessions)
+    // 其余四条 entry 与事件桥不受补跑影响。
+    expect(fake.eventListeners.get('command/executed')).toHaveLength(1)
+    expect(fake.registrations.map((registration) => registration.id).sort()).toEqual(
+      [DELETE_DIALOG_ID, DELETE_MENU_ID, NOTICE_ID, SECTION_ID, 'web-ux-provider'].sort(),
+    )
   })
 })

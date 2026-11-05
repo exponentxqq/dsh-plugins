@@ -1,5 +1,5 @@
 /**
- * 浏览器半的座位常量（设计 `C5`；`code-design.md` ③ §3.10）。
+ * 浏览器半的座位常量（设计 `C5`；`code-design.md` ③ §3.1/§3.2 与 ① 触达面 #38）。
  *
  * 本插件在 Web 壳里挂两个入口，座位名、entry id 与 order 只在**这一处**定义，避免
  * `src/client/index.ts` 的注册点与其它文件各持一份字面量：
@@ -7,12 +7,22 @@
  * | 入口 | 座位 | entry id | order |
  * |---|---|---|---|
  * | 会话头部工具区（工具面面板） | `conversation.session.header.utilities` | `session-tool-toggle-panel` | 20 |
- * | 侧栏底部（工作区默认档） | `sidebar.footer.action` | `session-tool-toggle-workspace-defaults` | 60 |
+ * | 统一「工作区配置」弹窗 → 工作区默认档分节 | `workspace-config.section` | `session-tool-toggle-workspace-defaults` | 20 |
+ *
+ * **footer 入口已移除**：旧 `sidebar.footer.*` 座位上的工作区默认档对话框由统一弹窗的
+ * 分节取代（本次变更的已定结论 2「旧入口硬移除」）。`SECTION_ID` 沿用被删除的旧 footer
+ * entry id——id 只在座位内唯一，跨座位无冲突；沿用旧 id 让日志、断言与排障话术保持连续
+ * （code-design §3.2 的注）。
  *
  * **DQ1=C（设计 D12）**：上游工作区行菜单座位本期不实现——该座位真名与 owner 形状上游
  * 未声明，软注册永远可能不触发。等上游定名后由后续变更在本文件加常量 + `declare module`
- * 增补 + `ctx.slots.inject` 软注册；**本文件因此没有任何 `declare module` 增补**，
- * header/footer 两个座位在 rc.5 都是已声明的真名。
+ * 增补 + `ctx.slots.inject` 软注册；**本文件因此没有任何 `declare module` 增补**。
+ *
+ * **类型权威（D3/D4）**：`workspace-config.section` 的座位契约由 holder 包
+ * `dsh-plugin-workspace-config` 的 `./client` 类型入口提供。本文件只以 `import type`
+ * 消费——`verbatimModuleSyntax` 下零产物，贡献方 bundle 不含 holder 包名；座位字面量
+ * 由本文件各持一份，靠 `WorkspaceConfigSectionSeat` 字面量类型断言而不是共享运行时常量
+ * 保证一致（写错字面量即 typecheck 失败）。
  *
  * 两条类型 import 把两个座位的 `SlotMap` 声明并进 client 程序：常量本身是字面量字符串，
  * 但消费点（`src/client/index.ts` 的 `slots.inject` / `slots.register`）要对真实座位契约
@@ -22,7 +32,10 @@
  */
 
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+// ① 取得 `workspace-config.section` 的 SlotMap 增补（holder 的 `declare module` 在此解析）。
+import type {} from 'dsh-plugin-workspace-config/client'
+// ② 取得座位名的字面量类型：本地常量赋给它是「各包各持一份字面量」的类型守护。
+import type { WorkspaceConfigSectionSeat } from 'dsh-plugin-workspace-config/client'
 
 /**
  * 会话头部工具区座位：`list` / scope `session`，右对齐、按 order 升序。
@@ -43,25 +56,23 @@ export const PANEL_ID = 'session-tool-toggle-panel'
 export const PANEL_ORDER = 20
 
 /**
- * 侧栏底部动作座位：`list` / scope `root`，owner 只给 `{ wide }`。
- * rc.5 已声明（勘误复验过），见 `dsh-client-ui-sidebar/lib/types/client/contract/slots.d.ts:83-87`
- * 与 owner props `:164-167`。
+ * 统一「工作区配置」弹窗的分节座位：`list` / scope `root`，owner 只有 `{ close }`。
+ *
+ * 座位名与形状的唯一权威在 holder（`dsh-plugin-workspace-config/client` 的
+ * `WorkspaceConfigSectionSeat` / `WorkspaceConfigSectionOwnerProps`）。holder 以
+ * `children` 声明本座位（Declaring is claiming），本插件用 `ctx.slots.inject` 软注册：
+ * holder 缺席时回调永不触发，也不报错、不残留 UI（组合矩阵「只贡献方」格）。
  */
-export const FOOTER_SEAT = 'sidebar.footer.action'
+export const SECTION_SEAT: WorkspaceConfigSectionSeat = 'workspace-config.section'
+
+/** 工作区默认档分节 entry 的 id（沿用被删除的旧 footer entry id，排障话术保持连续）。 */
+export const SECTION_ID = 'session-tool-toggle-workspace-defaults'
 
 /**
- * footer 入口 entry 的 id。
+ * 分节在统一弹窗左侧导航里的顺序。
  *
- * 必须与头部入口的 `PANEL_ID` 区分：两个座位各注册一次，同一次 `apply` 里两个
- * entry 的 id 分属不同的 cell 空间，但同名会让日志与单测里的身份难以分辨。
+ * 三贡献方按 `10 / 20 / 30` 排：multi-root-workspace（工作区文件夹）→
+ * session-tool-toggle（工作区默认档）→ web-ux（会话管理）。取 `20` 与头部入口的 order
+ * 同值纯属巧合，两处座位互不相干（D11 的分节 order 常量）。
  */
-export const FOOTER_ID = 'session-tool-toggle-workspace-defaults'
-
-/**
- * footer 入口的显示顺序。
- *
- * `sidebar.footer.action` 是 list 座位、按 order 升序排；官方 `cordis-panel` 用缺省
- * `0`，`multi-root-workspace` 的工作区入口用 `50`。取 `60`（设计 §3.10 冻结）：排在
- * 工作区入口之后、与官方底部控件留出间隔，后续插件可在中间插入而不必重排。
- */
-export const FOOTER_ORDER = 60
+export const SECTION_ORDER = 20
