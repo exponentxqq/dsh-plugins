@@ -7877,13 +7877,16 @@ var McpManager = class {
     return visible;
   }
   /**
-   * The claimed names whose most recent load threw.
+   * The claimed names whose most recent settled load attempt threw.
    *
    * Maintained by {@link sync}: a load that succeeds, a server left unchanged,
    * a name that leaves the scan, and an unload all clear the mark; only the
-   * `catch` in the load loop sets it. {@link dispose} empties the set. This is
-   * the diagnostic reading — the gates use {@link blockedServerNames} — and it
-   * is recomputed per call, so a finished reconciliation is visible at once.
+   * `catch` in the load loop sets it. A retry clears its mark when the attempt
+   * starts (see {@link blockedServerNames}) and the `catch` re-adds it if the
+   * attempt fails, so the set never describes an attempt that is in flight.
+   * {@link dispose} empties the set. This is the diagnostic reading — the gates
+   * use {@link blockedServerNames} — and it is recomputed per call, so a
+   * finished reconciliation is visible at once.
    * @returns the failed claims, recomputed on every call.
    */
   failedServerNames() {
@@ -7899,7 +7902,9 @@ var McpManager = class {
    * resolves. A purely claimed set fails closed on a claim that cannot load at
    * all, so it shadows a profile-level server of the same name. Claim minus
    * failure keeps the pre-resolve window closed and drops only the claims known
-   * to be dead — that is, loaded or still loading.
+   * to be dead. A retry is a new attempt, so {@link sync} clears its failure
+   * mark when the attempt starts: the connecting window is blocked again, and
+   * a failure re-adds the name as soon as the attempt settles.
    * @returns the blocked names, recomputed on every call.
    */
   blockedServerNames() {
@@ -7931,6 +7936,7 @@ var McpManager = class {
     }
     for (const server of servers) {
       if (this.active.has(server.serverName)) continue;
+      this.failedClaims.delete(server.serverName);
       try {
         const dispose = await this.loader.load(server);
         this.active.set(server.serverName, { signature: signatureOf(server), dispose });
