@@ -20,6 +20,9 @@
  * 另按任务清单覆盖：reserved/shadowed 禁用、`intent` 徽标、默认档添加/删除（客户端不做文法
  * 校验）、分组折叠、内置工具过滤、失败码文案（`error.<code>` + 二级灰字）、`pending` 禁用、
  * 关闭集空态与「开启」、刷新按钮、`session-not-live` 降级、默认档写失败。
+ *
+ * 任务 7.7 追加的六段布局与两个新分区：技能分区（逐行开关、`unavailable` 降级、`blocked`
+ * 置灰）与工作区默认档分区（`variant='section'`：条目、添加、写入失败、无法归属）。
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -28,8 +31,12 @@ import type {
   DefaultsValue,
   DefaultsView,
   PanelSnapshot,
+  SkillView,
   ToggleValue,
   ToolGroup,
+  WorkspaceRequest,
+  WorkspaceValue,
+  WorkspaceView,
 } from '../src/contract.ts'
 import { PanelError, type PanelClient } from '../src/client/panel-client.ts'
 import { ToolPanelAction, type ToolPanelActionProps } from '../src/client/ToolPanelAction.tsx'
@@ -45,6 +52,37 @@ const NOW = 1_700_000_000_000
 
 /** 默认档文件的假绝对路径（只用于渲染与失败文案断言，不指向真实文件）。 */
 const DEFAULTS_PATH = '/fake/dsh-home/session-tool-toggle/defaults.json'
+
+/** 工作区规范路径（假值：只用于渲染与请求体断言）。 */
+const WORKSPACE_KEY = '/fake/workspaces/project'
+
+/** 工作区档文件的假绝对路径。 */
+const WORKSPACE_PATH = '/fake/dsh-home/session-tool-toggle/workspaces.json'
+
+/**
+ * 工作区档视图（`disabled` 默认空：避免与关闭集/默认档的 chip 文案撞车，
+ * 工作区专项用例再按需覆盖）。
+ * @param overrides - 需要改写的字段。
+ * @returns 工作区视图。
+ */
+function workspaceView(overrides: Partial<WorkspaceView> = {}): WorkspaceView {
+  return {
+    key: WORKSPACE_KEY,
+    title: 'project',
+    registered: true,
+    disabled: [],
+    path: WORKSPACE_PATH,
+    readable: true,
+    corrupt: false,
+    ...overrides,
+  }
+}
+
+/** 两条技能行：一条模型可见、一条已关且已遮蔽（`disabled && shadowed` 是允许点击的态）。 */
+const SKILLS: readonly SkillView[] = [
+  { name: 'openspec-propose', description: '提案工作流', disabled: false, shadowed: false },
+  { name: 'skill-review', description: '', disabled: true, shadowed: true },
+]
 
 /** 用 canonical 中文词典模拟框架注入的 `t`（含 `{name}` 插值，与 locale 服务同一实现）。 */
 function translate(key: Key, params?: Record<string, unknown>): string {
@@ -123,7 +161,8 @@ function defaultsView(disabled: readonly string[] = [], overrides: Partial<Defau
 }
 
 /**
- * 一份最小的合法面板快照；默认带三种分组、一个关闭项（同时是 `intentOnly`）与一条子代理提示。
+ * 一份最小的合法面板快照；默认带三种分组、两条技能行、工作区视图、一个关闭项（同时是
+ * `intentOnly`）与一条子代理提示。
  * @param overrides - 需要改写的顶层字段。
  * @returns 面板快照。
  */
@@ -145,6 +184,8 @@ function snapshot(overrides: Partial<PanelSnapshot> = {}): PanelSnapshot {
     intentOnly: ['mcp:figma'],
     stats: { visible: 7, catalog: 8, denied: 1, shadowed: 1 },
     notices: [],
+    skills: SKILLS,
+    workspace: workspaceView(),
     ...overrides,
   }
 }
@@ -160,6 +201,7 @@ function mutationValue(value: PanelSnapshot): ToggleValue {
     mutation: {
       applied: [],
       hiddenTools: 0,
+      hiddenSkills: 0,
       visibleBefore: value.stats.visible,
       visibleAfter: value.stats.visible,
       kvRebuild: false,
@@ -178,6 +220,8 @@ class FakePanelClient implements PanelClient {
   readonly resetCalls: string[] = []
   /** 每次 `updateDefaults` 的参数。 */
   readonly defaultsCalls: Array<{ action: DefaultsAction; addresses?: readonly string[] }> = []
+  /** 每次 `workspace` 的请求体（已复制地址数组）。 */
+  readonly workspaceCalls: WorkspaceRequest[] = []
 
   /** `panel` 的实现（默认成功返回 {@link snapshot}）。 */
   panelImpl: (sessionId: string) => Promise<PanelSnapshot> = async () => snapshot()
@@ -189,6 +233,12 @@ class FakePanelClient implements PanelClient {
   /** `updateDefaults` 的实现（默认成功返回入参视图）。 */
   updateDefaultsImpl: (action: DefaultsAction, addresses?: readonly string[]) => Promise<DefaultsValue> = async () => ({
     defaults: defaultsView(),
+    changed: [],
+  })
+  /** `workspace` 的实现（默认成功返回面板快照里的工作区视图）。 */
+  workspaceImpl: (request: WorkspaceRequest) => Promise<WorkspaceValue> = async () => ({
+    workspace: workspaceView(),
+    choices: [{ key: WORKSPACE_KEY, title: 'project' }],
     changed: [],
   })
 
@@ -210,6 +260,14 @@ class FakePanelClient implements PanelClient {
   updateDefaults(action: DefaultsAction, addresses?: readonly string[]): Promise<DefaultsValue> {
     this.defaultsCalls.push(addresses === undefined ? { action } : { action, addresses: [...addresses] })
     return this.updateDefaultsImpl(action, addresses)
+  }
+
+  workspace(request: WorkspaceRequest): Promise<WorkspaceValue> {
+    this.workspaceCalls.push({
+      ...request,
+      ...(request.addresses === undefined ? {} : { addresses: [...request.addresses] }),
+    })
+    return this.workspaceImpl(request)
   }
 }
 
@@ -289,6 +347,17 @@ function switchOf(name: string): HTMLButtonElement {
   return screen.getByRole('switch', { name: zh['switch.label'].replace('{name}', name) }) as HTMLButtonElement
 }
 
+/**
+ * 按可访问名取一个技能行的开关（技能行用 `skill.switchLabel`，与工具行分开）。
+ * @param name - kebab-case 技能名。
+ * @returns 开关元素；不存在时为 `null`。
+ */
+function switchOfSkill(name: string): HTMLButtonElement | null {
+  return screen.queryByRole('switch', {
+    name: zh['skill.switchLabel'].replace('{name}', name),
+  }) as HTMLButtonElement | null
+}
+
 describe('会话工具面入口按钮（设计 §3.1）', () => {
   it('入口是带 aria-label / title / aria-expanded 的图标按钮，点击后展开面板', async () => {
     renderPanel()
@@ -306,10 +375,17 @@ describe('会话工具面入口按钮（设计 §3.1）', () => {
     expect(trigger.getAttribute('aria-expanded')).toBe('true')
     expect(screen.getByRole('dialog').getAttribute('aria-label')).toBe(zh['panel.title'])
     expect(screen.getByText(zh['panel.description'])).toBeDefined()
-    // 四段分区标题都来自本插件 locale。
-    for (const section of ['section.state', 'section.groups', 'section.defaults', 'section.disabled'] as const) {
+    // 六段分区标题都来自本插件 locale（工作区分区的标题是 `workspace.title`）。
+    for (const section of [
+      'section.state',
+      'section.groups',
+      'section.skills',
+      'section.defaults',
+      'section.disabled',
+    ] as const) {
       expect(screen.getByText(zh[section])).toBeDefined()
     }
+    expect(screen.getByText(zh['workspace.title'])).toBeDefined()
   })
 
   it('打开后按 ESC 式关闭路径（关闭按钮）能收起面板并保留入口', async () => {
@@ -605,6 +681,173 @@ describe('默认档编辑（设计 §3.4）', () => {
     expect(screen.getByText('EACCES: permission denied')).toBeDefined()
     // 失败不算保存成功。
     expect(screen.queryByText(zh['defaults.saved'])).toBeNull()
+  })
+})
+
+describe('技能分区（设计 §3.3 技能段 / D-7）', () => {
+  it('逐技能行渲染开关，切行发出的地址是 skill:<name>', async () => {
+    const { harness } = renderPanel()
+    await openPanel()
+
+    const row = switchOfSkill('openspec-propose')
+    expect(row).not.toBeNull()
+    expect(row?.getAttribute('aria-checked')).toBe('true')
+
+    await act(async () => {
+      fireEvent.click(row as HTMLButtonElement)
+    })
+
+    expect(harness.client.toggleCalls).toEqual([
+      { sessionId: SESSION_ID, on: false, addresses: ['skill:openspec-propose'] },
+    ])
+  })
+
+  it('已关且已遮蔽的技能行是可点的开关（不是锁定态），并标注实际生效', async () => {
+    renderPanel()
+    await openPanel()
+
+    const row = switchOfSkill('skill-review')
+    expect(row).not.toBeNull()
+    expect(row?.disabled).toBe(false)
+    expect(row?.getAttribute('aria-checked')).toBe('false')
+    // `disabled && shadowed` = 意图已记且影子 stub 已生效，标签与「仅意图」不同。
+    expect(screen.getByText(zh['skill.effective'])).toBeDefined()
+    expect(screen.queryByText(zh['skill.intentOnly'])).toBeNull()
+  })
+
+  it('宿主无技能服务时整块降级成一条提示，不渲染技能开关', async () => {
+    const client = new FakePanelClient()
+    client.panelImpl = async () => snapshot({ skills: [], notices: ['skills-unavailable'] })
+    renderPanel({ client })
+    await openPanel()
+
+    expect(screen.getByText(zh['skill.unavailable'])).toBeDefined()
+    expect(switchOfSkill('openspec-propose')).toBeNull()
+    // 降级只针对技能分面：工具面开关照常渲染。
+    expect(screen.getAllByRole('switch').length).toBeGreaterThan(0)
+  })
+
+  it('整档 tool:skill 关闭时技能行置灰并给出提示', async () => {
+    const client = new FakePanelClient()
+    client.panelImpl = async () => snapshot({
+      state: {
+        disabled: ['mcp:figma', 'tool:skill'],
+        snapshot: ['tool:bash'],
+        seeded: true,
+        updatedAt: NOW,
+        storeKind: 'record',
+      },
+    })
+    renderPanel({ client })
+    await openPanel()
+
+    expect(screen.getByText(zh['skill.blocked'])).toBeDefined()
+    expect(switchOfSkill('openspec-propose')?.disabled).toBe(true)
+  })
+
+  it('技能行在途时禁用该行并显示「正在应用…」', async () => {
+    const client = new FakePanelClient()
+    const pending = deferred<ToggleValue>()
+    client.toggleImpl = () => pending.promise
+    renderPanel({ client })
+    await openPanel()
+
+    await act(async () => {
+      fireEvent.click(switchOfSkill('openspec-propose') as HTMLButtonElement)
+    })
+
+    expect(switchOfSkill('openspec-propose')?.disabled).toBe(true)
+    expect(screen.getByText(zh['skill.pending'])).toBeDefined()
+
+    await act(async () => {
+      pending.resolve(mutationValue(snapshot({
+        skills: [{ name: 'openspec-propose', description: '提案工作流', disabled: true, shadowed: true }],
+      })))
+    })
+
+    // 新快照回来后才恢复可点，且状态以宿主返回为准。
+    expect(switchOfSkill('openspec-propose')?.disabled).toBe(false)
+    expect(switchOfSkill('openspec-propose')?.getAttribute('aria-checked')).toBe('false')
+  })
+})
+
+describe('工作区默认档分区（C2 / 设计 §3.4）', () => {
+  it('渲染工作区键、档文件路径、并集说明与「只影响之后新建」的预期管理', async () => {
+    renderPanel()
+    await openPanel()
+
+    expect(screen.getByText(WORKSPACE_KEY)).toBeDefined()
+    expect(screen.getByText(WORKSPACE_PATH)).toBeDefined()
+    expect(screen.getByText(zh['workspace.union'])).toBeDefined()
+    expect(screen.getByText(zh['workspace.scope'])).toBeDefined()
+    expect(screen.getByText(zh['workspace.registered'])).toBeDefined()
+  })
+
+  it('添加地址发 workspace({sessionId, action:"off", addresses})，不重拉面板快照', async () => {
+    const { harness } = renderPanel()
+    await openPanel()
+
+    fireEvent.change(screen.getByPlaceholderText(zh['workspace.addPlaceholder']), {
+      target: { value: 'skill:openspec-propose, mcp:figma' },
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: zh['workspace.add'] }))
+    })
+
+    expect(harness.client.workspaceCalls).toEqual([
+      { sessionId: SESSION_ID, action: 'off', addresses: ['skill:openspec-propose', 'mcp:figma'] },
+    ])
+    // 工作区档不追溯当前会话：面板快照没有重拉。
+    expect(harness.client.panelCalls).toHaveLength(1)
+  })
+
+  it('写入失败按 error.workspace-unwritable 渲染主文案（{path} 来自 details）', async () => {
+    const client = new FakePanelClient()
+    client.workspaceImpl = async () => {
+      throw new PanelError('workspace-unwritable', 'EACCES: permission denied', {
+        path: WORKSPACE_PATH,
+        reason: 'EACCES',
+      })
+    }
+    renderPanel({ client })
+    await openPanel()
+
+    fireEvent.change(screen.getByPlaceholderText(zh['workspace.addPlaceholder']), {
+      target: { value: 'skill:openspec-propose' },
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: zh['workspace.add'] }))
+    })
+
+    expect(screen.getByText(`工作区默认档写入失败：${WORKSPACE_PATH}。`)).toBeDefined()
+    expect(screen.getByText('EACCES: permission denied')).toBeDefined()
+  })
+
+  it('刷新按钮重读工作区档，workspace-unresolved 用 {subject} 插值', async () => {
+    const client = new FakePanelClient()
+    client.workspaceImpl = async () => {
+      throw new PanelError('workspace-unresolved', 'cwd 已删除', { subject: SESSION_ID })
+    }
+    renderPanel({ client })
+    await openPanel()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: zh['workspace.refresh'] }))
+    })
+
+    expect(client.workspaceCalls).toEqual([{ sessionId: SESSION_ID, action: 'read' }])
+    expect(screen.getByText(`工作区无法归属：${SESSION_ID}。`)).toBeDefined()
+    expect(screen.getByText('cwd 已删除')).toBeDefined()
+  })
+
+  it('工作区无法归属时只读降级：给解释文案，不渲染添加框', async () => {
+    const client = new FakePanelClient()
+    client.panelImpl = async () => snapshot({ workspace: null })
+    renderPanel({ client })
+    await openPanel()
+
+    expect(screen.getByText(zh['workspace.unresolved'])).toBeDefined()
+    expect(screen.queryByPlaceholderText(zh['workspace.addPlaceholder'])).toBeNull()
   })
 })
 

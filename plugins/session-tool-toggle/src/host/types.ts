@@ -4,11 +4,14 @@
  * 所有副作用件（装配层、每 agent 层、状态存储、默认档、命令面、RPC 内核）都只依赖
  * 这里声明的窄接口，因此每条规则都能用假端口在单测里驱动，不需要拉起宿主。
  *
- * 本文件**只声明类型与文档**：不含任何运行时代码，也不 import 任何模块（端口形状
- * 是所有下游模块的公共契约，不应把某个具体实现拖进类型图）。
+ * 本文件**只声明类型与文档**：不含任何运行时代码。唯一的 import 是 `contract.ts` 的
+ * **纯类型**（`import type`，编译期擦除）：`ControlDeps.workspaceChoices` 的返回形状就是
+ * 线上契约里的 `WorkspaceChoice`，两处共用一份声明而不是各写一份结构相同的副本。
  *
  * @module dsh-plugin-session-tool-toggle/host/types
  */
+
+import type { WorkspaceChoice } from '../contract.ts'
 
 /** 一条已提交事件的最小面（真实类型是宿主的 `SessionEvent`）。 */
 export interface SessionEventLike {
@@ -152,6 +155,85 @@ export interface ScopedSurface {
   sectionOrder(name: 'MCP_SERVERS'): number
 }
 
+/** 技能清单的一项（宿主 `SkillSummary` 的窄面）。 */
+export interface SkillSummaryLike {
+  /** kebab-case 技能名（`skill:<name>` 的 `<name>`，与 `dsh-skill` 的 `SKILL_NAME` 同一文法）。 */
+  readonly name: string
+  /** 一句话描述（目录消息与面板技能行都用它）。 */
+  readonly description: string
+  /** 调用方式；影子 stub 把 `modelInvocable` 改为 false、`userInvocable` 保持 true。 */
+  readonly invocation: { readonly modelInvocable: boolean; readonly userInvocable: boolean }
+  /** 来源标记（来源目录 / builtin 等）。 */
+  readonly source?: string
+  /** 提供者；同层先到先得时用它判断影子 stub 是否胜出。 */
+  readonly provider?: string
+  /** 技能文件路径。 */
+  readonly path?: string
+  /** 何时使用（目录消息用）。 */
+  readonly whenToUse?: string
+  /** 资源基址（影子 stub 原样复制）。 */
+  readonly resourceBase?: unknown
+  /** 元数据（影子 stub 原样复制）。 */
+  readonly metadata?: Readonly<Record<string, unknown>>
+}
+
+/** 技能定义（宿主 `SkillDefinition` 的窄面）：清单字段 + 正文。 */
+export interface SkillDefinitionLike extends SkillSummaryLike {
+  /** 技能正文（影子 stub 原样复制，`/name` 手动调用仍注入完整正文）。 */
+  readonly content: string
+}
+
+/**
+ * 宿主 SkillRegistry 的窄面（只声明本插件调用的三个方法）。
+ *
+ * 与 `tools` / `systemPrompt` 的窄面同一纪律：只把本插件真正调用的能力写进类型图，
+ * 上游多出来的方法（列表、注销、作用域管理等）不在这里出现。
+ */
+export interface SkillServiceLike {
+  /**
+   * 注册一个技能（本插件只用来注册影子 stub）。
+   * @param skill - 技能定义；字段与宿主 `SkillDefinition` 同形。
+   * @returns 注销该技能的 disposer。
+   */
+  register(skill: {
+    readonly name: string
+    readonly description: string
+    readonly content: string
+    readonly source: string
+    readonly provider?: string
+    readonly path?: string
+    readonly whenToUse?: string
+    readonly resourceBase?: unknown
+    readonly metadata?: Readonly<Record<string, unknown>>
+    readonly invocation?: { readonly modelInvocable: boolean; readonly userInvocable: boolean }
+  }): () => void
+  /**
+   * 取一个技能的完整定义（影子前先抄正文）。
+   * @param name - 技能名。
+   * @param options - 作用域与超时信号。
+   * @returns 定义；不存在时为 undefined。
+   */
+  get(
+    name: string,
+    options?: { readonly cwd?: string; readonly scope?: object; readonly signal?: AbortSignal },
+  ): Promise<SkillDefinitionLike | undefined>
+  /**
+   * 读该作用域可见的技能清单。
+   * @param options - 作用域。
+   * @returns 清单与「是否完整」标记。
+   */
+  snapshot(options?: {
+    readonly cwd?: string
+    readonly scope?: object
+  }): Promise<{ readonly skills: readonly SkillSummaryLike[]; readonly complete: boolean }>
+}
+
+/** agent 子 fiber 交付的技能服务面（**必须**从子 fiber 的 ctx 访问，见 D-3）。 */
+export interface SkillScopeHandle {
+  /** 该 agent 作用域里的技能服务。 */
+  readonly skills: SkillServiceLike
+}
+
 /** 宿主那一份 `dsh-session` 的写入面（只有 `Session` 类身份匹配时才会被构造）。 */
 export interface HostSessionApi {
   /**
@@ -197,6 +279,21 @@ export interface DefaultsIo {
 }
 
 /**
+ * 会话工作目录 → 工作区键的归属结果（`resolveWorkspaceAttribution` 的出口）。
+ *
+ * 解析器返回 `undefined` 即 fail-closed（cwd 缺失或 realpath 全程失败，目录已删）：此时
+ * 只用用户级默认档，不读工作区档。
+ */
+export interface WorkspaceAttribution {
+  /** 写入 `workspaces.json` 的键：规范绝对路径。 */
+  readonly key: string
+  /** 该键是否由 `workspaceRegistry` 登记（false = 未登记目录，键来自 cwd 的 realpath）。 */
+  readonly registered: boolean
+  /** 已登记时的显示标题（面板 / footer 下拉用）。 */
+  readonly title?: string
+}
+
+/**
  * 插件配置（全部可选，`cordis.patch.yml` 不带 `config:` 段）。
  *
  * 这是 `schemastery` 校验面的 TypeScript 形状；实现落在装配层，不在这里。
@@ -208,6 +305,8 @@ export interface Config {
   protectedTools?: string[]
   /** 覆盖默认档路径（绝对路径）。 */
   defaultsFile?: string
+  /** 覆盖工作区档路径（绝对路径）。 */
+  workspacesFile?: string
   /** 覆盖宿主模块解析锚点（绝对路径，排障 / 单测用）。 */
   hostModuleBase?: string
 }
@@ -220,6 +319,16 @@ export interface LayerSnapshot {
   readonly shadowServers: readonly string[]
   /** 该 agent 视角当前可见的工具名。 */
   readonly visible: readonly string[]
+}
+
+/** 一个 agent 作用域的技能分面读数（`LayerHandle.skills()`；面板技能行的唯一来源）。 */
+export interface SkillLayerSnapshot {
+  /** `skills` 服务是否可用（false = 只记意图，面板给 `skills-unavailable`）。 */
+  readonly available: boolean
+  /** 已注册影子 stub 的技能名（排序）。 */
+  readonly shadowed: readonly string[]
+  /** 该 agent 视角下**模型可调用**且未被本插件遮蔽的技能（面板技能行来源）。 */
+  readonly visible: readonly { readonly name: string; readonly description: string }[]
 }
 
 /**
@@ -236,6 +345,19 @@ export interface LayerHandle {
   snapshot(): LayerSnapshot
   /** 读该 agent 视角的可见工具名（面板 `scoped` 读数的来源）。 */
   visibleNames(): readonly string[]
+  /**
+   * 读本会话的技能分面（影子 stub 与模型可调用技能清单）。
+   *
+   * `available: false` 表示 `skills` 服务不可用：技能地址只记意图，面板据此补
+   * `skills-unavailable` 提示码。
+   */
+  skills(): SkillLayerSnapshot
+  /**
+   * 等待在途技能收敛结算（无在途收敛时立即 resolve）。
+   *
+   * `toggle` / `reset` 之后先 `await` 它再取面板读数，回执里的技能集合才是新状态的结果。
+   */
+  skillsSettled(): Promise<void>
 }
 
 /**
@@ -256,6 +378,32 @@ export interface ControlDeps {
   readonly defaultsPath: string
   /** 默认档读写端口。 */
   readonly defaultsIo: DefaultsIo
+  /**
+   * 工作区档文件的绝对路径（`$DSH_HOME/session-tool-toggle/workspaces.json`，
+   * `config.workspacesFile` 可覆盖）。
+   */
+  readonly workspacesPath: string
+  /**
+   * 工作区档读写端口（与 {@link defaultsIo} 同一实例）。
+   *
+   * 两份档文件共用同一套原子写与权限位（0o600 / 0o700），因此端口形状复用
+   * `DefaultsIo`（`workspaces.ts` 里的 `WorkspaceIo` 就是它的别名）。
+   */
+  readonly workspacesIo: DefaultsIo
+  /**
+   * 会话 → 工作区归属（`attribution.ts` 的 `resolveWorkspaceAttribution` 闭包）。
+   *
+   * 返回 `undefined` = fail-closed（cwd 缺失或 realpath 全程失败）：面板工作区视图为
+   * `null`，写工作区档返回 `workspace-unresolved`，播种只用用户级默认档。
+   */
+  readonly workspaceOf: (session: SessionLike) => Promise<WorkspaceAttribution | undefined>
+  /**
+   * 已登记工作区投影（`workspaceRegistry.list()` 的 `{path,title}`）。
+   *
+   * 两个消费者：panels/footer 的下拉可选项，以及 `{kind:'path'}` 写目标的白名单——
+   * 只有列在这里的规范路径才允许写工作区档（D-11：拒绝任意路径探测）。
+   */
+  readonly workspaceChoices: () => readonly WorkspaceChoice[]
   /** 生效保护名单（基线 ∪ config 追加），装配期算好，只读。 */
   readonly protectedNames: ReadonlySet<string>
   /**
@@ -280,6 +428,28 @@ export type NoticeCode =
   | 'defaults-corrupt'
   /** 子代理会话：不继承父会话的会话级开关。 */
   | 'session-subagent'
+  /** 技能服务不可用：技能地址只记意图，影子 stub 不生效。 */
+  | 'skills-unavailable'
+  /** 影子 stub 注册未胜出（同层先到先得）：该技能行的开关不可用。 */
+  | 'skill-shadow-failed'
+
+/**
+ * 面板的工作区档读数（`panel.ts` 据此合成工作区视图）。
+ *
+ * `attribution` 缺席 = cwd 无法归属（fail-closed）：视图为 `null`，只展示用户级默认档。
+ */
+export interface WorkspacePanelInputs {
+  /** 会话所属工作区；缺席 = 无法归属。 */
+  readonly attribution?: WorkspaceAttribution
+  /** 该工作区的默认关闭集（`disabledOf(工作区档, key)`；无归属时为空）。 */
+  readonly disabled: readonly string[]
+  /** 工作区档文件绝对路径（面板展示，便于手编）。 */
+  readonly path: string
+  /** 文件可读（false = 不存在，按空档处理）。 */
+  readonly readable: boolean
+  /** 文件存在但损坏 / 半写（已降级空档）。 */
+  readonly corrupt: boolean
+}
 
 /**
  * 面板快照构建器（`panel.ts`）的输入：全部是宿主侧已经读到的事实。
@@ -312,6 +482,18 @@ export interface PanelInputs {
   readonly defaultsReadable: boolean
   /** 默认档文件存在但损坏 / 半写（已降级空档）。 */
   readonly defaultsCorrupt: boolean
+  /**
+   * 本会话的技能分面读数（`layer.skills()`）。
+   *
+   * 缺席 = 宿主侧没有读到技能面（层未就绪）：面板按「技能不可用」处理。
+   */
+  readonly skills?: SkillLayerSnapshot
+  /**
+   * 本会话所属工作区的档读数。
+   *
+   * 缺席 = 宿主侧没有读到工作区面：面板的工作区视图为 `null`。
+   */
+  readonly workspace?: WorkspacePanelInputs
   /** 需要展示的提示码。 */
   readonly notices: readonly NoticeCode[]
   /** 工具描述（public name → 描述原文）；构建器负责截断到 160 字符。 */

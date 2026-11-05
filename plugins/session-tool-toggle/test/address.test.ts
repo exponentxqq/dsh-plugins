@@ -1,14 +1,16 @@
 /**
  * 地址文法测试（规范：dsh-session-tool-toggle —— 开关对象粒度与地址文法）。
  *
- * 一个用例只断一条规则：规范形（`::*` 与 `skill` 归一）、失败码（保护名单 / 保留名 /
- * 错前缀 / 通配语法 / serverName）、未知 server 的宽容，以及 `matchesToolName` 打在
- * public name 上的全等与前缀语义。
+ * 一个用例只断一条规则：规范形（`::*` 与 `skill` / `skill:*` 归一）、失败码（保护名单 /
+ * 保留名 / 错前缀 / 通配语法 / serverName / 技能名）、未知 server 的宽容，以及
+ * `matchesToolName` 打在 public name 上的全等与前缀语义。
  */
 import { describe, expect, it } from 'vitest'
 import {
   ADDRESS_GRAMMAR,
   PROTECTED_BASELINE,
+  SKILL_PREFIX,
+  SKILL_WILDCARD,
   addressesEqual,
   formatAddress,
   matchesToolName,
@@ -60,6 +62,13 @@ describe('parseAddress：文法与规范形', () => {
     ],
     // `skill` 只在解析期归一，状态里只留 `tool:skill`（D3）。
     ['skill', 'tool:skill', { kind: 'tool', name: 'skill' }],
+    // `skill:*` 只是整档别名，不引入通配语义（③.1）。
+    ['skill:*', 'tool:skill', { kind: 'tool', name: 'skill' }],
+    [
+      'skill:openspec-propose',
+      'skill:openspec-propose',
+      { kind: 'skill', name: 'openspec-propose' },
+    ],
     ['tool:workflow', 'tool:workflow', { kind: 'tool', name: 'workflow' }],
   ]
 
@@ -87,6 +96,56 @@ describe('parseAddress：文法与规范形', () => {
       address: { kind: 'tool', name: 'skill' },
       text: 'tool:skill',
     })
+    // `skill:*` 只是整档别名：技能没有「按前缀批量关」的语义（③.1）。
+    expect(okOf(parseAddress('skill:*', PROTECTED)).text).toBe('tool:skill')
+    expect(okOf(parseAddress('skill:*', PROTECTED)).address).toEqual({
+      kind: 'tool',
+      name: 'skill',
+    })
+  })
+
+  it('skill:<name> 解析为第四类地址，规范形保留 skill: 前缀', () => {
+    expect(okOf(parseAddress('skill:openspec-propose', PROTECTED))).toEqual({
+      ok: true,
+      address: { kind: 'skill', name: 'openspec-propose' },
+      text: 'skill:openspec-propose',
+    })
+    // 多段 kebab 是合法技能名（不限定段数）。
+    expect(okOf(parseAddress('skill:openspec-propose-v2', PROTECTED)).address).toEqual({
+      kind: 'skill',
+      name: 'openspec-propose-v2',
+    })
+  })
+
+  it('技能名不合 kebab 文法：六种典型输入全部 bad-skill-name，状态零写入', () => {
+    for (const input of [
+      'skill:',
+      'skill:Foo',
+      'skill:foo_bar',
+      'skill:foo bar',
+      'skill:foo-',
+      'skill:-foo',
+    ]) {
+      expect(parseAddress(input, PROTECTED)).toMatchObject({ ok: false, code: 'bad-skill-name' })
+    }
+  })
+
+  it('技能名拒绝连续连字符与内嵌 ::', () => {
+    expect(rejectionOf(parseAddress('skill:foo--bar', PROTECTED)).code).toBe('bad-skill-name')
+    expect(rejectionOf(parseAddress('skill:foo::bar', PROTECTED)).code).toBe('bad-skill-name')
+  })
+
+  it('bad-skill-name 文案带正则、完整文法与可抄的正例', () => {
+    const result = rejectionOf(parseAddress('skill:Foo', PROTECTED))
+    expect(result.code).toBe('bad-skill-name')
+    expect(result.message).toContain('^[a-z0-9]+(?:-[a-z0-9]+)*$')
+    expect(result.message).toContain('skill:openspec-propose')
+    expect(result.message).toContain(ADDRESS_GRAMMAR)
+  })
+
+  it('SKILL_PREFIX / SKILL_WILDCARD 与文法表一致', () => {
+    expect(SKILL_PREFIX).toBe('skill:')
+    expect(SKILL_WILDCARD).toBe('*')
   })
 
   it('未知 serverName 宽容：解析照旧成功（服务器上线后自动生效）', () => {
@@ -121,7 +180,6 @@ describe('parseAddress：文法与规范形', () => {
     ['纯空白', '   ', 'empty'],
     ['缺少前缀', 'yunxiao', 'unknown-prefix'],
     ['未知前缀', 'workspace:foo', 'unknown-prefix'],
-    ['skill 带参数', 'skill:foo', 'unknown-prefix'],
     ['serverName 为空', 'mcp:', 'bad-server'],
     ['serverName 含空格', 'mcp:a b', 'bad-server'],
     ['serverName 含点', 'mcp:a.b', 'bad-server'],
@@ -180,6 +238,8 @@ describe('parseAddress：文法与规范形', () => {
       'tool:mcp__x__y',
       'tool:run_code',
       'tool:bash',
+      'skill:',
+      'skill:Foo',
     ]
     for (const input of inputs) {
       expect(rejectionOf(parseAddress(input, PROTECTED)).message).toContain(ADDRESS_GRAMMAR)
@@ -195,14 +255,26 @@ describe('PROTECTED_BASELINE', () => {
 })
 
 describe('formatAddress', () => {
-  it('三类地址各回一种拼写', () => {
+  it('四类地址各回一种拼写', () => {
     expect(formatAddress({ kind: 'mcp-group', server: 'yunxiao' })).toBe('mcp:yunxiao')
     expect(formatAddress({ kind: 'mcp-tool', server: 'a', pattern: 'b*' })).toBe('mcp:a::b*')
     expect(formatAddress({ kind: 'tool', name: 'skill' })).toBe('tool:skill')
+    expect(formatAddress({ kind: 'skill', name: 'openspec-propose' })).toBe(
+      'skill:openspec-propose',
+    )
   })
 
   it('parse → format → parse 是不动点（规范形稳定）', () => {
-    const inputs = ['mcp:a', 'mcp:a::*', 'mcp:a::b', 'mcp:a::b*', 'skill', 'tool:workflow']
+    const inputs = [
+      'mcp:a',
+      'mcp:a::*',
+      'mcp:a::b',
+      'mcp:a::b*',
+      'skill',
+      'skill:*',
+      'skill:openspec-propose',
+      'tool:workflow',
+    ]
     for (const input of inputs) {
       const first = okOf(parseAddress(input, PROTECTED))
       expect(okOf(parseAddress(formatAddress(first.address), PROTECTED))).toEqual({
@@ -226,6 +298,12 @@ describe('addressesEqual', () => {
     ).toBe(true)
     expect(addressesEqual({ kind: 'tool', name: 'skill' }, { kind: 'tool', name: 'skill' }))
       .toBe(true)
+    expect(
+      addressesEqual(
+        { kind: 'skill', name: 'openspec-propose' },
+        { kind: 'skill', name: 'openspec-propose' },
+      ),
+    ).toBe(true)
   })
 
   it('kind 不同即不等（整组与单工具是两个意图）', () => {
@@ -237,6 +315,10 @@ describe('addressesEqual', () => {
     ).toBe(false)
     expect(addressesEqual({ kind: 'tool', name: 'a' }, { kind: 'mcp-group', server: 'a' }))
       .toBe(false)
+    // 技能名与工具名可能同名，但两者不是同一个开关对象。
+    expect(
+      addressesEqual({ kind: 'skill', name: 'skill' }, { kind: 'tool', name: 'skill' }),
+    ).toBe(false)
   })
 
   it('serverName 大小写敏感、pattern 原样比较', () => {
@@ -250,7 +332,7 @@ describe('addressesEqual', () => {
     ).toBe(false)
   })
 
-  it('归一后同一意图相等：::* 与裸 mcp:a、skill 与 tool:skill', () => {
+  it('归一后同一意图相等：::* 与裸 mcp:a、skill / skill:* 与 tool:skill', () => {
     expect(
       addressesEqual(okOf(parseAddress('mcp:a::*', PROTECTED)).address, {
         kind: 'mcp-group',
@@ -259,6 +341,12 @@ describe('addressesEqual', () => {
     ).toBe(true)
     expect(
       addressesEqual(okOf(parseAddress('skill', PROTECTED)).address, {
+        kind: 'tool',
+        name: 'skill',
+      }),
+    ).toBe(true)
+    expect(
+      addressesEqual(okOf(parseAddress('skill:*', PROTECTED)).address, {
         kind: 'tool',
         name: 'skill',
       }),
@@ -306,6 +394,14 @@ describe('matchesToolName', () => {
     expect(matchesToolName(tool, 'workflow')).toBe(true)
     expect(matchesToolName(tool, 'workflow_2')).toBe(false)
     expect(matchesToolName(tool, 'mcp__a__workflow')).toBe(false)
+  })
+
+  it('skill 地址恒不命中任何注册名（技能名不是工具注册名，永不参与工具掩码）', () => {
+    const skill: SwitchAddress = { kind: 'skill', name: 'openspec-propose' }
+    expect(matchesToolName(skill, 'openspec-propose')).toBe(false)
+    expect(matchesToolName(skill, 'skill')).toBe(false)
+    expect(matchesToolName(skill, 'mcp__a__openspec-propose')).toBe(false)
+    expect(matchesToolName(skill, '')).toBe(false)
   })
 
   it('未知 serverName 宽容：不抛错，只是不命中', () => {

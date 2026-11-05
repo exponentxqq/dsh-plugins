@@ -1,5 +1,5 @@
 /**
- * 浏览器半的 Connection RPC 客户端：把 `/session-tool-toggle` 通道上四个端点的线上形状
+ * 浏览器半的 Connection RPC 客户端：把 `/session-tool-toggle` 通道上五个端点的线上形状
  * 收成一个可直接调用的接口，并把所有失败归一成携带稳定失败码的 {@link PanelError}。
  *
  * 本层只做三件事，**不缓存任何状态、不订阅任何事件**（快照缓存与刷新归
@@ -8,7 +8,8 @@
  * 1. 构造请求 payload → `connection.rpc.call(CHANNEL, endpoint, payload)`；
  * 2. 拆 `ConnectionRpcResult` 信封：`ok:true` 取 `value`，`ok:false` 原样保留宿主的
  *    `code` / `message` / `details`；
- * 3. 成功值过 `contract.ts` 的响应 parser（两端各自内联一份手写实现，D16）。
+ * 3. 成功值过 `contract.ts` 的响应 parser（两端各自内联一份手写实现，D16；client bundle
+ *    打包时会把它整个内联进来，所以本层**不再**另写第二份 `parseWorkspaceValue`）。
  *
  * 失败归一（码只在这里产生，文案由 `locales.ts` 的 `t()` 按 `error.<code>` 组合，见
  * `code-design` 附录 §3.5）：
@@ -38,11 +39,13 @@ import {
   PANEL_ENDPOINT,
   RESET_ENDPOINT,
   TOGGLE_ENDPOINT,
+  WORKSPACE_ENDPOINT,
   parseDefaultsValue,
   parseFailureDetails,
   parsePanelSnapshot,
   parseResetValue,
   parseToggleValue,
+  parseWorkspaceValue,
   type DefaultsAction,
   type DefaultsRequest,
   type DefaultsValue,
@@ -52,6 +55,9 @@ import {
   type ResetValue,
   type SessionToolToggleEndpoint,
   type ToggleValue,
+  type WorkspaceAction,
+  type WorkspaceRequest,
+  type WorkspaceValue,
 } from '../contract.ts'
 
 /** 一次面板调用失败：`code` 是渲染文案的依据，`message` 是宿主的兜底说明。 */
@@ -73,11 +79,12 @@ export class PanelError extends Error {
 }
 
 /**
- * 面板与默认档编辑消费的调用面（四个方法 ↔ 四个端点）。
+ * 面板与默认档编辑消费的调用面（五个方法 ↔ 五个端点）。
  *
  * 默认档是**用户级**状态、不按会话寻址（`DefaultsRequest` 只有 `action` / `addresses`），
  * 所以 `updateDefaults` 没有 `sessionId`：多带一个字段会被宿主 strict parser 判成
- * `bad-request`。
+ * `bad-request`。工作区档则按 `sessionId`（本会话 cwd 的归属）或 `workspacePath`
+ * （footer 下拉切换的已登记路径）二选一寻址，见 {@link PanelClient.workspace}。
  */
 export interface PanelClient {
   /**
@@ -111,6 +118,16 @@ export interface PanelClient {
    * @throws {PanelError} 宿主拒绝、传输异常或响应不可读。
    */
   updateDefaults(action: DefaultsAction, addresses?: readonly string[]): Promise<DefaultsValue>
+  /**
+   * 读 / 写工作区级默认档（两种寻址形态：`sessionId` 或 `workspacePath`，恰好一个）。
+   *
+   * 请求体由 {@link workspacePayload} **精确**构造：调用方没给的字段不会出现在 payload
+   * 里（缺省 `action` 由宿主归一为 `read`，`read` / `reset` 下连 `addresses: []` 都是越界）。
+   * @param request - 工作区请求（寻址字段 + 动作 + 可选地址）。
+   * @returns 目标工作区视图（可为 `null`）+ 下拉可选项 + 实际写入项。
+   * @throws {PanelError} 宿主拒绝、传输异常或响应不可读。
+   */
+  workspace(request: WorkspaceRequest): Promise<WorkspaceValue>
 }
 
 /**
@@ -182,10 +199,38 @@ function defaultsPayload(action: DefaultsAction, addresses?: readonly string[]):
 }
 
 /**
+ * 构造 `workspace` 端点的请求体（**精确 payload**：只含调用方显式给出的字段）。
+ *
+ * 两点都不是优化而是契约要求：
+ *
+ * - 不补缺省 `action`：宿主 `parseWorkspaceRequest` 会把缺省归一为 `read`，client 代劳只会
+ *   让「G7：`workspace({sessionId:'s',action:'read'})` 的 payload 精确等于
+ *   `{sessionId:'s',action:'read'}`」这条断言失真；
+ * - 不补空数组：`read` / `reset` 下 `addresses` 出现即 `bad-request`（strict）。
+ *
+ * 地址数组照例复制，避免调用方在 `await` 期间改自己的数组影响已发出的请求。
+ * @param request - 调用方给出的请求（两种寻址形态之一）。
+ * @returns 只含显式字段的请求体。
+ */
+function workspacePayload(request: WorkspaceRequest): WorkspaceRequest {
+  const payload: {
+    sessionId?: string
+    workspacePath?: string
+    action?: WorkspaceAction
+    addresses?: readonly string[]
+  } = {}
+  if (request.sessionId !== undefined) payload.sessionId = request.sessionId
+  if (request.workspacePath !== undefined) payload.workspacePath = request.workspacePath
+  if (request.action !== undefined) payload.action = request.action
+  if (request.addresses !== undefined) payload.addresses = [...request.addresses]
+  return payload
+}
+
+/**
  * 在 Connection handle 上建面板客户端。
  * @param connection - 浏览器半的 Connection 服务（渲染期软读，可能晚到；缺失或没有 `rpc`
  *   时调用会抛 `unavailable`，与通道未挂载走同一条归一路径，不把 `TypeError` 漏给渲染层）。
- * @returns 四个端点的调用面；失败一律是 {@link PanelError}。
+ * @returns 五个端点的调用面；失败一律是 {@link PanelError}。
  */
 export function createPanelClient(connection: ConnectionHandle): PanelClient {
   /**
@@ -227,6 +272,9 @@ export function createPanelClient(connection: ConnectionHandle): PanelClient {
     },
     async updateDefaults(action, addresses) {
       return call(DEFAULTS_ENDPOINT, defaultsPayload(action, addresses), parseDefaultsValue)
+    },
+    async workspace(request) {
+      return call(WORKSPACE_ENDPOINT, workspacePayload(request), parseWorkspaceValue)
     },
   }
 }

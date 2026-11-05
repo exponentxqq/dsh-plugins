@@ -1,17 +1,19 @@
 /**
  * 地址文法：用户说的「关哪个」→ 状态里唯一的规范形。
  *
- * 三类开关对象（按设计 ③.1 的文法表逐条实现，语义不得改）：
+ * 四类开关对象（按设计 ③.1 的文法表逐条实现，语义不得改）：
  *
  * - `mcp:<server>`：整组关闭，该服务器的工具 schema 与服务器指令段一并移除；
  * - `mcp:<server>::<tool>` / `mcp:<server>::<prefix>*`：单工具关闭，只摘 schema；
- * - `tool:<name>`：内置工具关闭；`skill` 是 `tool:skill` 的口语别名，在解析期归一（D3）。
+ * - `tool:<name>`：内置工具关闭；`skill` 是 `tool:skill` 的口语别名，在解析期归一（D3）；
+ * - `skill:<name>`：单个技能关闭；技能名沿用 dsh-skill 的 kebab 文法，`skill:*` 只作整档
+ *   别名归一为 `tool:skill`，不引入通配语义。
  *
  * 三条贯穿全文件的约定：
  *
  * - **规范形唯一**：`mcp:<server>::*` 与 `mcp:<server>` 是同一个意图，状态里只留整组那一种
- *   拼写；`skill` 同理只留 `tool:skill`。解析结果的 `text` 一律由 {@link formatAddress}
- *   生成，因此归一发生在解析出口，调用方不需要再格式化一次。
+ *   拼写；`skill` / `skill:*` 同理只留 `tool:skill`。解析结果的 `text` 一律由
+ *   {@link formatAddress} 生成，因此归一发生在解析出口，调用方不需要再格式化一次。
  * - **解析期拒绝**：保护名单与注册表保留名在解析期就拒绝（A7：只看名字，与该工具此刻
  *   是否已注册无关）；保护基线只能被配置追加、永不可减（D5）。
  * - **未知不报错**：serverName / 工具名是否真有其物由注册表决定，本模块只守文法。未知
@@ -32,18 +34,20 @@
  *
  * - `mcp-group`：整组（`mcp:yunxiao`）；
  * - `mcp-tool`：单工具或尾部通配（`mcp:yunxiao::list_pages` / `mcp:yunxiao::get_*`）；
- * - `tool`：内置工具（`tool:workflow` / `tool:skill`）。
+ * - `tool`：内置工具（`tool:workflow` / `tool:skill`）；
+ * - `skill`：单个技能（`skill:openspec-propose`），永不参与工具掩码。
  */
 export type SwitchAddress =
   | { readonly kind: 'mcp-group'; readonly server: string }
   | { readonly kind: 'mcp-tool'; readonly server: string; readonly pattern: string }
   | { readonly kind: 'tool'; readonly name: string }
+  | { readonly kind: 'skill'; readonly name: string }
 
-/** 地址解析失败码：7 个，语义互不重叠（命令面与 RPC 都按码给本地化文案）。 */
+/** 地址解析失败码：8 个，语义互不重叠（命令面与 RPC 都按码给本地化文案）。 */
 export type ParseErrorCode =
   /** 空输入（含纯空白）。 */
   | 'empty'
-  /** 前缀不是 `mcp:` / `tool:`，或裸拼写不是 `skill`。 */
+  /** 前缀不是 `mcp:` / `tool:` / `skill:`，或裸拼写不是 `skill`。 */
   | 'unknown-prefix'
   /** serverName 不合 `[A-Za-z0-9_-]{1,32}`。 */
   | 'bad-server'
@@ -55,6 +59,8 @@ export type ParseErrorCode =
   | 'reserved-tool'
   /** 命中保护名单（基线 ∪ 配置追加）。 */
   | 'protected-tool'
+  /** 技能名不合 {@link SKILL_NAME}（含空名、大写、下划线、空格、首尾 `-`）。 */
+  | 'bad-skill-name'
 
 /**
  * 解析结果。
@@ -85,7 +91,22 @@ export const PROTECTED_BASELINE: readonly string[] = [
 
 /** 完整文法一行：错误文案与 `/tools` 提示共用（把 ③.1 的表格压成一行）。 */
 export const ADDRESS_GRAMMAR =
-  'mcp:<server> | mcp:<server>::<工具名或尾部 *> | tool:<工具名>（skill 等价于 tool:skill）'
+  'mcp:<server> | mcp:<server>::<工具名或尾部 *> | tool:<工具名> | skill:<技能名>'
+  + '（skill 等价于 tool:skill；skill:* 等价于整档 tool:skill）'
+
+/**
+ * 技能名文法：与 dsh-skill 的 `SKILL_NAME` 同一份规则（`dsh-skill/lib/index.js:17`）。
+ *
+ * 本仓**复制常量、不 import 上游**（D14），因此技能名的判定不依赖宿主的技能包版本。
+ * 小写字母 / 数字，段间单个连字符，不允许首尾 `-`（kebab）。
+ */
+const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
+/** 技能地址前缀。 */
+export const SKILL_PREFIX = 'skill:'
+
+/** 技能整档别名：`skill:*` 等价于 `tool:skill`，不引入通配语义（③.1）。 */
+export const SKILL_WILDCARD = '*'
 
 /** 注册表保留名：`run_code` 被 PTC 呈现传输占用，注册与 `restrict` 都会拒绝。 */
 const RESERVED_TOOL = 'run_code'
@@ -138,7 +159,7 @@ export function parseAddress(input: string, protectedNames: ReadonlySet<string>)
   if (input.trim().length === 0) {
     return rejected(
       'empty',
-      `地址为空；文法：${ADDRESS_GRAMMAR}（例如 mcp:yunxiao、mcp:yunxiao::get_*、tool:workflow）`,
+      `地址为空；文法：${ADDRESS_GRAMMAR}（例如 mcp:yunxiao、mcp:yunxiao::get_*、tool:workflow、skill:openspec-propose）`,
     )
   }
 
@@ -149,7 +170,7 @@ export function parseAddress(input: string, protectedNames: ReadonlySet<string>)
   if (separator < 0) {
     return rejected(
       'unknown-prefix',
-      `无法识别的地址「${input}」：缺少 mcp: 或 tool: 前缀；文法：${ADDRESS_GRAMMAR}`,
+      `无法识别的地址「${input}」：缺少 mcp:、tool: 或 skill: 前缀；文法：${ADDRESS_GRAMMAR}`,
     )
   }
 
@@ -157,22 +178,24 @@ export function parseAddress(input: string, protectedNames: ReadonlySet<string>)
   const rest = input.slice(separator + 1)
   if (prefix === 'mcp') return parseMcpAddress(rest)
   if (prefix === 'tool') return parseToolAddress(rest, protectedNames)
+  if (prefix === 'skill') return parseSkillAddress(rest)
   return rejected(
     'unknown-prefix',
-    `无法识别的地址前缀「${prefix}:」：只支持 mcp: 与 tool:（skill 是 tool:skill 的别名）；文法：${ADDRESS_GRAMMAR}`,
+    `无法识别的地址前缀「${prefix}:」：只支持 mcp:、tool: 与 skill:（skill / skill:* 等价于 tool:skill）；文法：${ADDRESS_GRAMMAR}`,
   )
 }
 
 /**
  * 规范形文本：状态、记录与回执里只用这一种拼写。
  * @param address - 地址。
- * @returns `mcp:<server>` / `mcp:<server>::<pattern>` / `tool:<name>`。
+ * @returns `mcp:<server>` / `mcp:<server>::<pattern>` / `tool:<name>` / `skill:<name>`。
  */
 export function formatAddress(address: SwitchAddress): string {
   if (address.kind === 'mcp-group') return `${MCP_PREFIX}${address.server}`
   if (address.kind === 'mcp-tool') {
     return `${MCP_PREFIX}${address.server}${MCP_TOOL_SEPARATOR}${address.pattern}`
   }
+  if (address.kind === 'skill') return `${SKILL_PREFIX}${address.name}`
   return `${TOOL_PREFIX}${address.name}`
 }
 
@@ -193,6 +216,9 @@ export function addressesEqual(left: SwitchAddress, right: SwitchAddress): boole
       && left.server === right.server
       && left.pattern === right.pattern
   }
+  if (left.kind === 'skill') {
+    return right.kind === 'skill' && left.name === right.name
+  }
   return right.kind === 'tool' && left.name === right.name
 }
 
@@ -202,11 +228,15 @@ export function addressesEqual(left: SwitchAddress, right: SwitchAddress): boole
  * 匹配一律打在 **public name** 上（D6，不接受 raw MCP 名）：`mcp:<server>` 命中
  * `mcp__<server>__*`；单工具的 pattern 只与 `mcp__<server>__` 之后的后缀比较（尾部 `*` 是
  * 前缀匹配，否则全等）；`tool:<name>` 与内置工具的注册名全等。
+ *
+ * `skill:<name>` **恒为 false**：技能名不是工具注册名，技能开关走的是技能清单，永不参与
+ * 工具掩码（③.1）。
  * @param address - 地址。
  * @param toolName - 注册表里的名字（MCP public name 或内置工具名）。
  * @returns 命中时为 true；未知 serverName 只是 false，不抛错（C10）。
  */
 export function matchesToolName(address: SwitchAddress, toolName: string): boolean {
+  if (address.kind === 'skill') return false
   if (address.kind === 'tool') return toolName === address.name
 
   const identity = mcpIdentityOf(toolName)
@@ -303,6 +333,21 @@ function parseToolAddress(name: string, protectedNames: ReadonlySet<string>): Pa
 }
 
 /**
+ * 解析 `skill:` 之后的部分（技能名）。
+ *
+ * `skill:*` 只作整档别名：技能没有「按前缀批量关」的语义，因此它归一为 `tool:skill`
+ * （与裸 `skill` 同一意图），而不是 `kind: 'skill'` 的 `*` 名字。其余输入一律要过
+ * {@link SKILL_NAME}，不合法就整单拒绝，状态零写入。
+ * @param name - `skill:` 之后的原文。
+ * @returns 解析结果。
+ */
+function parseSkillAddress(name: string): ParseResult {
+  if (name === SKILL_WILDCARD) return parsed({ kind: 'tool', name: 'skill' })
+  if (!SKILL_NAME.test(name)) return rejected('bad-skill-name', badSkillNameMessage(name))
+  return parsed({ kind: 'skill', name })
+}
+
+/**
  * serverName 非法的文案：给文法与一个可抄的正例。
  * @param server - 用户写的服务器名（可能为空）。
  * @returns 文案。
@@ -318,6 +363,15 @@ function badServerMessage(server: string): string {
  */
 function badToolNameMessage(spec: string): string {
   return `工具名或通配「${spec}」不合法：只支持完整名与尾部 * 前缀匹配（不支持 ?、字符类或中间 *，如 mcp:a::get_*）；文法：${ADDRESS_GRAMMAR}`
+}
+
+/**
+ * 技能名非法的文案：给出完整正则与一个可抄的正例（与既有失败码同风格）。
+ * @param name - 用户写的技能名（可能为空）。
+ * @returns 文案。
+ */
+function badSkillNameMessage(name: string): string {
+  return `技能名「${name}」不合法：只允许小写字母、数字与连字符（^[a-z0-9]+(?:-[a-z0-9]+)*$，如 skill:openspec-propose）；文法：${ADDRESS_GRAMMAR}`
 }
 
 /**

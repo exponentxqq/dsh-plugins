@@ -46,9 +46,11 @@ export const zh = {
   'panel.empty': '本会话没有可展示的工具。',
   'panel.refresh': '刷新',
 
-  // —— 四个分区的标题（设计 §3.2 的四段，自上而下） ——
+  // —— 分区的标题（设计 §3.2 的六段，自上而下；`section.skills` 由 7.7 挂载技能分区时用，
+  //    工作区分区的标题归 `WorkspaceDefaultsEditor` 的 `workspace.title`） ——
   'section.state': '状态摘要',
   'section.groups': '本会话开关',
+  'section.skills': '逐技能开关',
   'section.defaults': '用户级默认档',
   'section.disabled': '关闭集',
 
@@ -61,6 +63,18 @@ export const zh = {
   'group.summary': '{count} 个工具，已关 {disabled} 个',
   // 内置工具分区的本地过滤输入（纯展示层，不参与任何文法校验）。
   'group.filter': '按工具名过滤…',
+
+  // —— 技能分区（逐 skill 行开关；`section.skills` 标题由 7.7 负责，这里只有块内文案） ——
+  'skill.region': '技能开关',
+  'skill.unavailable': '技能服务不可用，逐技能开关暂不可用。',
+  'skill.blocked': '技能工具已整档关闭，逐项开关暂不生效。',
+  'skill.pending': '正在应用…',
+  'skill.switchLabel': '{name} 的模型可见性开关',
+  'skill.empty': '本会话没有可展示的技能。',
+  // 两个状态标签：`effective` = 已关且影子 stub 已生效；`intentOnly` = 意图已记但暂未生效
+  // （技能未安装或影子注册未胜出）。`/name` 手动调用不受模型可见性开关影响（设计 D15 语义）。
+  'skill.effective': '模型不可见（`/name` 仍可用）',
+  'skill.intentOnly': '已记录，暂未生效',
 
   // —— 行级标记：组内条目上的短标签（设计 §3.3 的 `[保护]` / `[不可关闭]`） ——
   'entry.disabled': '已关闭',
@@ -106,6 +120,33 @@ export const zh = {
   'defaults.clear': '清空默认档',
   'defaults.clearConfirm': '再点一次确认清空',
 
+  // —— 工作区默认档（设计 §3.4 / C2；面板分区与侧栏对话框共用同一组键） ——
+  'workspace.title': '工作区默认档',
+  'workspace.select': '选择工作区',
+  'workspace.key': '工作区键',
+  'workspace.path': '工作区档文件',
+  'workspace.registered': '已登记工作区',
+  'workspace.unregistered': '未登记工作区',
+  'workspace.unresolved': '当前会话的工作区无法归属：只按用户级默认档播种。',
+  'workspace.corrupt': '工作区档文件损坏或半写，已按空档处理。',
+  'workspace.scope': '影响范围：只影响在这个工作区之后新建的会话，本会话不变。',
+  'workspace.union': '新会话初始关闭 = 用户级默认档 ∪ 本工作区默认档',
+  'workspace.empty': '这个工作区档里没有关闭项。',
+  // 与用户级默认档的「添加」区分开：同一个面板里两枚同名按钮会让读屏与测试都分不清。
+  'workspace.add': '加入工作区档',
+  'workspace.addPlaceholder': '要加入本工作区默认档的地址，多个用空格或逗号分隔',
+  'workspace.placeholder': 'mcp:<server>、mcp:<server>::<工具>、tool:<名字>、skill',
+  'workspace.remove': '移除',
+  'workspace.removeAria': '移除 {address}',
+  'workspace.saved': '已保存（本会话不变）。',
+  'workspace.clear': '清空工作区默认档',
+  'workspace.clearConfirm': '再点一次确认清空',
+  'workspace.refresh': '刷新工作区档',
+  // 侧栏 footer 入口与自绘对话框（7.3）：标题/范围说明复用上面的 workspace.title / workspace.scope，
+  // 这里只补两处只属于「入口壳」的状态文案。
+  'workspace.loading': '正在读取工作区默认档…',
+  'workspace.unavailable': '暂时无法读取工作区默认档。',
+
   // —— 状态摘要（四计数 + 创建时快照 + 持久化通道，设计 §3.2 第一段） ——
   'state.visible': '本会话可见 {visible}',
   'state.catalog': '全局 {catalog}',
@@ -119,10 +160,12 @@ export const zh = {
   // —— 变更回执的代价形状（设计 §3.6：只报计数与代价形状，D7） ——
   'mutation.kv': '本次关闭 {hidden} 个工具；前缀缓存将从第一个变化的 schema token 起重建一次。',
 
-  // —— 提示码（`NOTICE_CODES` 三个，宿主只给码） ——
+  // —— 提示码（`NOTICE_CODES` 五个，宿主只给码） ——
   'notice.persistence-degraded': '记录通道不可用，关闭集已降级为内存态：进程重启后丢失。',
   'notice.defaults-corrupt': '默认档文件损坏或半写，已按空档处理。',
   'notice.session-subagent': '子代理会话不继承父会话的会话级开关，只按默认档快照。',
+  'notice.skills-unavailable': '技能服务不可用：技能开关只记意图，影子 stub 不生效。',
+  'notice.skill-shadow-failed': '技能影子注册未胜出（同层先到先得）：该技能行的开关不可用。',
 
   // —— 失败码 → 文案键（设计附录 §3.5 表逐条；未知码回退 error.fallback） ——
   'error.bad-request': '请求不合法，宿主拒绝了本次调用。',
@@ -131,6 +174,8 @@ export const zh = {
   'error.reserved': '{names} 是保留工具，不能关闭。',
   'error.session-not-live': '该会话未在宿主中运行（可能已归档或已结束），无法调整工具面。',
   'error.defaults-unwritable': '默认档写入失败：{path}。',
+  'error.workspace-unresolved': '工作区无法归属：{subject}。',
+  'error.workspace-unwritable': '工作区默认档写入失败：{path}。',
   'error.internal': '宿主内部错误，本次操作未完成。',
   'error.unavailable': '无法连接到 dsh 主进程。',
   'error.bad-response': '宿主返回了无法识别的响应。',
@@ -157,9 +202,10 @@ export const en = {
   'panel.empty': 'No tool to show in this session.',
   'panel.refresh': 'Refresh',
 
-  // —— 四个分区标题 ——
+  // —— 分区标题（六段） ——
   'section.state': 'Status summary',
   'section.groups': 'Session switches',
+  'section.skills': 'Per-skill switches',
   'section.defaults': 'User defaults',
   'section.disabled': 'Off set',
 
@@ -172,6 +218,18 @@ export const en = {
   'group.summary': '{count} tools, {disabled} off',
   // The built-in section's local filter input (display only, never grammar validation).
   'group.filter': 'Filter by tool name…',
+
+  // —— 技能分区（逐 skill 行开关） ——
+  'skill.region': 'Skill switches',
+  'skill.unavailable': 'The skill service is unavailable; per-skill switches cannot be used.',
+  'skill.blocked': 'The skill tool is turned off as a whole; per-skill switches have no effect until it is turned back on.',
+  'skill.pending': 'Applying…',
+  'skill.switchLabel': 'Model visibility switch for {name}',
+  'skill.empty': 'No skills to show in this session.',
+  // Two state tags: `effective` = turned off and the shadow stub is in effect; `intentOnly` =
+  // the intent is recorded but not effective yet (skill missing or shadow registration lost).
+  'skill.effective': 'Hidden from the model (`/name` still works)',
+  'skill.intentOnly': 'Recorded; no effect yet',
 
   // —— 行级标记 ——
   'entry.disabled': 'Off',
@@ -217,6 +275,32 @@ export const en = {
   'defaults.clear': 'Clear defaults',
   'defaults.clearConfirm': 'Click again to clear',
 
+  // —— 工作区默认档 ——
+  'workspace.title': 'Workspace defaults',
+  'workspace.select': 'Choose a workspace',
+  'workspace.key': 'Workspace key',
+  'workspace.path': 'Workspace file',
+  'workspace.registered': 'Registered workspace',
+  'workspace.unregistered': 'Unregistered workspace',
+  'workspace.unresolved': 'This session\'s workspace cannot be attributed, so only the user defaults are seeded.',
+  'workspace.corrupt': 'The workspace file is corrupt or half-written; it was treated as empty.',
+  'workspace.scope': 'Scope: only sessions created in this workspace afterwards; this session stays as it is.',
+  'workspace.union': 'A new session starts off with the user defaults ∪ this workspace\'s defaults',
+  'workspace.empty': 'This workspace turns nothing off.',
+  'workspace.add': 'Add to workspace',
+  'workspace.addPlaceholder': 'Addresses to add to this workspace defaults, separated by spaces or commas',
+  'workspace.placeholder': 'mcp:<server>, mcp:<server>::<tool>, tool:<name>, skill',
+  'workspace.remove': 'Remove',
+  'workspace.removeAria': 'Remove {address}',
+  'workspace.saved': 'Saved (this session is unchanged).',
+  'workspace.clear': 'Clear workspace defaults',
+  'workspace.clearConfirm': 'Click again to clear',
+  'workspace.refresh': 'Refresh workspace defaults',
+  // The sidebar footer entry and its own dialog (7.3): the title/scope reuse workspace.title /
+  // workspace.scope above; only these two state lines belong to the entry shell.
+  'workspace.loading': 'Reading the workspace defaults…',
+  'workspace.unavailable': 'The workspace defaults are not available right now.',
+
   // —— 状态摘要 ——
   'state.visible': '{visible} visible here',
   'state.catalog': '{catalog} in the catalog',
@@ -236,6 +320,10 @@ export const en = {
   'notice.defaults-corrupt': 'The defaults file is corrupt or half-written; it was treated as empty.',
   'notice.session-subagent':
     'A subagent session does not inherit its parent session switches; it only snapshots the user defaults.',
+  'notice.skills-unavailable':
+    'The skill service is unavailable, so skill switches only record intent and no shadow stub takes effect.',
+  'notice.skill-shadow-failed':
+    'The skill shadow registration lost the first-come-first-served race inside this layer; that skill row cannot be toggled.',
 
   // —— 失败码 ——
   'error.bad-request': 'The host rejected the request as malformed.',
@@ -246,6 +334,8 @@ export const en = {
   'error.session-not-live':
     'That session is not running in the host (it may be archived or finished); its tool surface cannot be adjusted.',
   'error.defaults-unwritable': 'Could not write the defaults file: {path}.',
+  'error.workspace-unresolved': 'The workspace cannot be attributed: {subject}.',
+  'error.workspace-unwritable': 'Could not write the workspace defaults file: {path}.',
   'error.internal': 'The host hit an internal error; nothing was applied.',
   'error.unavailable': 'Could not reach the dsh host process.',
   'error.bad-response': 'The host answered with an unrecognized response.',

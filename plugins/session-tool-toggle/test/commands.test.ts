@@ -18,6 +18,16 @@
  * `+ 1 段服务器指令`、单工具关闭不产生指令段、`reset` 回创建时快照、`default` 四种写
  * 子命令的读/写/覆盖/清空与「本会话不变」、未知 server 的宽容、多地址一次处理、重复
  * 关闭的无变化路径、层缺席与持久化降级的提示。
+ *
+ * 本变更（H11/T9）新增覆盖：
+ *
+ * - `/tools workspace` 的只读形态与 `off|on|set|reset` 四种写动作（**只**作用本会话所属
+ *   工作区，不提供路径形态；写失败 / 归属失败各自的失败文案）；
+ * - `/tools status` 的「技能」段与「工作区默认档」段（含技能服务缺席、工作区无法归属的
+ *   两行降级）；
+ * - `closedStateText` 的 `skill` 分支（`/name 手动调用保留`）与技能翻转的目录消息成本提示；
+ * - 技能收敛的 `await skillsSettled()`（D4：回执在收敛结算之后才返回）；
+ * - `TOOLS_GRAMMAR` 的 workspace 子句（H11）。
  */
 import { describe, expect, it } from 'vitest'
 import { PROTECTED_BASELINE } from '../src/host/address.ts'
@@ -29,7 +39,13 @@ import {
   toolsCommand,
   type ToolsCommandDeps,
 } from '../src/host/commands.ts'
-import { readPanel, resetSession, toggleSession, updateDefaults } from '../src/host/control.ts'
+import {
+  readPanel,
+  resetSession,
+  toggleSession,
+  updateDefaults,
+  updateWorkspaceDefaults,
+} from '../src/host/control.ts'
 import { planMask } from '../src/host/mask.ts'
 import type {
   DefaultsIo,
@@ -37,14 +53,22 @@ import type {
   LayerSnapshot,
   SessionLike,
   SessionToolState,
+  SkillLayerSnapshot,
   SpecLog,
   StateStore,
   StoreKind,
+  WorkspaceAttribution,
 } from '../src/host/types.ts'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 
 /** 假文件系统里的默认档绝对路径（形状与生产一致，但不指向任何真实文件）。 */
 const DEFAULTS_PATH = '/fake/dsh-home/session-tool-toggle/defaults.json'
+
+/** 假文件系统里的工作区档绝对路径（与默认档同目录，形状与生产一致）。 */
+const WORKSPACES_PATH = '/fake/dsh-home/session-tool-toggle/workspaces.json'
+
+/** 假会话所属工作区的规范键（`/tools workspace` 的写入目标）。 */
+const WORKSPACE_KEY = '/fake/workspaces/project'
 
 /** 假会话的创建时间（固定值，让「创建于 / 快照来源」可断言）。 */
 const CREATED_AT = 1_700_000_000_000
@@ -137,8 +161,12 @@ class FakeStore implements StateStore {
 /**
  * 假层句柄：按 `planMask` 的三读并集重算掩码，并让名字从 `visibleNames()` 消失。
  *
- * 刻意模拟真实的两个行为：掩码生效后名字从 `scoped` 消失（所以 carried 必须存在），以及
- * 遮蔽段只由整组关闭产生。
+ * 刻意模拟真实的三个行为：
+ *
+ * 1. 掩码生效后名字从 `scoped` 消失（所以 carried 必须存在）；
+ * 2. 遮蔽段只由整组关闭产生；
+ * 3. **技能影子 stub 的收敛是异步的**（D-4）：`setState` 只把目标影子集记为 pending，
+ *    `skillsSettled()` 才让它生效——命令面若没有 `await` 它，回执里的技能事实就是旧的。
  */
 class FakeLayer implements LayerHandle {
   /** 本会话最新整值状态。 */
@@ -150,20 +178,38 @@ class FakeLayer implements LayerHandle {
   /** 已生效的遮蔽段服务器。 */
   private sections: readonly string[] = []
 
+  /** 已结算的影子 stub 名（`skills()` 的 `shadowed`）。 */
+  private settledShadowed: string[] = []
+
+  /** 待结算的影子 stub 名（`undefined` = 无在途收敛）。 */
+  private pendingShadowed: string[] | undefined
+
+  /** 可选的收敛闸门（`holdSkills()` 设置）：非空时 `skillsSettled()` 等它释放。 */
+  private gate: Promise<void> | undefined
+
   /** `setState` 被调用的次数（断言「没写状态就不动掩码」）。 */
   setStateCalls = 0
+
+  /** `skillsSettled` 被调用的次数（断言命令面在回执前等待收敛）。 */
+  settledCalls = 0
 
   /**
    * @param catalog - 全局层注册名。
    * @param scope - 该 agent **未**被本插件掩码时的视角名字。
    * @param initial - 初始整值状态（构造即应用一次，模拟 `attach`）。
+   * @param skillsAvailable - `skills` 服务是否可用。
+   * @param installedSkills - 已安装技能名（模型可调用；影子生效后从 `visible` 消失）。
    */
   constructor(
     private readonly catalog: readonly string[],
     private readonly scope: readonly string[],
     initial: SessionToolState,
+    private readonly skillsAvailable: boolean = true,
+    private readonly installedSkills: readonly string[] = [],
   ) {
     this.state = initial
+    // `attach` 是同步装好初始状态的，构造时就视为已结算。
+    this.settledShadowed = this.computeShadowed(initial)
     this.reconcile()
   }
 
@@ -175,6 +221,8 @@ class FakeLayer implements LayerHandle {
     this.setStateCalls += 1
     this.state = state
     this.reconcile()
+    // 技能收敛是异步的：这里只登记目标集合，等 `skillsSettled()` 结算。
+    this.pendingShadowed = this.computeShadowed(state)
   }
 
   /**
@@ -191,6 +239,62 @@ class FakeLayer implements LayerHandle {
    */
   visibleNames(): readonly string[] {
     return this.scope.filter((name) => !this.masked.includes(name))
+  }
+
+  /**
+   * 读本会话的技能分面（已结算的事实）。
+   * @returns 影子名 + 模型可调用技能；服务不可用时为空面。
+   */
+  skills(): SkillLayerSnapshot {
+    if (!this.skillsAvailable) return { available: false, shadowed: [], visible: [] }
+    return {
+      available: true,
+      shadowed: [...this.settledShadowed],
+      visible: this.installedSkills
+        .filter((name) => !this.settledShadowed.includes(name))
+        .map((name) => ({ name, description: `技能 ${name}` })),
+    }
+  }
+
+  /**
+   * 等待在途技能收敛结算（无在途时立即 resolve）。
+   * @returns 已结算的 Promise。
+   */
+  async skillsSettled(): Promise<void> {
+    this.settledCalls += 1
+    const gate = this.gate
+    if (gate !== undefined) await gate
+    if (this.pendingShadowed !== undefined) {
+      this.settledShadowed = this.pendingShadowed
+      this.pendingShadowed = undefined
+    }
+  }
+
+  /**
+   * 卡住下一次技能收敛（用例用）。
+   * @returns 释放函数（幂等；释放后 `skillsSettled()` 才能结算）。
+   */
+  holdSkills(): () => void {
+    let release = (): void => {}
+    this.gate = new Promise<void>((resolve) => {
+      release = () => resolve()
+    })
+    return (): void => {
+      this.gate = undefined
+      release()
+    }
+  }
+
+  /**
+   * 目标影子集合：服务不可用或整档 `tool:skill` 关闭时为空，否则 = 已关的已安装技能。
+   * @param state - 整值状态。
+   * @returns 排序后的技能名。
+   */
+  private computeShadowed(state: SessionToolState): string[] {
+    if (!this.skillsAvailable || state.disabled.includes('tool:skill')) return []
+    return this.installedSkills
+      .filter((name) => state.disabled.includes(`skill:${name}`))
+      .sort()
   }
 
   /** 一轮重算：scoped 读「上一轮掩码之后」的视角，carried 读上一轮 deny。 */
@@ -266,6 +370,16 @@ interface HarnessOptions {
   readonly defaultsWriteError?: Error
   /** 实际生效的持久化通道（默认 `record`）。 */
   readonly storeKind?: StoreKind
+  /** 本会话已安装的技能名（模型可调用；默认空）。 */
+  readonly skills?: readonly string[]
+  /** `skills` 服务是否可用（默认 true；false 用于技能段降级用例）。 */
+  readonly skillsAvailable?: boolean
+  /** 工作区归属（默认本工作区已登记；`null` = 无法归属 / 未登记目录不可解析）。 */
+  readonly workspace?: WorkspaceAttribution | null
+  /** 工作区档初始内容（键 → 关闭集；默认本工作区一个空条目）。 */
+  readonly workspaces?: Readonly<Record<string, readonly string[]>>
+  /** 注入工作区档写入错误。 */
+  readonly workspacesWriteError?: Error
 }
 
 /** 一套假端口 + 可断言的记录。 */
@@ -275,6 +389,10 @@ interface Harness {
   readonly store: FakeStore
   readonly layer: FakeLayer | undefined
   readonly defaultsIo: FakeDefaultsIo
+  /** 工作区档端口（与默认档同形，独立实例便于断言写入路径）。 */
+  readonly workspacesIo: FakeDefaultsIo
+  /** 每次工作区归属查询的会话 id（断言写读链路走的是 session 目标）。 */
+  readonly workspaceOfCalls: string[]
   readonly log: { readonly log: SpecLog; readonly warnings: string[]; readonly errors: string[] }
 }
 
@@ -297,7 +415,15 @@ function harness(options: HarnessOptions = {}): Harness {
 
   const store = new FakeStore(initial, options.storeKind ?? 'record', options.storeWriteError)
   const layer =
-    options.withLayer === false ? undefined : new FakeLayer(catalog, scope, initial)
+    options.withLayer === false
+      ? undefined
+      : new FakeLayer(
+          catalog,
+          scope,
+          initial,
+          options.skillsAvailable ?? true,
+          options.skills ?? [],
+        )
 
   const defaultsIo = new FakeDefaultsIo()
   defaultsIo.files.set(
@@ -305,6 +431,22 @@ function harness(options: HarnessOptions = {}): Harness {
     JSON.stringify({ version: 1, disabled: options.defaults ?? [] }),
   )
   defaultsIo.failWrite = options.defaultsWriteError
+
+  const workspacesIo = new FakeDefaultsIo()
+  const seededWorkspaces: Record<string, { readonly disabled: readonly string[] }> = {}
+  for (const [key, disabled] of Object.entries(options.workspaces ?? { [WORKSPACE_KEY]: [] })) {
+    seededWorkspaces[key] = { disabled }
+  }
+  workspacesIo.files.set(
+    WORKSPACES_PATH,
+    JSON.stringify({ version: 1, workspaces: seededWorkspaces }),
+  )
+  workspacesIo.failWrite = options.workspacesWriteError
+  const attribution: WorkspaceAttribution | undefined =
+    options.workspace === null
+      ? undefined
+      : (options.workspace ?? { key: WORKSPACE_KEY, registered: true })
+  const workspaceOfCalls: string[] = []
 
   const recorded = recordingLog()
   const deps: ToolsCommandDeps = {
@@ -315,9 +457,25 @@ function harness(options: HarnessOptions = {}): Harness {
     protectedNames: new Set(PROTECTED_BASELINE),
     log: recorded.log,
     catalog: () => catalog,
+    workspacesPath: WORKSPACES_PATH,
+    workspacesIo,
+    workspaceOf: async (target): Promise<WorkspaceAttribution | undefined> => {
+      workspaceOfCalls.push(target.id)
+      return attribution
+    },
+    workspaceChoices: () => [{ key: WORKSPACE_KEY, title: '假工作区' }],
   }
 
-  return { deps, session, store, layer, defaultsIo, log: recorded }
+  return {
+    deps,
+    session,
+    store,
+    layer,
+    defaultsIo,
+    workspacesIo,
+    workspaceOfCalls,
+    log: recorded,
+  }
 }
 
 /**
@@ -809,6 +967,324 @@ describe('/tools default：读写默认档（只影响之后新建的会话）',
     expect(text).toContain(DEFAULTS_PATH)
     expect(text).toContain('本会话不变')
     expect(h.defaultsIo.writes).toHaveLength(0)
+  })
+})
+
+describe('技能翻转：结算等待与目录消息成本（D4 / S13）', () => {
+  it('/tools off skill:<name>：等技能收敛后再回执，并提示目录替换成本', async () => {
+    const h = harness({
+      catalog: ['skill', 'bash'],
+      scope: ['skill', 'bash'],
+      skills: ['openspec-propose'],
+    })
+    const text = textOf(await run('/tools off skill:openspec-propose', h))
+
+    expect(text).toContain('已关闭：skill:openspec-propose（模型不可见，/openspec-propose 手动调用保留）')
+    expect(text).toContain('技能目录替换消息')
+    // 技能翻转的代价由目录消息表达；不要同时声称「缓存不重建」自相矛盾。
+    expect(text).not.toContain('前缀缓存不重建')
+    expect(text).toContain('本会话可见工具 2（无变化）')
+    // D4：回执之前已结算，层读数与状态一致。
+    expect(h.layer?.settledCalls).toBe(1)
+    expect(h.layer?.skills().shadowed).toEqual(['openspec-propose'])
+    expect(h.store.current.disabled).toEqual(['skill:openspec-propose'])
+  })
+
+  it('回执被 skillsSettled 挡住：收敛未结算前命令不返回（D4）', async () => {
+    const h = harness({ catalog: ['skill'], scope: ['skill'], skills: ['openspec-propose'] })
+    const release = h.layer?.holdSkills()
+    let returned = false
+    const pending = run('/tools off skill:openspec-propose', h).then((result) => {
+      returned = true
+      return result
+    })
+
+    // 已进入等待（收敛被闸门卡住）。
+    expect(h.layer?.settledCalls).toBe(1)
+    await Promise.resolve()
+    expect(returned).toBe(false)
+
+    release?.()
+    const result = await pending
+    expect(result.kind).toBe('success')
+    expect(textOf(result)).toContain('已关闭：skill:openspec-propose')
+    expect(h.layer?.skills().shadowed).toEqual(['openspec-propose'])
+  })
+
+  it('/tools on skill:<name>：恢复可见并给出同样的目录成本提示', async () => {
+    const h = harness({
+      catalog: ['skill', 'bash'],
+      scope: ['skill', 'bash'],
+      disabled: ['skill:openspec-propose'],
+      snapshot: ['skill:openspec-propose'],
+      skills: ['openspec-propose'],
+    })
+    const text = textOf(await run('/tools on skill:openspec-propose', h))
+
+    expect(text).toContain('已开启：skill:openspec-propose（已回到模型目录；目录消息重发一次）')
+    expect(text).toContain('技能目录替换消息')
+    expect(h.layer?.skills().shadowed).toEqual([])
+    expect(h.store.current.disabled).toEqual([])
+  })
+
+  it('未安装的技能：宽容记录意图，不谎报目录消息成本', async () => {
+    const h = harness({ catalog: ['skill'], scope: ['skill'] })
+    const text = textOf(await run('/tools off skill:ghost', h))
+
+    expect(text).toContain('已记录：skill:ghost（当前没有这个技能；安装后自动生效）')
+    expect(text).not.toContain('技能目录替换消息')
+    expect(text).toContain('本次没有工具定义进出模型请求：前缀缓存不重建')
+    expect(h.store.current.disabled).toEqual(['skill:ghost'])
+  })
+})
+
+describe('/tools status：技能段与工作区默认档段（H11）', () => {
+  it('两段齐全：技能计数行 + 工作区键/登记态/文件路径', async () => {
+    const h = harness({
+      catalog: ['skill', 'bash'],
+      scope: ['skill', 'bash'],
+      // 一个已安装且影子生效 + 一个未安装的意图，覆盖「生效 1，意图 1」两态。
+      disabled: ['skill:openspec-propose', 'skill:ghost'],
+      skills: ['openspec-propose', 'other'],
+      workspaces: { [WORKSPACE_KEY]: ['mcp:a'] },
+    })
+    const text = textOf(await run('/tools status', h))
+
+    expect(text).toContain('技能：可见 1 / 已关 2（生效 1，意图 1）')
+    expect(text).toContain(`工作区默认档（${WORKSPACE_KEY}，已登记）：1 项 · ${WORKSPACES_PATH}`)
+    // closedStateText 的 skill 分支（G6 出口断言）：保留 /name 手动调用入口。
+    expect(lineWith(text, 'skill:openspec-propose')).toContain(
+      '（已关闭，模型不可见；/openspec-propose 手动调用保留）',
+    )
+    // 未安装的意图不谎报「已关闭」。
+    expect(lineWith(text, 'skill:ghost')).toContain(
+      '（已记录：当前没有这个技能；安装后自动生效）',
+    )
+  })
+
+  it('技能服务不可用：技能段降级一行，不谎报数字', async () => {
+    const h = harness({ catalog: ['bash'], scope: ['bash'], skillsAvailable: false })
+    const text = textOf(await run('/tools status', h))
+
+    expect(text).toContain('技能：不可用（skills 服务未就绪：技能地址只记意图，模型目录不会屏蔽）')
+  })
+
+  it('无法归属工作区：工作区段明说降级，不假装空档', async () => {
+    const h = harness({ workspace: null })
+    const text = textOf(await run('/tools status', h))
+
+    expect(text).toContain(
+      '工作区默认档：无法归属本会话所属工作区（cwd 缺失或目录不可解析；本次只用用户级默认档）',
+    )
+  })
+
+  it('整档 tool:skill 关闭：技能段补一行「目录停发」说明', async () => {
+    const h = harness({
+      catalog: ['skill'],
+      scope: ['skill'],
+      disabled: ['tool:skill'],
+      skills: ['openspec-propose'],
+    })
+    const text = textOf(await run('/tools status', h))
+
+    expect(text).toContain(
+      '整档 tool:skill 已关闭：技能目录停发，逐技能地址不生效（/<技能名> 手动调用保留）',
+    )
+  })
+})
+
+describe('/tools workspace：文法与只读形态（H11）', () => {
+  it('文法分支：裸/status 只读，off/on/set/reset 四种写动作', () => {
+    expect(parseToolsInput('workspace')).toEqual({
+      ok: true,
+      command: { kind: 'workspace', mode: 'read', texts: [] },
+    })
+    expect(parseToolsInput('workspace status')).toEqual({
+      ok: true,
+      command: { kind: 'workspace', mode: 'read', texts: [] },
+    })
+    expect(parseToolsInput('workspace off skill:x')).toEqual({
+      ok: true,
+      command: { kind: 'workspace', mode: 'off', texts: ['skill:x'] },
+    })
+    expect(parseToolsInput('workspace on mcp:a mcp:b')).toEqual({
+      ok: true,
+      command: { kind: 'workspace', mode: 'on', texts: ['mcp:a', 'mcp:b'] },
+    })
+    expect(parseToolsInput('workspace set mcp:a')).toEqual({
+      ok: true,
+      command: { kind: 'workspace', mode: 'set', texts: ['mcp:a'] },
+    })
+    expect(parseToolsInput('workspace reset')).toEqual({
+      ok: true,
+      command: { kind: 'workspace', mode: 'reset', texts: [] },
+    })
+    expect(parseToolsInput('workspace status extra').ok).toBe(false)
+    expect(parseToolsInput('workspace reset mcp:a').ok).toBe(false)
+    expect(parseToolsInput('workspace off').ok).toBe(false)
+    expect(parseToolsInput('workspace bogus').ok).toBe(false)
+  })
+
+  it('TOOLS_GRAMMAR 含 workspace 子句（G6 出口断言）', () => {
+    expect(TOOLS_GRAMMAR).toContain('workspace [status|off|on|set|reset] <地址…>')
+  })
+
+  it('文法错误文案带一行文法，且不接受路径形态', async () => {
+    const h = harness()
+    expect(await expectError('/tools workspace off', h)).toContain(
+      'workspace off 后面至少需要一个地址',
+    )
+    expect(await expectError('/tools workspace reset mcp:a', h)).toContain(
+      'workspace reset 不接地址',
+    )
+    expect(await expectError('/tools workspace status extra', h)).toContain(
+      'workspace status 不接参数',
+    )
+    const unknown = await expectError('/tools workspace bogus', h)
+    expect(unknown).toContain('workspace 的子命令只支持 status / off / on / set / reset')
+    expect(unknown).toContain('文法：/tools status | off <地址…>')
+    // 命令面只作用本会话所属工作区，不提供 --path 形态（设计 §3.8）。
+    expect(await expectError('/tools workspace --path /w', h)).toContain('不接受路径参数')
+  })
+
+  it('/tools workspace 输出含工作区键与文件路径（G6 出口断言），且只读', async () => {
+    const h = harness({ workspaces: { [WORKSPACE_KEY]: ['mcp:a', 'skill:x'] } })
+    const text = textOf(await run('/tools workspace', h))
+
+    expect(text).toContain(`【工作区默认档】${WORKSPACE_KEY}（已登记）`)
+    expect(text).toContain(`文件：${WORKSPACES_PATH}`)
+    expect(text).toContain('当前 2 项关闭（mcp:a、skill:x）')
+    expect(text).toContain('只影响之后新建的会话；本会话不变')
+    expect(h.workspacesIo.writes).toHaveLength(0)
+    expect(h.store.writes).toHaveLength(0)
+  })
+
+  it('/tools workspace status 与裸形态同义', async () => {
+    const h = harness({ workspaces: { [WORKSPACE_KEY]: ['mcp:a'] } })
+    expect(textOf(await run('/tools workspace status', h))).toBe(
+      textOf(await run('/tools workspace', h)),
+    )
+  })
+
+  it('无法归属工作区：只读形态报 workspace-unresolved 同款失败', async () => {
+    const h = harness({ workspace: null })
+    const text = await expectError('/tools workspace', h)
+
+    expect(text).toContain('workspace-unresolved')
+    expect(text).toContain('无法归属本会话（s1）所属工作区')
+  })
+})
+
+describe('/tools workspace：off/on/set/reset 写读链路（T9）', () => {
+  it('off：写本会话所属工作区，回执含「只影响之后新建的会话」，本会话状态零改动', async () => {
+    const h = harness()
+    const text = textOf(await run('/tools workspace off skill:openspec-propose', h))
+
+    expect(text).toContain('只影响之后新建的会话')
+    expect(text).toContain('本会话不变')
+    expect(text).toContain(`工作区键：${WORKSPACE_KEY}（skill:openspec-propose）`)
+    // 写入参数经假 deps 记录：路径 = 工作区档，内容 = 该键的条目。
+    expect(h.workspacesIo.writes).toHaveLength(1)
+    expect(h.workspacesIo.writes[0]?.path).toBe(WORKSPACES_PATH)
+    expect(JSON.parse(h.workspacesIo.writes[0]?.data ?? '{}')).toEqual({
+      version: 1,
+      workspaces: { [WORKSPACE_KEY]: { disabled: ['skill:openspec-propose'] } },
+    })
+    // 目标形态是 session：归属查询被调用一次，且状态/层一个字都没动（不追溯）。
+    expect(h.workspaceOfCalls).toEqual(['s1'])
+    expect(h.store.writes).toHaveLength(0)
+    expect(h.store.current.disabled).toEqual([])
+    expect(h.layer?.setStateCalls).toBe(0)
+  })
+
+  it('on：从当前工作区条目移除', async () => {
+    const h = harness({ workspaces: { [WORKSPACE_KEY]: ['mcp:a', 'skill:x'] } })
+    const text = textOf(await run('/tools workspace on mcp:a', h))
+
+    expect(text).toContain('新增 0 项、移除 1 项；当前 1 项关闭')
+    expect(JSON.parse(h.workspacesIo.writes[0]?.data ?? '{}')).toEqual({
+      version: 1,
+      workspaces: { [WORKSPACE_KEY]: { disabled: ['skill:x'] } },
+    })
+  })
+
+  it('set：整份覆盖该工作区条目', async () => {
+    const h = harness({ workspaces: { [WORKSPACE_KEY]: ['mcp:a'] } })
+    const text = textOf(await run('/tools workspace set skill:b skill:a', h))
+
+    expect(text).toContain('已覆盖')
+    expect(text).toContain('新增 2 项、移除 1 项')
+    expect(JSON.parse(h.workspacesIo.writes[0]?.data ?? '{}')).toEqual({
+      version: 1,
+      workspaces: { [WORKSPACE_KEY]: { disabled: ['skill:a', 'skill:b'] } },
+    })
+  })
+
+  it('reset：清空该工作区条目（保留键）', async () => {
+    const h = harness({ workspaces: { [WORKSPACE_KEY]: ['mcp:a', 'skill:x'] } })
+    const text = textOf(await run('/tools workspace reset', h))
+
+    expect(text).toContain('已清空')
+    expect(text).toContain('当前 0 项关闭')
+    expect(text).toContain('（空档）')
+    expect(JSON.parse(h.workspacesIo.writes[0]?.data ?? '{}')).toEqual({
+      version: 1,
+      workspaces: { [WORKSPACE_KEY]: { disabled: [] } },
+    })
+  })
+
+  it('写后读：/tools workspace 立即看到新条目（同一文件端口）', async () => {
+    const h = harness()
+    const receipt = textOf(await run('/tools workspace off skill:x', h))
+    expect(receipt).toContain('只影响之后新建的会话')
+    const text = textOf(await run('/tools workspace', h))
+
+    expect(text).toContain('当前 1 项关闭（skill:x）')
+    expect(text).toContain(`文件：${WORKSPACES_PATH}`)
+  })
+
+  it('写失败：error 回执带文件路径与「本会话不变」，文件不动', async () => {
+    const h = harness({ workspacesWriteError: new Error('EACCES: 模拟的工作区档权限错误') })
+    const text = await expectError('/tools workspace off mcp:a', h)
+
+    expect(text).toContain('工作区默认档写入失败')
+    expect(text).toContain(WORKSPACES_PATH)
+    expect(text).toContain('本会话不变')
+    expect(h.workspacesIo.writes).toHaveLength(0)
+  })
+
+  it('无法归属工作区：写形态报 workspace-unresolved 同款失败，不写文件', async () => {
+    const h = harness({ workspace: null })
+    const text = await expectError('/tools workspace off mcp:a', h)
+
+    expect(text).toContain('workspace-unresolved')
+    expect(text).toContain('s1')
+    expect(h.workspacesIo.writes).toHaveLength(0)
+  })
+
+  it('地址校验与 /tools off 共用内核（保护名单整单拒绝，文件不动）', async () => {
+    const h = harness()
+    const text = await expectError('/tools workspace off tool:bash', h)
+
+    expect(text).toContain('保护名单')
+    expect(h.workspacesIo.writes).toHaveLength(0)
+  })
+
+  it('updateWorkspaceDefaults：内核接缝可直接驱动（key / path / added / removed）', async () => {
+    const h = harness()
+    const outcome = await updateWorkspaceDefaults(
+      h.deps,
+      { kind: 'session', session: h.session },
+      'off',
+      ['skill:x'],
+    )
+
+    expect(outcome.ok).toBe(true)
+    if (!outcome.ok) return
+    expect(outcome.report.key).toBe(WORKSPACE_KEY)
+    expect(outcome.report.path).toBe(WORKSPACES_PATH)
+    expect(outcome.report.added).toEqual(['skill:x'])
+    expect(outcome.report.removed).toEqual([])
   })
 })
 

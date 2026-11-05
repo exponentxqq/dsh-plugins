@@ -194,3 +194,84 @@ N13 栈识别 writer skill（命中 / 三选一）
 
 - **根仓** `dsh-plugins`：`plugins/session-tool-toggle/`（宿主半 + Web 半 + 测试）、根 `README.md`、`AGENTS.md`、`openspec/changes/session-tool-toggle-skill-workspace/`；上游 `@deepseek-ai/dsh*` 只读核实、零修改（ADR-0002）；用户 profile / dotfiles 不在本仓 diff 内。
 - **播种并集可测性补充（设计线细化，不推翻收敛结论）**：并集逻辑以纯函数 `mergeSeed(user, workspace)` 落在 `src/host/workspaces.ts`，由 `index.ts` 的 `readOrSeed` 调用，单测直接钉住并集与排序。
+
+---
+
+## 执行期留痕（spec-apply 维护；R<n> 条目自包含：规则 + 依据 + 适用范围 + 连锁面）
+
+### R1 插件发布版本口径 = 1.6.0（2026-11-04 补勘误同步）
+
+- **规则**：本变更发布 1.6.0，不写 1.5.0。
+- **依据**：落档时基座为 1.4.0，但 v1.5.0 已在勘误前发布（提交 `88f4980`、本地 tag `v1.5.0` 已存在）；`pnpm release` 拒绝已存在 tag，写 1.5.0 是硬失败陷阱。勘误提交 `2098d69` 已对齐 code-design，本条补齐 design/tasks 的 5 处漏改（design.md 组 9 行/风险表/Migration Plan、tasks.md 9.1/9.3）。
+- **适用范围**：组 9 全部发布动作与文案。
+- **连锁面**：tasks.md 9.3（`pnpm release` 目标版本与验证句）、design.md Migration Plan 第 2 条、9.1 README 的版本引用按「不含本功能的旧版（1.4.0/1.5.0 均如此）」表述；组 9 执行 9.3 的「profile 重装后重启」步骤前按 auto 硬停条件③（重启 dsh 进程会杀死本会话）先停下经用户确认。
+
+### R2 spike/冒烟取证口径：隔离 + mock（2026-11-04，组 1 实证）
+
+- **规则**：机制类验证（本变更的 spike 与冒烟）用「独立 `DSH_HOME` + 最小实验插件 + 进程内 mock LLM adapter」取证；临时脚本、fixture、实验插件、会话日志一律落 `/tmp`（执行期证据纪律：`git status` 不出现证据文件），`artifacts/` 只放结论工件（`spike-skill-shadow.md`、`smoke-record.md`、截图 PNG）。
+- **依据**：组 1 实测可零真实凭据/零真实 token 取得全部 5 条断言的确定性证据；code-design G1「临时脚本放 artifacts/（gitignore）」原字面按本口径覆盖执行（仓库 `.gitignore` 不为此改动）。
+- **适用范围**：组 1（已完成）、组 8.2 冒烟。
+- **连锁面**：artifacts/spike-skill-shadow.md §0（装配记录）；组 8.2 优先复用同口径（浏览器截图除外——那需要真实 web 表层，届时独立端口 + 用后即清）。
+
+### R3 上游 0.2.1-rc.5 实测事实（2026-11-04，组 1 实证）
+
+- **规则**：① rc.5 的 `<skill_content>` 注入帧**不渲染 `provider` 属性**——「provider 等于真实值」的断言改用加载定义（`skills.get`）取证；② `agent/created` 事件 serial 且被 `agents.create` await——在该钩子里注册 stub 早于首步，是合法的实验与实现时序；③ headless 表层**不监听端口**（`dsh-headless/README.zh.md` 明示），独立端口验证需另起 web 表层；④ `snapshot.complete === false` 时目录停发（0 条 `skill-catalog`，对应 `dsh-tool-skill/lib/index.js:944` 短路）。
+- **依据**：artifacts/spike-skill-shadow.md 断言 1/4 与额外观察。
+- **适用范围**：组 3（session-layer 实现与测试）、组 6（rpc 回执「下一步收敛」提示）、组 8（冒烟断言口径）。
+- **连锁面**：code-design G1 终形态小节；G3 断言「provider 一致」走 snapshot/加载定义而非注入帧文本；G6 `toggle` 回执的「下一步收敛」提示（H10）以 ④ 为前提；spec 场景「ADDED 技能级开关 · 用户手动调用保留」的验证映射表 provider 行改按加载定义断言。
+
+### R4 组内并行期 typecheck 验收口径与连带同步追认（2026-11-04，组 2 实证）
+
+- **规则**：组 2（类型面先行）与组 5/6/7（实现消费）之间的 typecheck 红为**规划内瞬态**。组收口口径 = 「全量 typecheck/vitest 的红，除归属后续组触达面的已知红外必须为零」。组 2 收口时已知红清单（2 条，全部归属后续组）：`test/wire-contract.test.ts:307`（NOTICE_CODES deep equal 3 码 → T11/组 5 修）、`test/locale-parity.test.ts:186`（`toHaveLength(3)` → T17/组 7 修）。typecheck 全绿点 = 组 6 完成（H6/H7/H10 消费端齐）。
+- **依据**：H5 类型面先行冻结与 G5 串行闸是有序设计；组 2 期间任务 2.4 依派发提示「必要最小配套」条款对 6 个连带文件做机械最小同步（`contract.ts` NOTICE_CODES 两码、`ToolPanelAction.tsx` 穷尽 switch 两 case、`locales.ts` zh/en 两键、三个测试 FakeLayer 各两桩），全部在回执偏差中逐条声明，经主会话逐 diff 内容审查合格后**追认保留**（非静默越权）。`PanelInputs` 定形采用 `skills?: SkillLayerSnapshot` + `workspace?: WorkspacePanelInputs`，不加扁平 `skillsAvailable`（组 6 从 `SkillLayerSnapshot.available` 取）。
+- **适用范围**：组 2 至组 6 收口前的全部 typecheck/vitest 验收；后续组涉及类型扩面时沿用本条款（连带同步 + 回执声明 + 主会话审查）。
+- **连锁面**：组 5.1（wire-contract 码表穷举用例、REQUEST_PARSERS/白名单同步）、组 6（T8/T9/T10 将完整重写三个 FakeLayer 与桩）、组 7.7（locale-parity 5 码断言）；上述三处完成后本条已知红清零，R4 使命结束。
+- **组 5 收口更新（2026-11-04）**：原 `wire-contract.test.ts:307` 已由 5.1 顺带清零（码表穷举改 5 提示码/11 失败码）。当前瞬态清单——typecheck 10 条：`rpc.ts:445/542/564`（→6.3）、`wire-contract.test.ts:1122` 双向交叉（→6.1）、client 夹具 6 条（→组 7）；全量 vitest 19 条：`rpc.test`×12（→6.3）、`panel-client`×3 与 `locale-parity`×2（→组 7）、`bundle`×2（→组 8 T18 + lib 重建）。全部有归属，组 6/7/8 完成后清零。
+- **组 6 收口更新（2026-11-05）**：rpc 3 条 typecheck 与 `rpc.test`×12 已由 6.3 清零；wire-contract 交叉 1 条由 6.1 清零；余红收敛为 typecheck 6 条 + vitest 7 条（`panel-client`×3、`locale-parity`×2、`bundle`×2），全部归属组 7/8。R4 剩余使命 = 组 7/8 完成时清零。
+
+### R7 组 6 收口裁决集（2026-11-05，主会话核对与修复留痕）
+
+- **① hiddenSkills / schemaChanged 技能项的真实层时序（必修已修）**：内核 `toggleSession/resetSession` 的技能部分是 `setState` 后的**同步初值**（真实层 stub 注册异步，同步读会谎报 0——6.3 上浮、D-4 反例红线「回执不得撒谎」）。定稿 = **双段口径**：`ToggleReport/ResetReport` 增 `shadowedBefore`（收敛前基准，control.ts）；rpc 的 toggle/reset 分支在 `await settledSkills()` **之后**用新增 `settledShadowedOf(deps, session)` 现读层影子数，按 `settled − shadowedBefore` 重算 `hiddenSkills` 并补齐 `kvRebuild` 技能项（`mutationOfToggle/mutationOfReset` 加第三参，undefined 回退内核初值）；reset 分支同步补 `await settledSkills()`（6.4 在命令面已同款）。**语义红线**：未安装技能与无技能服务必须保持 `hiddenSkills=0`/`schemaChanged=false`（不谎报目录消息成本——control.test 与 commands.test 的两条语义用例是裁决依据；中途「意图口径」方案被这两条用例否决后回退）。
+- **② workspace `set` = 整份覆盖**：与 `updateDefaults` 的 set 同义、两档同构；`off` 并入 / `on` 移除 / `reset` 清空条目保留键 / `read` 只读不写。tasks 6.2 原文「off|set = 并入」的 set 部分按笔误处理（6.3/6.4 用例已按覆盖钉住）。
+- **③ `WorkspaceValue.changed` = 写后整份关闭集**（defaults 端点同构；read 为空数组）：added/removed 明细留在 `WorkspaceDefaultsReport`（宿主内部），不上 wire。契约注释「本次实际写入的规范形地址」按此口径解释。
+- **④ 两条技能提示码（`skills-unavailable`/`skill-shadow-failed`）的组装落点 = rpc `snapshotOf`**（panel.ts `noticesOf` 注释指定的「装配层」即 rpc；rpc 是面板快照唯一生产路径）。panel 只做 `NOTICE_ORDER` 排序，不推导。
+- **⑤ `TOOLS_GRAMMAR` 物理落点 = control.ts**（H7 文件；6.2 落盘时带出 workspace 子句，6.4 断言消费）——语义属命令面（H11）、物理属内核常量，后续同类「语义在 A 文件、常量在 B 文件」以物理落点为准、由 B 的任务带出。
+- **连锁面**：组 7 的 client 夹具 `hiddenSkills` 必填（Mutation 契约不变）；组 8.2 冒烟第 1 条（技能翻转回执数字）与第 5 条（无 skills 组合 `skills-unavailable`）按 ①④ 口径验证；`ToggleReport/ResetReport.shadowedBefore` 为宿主内部字段，不上 wire。
+
+### R8 组 9 执行期勘误与口径（2026-11-05，9.3 复核实证）
+
+- **① tasks 9.3 验证句勘误（已改）**：`scripts/release.mjs` 强制显式版本号（`pnpm release --dry-run` 缺 positional 直接用法错误退出）；且 dry-run 在 build/lib 收集**之前** exit——**从不打印 lib 文件清单**，只打印版本同步清单。修正后口径：`pnpm release 1.6.0 --dry-run` 打印 `1.5.0 → 1.6.0`（须在实现提交后的干净工作区执行，脏工作区在打印版本前即被拒绝）；lib 清单核对改在发布提交后 `git show --stat`。
+- **② live `stat 600` 断言移 9.3**：`~/.dsh/session-tool-toggle/workspaces.json` 由新宿主半运行时写入，live profile 虽为 link: 但运行中进程仍旧代码——重启（硬停③）重装后才可断言；8.2 已断言隔离 DSH_HOME 同值权限位（600/700）。
+- **③ multi-root `lib/types/contract.d.ts` 的既有 M 归位**：根 `pnpm verify` 的 multi-root `build:types` 把一处历史遗留脏产物重建回 HEAD（该 M 消失）——本变更从未触碰 multi-root，属工作区更干净，无需恢复。
+- **④ 无 skills 的 web 组合受上游 agent preset 硬依赖**（`waiting for skills`，8.2 观察）：9.1 README 按此补说明；该组合下命令面可用、面板快照降级（真实 RPC handler 取证 `notices:["skills-unavailable"]`）。
+- **适用范围**：9.3 发布执行（主会话、用户审核后）与重启后 live 复跑。
+- **连锁面**：tasks.md 9.3（已按 ① 改）；9.1 README（④ 已并入派发）；spec-done 六要素汇报的发布清单按 ① 的发布后核对口径。
+
+### R9 重启后 live 断言（2026-11-05，9.3 前置取证；发布暂缓期间的 link: 形态）
+
+- **重启确认**：dsh 进程 elapsed 3 分钟（2026-11-05 08:56 前后启动），工作区 61 项改动完好。
+- **新实现加载硬证据（link: 形态，tag 未打时的等效验证）**：① `--dump-config-schema` 输出含本变更新增 `Config.workspacesFile` 字段描述（旧版无此字段）；② 运行日志装配文案「已装配：inject=[agents, tools]，默认档 …/defaults.json，**工作区档 …/workspaces.json**，保护名单 7 项，持久化 auto（待首个会话解析）」；③ RPC 通道日志「端点 panel / toggle / reset / defaults / **workspace**」（第 5 端点）；④ /tools 日志「本会话开关 + 默认档 + **工作区档**」；⑤ 重启后 2 个会话均已装执行期守卫。
+- **workspaces.json 未创建 = 正常**：惰性落盘（首次写入工作区默认档时创建，R6 缺席 warn 语义），`600/700` 权限断言随 9.3 真实发布后复验。
+- **dump CLI exit 1 定性**：web profile 下报 4 条 `unrecognized Loader tree carrier`；对照 headless profile（无这批 bundle）0 条；本变更对 `package.json` 的 `dsh.bundle.patch` 声明与 `cordis.patch.yml` **零改动**，web profile 另有 20+ 其他 bundle——定性为本变更无关的既有 dump 特征，schema 照常完整输出。
+- **适用范围**：9.3 的「重启并复跑冒烟第 1 条」之机器可验部分已完成；UI 冒烟第 1 条与按 `#v1.6.0` 安装断言仍随真实发布执行。
+- **连锁面**：tasks 附录「未提交待决」④⑤ 已完成；① 提交、② release、③ push 经用户裁决**暂缓**（2026-11-05 问询）。
+
+### R10 归档与发布解耦（2026-11-05，用户裁决）
+
+- **裁决**：呈证后用户选择「暂缓提交/发布」→ 09:22 复核后最终裁决「**归档提交，但不推送不发版，仅提交**」。本变更以未发布状态归档：仓库版本号维持 1.5.0（release.mjs 的版本同步/发布提交/tag 均未执行），发布操作清单移交 tasks 9.3 供后续独立执行。
+- **连带裁决（面板口径，另立变更）**：用户同裁决「会话工具面不读全局层，只管理当前会话有效工具（与 `/inventory` 同口径：`scoped ∪ carried`）」——因当前变更随即归档，该修改**不可能并入**，成立后续新变更（推翻已归档变更 `2026-11-02-session-tool-toggle` 的 R15①/R18 全局层口径，留痕在新变更）。
+- **三方对齐**：tasks 28/28 勾选（9.3 改写为「发布收口（暂缓发布，仅归档提交）」并如实记录未执行项）；工件（R1–R10、G1–G9、附录终态）随归档提交入库；git log = 一次 feat 提交、无 release 提交、无 tag、无 push。
+
+### R5 新测试文件的 tsconfig 登记口径（2026-11-04，组 2 观察）
+
+- **规则**：本变更新建的 `test/*.test.ts`（T2/T4/T6/T7/T12/T13 等）未登记进 `tsconfig.host.json` 的 include，`pnpm typecheck` 暂不覆盖它们；**统一处置 = 组 8.1 静态门禁前一次性登记**（逐个登记或 include 改 glob，随组 8 批次提交），此前各新建测试文件由执行任务自行 `tsc --noEmit` 定向校验（组 2 已这样做）。
+- **依据**：2.2 回执观察；触达面清单（code-design ①）未列 tsconfig——规划遗漏的构建配套，属执行期补全而非规划外 scope 变更。
+- **适用范围**：组 3–7 全部新建测试文件；组 8.1。
+- **连锁面**：组 8.1 的 `verify:all`/`pnpm dsh:check` 前必须完成登记并复跑 typecheck；若某组验收强依赖测试文件类型检查，由该批次临时登记并在回执声明。
+
+### R6 软注入缺席语义 = 降级而非 fail-closed（2026-11-04，组 4 实证裁决）
+
+- **规则**：软注入服务（`workingDirectory`/`workspaceRegistry`/`skills`）缺席时**只降级归属/功能方式**——registry 缺席 → `registered:false` 的 canonical cwd 键照常参与并集；`workingDirectory` 缺席 → 回退 `header.cwd`；skills 缺席 → 技能分面 `available:false` 只记意图。`attribution === undefined`（只用户档播种）**仅限** cwd 缺失或 realpath 全程失败。派发提示与落档工件冲突时以工件为准（组 4.3 派发转述括号作废，实现按 design/spec）。
+- **依据**：design.md C14（缺席降级 + 提示不静默）/D8/D11 与 spec「未登记目录以 canonical cwd 为键」条款；若缺席即 fail-closed，headless（无 workspaceRegistry）上工作区档整体失效、违背需求②。4.3 的 /tmp 4 场景冒烟实证（临时脚本已删，结论留此）。
+- **适用范围**：组 6（`workspace` 端点与 `updateWorkspaceDefaults`）、组 7（面板工作区视图与 choices 空数组展示）、组 8 冒烟。
+- **连锁面**：`workspace-unresolved` 失败码语义收窄为「cwd 无法归属/路径未登记」（组 6.3 测试）；`skills-unavailable` 提示码语义（组 7 SkillPanel 降级文案）；组 8.2 冒烟的「无 skills 组合降级」「坏文件降级」断言口径。缺席 warn 落点 = 首个会话播种时汇总一条（`ctx.inject` 回调微任务时序所致，`apply` 末尾无法区分未就绪与永远缺席）。

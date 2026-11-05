@@ -1006,6 +1006,7 @@ export const PANEL_ORDER = 20
   5. dispose 后全部恢复，邻会话全程不受影响。
 - **出口**：artifacts 下一份 `spike-skill-shadow.md`，逐条给出「命令 + 观察到的输出片段」；5 条全绿方可进 G2，任一条红则回到 D-1 的兜底（只做整档）并上报。
 - **额外断言**：`snapshot.complete === false` 的场景（provider 抖动）下目录不更新（`dsh-tool-skill/lib/index.js:944`），此时回执要提示「下一步收敛」。
+- **终形态（2026-11-04 执行实测，组 1 全绿；证据 `artifacts/spike-skill-shadow.md`）**：5 断言逐条成立——① stub 经 `agent.ctx.inject(['skills'], scope => scope.skills.register(stub))` 在 `agent/created`（serial、被 `agents.create` await）注册，早于首步；agent 视角 `modelInvocable:false` 胜出（provider 一致），全局视角仍 `true`；② 目录消息不含该名（`source.kind='skill-catalog'`，names 只剩其余 fixture）；③ `skill` 工具直接调用报 `not available for model invocation`（与 :875/:878 逐字一致）；④ `/name` 注入正文与磁盘逐字节一致（sha256 一致）；⑤ dispose 全恢复 + 邻会话前/中/后不受影响。额外：`complete:false` 会话 0 条 skill-catalog（:944 短路成立）。实验口径：无源码改动；最小实验插件 + 进程内 mock LLM adapter（零真实凭据/token）；fixture 3 个；隔离 `DSH_HOME`；headless 表层不监听端口，独立端口以 web 表层验证后即清（详见 R3 留痕）。
 
 ### G2 — 地址文法与纯函数层（4 项并行；对应 T2「地址文法与状态」+ T3「技能计划」）
 
@@ -1029,6 +1030,7 @@ export const PANEL_ORDER = 20
   - `['skill:','skill:Foo','skill:foo_bar','skill:foo bar','skill:foo-','skill:-foo'].forEach(i => expect(parseAddress(i,names)).toMatchObject({ok:false,code:'bad-skill-name'}))`
   - `expect(planMask({catalog:['skill'],scoped:['skill'],carried:[],disabled:['skill:foo']})).toEqual({deny:[],shadowServers:[],matched:new Map()})`
   - `expect(planSkills({disabled:['skill:x','skill:y','tool:skill'],installed:['x'],toolSkillClosed:true}).shadowNames).toEqual([])`
+- **终形态（2026-11-04 组 2 全绿收口）**：四任务全过（G2 四套件 181/181；全量 685/687，2 条已知红归属 T11/T17 见 diff-matrix R4；typecheck 0、oxlint 0/0）。实测要点：① `addressesEqual` 需补 skill 分支——否则 `{kind:'skill',name:'x'}` 落 tool 尾分支与同名 `tool:x` 误判相等（H1 逐字外的必要语义修补）；② `skills-plan.ts` 复用 `parseAddress`（单一文法源，D15 口径：技能地址空保护集解析），不自带正则；③ 类型面按 §3.3 冻结（types.ts 纯类型零运行时）+ 6 文件连带同步（R4 逐条）；④ 新测试文件的 tsconfig 登记统一推迟到组 8.1 前（R5）。
 
 ### G3 — 每 agent 技能分面（2 项并行；对应 T4「技能遮蔽层」）
 
@@ -1051,6 +1053,8 @@ export const PANEL_ORDER = 20
   - 整档 `tool:skill` 关闭时 `expect(registerCalls).toBe(0)` 且原 stub 被 dispose
   - 同层先到先得：假的 `register` 返回 no-op disposer 且不记账 → `expect(layer.skills().shadowed).toEqual([])` 且能从「快照 provider 不符」判出 `failed`
 
+> **终形态（2026-11-04 组 3 全绿收口）**：39/39 绿（25 既有 + 14 新增）；typecheck 0、lint 0；全量 699/701（仅 R4 两条已知红，无新增）。实测要点：① 句柄字段名 `this.skillScope`（= 蓝图 `skillHandle` 同一语义，随 D-3 措辞）；② `mountSkills` 结构性收窄——`agent.ctx.get` 存在才启用技能分面（真实 Cordis ctx 恒有 get，既有「假 ctx 只有 inject」测试零改动）；③ 捕获为顺序 + 每 capture 2s 超时（有界），A8 的 4 并发未引入——关闭集有限即有界，需要提速可后续批次改并发（连锁：无断言依赖）；④ R3-④ 落实：`snapshot.complete === false` 时清单缓存**合并不替换**（不把缺席当删除，与上游目录停播一致）；冻结类型无 complete 字段，未改类型面；⑤ 按设计 6.2 U3 加 `MAX_CACHED_SKILL_BODIES = 64` FIFO（设计正文要求、任务列表未列，已补）；⑥ `failed` 为层内事实不暴露类型面——组 6 由 `disabled ∧ visible ∧ ¬shadowed`（回执前已 `await skillsSettled()`）推导 `skill-shadow-failed`。
+
 ### G4 — 工作区数据面（3 项并行；对应 T5「工作区档模块」）
 
 | 项 | 文件 | 要点 |
@@ -1072,6 +1076,8 @@ export const PANEL_ORDER = 20
   - 归属：`expect(await resolveWorkspaceAttribution('/w/sub/dir', ports)).toEqual({key:'/w', registered:true, title:'W'})`；`expect(await resolveWorkspaceAttribution('/gone', ports)).toBeUndefined()`
   - 播种：`expect(seeded.snapshot).toEqual(['mcp:u','skill:s'])`（用户档 `['mcp:u']` ∪ 工作区档 `['skill:s']`），且 `expect(seeded.disabled).toEqual(seeded.snapshot)`
 
+> **终形态（2026-11-04 组 4 全绿收口）**：4.1 = 47 用例（降级表逐行 + 稳定序列化逐字节 + 原子参数 600/700 + mergeSeed 并集）；4.2 = 8 用例（五组断言 + registry 精确匹配防前缀误命中）；4.3 = index.ts +223/−17（Config/Settings `workspacesFile`、双软注入分开、`workspaceOf` 闭包、`readOrSeed` 并集、fail-closed 只用户档）+ /tmp 4 场景冒烟（并集播种/registry 优先/有效 cwd/目录已删；脚本已删，结论入 diff-matrix R6）。实测要点：① §3.4 JSON 示例的 `disabled` 单行数组为示意，实际 `JSON.stringify(,null,2)` 多行（缩进/结尾换行/键序契约不变）；② 工作区档读路径用**空保护名单**（`tool:bash` 等保留——D15 有意差异，与 defaults 的保护名单不同，源码已声明）；③ `RealpathPort` 为方法对象 `{ realpath(path) }`（§3.5 草图裸函数签名与实现不符，以冻结导出为准）；④ 软注入缺席语义按 R6（只降级，不 fail-closed）；缺席 warn 落点 = 首个会话播种时汇总一条（inject 回调微任务时序）；⑤ tsconfig 登记按 R5 推迟到组 8.1 前。
+
 ### G5 — 契约先行（1 项；串行闸：G2–G4 完成 → G5 → G6）
 
 - **文件**：`src/contract.ts`（单文件，不并行）。
@@ -1082,6 +1088,8 @@ export const PANEL_ORDER = 20
   ! grep -qE '^\s*import ' plugins/session-tool-toggle/src/contract.ts && echo 'contract: 零 import OK'
   ```
   必含断言：`parseWorkspaceRequest({sessionId:'s',workspacePath:'/w'})` → `ok:false`；`{sessionId:'s',action:'set'}` → `ok:false`（缺 addresses）；`{sessionId:'s',action:'read',addresses:['a']}` → `ok:false`；`{workspacePath:'/w'}` → `ok:true`（缺省 read）；`parsePanelSnapshot` 对未知键 `groupsX` 拒绝。
+
+> **终形态（2026-11-04 组 5 全绿收口）**：5.1 = 263 用例（172 零回归 + 91 新增）、零 import 保持、`contract.ts` 自身零错误；`parseWorkspaceRequest` 将缺省 action 归一为显式 `'read'`（dispatcher 免二次兜底，其余缺省字段省略与 `parseDefaultsRequest` 同风格）；R4 已知红之一（wire-contract 3 码断言）顺带清零，码表穷举 5 提示码/11 失败码。5.2 = package.json +2 行（devDep 钉 0.2.1-rc.5 + dsh.client.inject 一项，按语义分组插入）+ 锁文件 importer 段 +3 行；`pnpm install` 未夹带（快照 md5 一致）；`pnpm dsh:check` 预检通过（50 包全 0.2.1-rc.5、allowlist 309 一致）。typecheck 余 10 条瞬态、vitest 余 19 条，归属清单见 diff-matrix R4 组 5 收口更新。
 
 ### G6 — 内核与装配接线（5 项并行；对应 T6/T7 的宿主部分）
 
@@ -1105,6 +1113,8 @@ export const PANEL_ORDER = 20
   - `control`：`expect(report.hiddenSkills).toBe(1)`；`expect(report.schemaChanged).toBe(true)`（deny 未变、影子集合变了）；`updateWorkspaceDefaults(deps, {kind:'session',session}, 'off', ['skill:x'])` 后 `expect(after.workspaces['/w'].disabled).toEqual(['skill:x'])`
   - `rpc`：`workspace` 端点 5 种 action × 两种形态；`{sessionId}` 的会话 cwd 已删 → `code:'workspace-unresolved', details:{subject:'s1'}`；`{workspacePath:'/etc'}` → `workspace-unresolved`（未登记）；写盘抛错 → `code:'workspace-unwritable', details:{path,reason}`
   - `commands`：`/tools workspace` 输出含工作区键与文件路径；`/tools workspace off skill:x` 回执含「只影响之后新建的会话」；`/tools status` 含「技能：」与「工作区默认档」
+
+> **终形态（2026-11-05 组 6 全绿收口）**：五任务全绿——panel 45、control 47、rpc 48、commands 71、index 接线 +353/−26（Config/Settings/软注入/播种段之上：`controlDeps` 四字段、`rpcDeps` spread 复用、`workspaceChoices` 闭包 UTF-16 稳定排序、技能/工作区降级日志、`workspaceInjectionDisposers` 统一拆卸）；typecheck 余 6 条组 7 夹具（R4）、lint 0/0、`dump-config-schema` 本插件 `status:"schema"`。实测要点（裁决集详见 diff-matrix R7）：① hiddenSkills/schemaChanged 技能项 = **双段口径**（内核同步初值 + `shadowedBefore` 基准；rpc `await settledSkills()` 后以新增 `settledShadowedOf` 重算为「已生效」口径；reset 分支补 await；未安装/服务缺席保持 0/false 不谎报）；② workspace `set` = 整份覆盖；③ `changed` = 写后整份关闭集（defaults 同构）；④ 两提示码组装落点 rpc `snapshotOf`；⑤ `TOOLS_GRAMMAR` workspace 子句由 6.2 在 control.ts 带出；⑥ SkillView 投影唯一落点 = panel.ts（rpc 只交原始读数）；⑦ workspace 端点 read 自行读档（不走 `updateWorkspaceDefaults('read')`）；⑧ dump 验证 grep 适配 JSON 双引号（单引号字面量不命中）。
 
 ### G7 — Web 半（7 项并行；对应 T8 + T9「入口」）
 
@@ -1132,6 +1142,8 @@ export const PANEL_ORDER = 20
   - `panel-client`：`workspace({sessionId:'s',action:'read'})` 的 payload 精确等于 `{sessionId:'s',action:'read'}`（strict 端点不多带键）
   - `locale-parity`：新键 zh/en 键集完全相同
 
+> **终形态（2026-11-05 组 7 全绿收口）**：七任务全绿——skill-panel 10、workspace-editor 20、tool-panel 30、locale-parity 10、client-index 23、panel-controller 42、panel-client 42；**typecheck exit 0 零余红**（R4 组 7 部分全清）、lint 0/0、全量除 bundle×2（lib 旧产物，归 8.1 重建）外全绿；locales zh/en 109/109 双向差集空。实测要点：① hiddenSkills 双段口径在 rpc 落地（R7-①，`shadowedBefore` + `settledShadowedOf` 重算，reset 分支补收敛等待）；② client parser 复用 contract.ts（打包内联即 D16 两端各一份，避免三份漂移）；③ 对话框壳归 7.3 Modal，7.2 dialog 变体只交付正文壳（主会话修补嵌套 dialog，A11y 双根）；④ 技能分区标题取「逐技能开关」（避免与整档分组「技能」读屏重名）；⑤ `DQ1=C`：`workspace.menu.item` 全 `src/client/` 零命中；⑥ 面板分区不额外 `refreshWorkspace`（视图随 panel 快照，对话框打开时 7.3 已二次 read）；⑦ `current-session.ts` 只服务 footer 入口（面板座位自带 sessionId）；⑧ **留组 8 截图拍板**：面板 dialog 标题/刷新按钮的 UI 冗余与折叠态浮层定位（U4）。
+
 ### G8 — 静态门禁 + 隔离实例冒烟 + 浏览器证据（2 项并行；对应 T8/T9 的验证面）
 
 | 项 | 命令/动作 |
@@ -1155,6 +1167,8 @@ export const PANEL_ORDER = 20
   4. 手写坏 `workspaces.json` → `EMPTY_WORKSPACES` + 一条 warn（`docker logs` grep），会话照常创建；
   5. headless/无 `skills` 组合 → 插件正常装配、`/tools` 可用、面板给 `skills-unavailable`；
   6. chrome-devtools MCP：技能行开关、面板工作区分区、footer 入口对话框各一张截图；断言侧栏工作区行 `...` 菜单保持原样（DQ1：无本插件条目）且控制台无异常。
+
+> **终形态（2026-11-05 组 8 全绿收口）**：8.1 = 七验证全过——verify:all **22 files / 989 tests 全绿**（bundle 5/5，旧产物 2 红由 build 清零）、`dsh:check` 一致性（baseline rc.5/allowlist 309）、dump 条目 `status:"schema"`（raw dump exit 1 = 上游 `dsh-agent-preset` 4 条 loader 诊断，与本插件无关）、host bundle 只 `node:*`、client footer 座位内联、R5 tsconfig 登记闭环（host 15 个逐条 + client glob 覆盖）。8.2 = 六条冒烟全绿 + 机读 11/11 PASS + 真实 Chromium 三截图（panel-skills/panel-workspace/footer-dialog）归档 artifacts/；隔离 workspaces.json 600/目录 700；`/tools workspace off` 回执含「只影响之后新建的会话」+ 新会话首步生效 + reset 回合并快照（R7-② 写读链路实证）；坏档降级与无 skills 组合降级（真实 RPC handler 取证 `notices:["skills-unavailable"]`）。执行口径与观察：R8（live `stat 600` 移 9.3）；headless 无命令适配器、`/tools` 经 `commands.execute()` 驱动；**无 skills 的 web 组合受上游 preset 硬依赖（waiting for skills）**——9.1 README 补此说明；UI 冗余与折叠态浮层留 8.2 截图与组 9 后的人工核验（截图为 en locale）。
 
 ### G9 — 文档与发布（3 项并行；对应 T10/T11）
 
@@ -1264,4 +1278,11 @@ export const PANEL_ORDER = 20
 
 ---
 
-*本文件只写代码级蓝图，未修改仓库任何文件、未 git add/commit、未改 `openspec/`、未读取或等待其他子代理。*
+*本文件为阶段 1.7 代码级蓝图；执行期由 spec-apply 维护各组「终形态」小节与 diff-matrix R 条目（蓝图原文与实测不符处以终形态/R 条目为准）。*
+
+## 执行期附录 — G9 终形态（2026-11-05 组 9 收口）
+
+- **9.1 插件 README（+55/−27）**：能力（`skill:<name>` 只对模型隐身 + `/name` 保留、工作区档并集播种不追溯、`/tools workspace` 五动作、双入口）、预期管理（目录替换成本、批量一单一条）、降级矩阵（skills/workspaceRegistry/损坏三行）、非目标改写（删两条旧、增「不做追溯」「不做上游 patch」「上游菜单入口后续变更」）、回滚代价独立小节（1.4.0/1.5.0 均丢 `skill:` 条目且旧版不读工作区档）、配置表 `workspacesFile`、无 skills Web 组合上游硬依赖说明、平台范围同步 rc.5。
+- **9.2 根 README/AGENTS**：各一行精准替换（`skill:<name>` 技能级开关 + 工作区级默认档并集播种不追溯），对照 spec 两条 Requirement 核实。
+- **9.3 发布（部分完成，余项留主会话/用户）**：dry-run 复核完成（发现并勘误 R8：命令需显式版本号、dry-run 不打印 lib 清单）；`pnpm verify` 递归全绿（989 + 各插件）、`dsh:check` 一致性通过。**未做**：真实 `pnpm release 1.6.0`（=发布提交+tag，属「用户审核确认后」）、profile 重装与 dsh 重启（硬停条件③须用户确认）、重启后 live 断言（`plugin list` 显示 1.6.0、`stat ~/.dsh/.../workspaces.json` = 600、冒烟第 1 条复跑）。
+- **发布后核对清单（spec-done/主会话用）**：`pnpm release 1.6.0 --dry-run` 在干净工作区打印 `1.5.0 → 1.6.0` → 真实发布 → `git show --stat` 发布提交含 `lib/index.js`/`lib/client.js` → push tags → profile 重装 → 重启 → `docker exec dsh dsh plugin --profile web list | grep session-tool-toggle` 显示 `1.6.0` → live 冒烟第 1 条。

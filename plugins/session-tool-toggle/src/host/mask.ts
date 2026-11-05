@@ -14,6 +14,10 @@
  * 由此得到两条硬约束：**deny 里只放读数里真实出现过的名字**（`restrict` 对未知名抛错），
  * 以及**服务器断线时只是不命中，绝不抛错**（C10 / 本变更 spec：保持意图、跳过执行）。
  *
+ * 一条范围约束：工具掩码**不认识**技能地址（`skill:<name>`，第四类地址）。技能名不是工具
+ * 注册名，它的关闭语义归技能分面处理；因此 {@link resolveAddresses} 在解析出口就把技能地址
+ * 滤掉，技能名永不进 `deny`，也不会在 `matched` 里留下 0 命中的技能键。
+ *
  * 另一条与 D2 语义直接相关：`shadowServers` 只由 `mcp:<server>` 整组关闭产生。单工具与
  * 内置工具的关闭只摘 schema，**不**遮蔽 `mcp:<server>` 指令段——整组是「这台服务器整个
  * 从会话里消失」，单工具是「这台服务器只少一个工具」，两者的 section 处理必须不同。
@@ -139,6 +143,9 @@ export function planMask(inputs: MaskInputs): MaskPlan {
  */
 export function guardReason(toolName: string, disabled: readonly string[]): string | undefined {
   for (const entry of resolveAddresses(disabled)) {
+    // 技能地址在 resolveAddresses 出口已被滤掉；这里再显式跳过，是为了让「技能关闭不产生
+    // 工具拒绝理由」成为本函数的局部事实，而不是依赖上游实现细节。
+    if (isSkillAddress(entry.address)) continue
     if (!matchesToolName(entry.address, toolName)) continue
     return `工具「${toolName}」已在本会话被「${entry.text}」关闭，调用被拒绝；恢复请执行 /tools on ${entry.text}`
   }
@@ -170,19 +177,34 @@ function unionNames(inputs: MaskInputs): readonly string[] {
  * `mcp:a` / `mcp:a::*` 这类同一意图的两种拼写只会留下一条；重复条目也只命中一次计数。
  * 不可解析的条目（空串、错前缀、保护基线、保留名、损坏记录里的任意垃圾）**静默跳过**：
  * 这是最后一道容忍，不是用户边界，抛错只会让一个坏条目拖垮整轮掩码。
+ * 技能地址（`skill:<name>`）同样**跳过**：工具掩码不认识技能名，它既不进 `deny`，也不在
+ * `matched` 里留键（技能分面自己算技能遮蔽计划）。
  * @param disabled - 关闭集原文。
- * @returns 排序去重后的地址；全部不可解析时为空数组。
+ * @returns 排序去重后的地址；全部不可解析或全为技能地址时为空数组。
  */
 function resolveAddresses(disabled: readonly string[]): readonly ResolvedAddress[] {
   const byText = new Map<string, ResolvedAddress>()
   for (const text of disabled) {
     const parsed = parseAddress(text, PROTECTED_NAMES)
     if (!parsed.ok) continue
+    if (isSkillAddress(parsed.address)) continue
     if (!byText.has(parsed.text)) {
       byText.set(parsed.text, { address: parsed.address, text: parsed.text })
     }
   }
   return Array.from(byText.values()).sort((left, right) => compareText(left.text, right.text))
+}
+
+/**
+ * 该地址是否属于技能分面（第四类地址 `skill:<name>`）。
+ *
+ * 工具掩码**不认识**技能地址：技能名不是工具注册名，关闭它的语义归技能分面（技能遮蔽计划），
+ * 与工具 `deny` / `shadowServers` 无关。
+ * @param address - 已解析的关闭地址。
+ * @returns 技能地址时为 true。
+ */
+function isSkillAddress(address: SwitchAddress): boolean {
+  return address.kind === 'skill'
 }
 
 /**

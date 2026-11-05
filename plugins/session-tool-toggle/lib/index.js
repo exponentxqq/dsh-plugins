@@ -6,6 +6,9 @@ var __export = (target, all) => {
     __defProp(target, name2, { get: all[name2], enumerable: true });
 };
 
+// src/host/index.ts
+import { realpath as realpath3 } from "node:fs/promises";
+
 // ../../node_modules/.pnpm/@deepseek-ai+cosmokit@1.8.6/node_modules/@deepseek-ai/cosmokit/lib/index.js
 function isNullable(value) {
   return value === null || value === void 0;
@@ -484,8 +487,8 @@ function validateVolatileSchema(schema, path = [], blocked = false, seen = /* @_
   if (schema.inner && (schema.type !== "lazy" || schema.inner[kSchema])) validateVolatileSchema(schema.inner, [...path, "*"], true, seen);
   if (schema.list) for (let index = 0; index < schema.list.length; index++) validateVolatileSchema(schema.list[index], [...path, String(index)], true, seen);
 }
-Schema.extend = function extend(type, resolve4) {
-  resolvers[type] = resolve4;
+Schema.extend = function extend(type, resolve5) {
+  resolvers[type] = resolve5;
 };
 Schema.resolve = function resolve(data, schema, options = {}, strict = false) {
   if (!schema) return [data];
@@ -15392,8 +15395,16 @@ var PANEL_ENDPOINT = "panel";
 var TOGGLE_ENDPOINT = "toggle";
 var RESET_ENDPOINT = "reset";
 var DEFAULTS_ENDPOINT = "defaults";
-var ENDPOINTS = [PANEL_ENDPOINT, TOGGLE_ENDPOINT, RESET_ENDPOINT, DEFAULTS_ENDPOINT];
+var WORKSPACE_ENDPOINT = "workspace";
+var ENDPOINTS = [
+  PANEL_ENDPOINT,
+  TOGGLE_ENDPOINT,
+  RESET_ENDPOINT,
+  DEFAULTS_ENDPOINT,
+  WORKSPACE_ENDPOINT
+];
 var DEFAULTS_ACTIONS = ["set", "off", "on", "reset"];
+var WORKSPACE_ACTIONS = ["read", "set", "off", "on", "reset"];
 var HOST_FAILURE_CODES = [
   /** 端点未知 / 请求体不合形状 / 未知 action。 */
   "bad-request",
@@ -15408,12 +15419,17 @@ var HOST_FAILURE_CODES = [
   /** 默认档写入失败（权限 / 磁盘 / 目录不可建）。 */
   "defaults-unwritable",
   /** 未预期抛错（宿主已 warn）。 */
-  "internal"
+  "internal",
+  /** 会话 cwd 无法归属 / 工作区路径未登记或不可 realpath。 */
+  "workspace-unresolved",
+  /** 工作区档写入失败（细节里带 `{path, reason}`）。 */
+  "workspace-unwritable"
 ];
 var TRANSPORT_FAILURE_CODES = ["unavailable", "bad-response"];
 var FAILURE_CODES = [...HOST_FAILURE_CODES, ...TRANSPORT_FAILURE_CODES];
 var SESSION_ID_MAX_LENGTH = 255;
 var ADDRESS_MAX_LENGTH = 200;
+var MAX_WORKSPACE_PATH_LENGTH = 4096;
 var MAX_ADDRESSES = 64;
 var TOOL_GROUP_KINDS = ["mcp", "skill", "builtin"];
 var NOTICE_CODES = [
@@ -15422,7 +15438,11 @@ var NOTICE_CODES = [
   /** 默认档损坏 / 半写，已按空档处理。 */
   "defaults-corrupt",
   /** 子代理会话：不继承父会话的会话级开关。 */
-  "session-subagent"
+  "session-subagent",
+  /** 技能服务不可用：技能地址只记意图，影子 stub 不生效。 */
+  "skills-unavailable",
+  /** 影子 stub 注册未胜出（同层先到先得）：该技能行的开关不可用。 */
+  "skill-shadow-failed"
 ];
 var STORE_KINDS = ["record", "memory"];
 var DEFAULTS_VERSION = 1;
@@ -15536,6 +15556,7 @@ function readEnumArrayField(record2, key, subject, allowed) {
 var PANEL_REQUEST_KEYS = ["sessionId"];
 var TOGGLE_REQUEST_KEYS = ["sessionId", "on", "addresses"];
 var DEFAULTS_REQUEST_KEYS = ["action", "addresses"];
+var WORKSPACE_REQUEST_KEYS = ["sessionId", "workspacePath", "action", "addresses"];
 function parsePanelRequest(raw) {
   const subject = "panel \u8BF7\u6C42\u4F53";
   const body = readStrictObject(raw, subject, PANEL_REQUEST_KEYS);
@@ -15599,11 +15620,73 @@ function parseDefaultsRequest(raw) {
   if (!addresses.ok) return addresses;
   return { ok: true, value: { action: action.value, addresses: addresses.value } };
 }
+function parseWorkspaceRequest(raw) {
+  const subject = "workspace \u8BF7\u6C42\u4F53";
+  const body = readStrictObject(raw, subject, WORKSPACE_REQUEST_KEYS);
+  if (!body.ok) return body;
+  const record2 = body.value;
+  const hasSessionId = record2["sessionId"] !== void 0;
+  const hasWorkspacePath = record2["workspacePath"] !== void 0;
+  if (hasSessionId === hasWorkspacePath) {
+    return fail(`${subject} \u5FC5\u987B\u4E14\u53EA\u80FD\u51FA\u73B0 sessionId \u6216 workspacePath \u4E4B\u4E00`);
+  }
+  let sessionId;
+  let workspacePath;
+  if (hasSessionId) {
+    const parsed2 = readStringField(record2, "sessionId", subject, {
+      minLength: 1,
+      maxLength: SESSION_ID_MAX_LENGTH
+    });
+    if (!parsed2.ok) return parsed2;
+    sessionId = parsed2.value;
+  } else {
+    const parsed2 = readStringField(record2, "workspacePath", subject, {
+      minLength: 1,
+      maxLength: MAX_WORKSPACE_PATH_LENGTH
+    });
+    if (!parsed2.ok) return parsed2;
+    if (!parsed2.value.startsWith("/")) return fail(`${subject}.workspacePath \u5FC5\u987B\u4EE5 / \u5F00\u5934`);
+    workspacePath = parsed2.value;
+  }
+  const action = record2["action"] === void 0 ? void 0 : readEnumField(record2, "action", subject, WORKSPACE_ACTIONS);
+  if (action !== void 0 && !action.ok) return action;
+  const resolvedAction = action === void 0 ? "read" : action.value;
+  const hasAddresses = record2["addresses"] !== void 0;
+  if (resolvedAction === "read" || resolvedAction === "reset") {
+    if (hasAddresses) return fail(`${subject}.addresses \u5728 action=${resolvedAction} \u65F6\u4E0D\u5141\u8BB8\u51FA\u73B0`);
+    return {
+      ok: true,
+      value: {
+        ...sessionId === void 0 ? {} : { sessionId },
+        ...workspacePath === void 0 ? {} : { workspacePath },
+        action: resolvedAction
+      }
+    };
+  }
+  if (!hasAddresses) return fail(`${subject}.addresses \u5728 action=${resolvedAction} \u65F6\u5FC5\u9700`);
+  const addresses = readStringArrayField(record2, "addresses", subject, {
+    minItems: 1,
+    maxItems: MAX_ADDRESSES,
+    itemMinLength: 1,
+    itemMaxLength: ADDRESS_MAX_LENGTH
+  });
+  if (!addresses.ok) return addresses;
+  return {
+    ok: true,
+    value: {
+      ...sessionId === void 0 ? {} : { sessionId },
+      ...workspacePath === void 0 ? {} : { workspacePath },
+      action: resolvedAction,
+      addresses: addresses.value
+    }
+  };
+}
 var REQUEST_PARSERS = {
   panel: parsePanelRequest,
   toggle: parseToggleRequest,
   reset: parseResetRequest,
-  defaults: parseDefaultsRequest
+  defaults: parseDefaultsRequest,
+  workspace: parseWorkspaceRequest
 };
 var TOOL_ENTRY_KEYS = [
   "name",
@@ -15619,6 +15702,9 @@ var TOOL_GROUP_KEYS = ["kind", "key", "address", "toolCount", "disabledCount", "
 var STATE_VIEW_KEYS = ["disabled", "snapshot", "seeded", "updatedAt", "storeKind"];
 var DEFAULTS_VIEW_KEYS = ["version", "disabled", "path", "readable", "corrupt"];
 var STATS_VIEW_KEYS = ["visible", "catalog", "denied", "shadowed"];
+var WORKSPACE_CHOICE_KEYS = ["key", "title"];
+var WORKSPACE_VIEW_KEYS = ["key", "title", "registered", "disabled", "path", "readable", "corrupt"];
+var SKILL_VIEW_KEYS = ["name", "description", "disabled", "shadowed"];
 var PANEL_SNAPSHOT_KEYS = [
   "sessionId",
   "createdAt",
@@ -15629,10 +15715,20 @@ var PANEL_SNAPSHOT_KEYS = [
   "hiddenByOthers",
   "intentOnly",
   "stats",
-  "notices"
+  "notices",
+  "skills",
+  "workspace"
 ];
 var MUTATION_APPLIED_KEYS = ["address", "on", "matched"];
-var MUTATION_KEYS = ["applied", "hiddenTools", "visibleBefore", "visibleAfter", "kvRebuild", "notices"];
+var MUTATION_KEYS = [
+  "applied",
+  "hiddenTools",
+  "hiddenSkills",
+  "visibleBefore",
+  "visibleAfter",
+  "kvRebuild",
+  "notices"
+];
 function readToolEntry(value, subject) {
   const object2 = readStrictObject(value, subject, TOOL_ENTRY_KEYS);
   if (!object2.ok) return object2;
@@ -15775,6 +15871,75 @@ function readStatsView(value, subject) {
     }
   };
 }
+function readSkillView(value, subject) {
+  const object2 = readStrictObject(value, subject, SKILL_VIEW_KEYS);
+  if (!object2.ok) return object2;
+  const record2 = object2.value;
+  const name2 = readStringField(record2, "name", subject, { minLength: 1 });
+  if (!name2.ok) return name2;
+  const description = readStringField(record2, "description", subject, {
+    maxLength: DESCRIPTION_MAX_LENGTH
+  });
+  if (!description.ok) return description;
+  const disabled = readBooleanField(record2, "disabled", subject);
+  if (!disabled.ok) return disabled;
+  const shadowed = readBooleanField(record2, "shadowed", subject);
+  if (!shadowed.ok) return shadowed;
+  return {
+    ok: true,
+    value: {
+      name: name2.value,
+      description: description.value,
+      disabled: disabled.value,
+      shadowed: shadowed.value
+    }
+  };
+}
+function readWorkspaceChoice(value, subject) {
+  const object2 = readStrictObject(value, subject, WORKSPACE_CHOICE_KEYS);
+  if (!object2.ok) return object2;
+  const record2 = object2.value;
+  const key = readStringField(record2, "key", subject, { minLength: 1 });
+  if (!key.ok) return key;
+  const title = readStringField(record2, "title", subject);
+  if (!title.ok) return title;
+  return { ok: true, value: { key: key.value, title: title.value } };
+}
+function readWorkspaceView(value, subject) {
+  const object2 = readStrictObject(value, subject, WORKSPACE_VIEW_KEYS);
+  if (!object2.ok) return object2;
+  const record2 = object2.value;
+  const key = readStringField(record2, "key", subject, { minLength: 1 });
+  if (!key.ok) return key;
+  const title = readOptionalStringField(record2, "title", subject);
+  if (!title.ok) return title;
+  const registered = readBooleanField(record2, "registered", subject);
+  if (!registered.ok) return registered;
+  const disabled = readStringArrayField(record2, "disabled", subject);
+  if (!disabled.ok) return disabled;
+  const path = readStringField(record2, "path", subject, { minLength: 1 });
+  if (!path.ok) return path;
+  const readable = readBooleanField(record2, "readable", subject);
+  if (!readable.ok) return readable;
+  const corrupt = readBooleanField(record2, "corrupt", subject);
+  if (!corrupt.ok) return corrupt;
+  return {
+    ok: true,
+    value: {
+      key: key.value,
+      ...title.value === void 0 ? {} : { title: title.value },
+      registered: registered.value,
+      disabled: disabled.value,
+      path: path.value,
+      readable: readable.value,
+      corrupt: corrupt.value
+    }
+  };
+}
+function readNullableWorkspaceView(value, subject) {
+  if (value === null) return { ok: true, value: null };
+  return readWorkspaceView(value, subject);
+}
 function readPanelSnapshot(value, subject) {
   const object2 = readStrictObject(value, subject, PANEL_SNAPSHOT_KEYS);
   if (!object2.ok) return object2;
@@ -15799,6 +15964,10 @@ function readPanelSnapshot(value, subject) {
   if (!stats.ok) return stats;
   const notices = readEnumArrayField(record2, "notices", subject, NOTICE_CODES);
   if (!notices.ok) return notices;
+  const skills = readArrayField(record2, "skills", subject, readSkillView);
+  if (!skills.ok) return skills;
+  const workspace = readNullableWorkspaceView(record2["workspace"], `${subject}.workspace`);
+  if (!workspace.ok) return workspace;
   return {
     ok: true,
     value: {
@@ -15811,7 +15980,9 @@ function readPanelSnapshot(value, subject) {
       hiddenByOthers: hiddenByOthers.value,
       intentOnly: intentOnly.value,
       stats: stats.value,
-      notices: notices.value
+      notices: notices.value,
+      skills: skills.value,
+      workspace: workspace.value
     }
   };
 }
@@ -15835,6 +16006,8 @@ function readMutation(value, subject) {
   if (!applied.ok) return applied;
   const hiddenTools = readIntField(record2, "hiddenTools", subject);
   if (!hiddenTools.ok) return hiddenTools;
+  const hiddenSkills = readIntField(record2, "hiddenSkills", subject);
+  if (!hiddenSkills.ok) return hiddenSkills;
   const visibleBefore = readCountField(record2, "visibleBefore", subject);
   if (!visibleBefore.ok) return visibleBefore;
   const visibleAfter = readCountField(record2, "visibleAfter", subject);
@@ -15848,6 +16021,7 @@ function readMutation(value, subject) {
     value: {
       applied: applied.value,
       hiddenTools: hiddenTools.value,
+      hiddenSkills: hiddenSkills.value,
       visibleBefore: visibleBefore.value,
       visibleAfter: visibleAfter.value,
       kvRebuild: kvRebuild.value,
@@ -15883,6 +16057,18 @@ function parseDefaultsValue(raw) {
   if (!changed.ok) return changed;
   return { ok: true, value: { defaults: defaults.value, changed: changed.value } };
 }
+function parseWorkspaceValue(raw) {
+  const subject = "workspace \u54CD\u5E94";
+  const object2 = readStrictObject(raw, subject, ["workspace", "choices", "changed"]);
+  if (!object2.ok) return object2;
+  const workspace = readNullableWorkspaceView(object2.value["workspace"], `${subject}.workspace`);
+  if (!workspace.ok) return workspace;
+  const choices = readArrayField(object2.value, "choices", subject, readWorkspaceChoice);
+  if (!choices.ok) return choices;
+  const changed = readStringArrayField(object2.value, "changed", subject, { itemMinLength: 1 });
+  if (!changed.ok) return changed;
+  return { ok: true, value: { workspace: workspace.value, choices: choices.value, changed: changed.value } };
+}
 
 // src/host/address.ts
 var PROTECTED_BASELINE = [
@@ -15894,7 +16080,10 @@ var PROTECTED_BASELINE = [
   "glob",
   "grep"
 ];
-var ADDRESS_GRAMMAR = "mcp:<server> | mcp:<server>::<\u5DE5\u5177\u540D\u6216\u5C3E\u90E8 *> | tool:<\u5DE5\u5177\u540D>\uFF08skill \u7B49\u4EF7\u4E8E tool:skill\uFF09";
+var ADDRESS_GRAMMAR = "mcp:<server> | mcp:<server>::<\u5DE5\u5177\u540D\u6216\u5C3E\u90E8 *> | tool:<\u5DE5\u5177\u540D> | skill:<\u6280\u80FD\u540D>\uFF08skill \u7B49\u4EF7\u4E8E tool:skill\uFF1Bskill:* \u7B49\u4EF7\u4E8E\u6574\u6863 tool:skill\uFF09";
+var SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+var SKILL_PREFIX = "skill:";
+var SKILL_WILDCARD = "*";
 var RESERVED_TOOL = "run_code";
 var MCP_PUBLIC_SEPARATOR = "__";
 var MCP_PUBLIC_PREFIX = `mcp${MCP_PUBLIC_SEPARATOR}`;
@@ -15908,7 +16097,7 @@ function parseAddress(input, protectedNames) {
   if (input.trim().length === 0) {
     return rejected(
       "empty",
-      `\u5730\u5740\u4E3A\u7A7A\uFF1B\u6587\u6CD5\uFF1A${ADDRESS_GRAMMAR}\uFF08\u4F8B\u5982 mcp:yunxiao\u3001mcp:yunxiao::get_*\u3001tool:workflow\uFF09`
+      `\u5730\u5740\u4E3A\u7A7A\uFF1B\u6587\u6CD5\uFF1A${ADDRESS_GRAMMAR}\uFF08\u4F8B\u5982 mcp:yunxiao\u3001mcp:yunxiao::get_*\u3001tool:workflow\u3001skill:openspec-propose\uFF09`
     );
   }
   if (input === "skill") return parsed({ kind: "tool", name: "skill" });
@@ -15916,16 +16105,17 @@ function parseAddress(input, protectedNames) {
   if (separator < 0) {
     return rejected(
       "unknown-prefix",
-      `\u65E0\u6CD5\u8BC6\u522B\u7684\u5730\u5740\u300C${input}\u300D\uFF1A\u7F3A\u5C11 mcp: \u6216 tool: \u524D\u7F00\uFF1B\u6587\u6CD5\uFF1A${ADDRESS_GRAMMAR}`
+      `\u65E0\u6CD5\u8BC6\u522B\u7684\u5730\u5740\u300C${input}\u300D\uFF1A\u7F3A\u5C11 mcp:\u3001tool: \u6216 skill: \u524D\u7F00\uFF1B\u6587\u6CD5\uFF1A${ADDRESS_GRAMMAR}`
     );
   }
   const prefix = input.slice(0, separator);
   const rest = input.slice(separator + 1);
   if (prefix === "mcp") return parseMcpAddress(rest);
   if (prefix === "tool") return parseToolAddress(rest, protectedNames);
+  if (prefix === "skill") return parseSkillAddress(rest);
   return rejected(
     "unknown-prefix",
-    `\u65E0\u6CD5\u8BC6\u522B\u7684\u5730\u5740\u524D\u7F00\u300C${prefix}:\u300D\uFF1A\u53EA\u652F\u6301 mcp: \u4E0E tool:\uFF08skill \u662F tool:skill \u7684\u522B\u540D\uFF09\uFF1B\u6587\u6CD5\uFF1A${ADDRESS_GRAMMAR}`
+    `\u65E0\u6CD5\u8BC6\u522B\u7684\u5730\u5740\u524D\u7F00\u300C${prefix}:\u300D\uFF1A\u53EA\u652F\u6301 mcp:\u3001tool: \u4E0E skill:\uFF08skill / skill:* \u7B49\u4EF7\u4E8E tool:skill\uFF09\uFF1B\u6587\u6CD5\uFF1A${ADDRESS_GRAMMAR}`
   );
 }
 function formatAddress(address) {
@@ -15933,9 +16123,11 @@ function formatAddress(address) {
   if (address.kind === "mcp-tool") {
     return `${MCP_PREFIX}${address.server}${MCP_TOOL_SEPARATOR}${address.pattern}`;
   }
+  if (address.kind === "skill") return `${SKILL_PREFIX}${address.name}`;
   return `${TOOL_PREFIX}${address.name}`;
 }
 function matchesToolName(address, toolName) {
+  if (address.kind === "skill") return false;
   if (address.kind === "tool") return toolName === address.name;
   const identity = mcpIdentityOf(toolName);
   if (identity === void 0 || identity.server !== address.server) return false;
@@ -15996,11 +16188,19 @@ function parseToolAddress(name2, protectedNames) {
   }
   return parsed({ kind: "tool", name: name2 });
 }
+function parseSkillAddress(name2) {
+  if (name2 === SKILL_WILDCARD) return parsed({ kind: "tool", name: "skill" });
+  if (!SKILL_NAME.test(name2)) return rejected("bad-skill-name", badSkillNameMessage(name2));
+  return parsed({ kind: "skill", name: name2 });
+}
 function badServerMessage(server) {
   return `\u670D\u52A1\u5668\u540D\u300C${server}\u300D\u4E0D\u5408\u6CD5\uFF1A\u53EA\u5141\u8BB8 1\u201332 \u4E2A\u5B57\u6BCD\u3001\u6570\u5B57\u3001\u4E0B\u5212\u7EBF\u6216\u8FDE\u5B57\u7B26\uFF08[A-Za-z0-9_-]{1,32}\uFF0C\u5982 mcp:yunxiao\uFF09\uFF1B\u6587\u6CD5\uFF1A${ADDRESS_GRAMMAR}`;
 }
 function badToolNameMessage(spec) {
   return `\u5DE5\u5177\u540D\u6216\u901A\u914D\u300C${spec}\u300D\u4E0D\u5408\u6CD5\uFF1A\u53EA\u652F\u6301\u5B8C\u6574\u540D\u4E0E\u5C3E\u90E8 * \u524D\u7F00\u5339\u914D\uFF08\u4E0D\u652F\u6301 ?\u3001\u5B57\u7B26\u7C7B\u6216\u4E2D\u95F4 *\uFF0C\u5982 mcp:a::get_*\uFF09\uFF1B\u6587\u6CD5\uFF1A${ADDRESS_GRAMMAR}`;
+}
+function badSkillNameMessage(name2) {
+  return `\u6280\u80FD\u540D\u300C${name2}\u300D\u4E0D\u5408\u6CD5\uFF1A\u53EA\u5141\u8BB8\u5C0F\u5199\u5B57\u6BCD\u3001\u6570\u5B57\u4E0E\u8FDE\u5B57\u7B26\uFF08^[a-z0-9]+(?:-[a-z0-9]+)*$\uFF0C\u5982 skill:openspec-propose\uFF09\uFF1B\u6587\u6CD5\uFF1A${ADDRESS_GRAMMAR}`;
 }
 function wrongPrefixMessage(toolName) {
   const suggestion = suggestMcpAddress(toolName);
@@ -16030,13 +16230,51 @@ function mcpIdentityOf(toolName) {
   return suffix.length === 0 ? void 0 : { server, suffix };
 }
 
+// src/host/attribution.ts
+import { dirname, resolve as resolve2 } from "node:path";
+async function resolveWorkspaceAttribution(cwd, ports) {
+  if (cwd === void 0 || cwd === "") return void 0;
+  const start = resolve2(cwd);
+  const roots = ports.roots.registered();
+  let current = start;
+  let canonicalCwd;
+  for (; ; ) {
+    const canonical = await tryRealpath(ports.realpath, current);
+    if (canonical !== void 0) {
+      if (current === start) canonicalCwd = canonical;
+      const hit = roots.find((workspace) => workspace.path === canonical);
+      if (hit !== void 0) return { key: hit.path, registered: true, title: hit.title };
+    }
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  if (canonicalCwd === void 0) {
+    ports.log.warn(
+      `\u4F1A\u8BDD cwd\u300C${start}\u300D\u65E0\u6CD5\u5F52\u5C5E\u5DE5\u4F5C\u533A\uFF1Arealpath \u5931\u8D25\uFF08\u76EE\u5F55\u53EF\u80FD\u5DF2\u88AB\u5220\u9664\uFF09\uFF0C\u672C\u6B21\u53EA\u7528\u7528\u6237\u7EA7\u9ED8\u8BA4\u6863`
+    );
+    return void 0;
+  }
+  return { key: canonicalCwd, registered: false };
+}
+async function tryRealpath(port, candidate) {
+  try {
+    return await port.realpath(candidate);
+  } catch {
+    return void 0;
+  }
+}
+
+// src/host/control.ts
+import { isAbsolute as isAbsolute2 } from "node:path";
+
 // src/host/defaults.ts
 import { readFile as readFile2 } from "node:fs/promises";
 
 // ../../node_modules/.pnpm/@deepseek-ai+dsh-atomic-write@0.2.1-rc.5_@deepseek-ai+cordis@4.0.5/node_modules/@deepseek-ai/dsh-atomic-write/lib/index.js
 import { createHash, randomBytes } from "node:crypto";
 import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname as dirname2 } from "node:path";
 import { setTimeout as setTimeout$1 } from "node:timers/promises";
 var WINDOWS_TRANSIENT_RENAME_ERRORS = /* @__PURE__ */ new Set([
   "EACCES",
@@ -16060,12 +16298,12 @@ async function renameAtomicTemp(temp, filename) {
       if (!isTransientWindowsRenameError(error51)) throw error51;
       if (retries >= WINDOWS_RENAME_RETRY_LIMIT) throw error51;
     }
-    await new Promise((resolve4) => setTimeout(resolve4, delay));
+    await new Promise((resolve5) => setTimeout(resolve5, delay));
     delay = Math.min(delay * 2, WINDOWS_RENAME_RETRY_MAX_MS);
   }
 }
 async function writeFileAtomic(filename, content, options) {
-  await mkdir(dirname(filename), {
+  await mkdir(dirname2(filename), {
     recursive: true,
     ...options.dirMode === void 0 ? {} : { mode: options.dirMode }
   });
@@ -16085,7 +16323,7 @@ async function writeFileAtomic(filename, content, options) {
 // ../../node_modules/.pnpm/@deepseek-ai+dsh-home-paths@0.2.1-rc.5_@deepseek-ai+cordis@4.0.5/node_modules/@deepseek-ai/dsh-home-paths/lib/index.js
 import { opendir, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname as dirname2, join, resolve as resolve2 } from "node:path";
+import { basename, dirname as dirname3, join, resolve as resolve3 } from "node:path";
 var DSH_HOME_DIR_NAME = ".dsh";
 var DEFAULT_DSH_HOME_DISPLAY = `~/${DSH_HOME_DIR_NAME}`;
 var DSH_HOME_ENV = "DSH_HOME";
@@ -16101,7 +16339,7 @@ function expandHomePath(path) {
 }
 function resolveRoot(configured, env, envName, fallback) {
   const fromEnv = env[envName];
-  return resolve2(expandHomePath(configured ?? (fromEnv !== void 0 && fromEnv.trim().length > 0 ? fromEnv : fallback())));
+  return resolve3(expandHomePath(configured ?? (fromEnv !== void 0 && fromEnv.trim().length > 0 ? fromEnv : fallback())));
 }
 function resolveDshHome(configured, env = process.env) {
   return resolveRoot(configured, env, DSH_HOME_ENV, defaultDshHome);
@@ -16249,6 +16487,7 @@ function planMask(inputs) {
 }
 function guardReason(toolName, disabled) {
   for (const entry of resolveAddresses(disabled)) {
+    if (isSkillAddress(entry.address)) continue;
     if (!matchesToolName(entry.address, toolName)) continue;
     return `\u5DE5\u5177\u300C${toolName}\u300D\u5DF2\u5728\u672C\u4F1A\u8BDD\u88AB\u300C${entry.text}\u300D\u5173\u95ED\uFF0C\u8C03\u7528\u88AB\u62D2\u7EDD\uFF1B\u6062\u590D\u8BF7\u6267\u884C /tools on ${entry.text}`;
   }
@@ -16262,11 +16501,15 @@ function resolveAddresses(disabled) {
   for (const text of disabled) {
     const parsed2 = parseAddress(text, PROTECTED_NAMES);
     if (!parsed2.ok) continue;
+    if (isSkillAddress(parsed2.address)) continue;
     if (!byText.has(parsed2.text)) {
       byText.set(parsed2.text, { address: parsed2.address, text: parsed2.text });
     }
   }
   return Array.from(byText.values()).sort((left, right) => compareText(left.text, right.text));
+}
+function isSkillAddress(address) {
+  return address.kind === "skill";
 }
 function shadowServersOf(addresses) {
   const servers = /* @__PURE__ */ new Set();
@@ -16395,10 +16638,211 @@ function sampleOf2(values, limit = 3) {
   return values.length > limit ? `${shown} \u7B49 ${values.length} \u6761` : shown;
 }
 
+// src/host/workspaces.ts
+import { isAbsolute } from "node:path";
+var WORKSPACES_FILE_NAME = "workspaces.json";
+var WORKSPACES_VERSION = 1;
+var MAX_WORKSPACE_ENTRIES = 256;
+var MAX_WORKSPACE_KEY_LENGTH = 4096;
+var NO_TEXTS3 = Object.freeze([]);
+var NO_PROTECTED_NAMES2 = /* @__PURE__ */ new Set();
+var NO_WORKSPACES = Object.freeze({});
+var EMPTY_WORKSPACES = Object.freeze({
+  version: WORKSPACES_VERSION,
+  workspaces: NO_WORKSPACES
+});
+function workspacesPath(configured) {
+  const override = configured?.trim();
+  if (override !== void 0 && override !== "") return override;
+  return dshHomePath(DEFAULTS_DIR_NAME, WORKSPACES_FILE_NAME);
+}
+async function readWorkspaces(path, io, log) {
+  let text;
+  try {
+    text = await io.readFile(path);
+  } catch (error51) {
+    if (errorCodeOf2(error51) !== "ENOENT") {
+      log.warn(`\u5DE5\u4F5C\u533A\u6863\u4E0D\u53EF\u8BFB\uFF08${path}\uFF0C${describeError2(error51)}\uFF09\uFF0C\u5DF2\u6309\u7A7A\u6863\u5904\u7406`);
+    }
+    return EMPTY_WORKSPACES;
+  }
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch (error51) {
+    log.warn(`\u5DE5\u4F5C\u533A\u6863\u4E0D\u662F\u5408\u6CD5 JSON\uFF08${path}\uFF0C${messageOf2(error51)}\uFF09\uFF0C\u5DF2\u6309\u7A7A\u6863\u5904\u7406`);
+    return EMPTY_WORKSPACES;
+  }
+  if (!isRecord(raw)) {
+    return degraded2(log, path, `\u9876\u5C42\u4E0D\u662F\u5BF9\u8C61\uFF08\u6536\u5230 ${describeRaw3(raw)}\uFF09`);
+  }
+  if (raw.version !== WORKSPACES_VERSION) {
+    return degraded2(
+      log,
+      path,
+      `version \u4E0D\u662F ${WORKSPACES_VERSION}\uFF08\u6536\u5230 ${describeRaw3(raw.version)}\uFF09`
+    );
+  }
+  if (!isRecord(raw.workspaces)) {
+    return degraded2(log, path, `workspaces \u4E0D\u662F\u5BF9\u8C61\uFF08\u6536\u5230 ${describeRaw3(raw.workspaces)}\uFF09`);
+  }
+  const problems = [];
+  const entries = [];
+  for (const [key, value] of Object.entries(raw.workspaces)) {
+    const keyProblem = keyProblemOf(key);
+    if (keyProblem !== void 0) {
+      problems.push(`\u952E${quote(key)}${keyProblem}`);
+      continue;
+    }
+    if (!isRecord(value)) {
+      problems.push(`\u6761\u76EE${quote(key)}\u7684\u503C\u4E0D\u662F\u5BF9\u8C61`);
+      continue;
+    }
+    if (!Array.isArray(value.disabled)) {
+      problems.push(`\u6761\u76EE${quote(key)}\u7684 disabled \u4E0D\u662F\u6570\u7EC4`);
+      continue;
+    }
+    const kept = [];
+    const rejected4 = [];
+    for (const item of value.disabled) {
+      if (typeof item !== "string") {
+        rejected4.push(item);
+        continue;
+      }
+      const parsed2 = parseAddress(item, NO_PROTECTED_NAMES2);
+      if (!parsed2.ok) {
+        rejected4.push(item);
+        continue;
+      }
+      kept.push(parsed2.text);
+    }
+    if (rejected4.length > 0) {
+      problems.push(`\u6761\u76EE${quote(key)}\u6709 ${rejected4.length} \u6761\u5730\u5740\u4E0D\u5408\u6CD5\uFF08${sampleOf3(rejected4)}\uFF09`);
+    }
+    entries.push({ key, disabled: sortUnique3(kept) });
+  }
+  entries.sort((left, right) => compareText2(left.key, right.key));
+  if (entries.length > MAX_WORKSPACE_ENTRIES) {
+    const overflow = entries.length - MAX_WORKSPACE_ENTRIES;
+    problems.push(
+      `\u6761\u76EE\u6570 ${entries.length} \u8D85\u8FC7\u4E0A\u9650 ${MAX_WORKSPACE_ENTRIES}\uFF0C\u5DF2\u4E22\u5F03\u952E\u5B57\u5178\u5E8F\u9760\u540E\u7684 ${overflow} \u4E2A`
+    );
+    entries.length = MAX_WORKSPACE_ENTRIES;
+  }
+  if (problems.length > 0) {
+    log.warn(`\u5DE5\u4F5C\u533A\u6863\u6709\u4E0D\u53EF\u7528\u6761\u76EE\uFF0C\u5DF2\u4E22\u5F03\u6216\u5F52\u4E00\uFF08${path}\uFF09\uFF1A${problems.join("\uFF1B")}`);
+  }
+  return {
+    version: WORKSPACES_VERSION,
+    workspaces: Object.fromEntries(
+      entries.map((entry) => [entry.key, { disabled: entry.disabled }])
+    )
+  };
+}
+async function writeWorkspaces(path, file2, io) {
+  await io.writeFile(path, serialize2(file2));
+}
+function disabledOf(file2, key) {
+  if (!Object.hasOwn(file2.workspaces, key)) return NO_TEXTS3;
+  return file2.workspaces[key].disabled;
+}
+function mergeSeed(user, workspace) {
+  return sortUnique3([...user, ...workspace]);
+}
+function withEntry(file2, key, disabled, log) {
+  const keyProblem = keyProblemOf(key);
+  if (keyProblem !== void 0) {
+    log.warn(`\u5DE5\u4F5C\u533A\u952E\u4E0D\u53EF\u7528\uFF08${quote(key)}${keyProblem}\uFF09\uFF0C\u672A\u5199\u5165\u5DE5\u4F5C\u533A\u6863`);
+    return file2;
+  }
+  const existing = Object.keys(file2.workspaces);
+  if (!Object.hasOwn(file2.workspaces, key) && existing.length >= MAX_WORKSPACE_ENTRIES) {
+    log.warn(
+      `\u5DE5\u4F5C\u533A\u6863\u6761\u76EE\u6570\u5DF2\u8FBE\u4E0A\u9650 ${MAX_WORKSPACE_ENTRIES}\uFF0C\u672A\u65B0\u589E ${quote(key)}\uFF1B\u8BF7\u5148\u6E05\u7406\u4E0D\u518D\u4F7F\u7528\u7684\u5DE5\u4F5C\u533A\u6761\u76EE`
+    );
+    return file2;
+  }
+  const entries = [];
+  for (const [entryKey, entry] of Object.entries(file2.workspaces)) {
+    if (entryKey === key) continue;
+    entries.push({ key: entryKey, disabled: sortUnique3(entry.disabled) });
+  }
+  entries.push({ key, disabled: sortUnique3(disabled) });
+  entries.sort((left, right) => compareText2(left.key, right.key));
+  return {
+    version: WORKSPACES_VERSION,
+    workspaces: Object.fromEntries(
+      entries.map((entry) => [entry.key, { disabled: entry.disabled }])
+    )
+  };
+}
+function degraded2(log, path, reason) {
+  log.warn(`\u5DE5\u4F5C\u533A\u6863 schema \u4E0D\u7B26\uFF08${path}\uFF0C${reason}\uFF09\uFF0C\u5DF2\u6309\u7A7A\u6863\u5904\u7406`);
+  return EMPTY_WORKSPACES;
+}
+function serialize2(file2) {
+  const workspaces = Object.fromEntries(
+    Object.entries(file2.workspaces).sort(([left], [right]) => compareText2(left, right)).map(([key, entry]) => [key, { disabled: sortUnique3(entry.disabled) }])
+  );
+  return `${JSON.stringify({ version: WORKSPACES_VERSION, workspaces }, null, 2)}
+`;
+}
+function keyProblemOf(key) {
+  if (!isAbsolute(key)) return "\u4E0D\u662F\u7EDD\u5BF9\u8DEF\u5F84";
+  if (key.length > MAX_WORKSPACE_KEY_LENGTH) return `\u8D85\u8FC7 ${MAX_WORKSPACE_KEY_LENGTH} \u5B57\u7B26`;
+  return void 0;
+}
+function sortUnique3(texts) {
+  return Array.from(new Set(texts)).sort();
+}
+function compareText2(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function describeError2(error51) {
+  const code = errorCodeOf2(error51);
+  if (code === "ENOENT") return "\u6587\u4EF6\u4E0D\u5B58\u5728\uFF08ENOENT\uFF09";
+  return code === void 0 ? messageOf2(error51) : `${code}: ${messageOf2(error51)}`;
+}
+function errorCodeOf2(error51) {
+  if (typeof error51 !== "object" || error51 === null) return void 0;
+  const code = error51.code;
+  return typeof code === "string" ? code : void 0;
+}
+function messageOf2(error51) {
+  return error51 instanceof Error ? error51.message : describeRaw3(error51);
+}
+function describeRaw3(value) {
+  if (typeof value === "string") return quote(value);
+  if (value === null) return "null";
+  if (value === void 0) return "undefined";
+  if (Array.isArray(value)) return "\u6570\u7EC4";
+  if (typeof value === "object") return "\u5BF9\u8C61";
+  if (typeof value === "number") return `\u6570\u5B57 ${String(value)}`;
+  return `${typeof value} ${String(value)}`;
+}
+function quote(text) {
+  const LIMIT = 120;
+  return text.length <= LIMIT ? `\u300C${text}\u300D` : `\u300C${text.slice(0, LIMIT)}\u2026\uFF08\u5171 ${text.length} \u5B57\u7B26\uFF09\u300D`;
+}
+function sampleOf3(values, limit = 3) {
+  const shown = values.slice(0, limit).map(describeRaw3).join("\u3001");
+  return values.length > limit ? `${shown} \u7B49 ${values.length} \u6761` : shown;
+}
+
 // src/host/control.ts
-var TOOLS_GRAMMAR = "status | off <\u5730\u5740\u2026> | on <\u5730\u5740\u2026> | reset | default [off|on|set|reset] <\u5730\u5740\u2026>";
+var TOOLS_GRAMMAR = "status | off <\u5730\u5740\u2026> | on <\u5730\u5740\u2026> | reset | default [off|on|set|reset] <\u5730\u5740\u2026> | workspace [status|off|on|set|reset] <\u5730\u5740\u2026>";
 var MCP_PUBLIC_PREFIX2 = "mcp__";
 var MCP_PUBLIC_SEPARATOR2 = "__";
+var NO_SKILLS = Object.freeze({
+  available: false,
+  shadowed: Object.freeze([]),
+  visible: Object.freeze([])
+});
 function toggleSession(deps, session, texts, on) {
   const parsed2 = parseAddresses(texts, deps.protectedNames);
   if (!parsed2.ok) return { ok: false, text: parsed2.message };
@@ -16406,6 +16850,7 @@ function toggleSession(deps, session, texts, on) {
   const layer = layerOf(deps, session);
   const catalog = catalogOf(deps);
   const before = snapshotOf(layer, deps.log);
+  const skillsBefore = skillsOf(layer, deps.log);
   const visibleBefore = before.visible.length;
   const plan = planMask({
     catalog,
@@ -16425,18 +16870,19 @@ function toggleSession(deps, session, texts, on) {
       deps.store.write(session, written);
     } catch (error51) {
       persistFailed = true;
-      deps.log.error(`\u65E0\u6CD5\u5199\u5165\u4F1A\u8BDD\u72B6\u6001\uFF08\u5DF2\u964D\u7EA7\u5185\u5B58\u6001\uFF09\uFF1A${messageOf2(error51)}`);
+      deps.log.error(`\u65E0\u6CD5\u5199\u5165\u4F1A\u8BDD\u72B6\u6001\uFF08\u5DF2\u964D\u7EA7\u5185\u5B58\u6001\uFF09\uFF1A${messageOf3(error51)}`);
     }
     if (layer !== void 0) {
       try {
         layer.setState(written);
       } catch (error51) {
         layerFailed = true;
-        deps.log.error(`\u65E0\u6CD5\u66F4\u65B0\u672C\u4F1A\u8BDD\u63A9\u7801\uFF08\u5B88\u536B\u4ECD\u5728\u62E6\uFF0C\u4E0B\u4E00\u6B21 tools/change \u4F1A\u6536\u655B\uFF09\uFF1A${messageOf2(error51)}`);
+        deps.log.error(`\u65E0\u6CD5\u66F4\u65B0\u672C\u4F1A\u8BDD\u63A9\u7801\uFF08\u5B88\u536B\u4ECD\u5728\u62E6\uFF0C\u4E0B\u4E00\u6B21 tools/change \u4F1A\u6536\u655B\uFF09\uFF1A${messageOf3(error51)}`);
       }
     }
   }
   const after = changed ? snapshotOf(layer, deps.log) : before;
+  const skillsAfter = changed ? skillsOf(layer, deps.log) : skillsBefore;
   const entries = parsed2.entries.map((entry) => ({
     text: entry.text,
     kind: entry.address.kind,
@@ -16449,8 +16895,13 @@ function toggleSession(deps, session, texts, on) {
     report: {
       entries,
       changed,
-      // 缓存重建只由「已生效的 deny 集合是否变化」决定：宽容记录的 0 匹配地址不算。
-      schemaChanged: !sameTexts(before.deny, after.deny),
+      // 缓存重建由「已生效的 deny 集合」或「影子 stub 集合」任一变化决定：宽容记录的
+      // 0 匹配地址不算；技能不进工具 deny，但技能目录属于前缀的一部分（H7 / D-4）。
+      schemaChanged: !sameTexts(before.deny, after.deny) || skillsBefore.shadowed.length !== skillsAfter.shadowed.length,
+      hiddenSkills: skillsAfter.shadowed.length - skillsBefore.shadowed.length,
+      // 收敛前基准（真实层同步读到的影子数）：RPC 在 `await skillsSettled()` 之后用
+      // `layer.skills().shadowed.length` 与它重算，得到「已生效」口径的回执数字（D-4）。
+      shadowedBefore: skillsBefore.shadowed.length,
       visibleBefore,
       visibleAfter: after.visible.length,
       visibleKnown: layer !== void 0,
@@ -16464,6 +16915,7 @@ function resetSession(deps, session) {
   const stateBefore = deps.store.read(session);
   const layer = layerOf(deps, session);
   const before = snapshotOf(layer, deps.log);
+  const skillsBefore = skillsOf(layer, deps.log);
   const visibleBefore = before.visible.length;
   const snapshot2 = parseDisabledTexts(stateBefore.snapshot, deps.protectedNames);
   const changed = !sameTexts(stateBefore.disabled, snapshot2);
@@ -16476,22 +16928,26 @@ function resetSession(deps, session) {
       deps.store.write(session, written);
     } catch (error51) {
       persistFailed = true;
-      deps.log.error(`\u65E0\u6CD5\u5199\u5165\u4F1A\u8BDD\u72B6\u6001\uFF08\u5DF2\u964D\u7EA7\u5185\u5B58\u6001\uFF09\uFF1A${messageOf2(error51)}`);
+      deps.log.error(`\u65E0\u6CD5\u5199\u5165\u4F1A\u8BDD\u72B6\u6001\uFF08\u5DF2\u964D\u7EA7\u5185\u5B58\u6001\uFF09\uFF1A${messageOf3(error51)}`);
     }
     if (layer !== void 0) {
       try {
         layer.setState(written);
       } catch (error51) {
         layerFailed = true;
-        deps.log.error(`\u65E0\u6CD5\u66F4\u65B0\u672C\u4F1A\u8BDD\u63A9\u7801\uFF08\u5B88\u536B\u4ECD\u5728\u62E6\uFF0C\u4E0B\u4E00\u6B21 tools/change \u4F1A\u6536\u655B\uFF09\uFF1A${messageOf2(error51)}`);
+        deps.log.error(`\u65E0\u6CD5\u66F4\u65B0\u672C\u4F1A\u8BDD\u63A9\u7801\uFF08\u5B88\u536B\u4ECD\u5728\u62E6\uFF0C\u4E0B\u4E00\u6B21 tools/change \u4F1A\u6536\u655B\uFF09\uFF1A${messageOf3(error51)}`);
       }
     }
   }
   const after = changed ? snapshotOf(layer, deps.log) : before;
+  const skillsAfter = changed ? skillsOf(layer, deps.log) : skillsBefore;
   return {
     changedCount: symmetricDifference(stateBefore.disabled, snapshot2),
     changed,
-    schemaChanged: !sameTexts(before.deny, after.deny),
+    schemaChanged: !sameTexts(before.deny, after.deny) || skillsBefore.shadowed.length !== skillsAfter.shadowed.length,
+    hiddenSkills: skillsAfter.shadowed.length - skillsBefore.shadowed.length,
+    // 收敛前基准（同 ToggleReport.shadowedBefore，RPC 收敛后重算用）。
+    shadowedBefore: skillsBefore.shadowed.length,
     snapshot: snapshot2,
     visibleBefore,
     visibleAfter: after.visible.length,
@@ -16506,8 +16962,10 @@ async function readPanel(deps, session) {
   const layer = layerOf(deps, session);
   const catalog = catalogOf(deps);
   const applied = snapshotOf(layer, deps.log);
+  const skills = skillsOf(layer, deps.log);
   const scoped = applied.visible;
   const defaults = await readDefaults(deps.defaultsPath, deps.defaultsIo, deps.log);
+  const workspace = await workspaceViewOf(deps, session);
   const plan = planMask({
     catalog,
     scoped,
@@ -16527,10 +16985,10 @@ async function readPanel(deps, session) {
   }
   const candidates = unionNames2(catalog, scoped, applied.deny);
   const groups = groupByServer(candidates);
-  const builtinNames = candidates.filter((name2) => serverOfToolName(name2) === void 0).sort(compareText2);
+  const builtinNames = candidates.filter((name2) => serverOfToolName(name2) === void 0).sort(compareText3);
   const scopedSet = new Set(scoped);
   const carriedSet = new Set(applied.deny);
-  const hiddenByOthers = layer === void 0 ? [] : catalog.filter((name2) => !scopedSet.has(name2) && !carriedSet.has(name2)).sort(compareText2);
+  const hiddenByOthers = layer === void 0 ? [] : catalog.filter((name2) => !scopedSet.has(name2) && !carriedSet.has(name2)).sort(compareText3);
   return {
     state,
     storeKind: deps.store.kind,
@@ -16542,14 +17000,17 @@ async function readPanel(deps, session) {
     scoped,
     defaults,
     defaultsPath: deps.defaultsPath,
-    protectedNames: Array.from(deps.protectedNames).sort(compareText2),
+    protectedNames: Array.from(deps.protectedNames).sort(compareText3),
     serverGroups: groups,
     builtinNames,
     builtinProtectedNames: builtinNames.filter((name2) => deps.protectedNames.has(name2)),
     hiddenByOthers,
     matched: plan.matched,
     closed,
-    createdAt: session.header.createdAt
+    createdAt: session.header.createdAt,
+    skills: skillRowsOf(skills, state.disabled, deps.protectedNames),
+    skillsAvailable: skills.available,
+    workspace
   };
 }
 async function updateDefaults(deps, mode, texts) {
@@ -16567,11 +17028,11 @@ async function updateDefaults(deps, mode, texts) {
       desired = before.disabled.filter((item) => !additions.includes(item));
     }
   }
-  const after = { version: 1, disabled: sortUnique3(desired) };
+  const after = { version: 1, disabled: sortUnique4(desired) };
   try {
     await writeDefaults(deps.defaultsPath, after, deps.defaultsIo);
   } catch (error51) {
-    deps.log.error(`\u9ED8\u8BA4\u6863\u5199\u5165\u5931\u8D25\uFF08${deps.defaultsPath}\uFF09\uFF1A${messageOf2(error51)}`);
+    deps.log.error(`\u9ED8\u8BA4\u6863\u5199\u5165\u5931\u8D25\uFF08${deps.defaultsPath}\uFF09\uFF1A${messageOf3(error51)}`);
     throw error51;
   }
   return {
@@ -16583,6 +17044,60 @@ async function updateDefaults(deps, mode, texts) {
       after,
       added: after.disabled.filter((item) => !before.disabled.includes(item)),
       removed: before.disabled.filter((item) => !after.disabled.includes(item))
+    }
+  };
+}
+async function updateWorkspaceDefaults(deps, target, mode, texts) {
+  const resolved = await resolveWorkspaceTarget(deps, target);
+  if (!resolved.ok) return { ok: false, text: resolved.text };
+  const before = await readWorkspaces(deps.workspacesPath, deps.workspacesIo, deps.log);
+  if (mode === "read") {
+    return {
+      ok: true,
+      report: {
+        mode,
+        key: resolved.key,
+        path: deps.workspacesPath,
+        before,
+        after: before,
+        added: [],
+        removed: []
+      }
+    };
+  }
+  const current = disabledOf(before, resolved.key);
+  let desired = [];
+  if (mode !== "reset") {
+    const parsed2 = parseAddresses(texts, deps.protectedNames);
+    if (!parsed2.ok) return { ok: false, text: parsed2.message };
+    const additions = parsed2.entries.map((entry) => entry.text);
+    if (mode === "set") {
+      desired = additions;
+    } else if (mode === "off") {
+      desired = [...current, ...additions];
+    } else {
+      desired = current.filter((item) => !additions.includes(item));
+    }
+  }
+  const after = withEntry(before, resolved.key, desired, deps.log);
+  try {
+    await writeWorkspaces(deps.workspacesPath, after, deps.workspacesIo);
+  } catch (error51) {
+    deps.log.error(`\u5DE5\u4F5C\u533A\u6863\u5199\u5165\u5931\u8D25\uFF08${deps.workspacesPath}\uFF09\uFF1A${messageOf3(error51)}`);
+    throw error51;
+  }
+  const beforeDisabled = disabledOf(before, resolved.key);
+  const afterDisabled = disabledOf(after, resolved.key);
+  return {
+    ok: true,
+    report: {
+      mode,
+      key: resolved.key,
+      path: deps.workspacesPath,
+      before,
+      after,
+      added: afterDisabled.filter((item) => !beforeDisabled.includes(item)),
+      removed: beforeDisabled.filter((item) => !afterDisabled.includes(item))
     }
   };
 }
@@ -16616,7 +17131,7 @@ function layerOf(deps, session) {
   try {
     return deps.layerFor(session.id);
   } catch (error51) {
-    deps.log.warn(`\u65E0\u6CD5\u89E3\u6790\u4F1A\u8BDD\u5C42\uFF08${session.id}\uFF09\uFF1A${messageOf2(error51)}`);
+    deps.log.warn(`\u65E0\u6CD5\u89E3\u6790\u4F1A\u8BDD\u5C42\uFF08${session.id}\uFF09\uFF1A${messageOf3(error51)}`);
     return void 0;
   }
 }
@@ -16624,7 +17139,7 @@ function catalogOf(deps) {
   try {
     return deps.catalog();
   } catch (error51) {
-    deps.log.warn(`\u65E0\u6CD5\u8BFB\u53D6\u5168\u5C40\u5C42\u5DE5\u5177\u6CE8\u518C\u8868\uFF1A${messageOf2(error51)}`);
+    deps.log.warn(`\u65E0\u6CD5\u8BFB\u53D6\u5168\u5C40\u5C42\u5DE5\u5177\u6CE8\u518C\u8868\uFF1A${messageOf3(error51)}`);
     return [];
   }
 }
@@ -16633,9 +17148,116 @@ function snapshotOf(layer, log) {
   try {
     return layer.snapshot();
   } catch (error51) {
-    log.warn(`\u65E0\u6CD5\u8BFB\u53D6\u672C\u4F1A\u8BDD\u63A9\u7801\u5FEB\u7167\uFF1A${messageOf2(error51)}`);
+    log.warn(`\u65E0\u6CD5\u8BFB\u53D6\u672C\u4F1A\u8BDD\u63A9\u7801\u5FEB\u7167\uFF1A${messageOf3(error51)}`);
     return { deny: [], shadowServers: [], visible: [] };
   }
+}
+function skillsOf(layer, log) {
+  if (layer === void 0) return NO_SKILLS;
+  try {
+    return layer.skills();
+  } catch (error51) {
+    log.warn(`\u65E0\u6CD5\u8BFB\u53D6\u672C\u4F1A\u8BDD\u6280\u80FD\u5206\u9762\uFF1A${messageOf3(error51)}`);
+    return NO_SKILLS;
+  }
+}
+async function resolveWorkspaceTarget(deps, target) {
+  if (target.kind === "session") {
+    let attribution;
+    try {
+      attribution = await deps.workspaceOf(target.session);
+    } catch (error51) {
+      deps.log.warn(`\u65E0\u6CD5\u89E3\u6790\u4F1A\u8BDD\u6240\u5C5E\u5DE5\u4F5C\u533A\uFF08${target.session.id}\uFF09\uFF1A${messageOf3(error51)}`);
+      attribution = void 0;
+    }
+    if (attribution === void 0) {
+      return unresolvedWorkspace(
+        target.session.id,
+        `\u4F1A\u8BDD\u300C${target.session.id}\u300D\u7684 cwd \u65E0\u6CD5\u5F52\u5C5E\u5DE5\u4F5C\u533A\uFF08\u7F3A\u5931\u6216\u76EE\u5F55\u5DF2\u88AB\u5220\u9664\uFF09`
+      );
+    }
+    return { ok: true, key: attribution.key };
+  }
+  const path = target.path;
+  if (!isAbsolute2(path)) {
+    return unresolvedWorkspace(path, `\u8DEF\u5F84\u300C${path}\u300D\u4E0D\u662F\u7EDD\u5BF9\u8DEF\u5F84`);
+  }
+  let choices;
+  try {
+    choices = deps.workspaceChoices();
+  } catch (error51) {
+    deps.log.warn(`\u65E0\u6CD5\u8BFB\u53D6\u5DF2\u767B\u8BB0\u5DE5\u4F5C\u533A\u5217\u8868\uFF1A${messageOf3(error51)}`);
+    choices = [];
+  }
+  if (!choices.some((choice) => choice.key === path)) {
+    return unresolvedWorkspace(
+      path,
+      `\u8DEF\u5F84\u300C${path}\u300D\u4E0D\u5728\u5DF2\u767B\u8BB0\u5DE5\u4F5C\u533A\u5217\u8868\u91CC\uFF08\u8981\u6C42\u7EDD\u5BF9\u8DEF\u5F84 + realpath \u6210\u529F + \u5DF2\u767B\u8BB0\uFF09`
+    );
+  }
+  return { ok: true, key: path };
+}
+function unresolvedWorkspace(subject, reason) {
+  return {
+    ok: false,
+    text: `\u5DE5\u4F5C\u533A\u672A\u89E3\u6790\uFF08workspace-unresolved\uFF0Csubject\uFF1A${subject}\uFF09\uFF1A${reason}\uFF0C\u672A\u505A\u4EFB\u4F55\u6539\u52A8`
+  };
+}
+async function workspaceViewOf(deps, session) {
+  let attribution;
+  try {
+    attribution = await deps.workspaceOf(session);
+  } catch (error51) {
+    deps.log.warn(`\u65E0\u6CD5\u89E3\u6790\u4F1A\u8BDD\u6240\u5C5E\u5DE5\u4F5C\u533A\uFF08${session.id}\uFF09\uFF1A${messageOf3(error51)}`);
+    return null;
+  }
+  if (attribution === void 0) return null;
+  const file2 = await readWorkspaces(deps.workspacesPath, deps.workspacesIo, deps.log);
+  const state = await workspacesStateOf(deps, file2);
+  return {
+    key: attribution.key,
+    ...attribution.title === void 0 ? {} : { title: attribution.title },
+    registered: attribution.registered,
+    disabled: disabledOf(file2, attribution.key),
+    path: deps.workspacesPath,
+    readable: state.readable,
+    corrupt: state.corrupt
+  };
+}
+async function workspacesStateOf(deps, file2) {
+  if (file2 !== EMPTY_WORKSPACES) return { readable: true, corrupt: false };
+  try {
+    await deps.workspacesIo.readFile(deps.workspacesPath);
+    return { readable: true, corrupt: true };
+  } catch {
+    return { readable: false, corrupt: false };
+  }
+}
+function skillRowsOf(snapshot2, disabled, protectedNames) {
+  const disabledNames = /* @__PURE__ */ new Set();
+  for (const text of disabled) {
+    const parsed2 = parseAddress(text, protectedNames);
+    if (parsed2.ok && parsed2.address.kind === "skill") disabledNames.add(parsed2.address.name);
+  }
+  const rows = /* @__PURE__ */ new Map();
+  for (const visible of snapshot2.visible) {
+    rows.set(visible.name, {
+      name: visible.name,
+      description: truncateDescription(visible.description),
+      disabled: disabledNames.has(visible.name),
+      shadowed: false
+    });
+  }
+  for (const name2 of snapshot2.shadowed) {
+    const existing = rows.get(name2);
+    rows.set(name2, {
+      name: name2,
+      description: existing?.description ?? "",
+      disabled: disabledNames.has(name2),
+      shadowed: true
+    });
+  }
+  return Array.from(rows.values()).sort((left, right) => compareText3(left.name, right.name));
 }
 function unionNames2(catalog, scoped, carried) {
   return Array.from(/* @__PURE__ */ new Set([...catalog, ...scoped, ...carried]));
@@ -16647,7 +17269,7 @@ function groupByServer(names) {
     if (server === void 0) continue;
     counts.set(server, (counts.get(server) ?? 0) + 1);
   }
-  return Array.from(counts.entries()).sort(([left], [right]) => compareText2(left, right)).map(([server, count]) => ({ server, address: `mcp:${server}`, count }));
+  return Array.from(counts.entries()).sort(([left], [right]) => compareText3(left, right)).map(([server, count]) => ({ server, address: `mcp:${server}`, count }));
 }
 function serverOfToolName(toolName) {
   if (!toolName.startsWith(MCP_PUBLIC_PREFIX2)) return void 0;
@@ -16656,7 +17278,13 @@ function serverOfToolName(toolName) {
   if (separator <= 0) return void 0;
   return rest.slice(0, separator);
 }
-function compareText2(left, right) {
+function truncateDescription(text) {
+  if (text.length <= DESCRIPTION_MAX_LENGTH) return text;
+  const cut = text.slice(0, DESCRIPTION_MAX_LENGTH);
+  const last = cut.charCodeAt(cut.length - 1);
+  return last >= 55296 && last <= 56319 ? cut.slice(0, -1) : cut;
+}
+function compareText3(left, right) {
   if (left < right) return -1;
   if (left > right) return 1;
   return 0;
@@ -16670,10 +17298,10 @@ function symmetricDifference(left, right) {
   const onlyRight = right.filter((item) => !left.includes(item)).length;
   return onlyLeft + onlyRight;
 }
-function sortUnique3(texts) {
-  return Array.from(new Set(texts)).sort(compareText2);
+function sortUnique4(texts) {
+  return Array.from(new Set(texts)).sort(compareText3);
 }
-function messageOf2(error51) {
+function messageOf3(error51) {
   if (error51 instanceof Error) return error51.message;
   try {
     return String(error51);
@@ -16684,10 +17312,10 @@ function messageOf2(error51) {
 
 // src/host/commands.ts
 var COMMAND_NAME = "tools";
-var COMMAND_DESCRIPTION = "\u4F1A\u8BDD\u7EA7\u5DE5\u5177\u9762\u5F00\u5173\uFF1A\u67E5\u770B\u72B6\u6001\u3001\u6309 mcp:<server> \u6574\u7EC4\u6216\u5355\u5DE5\u5177\u5173\u95ED/\u5F00\u542F\u3001tool:<name> \u5173\u95ED\u5185\u7F6E\u5DE5\u5177\uFF0C\u5E76\u7BA1\u7406\u53EA\u5F71\u54CD\u4E4B\u540E\u65B0\u5EFA\u4F1A\u8BDD\u7684\u7528\u6237\u7EA7\u9ED8\u8BA4\u6863";
+var COMMAND_DESCRIPTION = "\u4F1A\u8BDD\u7EA7\u5DE5\u5177\u9762\u5F00\u5173\uFF1A\u67E5\u770B\u72B6\u6001\u3001\u6309 mcp:<server> \u6574\u7EC4\u6216\u5355\u5DE5\u5177\u5173\u95ED/\u5F00\u542F\u3001tool:<name> \u5173\u95ED\u5185\u7F6E\u5DE5\u5177\u3001skill:<name> \u9690\u85CF\u5355\u4E2A\u6280\u80FD\uFF0C\u5E76\u7BA1\u7406\u53EA\u5F71\u54CD\u4E4B\u540E\u65B0\u5EFA\u4F1A\u8BDD\u7684\u7528\u6237\u7EA7\u9ED8\u8BA4\u6863\u4E0E\u672C\u4F1A\u8BDD\u6240\u5C5E\u5DE5\u4F5C\u533A\u7684\u9ED8\u8BA4\u6863";
 var KV_REBUILD_HINT = "\u4E0B\u6B21\u8BF7\u6C42\u751F\u6548\uFF1B\u524D\u7F00\u7F13\u5B58\u5C06\u4ECE\u7B2C\u4E00\u4E2A\u53D8\u5316\u7684 schema token \u8D77\u91CD\u5EFA\u4E00\u6B21\uFF08\u4E00\u6B21\u6027\u6210\u672C\uFF09";
 var KV_UNCHANGED_HINT = "\u672C\u6B21\u6CA1\u6709\u5DE5\u5177\u5B9A\u4E49\u8FDB\u51FA\u6A21\u578B\u8BF7\u6C42\uFF1A\u524D\u7F00\u7F13\u5B58\u4E0D\u91CD\u5EFA";
-var SKILL_FLIP_HINT = "skill \u662F\u6280\u80FD\u76EE\u5F55\u5DE5\u5177\uFF1A\u4E00\u6B21\u5F00\u5173\u4F1A\u89E6\u53D1\u4E00\u6B21\u6280\u80FD\u76EE\u5F55\u66FF\u6362\u6D88\u606F\uFF08\u6A21\u578B\u4FA7\u53EF\u89C1\u7684\u4E00\u6B21\u6027\u6210\u672C\uFF09";
+var SKILL_FLIP_HINT = "skill \u662F\u6280\u80FD\u76EE\u5F55\u5DE5\u5177\uFF1A\u4E00\u6B21\u5F00\u5173\u4F1A\u89E6\u53D1\u4E00\u6B21\u6280\u80FD\u76EE\u5F55\u66FF\u6362\u6D88\u606F\uFF08\u6A21\u578B\u4FA7\u53EF\u89C1\u7684\u4E00\u6B21\u6027\u6210\u672C\uFF09\uFF1B\u88AB\u5173\u6280\u80FD\u6A21\u578B\u4E0D\u53EF\u89C1\uFF0C/<\u6280\u80FD\u540D> \u624B\u52A8\u8C03\u7528\u4FDD\u7559";
 function parseToolsInput(rawInput) {
   const tokens = rawInput.trim().split(/\s+/).filter((token) => token !== "");
   const verb = tokens[0];
@@ -16704,6 +17332,8 @@ function parseToolsInput(rawInput) {
       return rest.length === 0 ? { ok: true, command: { kind: "reset" } } : rejected2(`reset \u4E0D\u63A5\u53C2\u6570\uFF1B${grammarLine()}`);
     case "default":
       return defaultsParse(rest);
+    case "workspace":
+      return workspaceParse(rest);
     default:
       return rejected2(`\u65E0\u6CD5\u8BC6\u522B\u7684\u5B50\u547D\u4EE4\u300C${verb}\u300D\uFF1B${grammarLine()}`);
   }
@@ -16733,6 +17363,29 @@ function defaultsParse(rest) {
     `default \u7684\u5B50\u547D\u4EE4\u53EA\u652F\u6301 off / on / set / reset\uFF08\u4E0D\u5E26\u5B50\u547D\u4EE4\u65F6\u53EA\u67E5\u770B\u9ED8\u8BA4\u6863\uFF09\uFF1B${grammarLine()}`
   );
 }
+function workspaceParse(rest) {
+  const sub = rest[0];
+  if (sub === void 0) return { ok: true, command: { kind: "workspace", mode: "read", texts: [] } };
+  const mode = sub.toLowerCase();
+  const texts = rest.slice(1);
+  if (mode === "status") {
+    return texts.length === 0 ? { ok: true, command: { kind: "workspace", mode: "read", texts: [] } } : rejected2(`workspace status \u4E0D\u63A5\u53C2\u6570\uFF1B${grammarLine()}`);
+  }
+  if (mode === "reset") {
+    return texts.length === 0 ? { ok: true, command: { kind: "workspace", mode: "reset", texts: [] } } : rejected2(`workspace reset \u4E0D\u63A5\u5730\u5740\uFF08\u6E05\u7A7A\u672C\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u76F4\u63A5\u5199 /tools workspace reset\uFF09\uFF1B${grammarLine()}`);
+  }
+  if (mode === "off" || mode === "on" || mode === "set") {
+    if (texts.length === 0) {
+      return rejected2(
+        `workspace ${mode} \u540E\u9762\u81F3\u5C11\u9700\u8981\u4E00\u4E2A\u5730\u5740\uFF08\u5982 /tools workspace off skill:openspec-propose\uFF09\uFF1B${grammarLine()}`
+      );
+    }
+    return { ok: true, command: { kind: "workspace", mode, texts } };
+  }
+  return rejected2(
+    `workspace \u7684\u5B50\u547D\u4EE4\u53EA\u652F\u6301 status / off / on / set / reset\uFF08\u4E0D\u5E26\u5B50\u547D\u4EE4\u65F6\u53EA\u67E5\u770B\u672C\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\uFF0C\u4E0D\u63A5\u53D7\u8DEF\u5F84\u53C2\u6570\uFF09\uFF1B${grammarLine()}`
+  );
+}
 function rejected2(message) {
   return { ok: false, message };
 }
@@ -16747,17 +17400,19 @@ async function runToolsCommand(rawInput, deps, session) {
       case "status":
         return { kind: "success", text: statusText(await readPanel(deps, session)) };
       case "toggle":
-        return toggleReceipt(deps, session, parsed2.command);
+        return await toggleReceipt(deps, session, parsed2.command);
       case "reset":
-        return resetReceipt(deps, session);
+        return await resetReceipt(deps, session);
       case "defaults":
         return await defaultsReceipt(deps, session, parsed2.command);
+      case "workspace":
+        return await workspaceReceipt(deps, session, parsed2.command);
     }
   } catch (error51) {
-    deps.log.error(`/tools \u547D\u4EE4\u6267\u884C\u5931\u8D25\uFF1A${messageOf3(error51)}`);
+    deps.log.error(`/tools \u547D\u4EE4\u6267\u884C\u5931\u8D25\uFF1A${messageOf4(error51)}`);
     return {
       kind: "error",
-      text: `\u547D\u4EE4\u6267\u884C\u5931\u8D25\uFF1A${messageOf3(error51)}\uFF1B${grammarLine()}`
+      text: `\u547D\u4EE4\u6267\u884C\u5931\u8D25\uFF1A${messageOf4(error51)}\uFF1B${grammarLine()}`
     };
   }
 }
@@ -16772,32 +17427,73 @@ function toolsCommand(deps) {
 function sessionOf(invocation) {
   return invocation.agent.session;
 }
-function toggleReceipt(deps, session, command) {
+async function toggleReceipt(deps, session, command) {
   const outcome = toggleSession(deps, session, command.texts, command.on);
   if (!outcome.ok) return { kind: "error", text: outcome.text };
+  await settleSkills(deps, session);
+  const skills = readSkills(deps, session);
   const report = outcome.report;
-  const lines = report.entries.map((entry) => toggleLine(entry, command.on));
+  const lines = report.entries.map((entry) => toggleLine(entry, command.on, skills));
   lines.push(visibleLine(report.visibleKnown, report.visibleBefore, report.visibleAfter));
-  lines.push(report.schemaChanged ? KV_REBUILD_HINT : KV_UNCHANGED_HINT);
-  if (report.schemaChanged && report.entries.some((entry) => entry.text === "tool:skill")) {
-    lines.push(SKILL_FLIP_HINT);
-  }
+  const flippedSkill = report.entries.some((entry) => {
+    if (!entry.changed) return false;
+    if (entry.text === "tool:skill") return true;
+    if (entry.kind !== "skill") return false;
+    if (skills === void 0 || !skills.available) return false;
+    const name2 = entry.text.slice(SKILL_PREFIX.length);
+    return skills.shadowed.includes(name2) || skills.visible.some((item) => item.name === name2);
+  });
+  if (report.schemaChanged) lines.push(KV_REBUILD_HINT);
+  else if (!flippedSkill) lines.push(KV_UNCHANGED_HINT);
+  if (flippedSkill) lines.push(SKILL_FLIP_HINT);
   if (report.persistFailed) lines.push(PERSIST_DEGRADED_HINT);
   if (report.layerFailed) lines.push(LAYER_FAILED_HINT);
   return { kind: "success", text: lines.join("\n") };
 }
-function toggleLine(entry, on) {
+async function settleSkills(deps, session) {
+  try {
+    await deps.layerFor(session.id)?.skillsSettled();
+  } catch (error51) {
+    deps.log.warn(`\u7B49\u5F85\u6280\u80FD\u6536\u655B\u5931\u8D25\uFF08${session.id}\uFF09\uFF1A${messageOf4(error51)}`);
+  }
+}
+function readSkills(deps, session) {
+  try {
+    return deps.layerFor(session.id)?.skills();
+  } catch (error51) {
+    deps.log.warn(`\u65E0\u6CD5\u8BFB\u53D6\u6280\u80FD\u5206\u9762\uFF08${session.id}\uFF09\uFF1A${messageOf4(error51)}`);
+    return void 0;
+  }
+}
+function toggleLine(entry, on, skills) {
   const section = entry.kind === "mcp-group" ? " + 1 \u6BB5\u670D\u52A1\u5668\u6307\u4EE4" : "";
   if (!entry.changed) {
     return on ? `\u5DF2\u5F00\u542F\uFF1A${entry.text}\uFF08\u6B64\u524D\u5DF2\u662F\u5F00\u542F\u72B6\u6001\uFF0C\u65E0\u53D8\u5316\uFF09` : `\u5DF2\u5173\u95ED\uFF1A${entry.text}\uFF08\u6B64\u524D\u5DF2\u5173\u95ED\uFF0C\u65E0\u53D8\u5316\uFF09`;
+  }
+  if (entry.kind === "skill") {
+    const name2 = entry.text.slice(SKILL_PREFIX.length);
+    const rows = skills?.available === true ? skills : void 0;
+    const shadowed = rows?.shadowed.includes(name2) ?? false;
+    const installed = rows !== void 0 && (shadowed || rows.visible.some((item) => item.name === name2));
+    if (on) {
+      if (shadowed) {
+        return `\u5DF2\u5F00\u542F\uFF1A${entry.text}\uFF08\u610F\u56FE\u5DF2\u8BB0\uFF1B\u5F71\u5B50 stub \u4ECD\u5728\uFF0C\u4E0B\u4E00\u6B21\u76EE\u5F55\u5237\u65B0\u540E\u6062\u590D\u53EF\u89C1\uFF09`;
+      }
+      return installed ? `\u5DF2\u5F00\u542F\uFF1A${entry.text}\uFF08\u5DF2\u56DE\u5230\u6A21\u578B\u76EE\u5F55\uFF1B\u76EE\u5F55\u6D88\u606F\u91CD\u53D1\u4E00\u6B21\uFF09` : `\u5DF2\u5F00\u542F\uFF1A${entry.text}\uFF08\u5F53\u524D\u6CA1\u6709\u8FD9\u4E2A\u6280\u80FD\uFF1B\u6062\u590D 0 \u4E2A\u6280\u80FD\uFF09`;
+    }
+    if (shadowed) {
+      return `\u5DF2\u5173\u95ED\uFF1A${entry.text}\uFF08\u6A21\u578B\u4E0D\u53EF\u89C1\uFF0C${skillInvocation(entry.text)} \u624B\u52A8\u8C03\u7528\u4FDD\u7559\uFF09`;
+    }
+    return installed ? `\u5DF2\u5173\u95ED\uFF1A${entry.text}\uFF08\u610F\u56FE\u5DF2\u8BB0\uFF1B\u5F71\u5B50 stub \u672A\u751F\u6548\uFF0C\u6A21\u578B\u4ECD\u53EF\u89C1\uFF09` : `\u5DF2\u8BB0\u5F55\uFF1A${entry.text}\uFF08\u5F53\u524D\u6CA1\u6709\u8FD9\u4E2A\u6280\u80FD\uFF1B\u5B89\u88C5\u540E\u81EA\u52A8\u751F\u6548\uFF09`;
   }
   if (on) {
     return entry.matched === 0 ? `\u5DF2\u5F00\u542F\uFF1A${entry.text}\uFF08\u5F53\u524D\u65E0\u6CE8\u518C\u5DE5\u5177\u5339\u914D\uFF1B\u6062\u590D 0 \u4E2A\u5DE5\u5177\u5B9A\u4E49\uFF09` : `\u5DF2\u5F00\u542F\uFF1A${entry.text}\uFF08\u6062\u590D ${entry.matched} \u4E2A\u5DE5\u5177\u5B9A\u4E49${section}\uFF09`;
   }
   return entry.matched === 0 ? `\u5DF2\u8BB0\u5F55\uFF1A${entry.text}\uFF08\u5F53\u524D\u65E0\u6CE8\u518C\u5DE5\u5177\u5339\u914D\uFF1B\u670D\u52A1\u5668\u4E0A\u7EBF\u540E\u81EA\u52A8\u751F\u6548\uFF09` : `\u5DF2\u5173\u95ED\uFF1A${entry.text}\uFF08\u9690\u85CF ${entry.matched} \u4E2A\u5DE5\u5177\u5B9A\u4E49${section}\uFF09`;
 }
-function resetReceipt(deps, session) {
+async function resetReceipt(deps, session) {
   const report = resetSession(deps, session);
+  await settleSkills(deps, session);
   const lines = [
     `\u5DF2\u91CD\u7F6E ${report.changedCount} \u9879 \u2192 \u521B\u5EFA\u65F6\u5FEB\u7167\uFF08${report.snapshot.length} \u9879\u5173\u95ED\uFF09`,
     visibleLine(report.visibleKnown, report.visibleBefore, report.visibleAfter),
@@ -16819,7 +17515,28 @@ async function defaultsReceipt(deps, session, command) {
     return {
       kind: "error",
       text: [
-        `\u9ED8\u8BA4\u6863\u5199\u5165\u5931\u8D25\uFF08${deps.defaultsPath}\uFF09\uFF1A${messageOf3(error51)}`,
+        `\u9ED8\u8BA4\u6863\u5199\u5165\u5931\u8D25\uFF08${deps.defaultsPath}\uFF09\uFF1A${messageOf4(error51)}`,
+        `\u6539\u52A8\u672A\u751F\u6548\uFF1B\u672C\u4F1A\u8BDD\u4E0D\u53D8\uFF08${grammarLine()}\uFF09`
+      ].join("\n")
+    };
+  }
+}
+async function workspaceReceipt(deps, session, command) {
+  if (command.mode === "read") {
+    const reading = await readPanel(deps, session);
+    const workspace = reading.workspace;
+    if (workspace === null) return { kind: "error", text: workspaceUnresolvedText(session) };
+    return { kind: "success", text: workspaceReadText(workspace) };
+  }
+  try {
+    const outcome = await updateWorkspaceDefaults(deps, { kind: "session", session }, command.mode, command.texts);
+    if (!outcome.ok) return { kind: "error", text: outcome.text };
+    return { kind: "success", text: workspaceWriteText(outcome.report) };
+  } catch (error51) {
+    return {
+      kind: "error",
+      text: [
+        `\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u5199\u5165\u5931\u8D25\uFF08${deps.workspacesPath}\uFF09\uFF1A${messageOf4(error51)}`,
         `\u6539\u52A8\u672A\u751F\u6548\uFF1B\u672C\u4F1A\u8BDD\u4E0D\u53D8\uFF08${grammarLine()}\uFF09`
       ].join("\n")
     };
@@ -16838,22 +17555,66 @@ function statusText(reading) {
     `\u3010\u672C\u4F1A\u8BDD\u5F00\u5173\u3011\u5DF2\u5173 ${disabledCount} \u9879${disabledCount === 0 ? "\uFF08\u5168\u90E8\u53EF\u89C1\uFF09" : ""}`
   );
   for (const entry of reading.closed) {
-    lines.push(`  \xB7 ${entry.text} ${entry.matched} \u4E2A\u5DE5\u5177\u5B9A\u4E49\uFF08${closedStateText(entry)}\uFF09`);
+    lines.push(
+      entry.kind === "skill" ? `  \xB7 ${closedStateText(entry, reading.skills)}` : `  \xB7 ${entry.text} ${entry.matched} \u4E2A\u5DE5\u5177\u5B9A\u4E49\uFF08${closedStateText(entry, reading.skills)}\uFF09`
+    );
   }
   lines.push(
     `  \xB7 \u672C\u4F1A\u8BDD\u53EF\u89C1\u5DE5\u5177 ${reading.layerReady ? `${reading.visible} \u4E2A` : "\u6570\u4E0D\u53EF\u7528\uFF08\u4F1A\u8BDD\u5C42\u672A\u5C31\u7EEA\uFF09"}\uFF08\u6301\u4E45\u5316\u901A\u9053\uFF1A${storeKindText(reading.storeKind)}\uFF09`
   );
+  lines.push(...skillsText(reading));
   lines.push(defaultsHeadline(reading));
   lines.push(
     `  \xB7 \u672C\u4F1A\u8BDD\u521B\u5EFA\u4E8E ${formatTime(reading.createdAt)}\uFF1B\u5FEB\u7167\u6765\u6E90=${snapshotSource(reading.state)}\uFF1B/tools reset \u56DE\u5230\u8FD9\u91CC`
   );
+  lines.push(workspaceStatusLine(reading));
   lines.push(switchableText(reading));
   lines.push(`\u3010\u4FDD\u62A4\u540D\u5355\u3011${reading.protectedNames.length} \u9879\uFF1A${reading.protectedNames.join("\u3001")}`);
   lines.push(`  \xB7 ${hiddenText(reading)}`);
   return lines.join("\n");
 }
-function closedStateText(entry) {
+function skillsText(reading) {
+  if (!reading.skillsAvailable) {
+    return ["\u6280\u80FD\uFF1A\u4E0D\u53EF\u7528\uFF08skills \u670D\u52A1\u672A\u5C31\u7EEA\uFF1A\u6280\u80FD\u5730\u5740\u53EA\u8BB0\u610F\u56FE\uFF0C\u6A21\u578B\u76EE\u5F55\u4E0D\u4F1A\u5C4F\u853D\uFF09"];
+  }
+  const visible = reading.skills.filter((row) => !row.disabled).length;
+  const closed = reading.state.disabled.filter((text) => text.startsWith(SKILL_PREFIX)).length;
+  const shadowed = reading.skills.filter((row) => row.shadowed).length;
+  const intent = Math.max(0, closed - shadowed);
+  const lines = [`\u6280\u80FD\uFF1A\u53EF\u89C1 ${visible} / \u5DF2\u5173 ${closed}\uFF08\u751F\u6548 ${shadowed}\uFF0C\u610F\u56FE ${intent}\uFF09`];
+  if (reading.state.disabled.includes("tool:skill")) {
+    lines.push("  \xB7 \u6574\u6863 tool:skill \u5DF2\u5173\u95ED\uFF1A\u6280\u80FD\u76EE\u5F55\u505C\u53D1\uFF0C\u9010\u6280\u80FD\u5730\u5740\u4E0D\u751F\u6548\uFF08/<\u6280\u80FD\u540D> \u624B\u52A8\u8C03\u7528\u4FDD\u7559\uFF09");
+  }
+  return lines;
+}
+function workspaceStatusLine(reading) {
+  const workspace = reading.workspace;
+  if (workspace === null) {
+    return "\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\uFF1A\u65E0\u6CD5\u5F52\u5C5E\u672C\u4F1A\u8BDD\u6240\u5C5E\u5DE5\u4F5C\u533A\uFF08cwd \u7F3A\u5931\u6216\u76EE\u5F55\u4E0D\u53EF\u89E3\u6790\uFF1B\u672C\u6B21\u53EA\u7528\u7528\u6237\u7EA7\u9ED8\u8BA4\u6863\uFF09";
+  }
+  return `\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\uFF08${workspace.key}\uFF0C${workspace.registered ? "\u5DF2\u767B\u8BB0" : "\u672A\u767B\u8BB0"}\uFF09\uFF1A${workspace.disabled.length} \u9879 \xB7 ${workspace.path}${workspaceFileNote(workspace)}`;
+}
+function workspaceFileNote(workspace) {
+  if (workspace.corrupt) return "\uFF08\u6587\u4EF6\u635F\u574F\uFF0C\u5DF2\u6309\u7A7A\u6863\u5904\u7406\uFF09";
+  if (!workspace.readable) return "\uFF08\u6587\u4EF6\u4E0D\u5B58\u5728\uFF0C\u6309\u7A7A\u6863\u5904\u7406\uFF09";
+  return "";
+}
+function closedStateText(entry, skills) {
+  if (entry.kind === "skill") {
+    const name2 = entry.text.slice(SKILL_PREFIX.length);
+    const row = skills.find((item) => item.name === name2);
+    if (row?.shadowed === true) {
+      return `${entry.text}\uFF08\u5DF2\u5173\u95ED\uFF0C\u6A21\u578B\u4E0D\u53EF\u89C1\uFF1B${skillInvocation(entry.text)} \u624B\u52A8\u8C03\u7528\u4FDD\u7559\uFF09`;
+    }
+    if (row !== void 0) {
+      return `${entry.text}\uFF08\u5DF2\u5173\u95ED\uFF08\u610F\u56FE\u5DF2\u8BB0\uFF09\uFF1B\u5F71\u5B50 stub \u672A\u751F\u6548\uFF0C\u6A21\u578B\u4ECD\u53EF\u89C1\uFF09`;
+    }
+    return `${entry.text}\uFF08\u5DF2\u8BB0\u5F55\uFF1A\u5F53\u524D\u6CA1\u6709\u8FD9\u4E2A\u6280\u80FD\uFF1B\u5B89\u88C5\u540E\u81EA\u52A8\u751F\u6548\uFF09`;
+  }
   return entry.matched > 0 ? `\u5DF2\u5173\u95ED${entry.shadowed ? "\uFF0C\u670D\u52A1\u5668\u6307\u4EE4\u6BB5\u5DF2\u906E\u853D" : ""}` : "\u5DF2\u8BB0\u5F55\uFF1A\u5F53\u524D\u65E0\u6CE8\u518C\u5DE5\u5177\u5339\u914D\uFF1B\u670D\u52A1\u5668\u4E0A\u7EBF\u540E\u81EA\u52A8\u751F\u6548";
+}
+function skillInvocation(text) {
+  return `/${text.slice(SKILL_PREFIX.length)}`;
 }
 function defaultsReadText(reading) {
   return [
@@ -16873,6 +17634,30 @@ function defaultsWriteText(report) {
   return [
     `\u3010\u9ED8\u8BA4\u6863\u3011${verb}\uFF08\u5BF9\u4E4B\u540E\u65B0\u5EFA\u7684\u4F1A\u8BDD\u751F\u6548\uFF1B\u672C\u4F1A\u8BDD\u4E0D\u53D8\uFF09\uFF1A\u65B0\u589E ${report.added.length} \u9879\u3001\u79FB\u9664 ${report.removed.length} \u9879\uFF1B\u5F53\u524D ${disabled.length} \u9879\u5173\u95ED`,
     `  \xB7 ${report.path}${disabled.length === 0 ? "\uFF08\u7A7A\u6863\uFF09" : `\uFF08${disabled.join("\u3001")}\uFF09`}`
+  ].join("\n");
+}
+function workspaceReadText(workspace) {
+  const disabled = workspace.disabled;
+  const listed = disabled.length === 0 ? "\uFF08\u7A7A\u6863\uFF09" : `\uFF08${disabled.join("\u3001")}\uFF09`;
+  return [
+    `\u3010\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u3011${workspace.key}\uFF08${workspace.registered ? "\u5DF2\u767B\u8BB0" : "\u672A\u767B\u8BB0"}\uFF09`,
+    `  \xB7 \u6587\u4EF6\uFF1A${workspace.path}${workspaceFileNote(workspace)}`,
+    `  \xB7 \u53EA\u5F71\u54CD\u4E4B\u540E\u65B0\u5EFA\u7684\u4F1A\u8BDD\uFF1B\u672C\u4F1A\u8BDD\u4E0D\u53D8\uFF08\u5F53\u524D ${disabled.length} \u9879\u5173\u95ED${listed}\uFF09`
+  ].join("\n");
+}
+function workspaceWriteText(report) {
+  const verb = report.mode === "set" ? "\u5DF2\u8986\u76D6" : report.mode === "reset" ? "\u5DF2\u6E05\u7A7A" : "\u5DF2\u66F4\u65B0";
+  const disabled = disabledOf(report.after, report.key);
+  return [
+    `\u3010\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u3011${verb}\uFF08\u53EA\u5F71\u54CD\u4E4B\u540E\u65B0\u5EFA\u7684\u4F1A\u8BDD\uFF1B\u672C\u4F1A\u8BDD\u4E0D\u53D8\uFF09\uFF1A\u65B0\u589E ${report.added.length} \u9879\u3001\u79FB\u9664 ${report.removed.length} \u9879\uFF1B\u5F53\u524D ${disabled.length} \u9879\u5173\u95ED`,
+    `  \xB7 \u5DE5\u4F5C\u533A\u952E\uFF1A${report.key}${disabled.length === 0 ? "\uFF08\u7A7A\u6863\uFF09" : `\uFF08${disabled.join("\u3001")}\uFF09`}`,
+    `  \xB7 ${report.path}`
+  ].join("\n");
+}
+function workspaceUnresolvedText(session) {
+  return [
+    `\u65E0\u6CD5\u5F52\u5C5E\u672C\u4F1A\u8BDD\uFF08${session.id}\uFF09\u6240\u5C5E\u5DE5\u4F5C\u533A\uFF08workspace-unresolved\uFF09\uFF1Acwd \u7F3A\u5931\u6216\u76EE\u5F55\u4E0D\u53EF\u89E3\u6790`,
+    `\u672C\u6B21\u672A\u8BFB\u53D6\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\uFF08${grammarLine()}\uFF09`
   ].join("\n");
 }
 function switchableText(reading) {
@@ -16898,7 +17683,7 @@ function formatTime(epochMs) {
   if (!Number.isFinite(epochMs) || epochMs <= 0) return "\u672A\u77E5\u65F6\u95F4";
   return new Date(epochMs).toISOString();
 }
-function messageOf3(error51) {
+function messageOf4(error51) {
   if (error51 instanceof Error) return error51.message;
   try {
     return String(error51);
@@ -16910,7 +17695,7 @@ function messageOf3(error51) {
 // src/host/host-runtime.ts
 import { readFile as readFile3, realpath as realpath2, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { dirname as dirname3, join as join2, resolve as resolve3 } from "node:path";
+import { dirname as dirname4, join as join2, resolve as resolve4 } from "node:path";
 import { pathToFileURL } from "node:url";
 var DSH_PACKAGE = "@deepseek-ai/dsh";
 var SESSION_PACKAGE = "@deepseek-ai/dsh-session";
@@ -16964,14 +17749,14 @@ async function loadHostSessionApi(session, options) {
   return void 0;
 }
 async function importFromModulePath(modulePath, session, log) {
-  const target = resolve3(modulePath);
+  const target = resolve4(modulePath);
   if (await isDirectory(target)) {
     let file2;
     try {
       const require2 = createRequire(join2(target, "package.json"));
       file2 = require2.resolve(SESSION_PACKAGE);
     } catch (error51) {
-      log.warn(`\u628A ${target} \u5F53\u89E3\u6790\u951A\u70B9\u89E3\u6790 ${SESSION_PACKAGE} \u5931\u8D25\uFF08${describeError2(error51)}\uFF09`);
+      log.warn(`\u628A ${target} \u5F53\u89E3\u6790\u951A\u70B9\u89E3\u6790 ${SESSION_PACKAGE} \u5931\u8D25\uFF08${describeError3(error51)}\uFF09`);
       return void 0;
     }
     return importHostModule(file2, session, log);
@@ -16986,12 +17771,12 @@ async function isDirectory(path) {
   }
 }
 async function importHostModule(file2, session, log) {
-  const target = resolve3(file2);
+  const target = resolve4(file2);
   try {
     const moduleNamespace = await import(pathToFileURL(target).href);
     return adoptHostModule(moduleNamespace, session, log);
   } catch (error51) {
-    log.warn(`\u5BFC\u5165\u5BBF\u4E3B dsh-session \u5931\u8D25\uFF08${describeError2(error51)}\uFF09\u8DEF\u5F84 ${target}`);
+    log.warn(`\u5BFC\u5165\u5BBF\u4E3B dsh-session \u5931\u8D25\uFF08${describeError3(error51)}\uFF09\u8DEF\u5F84 ${target}`);
     return void 0;
   }
 }
@@ -17005,10 +17790,10 @@ async function resolveFromProcessArgv(log) {
   try {
     realEntry = await realpath2(entry);
   } catch (error51) {
-    log.warn(`realpath(process.argv[1]) \u5931\u8D25\uFF08${describeError2(error51)}\uFF09`);
+    log.warn(`realpath(process.argv[1]) \u5931\u8D25\uFF08${describeError3(error51)}\uFF09`);
     return void 0;
   }
-  const packageDir = await findDshPackageDir(dirname3(realEntry));
+  const packageDir = await findDshPackageDir(dirname4(realEntry));
   if (packageDir === void 0) {
     log.warn(`process.argv[1] \u7684\u7956\u5148\u76EE\u5F55\u91CC\u6CA1\u6709 name \u4E3A ${DSH_PACKAGE} \u7684 package.json`);
     return void 0;
@@ -17017,7 +17802,7 @@ async function resolveFromProcessArgv(log) {
     const require2 = createRequire(join2(packageDir, "package.json"));
     return require2.resolve(SESSION_PACKAGE);
   } catch (error51) {
-    log.warn(`\u4ECE ${packageDir} \u89E3\u6790 ${SESSION_PACKAGE} \u5931\u8D25\uFF08${describeError2(error51)}\uFF09`);
+    log.warn(`\u4ECE ${packageDir} \u89E3\u6790 ${SESSION_PACKAGE} \u5931\u8D25\uFF08${describeError3(error51)}\uFF09`);
     return void 0;
   }
 }
@@ -17026,7 +17811,7 @@ async function findDshPackageDir(startDir) {
   for (; ; ) {
     const name2 = await readPackageName(join2(dir, "package.json"));
     if (name2 === DSH_PACKAGE) return dir;
-    const parent = dirname3(dir);
+    const parent = dirname4(dir);
     if (parent === dir) return void 0;
     dir = parent;
   }
@@ -17046,7 +17831,7 @@ function reportIgnoredFailures(failures, log, source) {
   if (failures.length === 0) return;
   log.info(`${source} \u751F\u6548\uFF0C\u5DF2\u5FFD\u7565 ${failures.length} \u6761\u66F4\u9AD8\u4F18\u5148\u7EA7\u7684\u89E3\u6790\u5931\u8D25\uFF1A${failures.join("\uFF1B")}`);
 }
-function describeError2(error51) {
+function describeError3(error51) {
   if (error51 instanceof Error) {
     const code = error51.code;
     return code === void 0 ? error51.message : `${error51.message}\uFF08${code}\uFF09`;
@@ -17147,7 +17932,7 @@ var RecordStateStore = class {
       if (!this.warnedWriteFailure) {
         this.warnedWriteFailure = true;
         this.log.warn(
-          `\u5199\u5165\u4F1A\u8BDD\u63D2\u4EF6\u8BB0\u5F55\u5931\u8D25\uFF08${describeError3(error51)}\uFF09\uFF0C\u672C\u8FDB\u7A0B\u5DF2\u964D\u7EA7\u4E3A\u5185\u5B58\u6001\uFF1A\u5F00\u5173\u5728\u5F53\u524D\u4F1A\u8BDD\u5185\u4ECD\u751F\u6548\uFF0C\u4F46 resume \u540E\u4F1A\u4E22\u5931`
+          `\u5199\u5165\u4F1A\u8BDD\u63D2\u4EF6\u8BB0\u5F55\u5931\u8D25\uFF08${describeError4(error51)}\uFF09\uFF0C\u672C\u8FDB\u7A0B\u5DF2\u964D\u7EA7\u4E3A\u5185\u5B58\u6001\uFF1A\u5F00\u5173\u5728\u5F53\u524D\u4F1A\u8BDD\u5185\u4ECD\u751F\u6548\uFF0C\u4F46 resume \u540E\u4F1A\u4E22\u5931`
         );
       }
     }
@@ -17166,7 +17951,7 @@ var RecordStateStore = class {
     try {
       return this.projections.stateOf(session, "sessionToolToggle");
     } catch (error51) {
-      this.projectionFailure = describeError3(error51);
+      this.projectionFailure = describeError4(error51);
       return void 0;
     }
   }
@@ -17182,7 +17967,7 @@ var RecordStateStore = class {
     try {
       return foldStatus(session.snapshotEvents(), this.log);
     } catch (error51) {
-      this.logFailure = describeError3(error51);
+      this.logFailure = describeError4(error51);
       return void 0;
     }
   }
@@ -17225,7 +18010,7 @@ function createStateStore(deps) {
   if (deps.host === void 0) return new MemoryStateStore();
   return new RecordStateStore({ host: deps.host, projections: deps.projections, log: deps.log });
 }
-function describeError3(error51) {
+function describeError4(error51) {
   if (error51 instanceof Error) {
     const code = error51.code;
     return code === void 0 ? error51.message : `${error51.message}\uFF08${code}\uFF09`;
@@ -17237,14 +18022,18 @@ function describeError3(error51) {
 var DESCRIPTION_MAX_LENGTH2 = 160;
 var MCP_PUBLIC_PREFIX3 = "mcp__";
 var MCP_PUBLIC_SEPARATOR3 = "__";
-var SKILL_NAME = "skill";
+var SKILL_NAME2 = "skill";
 var BUILTIN_GROUP_KEY = "builtin";
 var NOTICE_ORDER = [
   "persistence-degraded",
   "defaults-corrupt",
-  "session-subagent"
+  "session-subagent",
+  "skills-unavailable",
+  "skill-shadow-failed"
 ];
-var NO_PROTECTED_NAMES2 = /* @__PURE__ */ new Set();
+var NO_PROTECTED_NAMES3 = /* @__PURE__ */ new Set();
+var TOLERATED_PROTECTED_NAMES = new Set(PROTECTED_BASELINE);
+var NO_NAMES = /* @__PURE__ */ new Set();
 function buildPanelSnapshot(inputs) {
   const candidates = sortedTexts([...inputs.catalog, ...inputs.scoped, ...inputs.carried]);
   const catalogNames = uniqueTexts(inputs.catalog);
@@ -17260,8 +18049,19 @@ function buildPanelSnapshot(inputs) {
   const hiddenByOthers = sortedTexts(
     catalogNames.filter((name2) => !scopedSet.has(name2) && !carriedSet.has(name2))
   );
-  const closedTexts = sortedTexts(Array.from(plan.matched.keys()));
-  const intentOnly = closedTexts.filter((text) => plan.matched.get(text) === 0);
+  const closed = closedAddressesOf(inputs.state.disabled);
+  const closedTexts = closed.map((entry) => entry.text);
+  const closedSkillNames = /* @__PURE__ */ new Set();
+  for (const entry of closed) {
+    if (entry.address.kind === "skill") closedSkillNames.add(entry.address.name);
+  }
+  const installedSkillNames = installedSkillNamesOf(inputs.skills);
+  const toolIntentOnly = Array.from(plan.matched).filter(([, hits]) => hits === 0).map(([text]) => text);
+  const skillIntentOnly = closed.flatMap((entry) => {
+    if (entry.address.kind !== "skill") return [];
+    return installedSkillNames.has(entry.address.name) ? [] : [entry.text];
+  });
+  const intentOnly = sortedTexts([...toolIntentOnly, ...skillIntentOnly]);
   const context = {
     deny: new Set(plan.deny),
     hidden: new Set(hiddenByOthers),
@@ -17295,7 +18095,55 @@ function buildPanelSnapshot(inputs) {
       denied: plan.deny.length,
       shadowed: hiddenByOthers.length
     },
-    notices: noticesOf(inputs)
+    notices: noticesOf(inputs),
+    skills: skillViewsOf(inputs.skills, closedSkillNames),
+    workspace: workspaceViewOf2(inputs.workspace)
+  };
+}
+function closedAddressesOf(disabled) {
+  const byText = /* @__PURE__ */ new Map();
+  for (const text of disabled) {
+    const parsed2 = parseAddress(text, TOLERATED_PROTECTED_NAMES);
+    if (!parsed2.ok) continue;
+    if (!byText.has(parsed2.text)) byText.set(parsed2.text, parsed2.address);
+  }
+  return Array.from(byText).sort(([left], [right]) => compareText4(left, right)).map(([text, address]) => ({ text, address }));
+}
+function installedSkillNamesOf(skills) {
+  if (skills === void 0 || !skills.available) return NO_NAMES;
+  return /* @__PURE__ */ new Set([...skills.visible.map((row) => row.name), ...skills.shadowed]);
+}
+function skillViewsOf(skills, closedSkillNames) {
+  if (skills === void 0 || !skills.available) return [];
+  const descriptions = /* @__PURE__ */ new Map();
+  for (const row of skills.visible) descriptions.set(row.name, row.description);
+  const shadowed = new Set(skills.shadowed);
+  const names = new Set(descriptions.keys());
+  for (const name2 of shadowed) names.add(name2);
+  const views = [];
+  for (const name2 of names) {
+    views.push({
+      name: name2,
+      description: descriptionOf(name2, descriptions) ?? "",
+      disabled: closedSkillNames.has(name2),
+      shadowed: shadowed.has(name2)
+    });
+  }
+  views.sort((left, right) => compareText4(left.name, right.name));
+  return views;
+}
+function workspaceViewOf2(workspace) {
+  if (workspace === void 0) return null;
+  const attribution = workspace.attribution;
+  if (attribution === void 0) return null;
+  return {
+    key: attribution.key,
+    ...attribution.title === void 0 ? {} : { title: attribution.title },
+    registered: attribution.registered,
+    disabled: sortedTexts(workspace.disabled),
+    path: workspace.path,
+    readable: workspace.readable,
+    corrupt: workspace.corrupt
   };
 }
 function buildGroups(candidates, context, closed) {
@@ -17316,22 +18164,22 @@ function buildGroups(candidates, context, closed) {
       else bucket.push(entry);
       continue;
     }
-    if (name2 === SKILL_NAME) {
+    if (name2 === SKILL_NAME2) {
       skill.push(toolEntryOf(name2, name2, formatAddress({ kind: "tool", name: name2 }), context));
       continue;
     }
     builtin.push(toolEntryOf(name2, name2, formatAddress({ kind: "tool", name: name2 }), context));
   }
   const groups = [];
-  const serverNames = Array.from(servers.keys()).sort(compareText3);
+  const serverNames = Array.from(servers.keys()).sort(compareText4);
   for (const server of serverNames) {
     const tools = servers.get(server);
     if (tools === void 0) continue;
     groups.push(groupOf("mcp", server, formatAddress({ kind: "mcp-group", server }), tools, closed));
   }
   if (skill.length > 0) {
-    const address = formatAddress({ kind: "tool", name: SKILL_NAME });
-    groups.push(groupOf("skill", SKILL_NAME, address, skill, closed));
+    const address = formatAddress({ kind: "tool", name: SKILL_NAME2 });
+    groups.push(groupOf("skill", SKILL_NAME2, address, skill, closed));
   }
   if (builtin.length > 0) {
     groups.push(groupOf("builtin", BUILTIN_GROUP_KEY, null, builtin, closed));
@@ -17372,7 +18220,7 @@ function mcpPartsOf(toolName) {
 }
 function isReservedName(name2) {
   if (name2.startsWith(MCP_PUBLIC_PREFIX3)) return false;
-  const parsed2 = parseAddress(`tool:${name2}`, NO_PROTECTED_NAMES2);
+  const parsed2 = parseAddress(`tool:${name2}`, NO_PROTECTED_NAMES3);
   return !parsed2.ok && parsed2.code === "reserved-tool";
 }
 function descriptionOf(name2, descriptions) {
@@ -17394,29 +18242,31 @@ function uniqueTexts(texts) {
 }
 function sortedTexts(texts) {
   const unique = Array.from(new Set(texts));
-  unique.sort(compareText3);
+  unique.sort(compareText4);
   return unique;
 }
-function compareText3(left, right) {
+function compareText4(left, right) {
   if (left < right) return -1;
   if (left > right) return 1;
   return 0;
 }
 
 // src/host/rpc.ts
+var NO_PROTECTED_NAMES4 = /* @__PURE__ */ new Set();
 var DEFAULT_KERNEL = Object.freeze({
   toggleSession,
   resetSession,
   readPanel,
-  updateDefaults
+  updateDefaults,
+  updateWorkspaceDefaults
 });
 function createRpcDispatcher(deps) {
   return async (endpoint, payload) => {
     try {
       return await dispatch(deps, endpoint, payload);
     } catch (error51) {
-      deps.log.warn(`RPC \u901A\u9053\u5904\u7406\u300C${endpoint}\u300D\u5931\u8D25\uFF1A${messageOf4(error51)}`);
-      return failure("internal", `\u4E0D\u9884\u671F\u7684\u5185\u90E8\u9519\u8BEF\uFF1A${messageOf4(error51)}`);
+      deps.log.warn(`RPC \u901A\u9053\u5904\u7406\u300C${endpoint}\u300D\u5931\u8D25\uFF1A${messageOf5(error51)}`);
+      return failure("internal", `\u4E0D\u9884\u671F\u7684\u5185\u90E8\u9519\u8BEF\uFF1A${messageOf5(error51)}`);
     }
   };
 }
@@ -17437,6 +18287,8 @@ async function dispatch(deps, endpoint, payload) {
       return await handleReset(deps, parsed2.value);
     case "defaults":
       return await handleDefaults(deps, parsed2.value);
+    case "workspace":
+      return await handleWorkspace(deps, parsed2.value);
     default:
       return failure("bad-request", `\u672A\u77E5\u7AEF\u70B9\u300C${String(endpoint)}\u300D`);
   }
@@ -17454,7 +18306,12 @@ async function handleToggle(deps, request) {
   if (!precheck.ok) return precheck.failure;
   const outcome = kernelOf(deps).toggleSession(deps, live.session, request.addresses, request.on);
   if (!outcome.ok) return failure("bad-request", outcome.text, { issues: outcome.text });
-  const value = await valueOf(deps, live.session, mutationOfToggle(outcome.report, request.on));
+  await settledSkills(deps, live.session);
+  const value = await valueOf(
+    deps,
+    live.session,
+    mutationOfToggle(outcome.report, request.on, settledShadowedOf(deps, live.session))
+  );
   return checked(parseToggleValue(value), deps, "toggle \u54CD\u5E94");
 }
 async function handleReset(deps, request) {
@@ -17463,7 +18320,12 @@ async function handleReset(deps, request) {
   const kernel = kernelOf(deps);
   const before = await kernel.readPanel(deps, live.session);
   const report = kernel.resetSession(deps, live.session);
-  const value = await valueOf(deps, live.session, mutationOfReset(report, before));
+  await settledSkills(deps, live.session);
+  const value = await valueOf(
+    deps,
+    live.session,
+    mutationOfReset(report, before, settledShadowedOf(deps, live.session))
+  );
   return checked(parseResetValue(value), deps, "reset \u54CD\u5E94");
 }
 async function handleDefaults(deps, request) {
@@ -17485,6 +18347,153 @@ async function handleDefaults(deps, request) {
     changed: [...report.after.disabled]
   };
   return checked(parseDefaultsValue(value), deps, "defaults \u54CD\u5E94");
+}
+async function handleWorkspace(deps, request) {
+  const resolution = await resolveWorkspace(deps, request);
+  if (!resolution.ok) return resolution.failure;
+  const resolved = resolution.resolved;
+  const action = request.action ?? "read";
+  if (request.addresses !== void 0) {
+    const precheck = precheckAddresses(request.addresses, deps.protectedNames);
+    if (!precheck.ok) return precheck.failure;
+  }
+  const choices = choicesOf(deps);
+  if (action === "read") {
+    const reading = await workspaceFileOf(deps);
+    const value2 = {
+      workspace: workspaceViewOf3(deps, resolved, disabledOf(reading.file, resolved.key), reading),
+      choices,
+      // read 不写任何东西（契约字段语义）。
+      changed: []
+    };
+    return checked(parseWorkspaceValue(value2), deps, "workspace \u54CD\u5E94");
+  }
+  const attempt = await writeWorkspaceOf(deps, resolved, action, request.addresses ?? [], workspaceSubjectOf(request));
+  if (!attempt.ok) return attempt.failure;
+  const report = attempt.report;
+  const disabled = disabledOf(report.after, report.key);
+  const value = {
+    workspace: workspaceViewOf3(deps, resolved, disabled, {
+      file: report.after,
+      readable: true,
+      corrupt: false
+    }),
+    choices,
+    changed: [...disabled]
+  };
+  return checked(parseWorkspaceValue(value), deps, "workspace \u54CD\u5E94");
+}
+async function resolveWorkspace(deps, request) {
+  if (request.sessionId !== void 0) {
+    const live = liveSessionOf(deps, request.sessionId);
+    if (!live.ok) return { ok: false, failure: live.failure };
+    const attribution = await attributionOf(deps, live.session);
+    if (attribution === void 0) {
+      return {
+        ok: false,
+        failure: failure(
+          "workspace-unresolved",
+          `\u4F1A\u8BDD\u300C${request.sessionId}\u300D\u7684 cwd \u65E0\u6CD5\u5F52\u5C5E\u5DE5\u4F5C\u533A\uFF08cwd \u7F3A\u5931\u6216\u76EE\u5F55\u5DF2\u88AB\u5220\u9664\uFF09`,
+          { subject: request.sessionId }
+        )
+      };
+    }
+    return {
+      ok: true,
+      resolved: {
+        key: attribution.key,
+        registered: attribution.registered,
+        ...attribution.title === void 0 ? {} : { title: attribution.title },
+        target: { kind: "session", session: live.session }
+      }
+    };
+  }
+  const path = request.workspacePath ?? "";
+  const choice = choicesOf(deps).find((item) => item.key === path);
+  if (choice === void 0) {
+    return {
+      ok: false,
+      failure: failure("workspace-unresolved", `\u8DEF\u5F84\u300C${path}\u300D\u4E0D\u662F\u5DF2\u767B\u8BB0\u7684\u5DE5\u4F5C\u533A\uFF08\u53EA\u63A5\u53D7\u5DE5\u4F5C\u533A\u8DEF\u5F84\u4E0B\u62C9\u91CC\u7684\u89C4\u8303\u8DEF\u5F84\uFF09`, {
+        subject: path
+      })
+    };
+  }
+  return {
+    ok: true,
+    resolved: {
+      key: choice.key,
+      registered: true,
+      title: choice.title,
+      target: { kind: "path", path: choice.key }
+    }
+  };
+}
+async function attributionOf(deps, session) {
+  try {
+    return await deps.workspaceOf(session);
+  } catch (error51) {
+    deps.log.warn(`\u8BFB\u53D6\u4F1A\u8BDD ${session.id} \u7684\u5DE5\u4F5C\u533A\u5F52\u5C5E\u5931\u8D25\uFF1A${messageOf5(error51)}`);
+    return void 0;
+  }
+}
+function choicesOf(deps) {
+  try {
+    return deps.workspaceChoices();
+  } catch (error51) {
+    deps.log.warn(`\u8BFB\u53D6\u5DF2\u767B\u8BB0\u5DE5\u4F5C\u533A\u5931\u8D25\uFF08\u5DE5\u4F5C\u533A\u4E0B\u62C9\u5C06\u4E3A\u7A7A\uFF09\uFF1A${messageOf5(error51)}`);
+    return [];
+  }
+}
+async function workspaceFileOf(deps) {
+  const file2 = await readWorkspaces(deps.workspacesPath, deps.workspacesIo, deps.log);
+  if (file2 !== EMPTY_WORKSPACES) return { file: file2, readable: true, corrupt: false };
+  const readable = await canReadFile(deps.workspacesIo, deps.workspacesPath);
+  return { file: file2, readable, corrupt: readable };
+}
+function workspaceViewOf3(deps, resolved, disabled, reading) {
+  return {
+    key: resolved.key,
+    ...resolved.title === void 0 ? {} : { title: resolved.title },
+    registered: resolved.registered,
+    disabled: [...disabled],
+    path: deps.workspacesPath,
+    readable: reading.readable,
+    corrupt: reading.corrupt
+  };
+}
+async function writeWorkspaceOf(deps, resolved, action, texts, subject) {
+  try {
+    const outcome = await kernelOf(deps).updateWorkspaceDefaults(deps, resolved.target, action, texts);
+    if (!outcome.ok) {
+      return {
+        ok: false,
+        failure: failure("workspace-unresolved", outcome.text, { subject })
+      };
+    }
+    return { ok: true, report: outcome.report };
+  } catch (error51) {
+    const reason = messageOf5(error51);
+    deps.log.warn(`\u5DE5\u4F5C\u533A\u6863\u5199\u5165\u5931\u8D25\uFF08${deps.workspacesPath}\uFF09\uFF1A${reason}`);
+    return {
+      ok: false,
+      failure: failure("workspace-unwritable", `\u5DE5\u4F5C\u533A\u6863\u5199\u5165\u5931\u8D25\uFF08${deps.workspacesPath}\uFF09\uFF1A${reason}`, {
+        path: deps.workspacesPath,
+        reason
+      })
+    };
+  }
+}
+function workspaceSubjectOf(request) {
+  return request.sessionId ?? request.workspacePath ?? "";
+}
+async function settledSkills(deps, session) {
+  const layer = deps.layerFor(session.id);
+  if (layer === void 0) return;
+  try {
+    await layer.skillsSettled();
+  } catch (error51) {
+    deps.log.warn(`\u7B49\u5F85\u4F1A\u8BDD ${session.id} \u7684\u6280\u80FD\u6536\u655B\u5931\u8D25\uFF1A${messageOf5(error51)}`);
+  }
 }
 function liveSessionOf(deps, sessionId) {
   const agent = deps.agents.get(sessionId);
@@ -17546,6 +18555,8 @@ async function snapshotOf2(deps, session) {
   const reading = await kernelOf(deps).readPanel(deps, session);
   const defaultsState = await defaultsStateOf(deps, reading.defaults);
   const descriptions = descriptionsOf(deps);
+  const skills = skillsOf2(deps, session);
+  const workspace = workspacePanelInputsOf(reading);
   const inputs = {
     sessionId: session.id,
     createdAt: reading.createdAt,
@@ -17559,25 +18570,81 @@ async function snapshotOf2(deps, session) {
     defaultsPath: reading.defaultsPath,
     defaultsReadable: defaultsState.readable,
     defaultsCorrupt: defaultsState.corrupt,
-    notices: noticesOf2(session),
+    // 提示码的分工（H6）：构建器只排序去重，技能两条由组装层从技能分面与关闭集推导。
+    notices: noticesOf2(session, reading, skills),
+    // 技能行与工作区视图的**投影**在 `panel.ts` 构建器里（H6）：这里只交原始读数，
+    // 面板、`/tools status` 与命令面因此共享同一份事实（D14）。
+    ...skills === void 0 ? {} : { skills },
+    ...workspace === void 0 ? {} : { workspace },
     ...descriptions === void 0 ? {} : { descriptions }
   };
   return buildPanelSnapshot(inputs);
 }
-function noticesOf2(session) {
-  return originOf(session) === "subagent" ? ["session-subagent"] : [];
+function skillsOf2(deps, session) {
+  const layer = deps.layerFor(session.id);
+  if (layer === void 0) return void 0;
+  try {
+    return layer.skills();
+  } catch (error51) {
+    deps.log.warn(`\u8BFB\u53D6\u4F1A\u8BDD ${session.id} \u7684\u6280\u80FD\u5206\u9762\u5931\u8D25\uFF08\u9762\u677F\u5C06\u6309\u4E0D\u53EF\u7528\u5904\u7406\uFF09\uFF1A${messageOf5(error51)}`);
+    return void 0;
+  }
+}
+function workspacePanelInputsOf(reading) {
+  const view = reading.workspace;
+  if (view === null) return void 0;
+  return {
+    attribution: {
+      key: view.key,
+      registered: view.registered,
+      ...view.title === void 0 ? {} : { title: view.title }
+    },
+    disabled: view.disabled,
+    path: view.path,
+    readable: view.readable,
+    corrupt: view.corrupt
+  };
+}
+function noticesOf2(session, reading, skills) {
+  const notices = originOf(session) === "subagent" ? ["session-subagent"] : [];
+  notices.push(...skillNoticesOf(reading, skills));
+  return notices;
+}
+function skillNoticesOf(reading, skills) {
+  if (skills === void 0 || !skills.available) return ["skills-unavailable"];
+  if (wholeSkillClosed(reading.state.disabled)) return [];
+  const visible = new Set(skills.visible.map((row) => row.name));
+  const shadowed = new Set(skills.shadowed);
+  const failed = disabledSkillNames(reading.state.disabled).some(
+    (name2) => visible.has(name2) && !shadowed.has(name2)
+  );
+  return failed ? ["skill-shadow-failed"] : [];
+}
+function wholeSkillClosed(disabled) {
+  return disabled.some((text) => {
+    const parsed2 = parseAddress(text, NO_PROTECTED_NAMES4);
+    return parsed2.ok && parsed2.address.kind === "tool" && parsed2.address.name === "skill";
+  });
+}
+function disabledSkillNames(disabled) {
+  const names = /* @__PURE__ */ new Set();
+  for (const text of disabled) {
+    const parsed2 = parseAddress(text, NO_PROTECTED_NAMES4);
+    if (parsed2.ok && parsed2.address.kind === "skill") names.add(parsed2.address.name);
+  }
+  return Array.from(names);
 }
 function originOf(session) {
   return session.header.origin;
 }
 async function defaultsStateOf(deps, defaults) {
   if (defaults !== EMPTY_DEFAULTS) return { readable: true, corrupt: false };
-  const readable = await canReadDefaultsFile(deps);
+  const readable = await canReadFile(deps.defaultsIo, deps.defaultsPath);
   return { readable, corrupt: readable };
 }
-async function canReadDefaultsFile(deps) {
+async function canReadFile(io, path) {
   try {
-    await deps.defaultsIo.readFile(deps.defaultsPath);
+    await io.readFile(path);
     return true;
   } catch {
     return false;
@@ -17588,33 +18655,50 @@ function descriptionsOf(deps) {
   try {
     return deps.descriptions();
   } catch (error51) {
-    deps.log.warn(`\u65E0\u6CD5\u8BFB\u53D6\u5DE5\u5177\u63CF\u8FF0\uFF08\u9762\u677F\u5C06\u4E0D\u5C55\u793A description\uFF09\uFF1A${messageOf4(error51)}`);
+    deps.log.warn(`\u65E0\u6CD5\u8BFB\u53D6\u5DE5\u5177\u63CF\u8FF0\uFF08\u9762\u677F\u5C06\u4E0D\u5C55\u793A description\uFF09\uFF1A${messageOf5(error51)}`);
     return void 0;
   }
 }
 async function valueOf(deps, session, mutation) {
   return { snapshot: await snapshotOf2(deps, session), mutation };
 }
-function mutationOfToggle(report, on) {
+function settledShadowedOf(deps, session) {
+  const layer = deps.layerFor(session.id);
+  if (layer === void 0) return void 0;
+  try {
+    return layer.skills().shadowed.length;
+  } catch (error51) {
+    deps.log.warn(`\u8BFB\u53D6\u4F1A\u8BDD ${session.id} \u7684\u6280\u80FD\u5206\u9762\u5931\u8D25\uFF1A${messageOf5(error51)}`);
+    return void 0;
+  }
+}
+function mutationOfToggle(report, on, settledShadowed) {
+  const hiddenSkills = settledShadowed !== void 0 ? settledShadowed - report.shadowedBefore : report.hiddenSkills;
+  const skillsChanged = settledShadowed !== void 0 && settledShadowed !== report.shadowedBefore;
   return {
     applied: report.entries.map((entry) => ({ address: entry.text, on, matched: entry.matched })),
     // deny 的变化量 = 可见数的反向变化（层未就绪时两侧都是 0，于是为 0）。
     hiddenTools: report.visibleBefore - report.visibleAfter,
+    // 影子 stub 集合的变化量（内核按技能分面初算，本层按收敛后读数重算，H7 / D-4）。
+    hiddenSkills,
     visibleBefore: report.visibleBefore,
     visibleAfter: report.visibleAfter,
-    kvRebuild: report.schemaChanged,
+    kvRebuild: report.schemaChanged || skillsChanged,
     notices: mutationNotices(report.persistFailed)
   };
 }
-function mutationOfReset(report, before) {
+function mutationOfReset(report, before, settledShadowed) {
   const remaining = new Set(report.snapshot);
   const applied = before.closed.filter((entry) => !remaining.has(entry.text)).map((entry) => ({ address: entry.text, on: true, matched: entry.matched }));
+  const hiddenSkills = settledShadowed !== void 0 ? settledShadowed - report.shadowedBefore : report.hiddenSkills;
+  const skillsChanged = settledShadowed !== void 0 && settledShadowed !== report.shadowedBefore;
   return {
     applied,
     hiddenTools: report.visibleBefore - report.visibleAfter,
+    hiddenSkills,
     visibleBefore: report.visibleBefore,
     visibleAfter: report.visibleAfter,
-    kvRebuild: report.schemaChanged,
+    kvRebuild: report.schemaChanged || skillsChanged,
     notices: mutationNotices(report.persistFailed)
   };
 }
@@ -17625,7 +18709,7 @@ async function writeDefaultsOf(deps, action, addresses) {
   try {
     return settled(await kernelOf(deps).updateDefaults(deps, action, addresses));
   } catch (error51) {
-    const reason = messageOf4(error51);
+    const reason = messageOf5(error51);
     deps.log.warn(`\u9ED8\u8BA4\u6863\u5199\u5165\u5931\u8D25\uFF08${deps.defaultsPath}\uFF09\uFF1A${reason}`);
     return {
       ok: false,
@@ -17661,7 +18745,7 @@ function kernelOf(deps) {
 function uniqueTexts2(texts) {
   return Array.from(new Set(texts));
 }
-function messageOf4(error51) {
+function messageOf5(error51) {
   if (error51 instanceof Error) return error51.message;
   try {
     return String(error51);
@@ -17670,10 +18754,53 @@ function messageOf4(error51) {
   }
 }
 
+// src/host/skills-plan.ts
+var SKILL_TOOL_ADDRESS = "tool:skill";
+var NO_PROTECTED_NAMES5 = /* @__PURE__ */ new Set();
+function planSkills(inputs) {
+  const closed = closedSkillsOf(inputs.disabled);
+  const installedNames = new Set(inputs.installed);
+  const matched = /* @__PURE__ */ new Map();
+  const intentOnly = [];
+  for (const entry of closed) {
+    const hits = installedNames.has(entry.name) ? 1 : 0;
+    matched.set(entry.text, hits);
+    if (hits === 0) intentOnly.push(entry.text);
+  }
+  return {
+    // 整档关闭时 `skill` 工具 schema 已被掩、目录本就停发，再注册 stub 只会白触发一轮
+    // 缓存失效（A8），因此这里让位；重新打开后按关闭集恢复。
+    shadowNames: inputs.toolSkillClosed ? [] : closed.map((entry) => entry.name),
+    closedTexts: closed.map((entry) => entry.text),
+    matched,
+    intentOnly
+  };
+}
+function closedSkillsOf(disabled) {
+  const byText = /* @__PURE__ */ new Map();
+  for (const text of disabled) {
+    const parsed2 = parseAddress(text, NO_PROTECTED_NAMES5);
+    if (!parsed2.ok) continue;
+    if (parsed2.address.kind !== "skill") continue;
+    if (!byText.has(parsed2.text)) {
+      byText.set(parsed2.text, { text: parsed2.text, name: parsed2.address.name });
+    }
+  }
+  return Array.from(byText.values()).sort((left, right) => compareText5(left.text, right.text));
+}
+function compareText5(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
 // src/host/session-layer.ts
 var MCP_SECTION_PREFIX = "mcp:";
 var MCP_SERVERS_ORDER = "MCP_SERVERS";
 var REPORTED_NAMES = 6;
+var SKILL_CAPTURE_TIMEOUT_MS = 2e3;
+var MAX_CACHED_SKILL_BODIES = 64;
+var RUNTIME_SKILL_SOURCE = "runtime";
 function agentSurface(agent, use) {
   const ctx = agent.ctx;
   if (ctx === null || ctx === void 0 || typeof ctx.inject !== "function") {
@@ -17747,6 +18874,38 @@ var SessionLayer = class {
    */
   reconciling = false;
   /**
+   * 技能服务的 agent 子 fiber 句柄（D-3；`detach` 后清空）。
+   *
+   * 由 `agent.ctx.inject(['skills'], scope => …)` 交付并保存；`ctx.get('skills')` 的返回值
+   * 只在首轮当临时句柄（D-5），fiber 一到就被这里整体替换。之后每次 register / get /
+   * snapshot 都经它调用——句柄属于 agent 子 fiber，注册因此落 agent 层。
+   */
+  skillScope;
+  /**
+   * 影子前定义缓存：name → 真实定义。
+   *
+   * 两个用途：注册 stub 时复制全量字段（D-2），以及面板展示已关技能的真实描述；`liftShadow`
+   * 时丢弃。上限 {@link MAX_CACHED_SKILL_BODIES}，先进先出（U3）。
+   */
+  skillBodies = /* @__PURE__ */ new Map();
+  /** 已注册 stub：name → disposer。键集就是「已生效的 shadowed」（`skills()` 的唯一来源）。 */
+  shadows = /* @__PURE__ */ new Map();
+  /**
+   * 注册未胜出的技能名（同层先到先得，F8）。
+   *
+   * 上游 `register` 对同名 runtime 条目 warn + 返回 no-op disposer；本层在回读校验发现
+   * provider 不符时把名字记进来，面板据此禁用该行（`skill-shadow-failed`）。
+   */
+  failed = /* @__PURE__ */ new Set();
+  /** 最近一次 `snapshot({scope: agent})` 的清单（`visible` 与 `installed` 都从它读缓存）。 */
+  skillSummaries = [];
+  /** 技能分面的收敛代数：旧一轮在 await 之后发现代数变了就作废（防旧覆盖新）。 */
+  skillGeneration = 0;
+  /** 在途收敛（`skillsSettled()` 等它；无在途时是已结算的 Promise）。 */
+  skillTask = Promise.resolve();
+  /** `skills/change` 监听的 disposer（`detach` 时显式卸载；缺省 undefined）。 */
+  skillListenerDispose;
+  /**
    * @param ports - 诊断出口、全局读数与取工具面的方式。
    */
   constructor(ports) {
@@ -17786,28 +18945,40 @@ var SessionLayer = class {
     if (this.surface === void 0) {
       this.log.warn(`${this.label()}\uFF1A\u672A\u53D6\u5230\u5DE5\u5177\u9762\uFF0C\u672C\u4F1A\u8BDD\u7684\u5F00\u5173\u6682\u65F6\u4E0D\u751F\u6548`);
     }
+    try {
+      await this.mountSkills(agent);
+    } catch (error51) {
+      this.absorbFailure(error51, `${this.label()}\uFF1A\u6302\u8F7D\u6280\u80FD\u5206\u9762\u5931\u8D25`);
+    }
   }
   /**
    * 状态变更：重算掩码，并只在 deny / shadowServers 变化时重装（I2 的 diff 守卫）。
    *
    * 刻意**不** `await agent.whenIdle()`（D7）：命令 handler 同步返回回执，需要的一致性由
    * guard 提供——被关工具从这一刻起不可调用，即使这一轮请求的 schema 还没重算。
+   *
+   * 技能分面同步**只**做「撤」（状态变成「开」必须立刻恢复可见），补缺 stub 的正文读取
+   * 在 `skillTask` 里异步进行（D-4）；命令面/RPC 用 `skillsSettled()` 等它。
    * @param state - 新的整值状态。
    */
   setState(state) {
     this.state = state;
     this.reconcile();
+    this.scheduleSkills();
   }
   /**
    * `tools/change` 全量重算：三读并集重新取一遍，结果与当前掩码相同则什么都不做。
    *
    * 幂等是硬要求：`restrict` 自己会触发 `tools/change`，一次不幂等的重算会喂自己。
+   *
+   * 刻意**不**触发技能收敛（H4）：工具注册表的变化与技能分面无关，顺手重算只会让
+   * 每次工具注册都白读一遍技能正文。
    */
   refresh() {
     this.reconcile();
   }
   /**
-   * 拆卸：抬掩码、撤 section、撤 guard、清账。
+   * 拆卸：抬掩码、撤 section、撤 guard、逐个 dispose 影子 stub、清账。
    *
    * 每一步各自 try/catch（I5）：某一步撞上 `inactive context` 只说明作用域已经先行退场，
    * 不该阻止其余步骤收尾，也不该记成 error。`detach` 幂等，第二次调用是纯 no-op。
@@ -17825,6 +18996,7 @@ var SessionLayer = class {
       }
     }
     this.liftGuard();
+    this.liftSkills();
     this.surface = void 0;
     this.agent = void 0;
     this.deny = [];
@@ -17859,6 +19031,393 @@ var SessionLayer = class {
       this.absorbFailure(error51, `${this.label()}\uFF1A\u8BFB\u672C\u4F1A\u8BDD\u7684\u5DE5\u5177\u89C6\u56FE\u5931\u8D25`);
       return [];
     }
+  }
+  /**
+   * 读本会话的技能分面。
+   *
+   * 三个字段都是**一手事实**：`shadowed` 是本层已经注册成功的 stub 键集，`visible` 是最近
+   * 一次 `snapshot({scope: agent})` 的结果过滤掉「模型不可调用」与「本层已遮蔽」后的行；
+   * `available` 只表示 `skills` 服务是否已经交付（false = 技能地址只记意图，面板给
+   * `skills-unavailable`）。
+   * @returns 技能分面读数。
+   */
+  skills() {
+    const shadowed = Array.from(this.shadows.keys()).sort(compareSkillName);
+    const visible = this.skillSummaries.filter((summary) => summary.invocation.modelInvocable && !this.shadows.has(summary.name)).map((summary) => ({ name: summary.name, description: summary.description })).sort((left, right) => compareSkillName(left.name, right.name));
+    return { available: this.skillScope !== void 0, shadowed, visible };
+  }
+  /**
+   * 等待在途技能收敛结算（无在途时立即 resolve）。
+   *
+   * `setState` 是同步的，注册 stub 的正文读取在 `skillTask` 里异步进行；命令面/RPC 在组装
+   * 回执前 await 本方法，回执里的技能集合才是新状态的结果（D-4）。收敛不会 reject：
+   * 内部失败都已降级成日志，调用方拿到的永远是「已结算」。
+   * @returns 当前在途轮次（含此前的轮次）全部结算后 resolve。
+   */
+  skillsSettled() {
+    return this.skillTask.then(
+      () => void 0,
+      () => void 0
+    );
+  }
+  /**
+   * 装技能分面：先同步取一次（web profile 常态已就绪），再装软 fiber 供晚到补挂（D-5）。
+   *
+   * 两段顺序不可交换：`get` 是同步读，给出「现在就绪」的确定性；fiber 只是兜底与刷新句柄。
+   * 软 fiber **不 await**：没装 `dsh-skill` 的组合里 `inject` 的 pending effect 永不结算，
+   * await 会把宿主串行广播的 `agent/created` 永久挂起（D-5 反例：新会话开不出来）。
+   *
+   * 只有真正暴露 `get` 的 Cordis 上下文才进入技能分面：没有 `get` 的窄面无法判断「服务现在
+   * 就绪」，装了也只会得到一条永不结算的 fiber。
+   * @param agent - 目标 agent（提供会话与子 fiber 的上下文）。
+   * @returns 首轮收敛完成后结算（软 fiber 是否结算不影响它）。
+   */
+  async mountSkills(agent) {
+    const ctx = injectableContextOf(agent);
+    if (ctx === void 0 || typeof ctx.get !== "function") return;
+    const immediate = this.readSkillService(ctx);
+    if (immediate !== void 0) {
+      this.adoptSkillScope({ skills: immediate });
+      await this.refreshSkillCatalog();
+      this.scheduleSkills();
+      await this.skillsSettled();
+    }
+    if (typeof ctx.inject !== "function") return;
+    try {
+      const pending = ctx.inject(["skills"], (scope) => {
+        if (this.agent === void 0) return;
+        const handle = skillHandleOf(scope);
+        if (handle === void 0) return;
+        this.adoptSkillScope(handle);
+        void this.refreshSkillCatalog();
+        this.scheduleSkills();
+      });
+      void Promise.resolve(pending).catch((error51) => {
+        this.absorbFailure(error51, `${this.label()}\uFF1A\u5B89\u88C5\u6280\u80FD\u670D\u52A1\u7684\u5B50 fiber \u5931\u8D25`);
+      });
+    } catch (error51) {
+      this.absorbFailure(error51, `${this.label()}\uFF1A\u5B89\u88C5\u6280\u80FD\u670D\u52A1\u7684\u5B50 fiber \u5931\u8D25`);
+    }
+  }
+  /**
+   * 一轮技能收敛：算计划 → 撤多余的 stub（同步）→ 补缺的 stub（异步取正文）。
+   *
+   * 代数守卫（`skillGeneration`）防旧一轮覆盖新一轮：每轮开头取号，任何 await 之后发现
+   * 号变了就整轮作废（状态在取正文期间又变了）。撤的动作**不受**代数影响：状态已经变回
+   * 「开」，必须立刻恢复可见，不能等下一轮。
+   *
+   * 并发轮次是刻意允许的（`scheduleSkills` 不串行化）：代数守卫保证只有一个轮次能补注册，
+   * 而 `shadows` 的 diff 守卫保证已经生效的 stub 不会被重复注册。
+   */
+  async reconcileSkills() {
+    if (this.skillScope === void 0 || this.retreat) return;
+    const generation = ++this.skillGeneration;
+    const plan = planSkills({
+      disabled: this.state.disabled,
+      // 最近一次 snapshot 的**原始**名字集（含已遮蔽条目）：不读服务，读缓存。
+      installed: this.skillNames(),
+      toolSkillClosed: this.state.disabled.includes(SKILL_TOOL_ADDRESS)
+    });
+    for (const name2 of Array.from(this.shadows.keys())) {
+      if (!plan.shadowNames.includes(name2)) this.liftShadow(name2);
+    }
+    for (const name2 of Array.from(this.failed)) {
+      if (!plan.shadowNames.includes(name2)) this.failed.delete(name2);
+    }
+    for (const name2 of plan.shadowNames) {
+      if (this.shadows.has(name2) || this.failed.has(name2)) continue;
+      const cached2 = this.skillBodies.get(name2);
+      const definition = cached2 ?? await this.captureSkill(name2);
+      if (generation !== this.skillGeneration) return;
+      if (this.retreat) return;
+      if (definition === void 0) continue;
+      this.shadowSkill(definition);
+    }
+  }
+  /**
+   * 取一个技能的真实定义（影子前），失败返回 undefined。
+   *
+   * **必须**用 `this.skillScope`（agent 子 fiber 交付的句柄）现取 `scope.skills.get(...)`，
+   * 并把 `scope: this.agent` 与 `signal: AbortSignal.timeout(SKILL_CAPTURE_TIMEOUT_MS)` 一起传：
+   * 前者决定「在哪个作用域解析技能」，后者保证 `skillsSettled()` 不会被不合作的 provider 拖死（D-3/D-4）。
+   * @param name - 技能名。
+   * @returns 真实定义；未安装 / 超时 / 服务不可用时 undefined。
+   */
+  async captureSkill(name2) {
+    const scope = this.skillScope;
+    const agent = this.agent;
+    if (scope === void 0 || agent === void 0 || this.retreat) return void 0;
+    const cwd = agent.session.header.cwd;
+    try {
+      const definition = await scope.skills.get(name2, {
+        ...cwd === void 0 ? {} : { cwd },
+        scope: agent,
+        signal: AbortSignal.timeout(SKILL_CAPTURE_TIMEOUT_MS)
+      });
+      if (definition === void 0) return void 0;
+      this.rememberSkillBody(definition);
+      return definition;
+    } catch (error51) {
+      this.absorbFailure(
+        error51,
+        `${this.label()}\uFF1A\u53D6\u6280\u80FD ${name2} \u7684\u6B63\u6587\u5931\u8D25\uFF08\u4E0A\u9650 ${SKILL_CAPTURE_TIMEOUT_MS}ms \u6216\u670D\u52A1\u4E0D\u53EF\u7528\uFF09`
+      );
+      return void 0;
+    }
+  }
+  /**
+   * 注册一个影子 stub；注册后回读校验（同层先到先得，F8）。
+   *
+   * stub 形状（D-2）：`{...realDefinition, invocation:{modelInvocable:false, userInvocable:true}}`
+   * ——只改 invocation，正文/描述/path/resourceBase 全量复制，`/name` 手动调用才注入完整正文。
+   *
+   * 回读校验的证据是**最近一次清单缓存里该 name 的 provider**：正常情况下 `get` 取到的定义
+   * 与清单里的胜出条目的是同一 provider；不同则说明同层已经有别人先占（上游 `register`
+   * 会 warn + 返回 no-op disposer），本层立刻撤账并记入 `failed`，面板据此禁用该行。
+   * @param definition - 影子前真实定义。
+   * @returns 是否注册成功（记账）。
+   */
+  shadowSkill(definition) {
+    const scope = this.skillScope;
+    if (scope === void 0 || this.agent === void 0) return false;
+    const name2 = definition.name;
+    let dispose;
+    try {
+      dispose = scope.skills.register({
+        ...definition,
+        // 上游 register 的形状要求 source 是字符串；窄面里可选，缺省用上游的 runtime 标记。
+        source: definition.source ?? RUNTIME_SKILL_SOURCE,
+        invocation: { modelInvocable: false, userInvocable: true }
+      });
+    } catch (error51) {
+      this.failed.add(name2);
+      this.absorbFailure(error51, `${this.label()}\uFF1A\u6CE8\u518C\u6280\u80FD ${name2} \u7684\u5F71\u5B50 stub \u5931\u8D25\uFF08skill-shadow-failed\uFF09`);
+      return false;
+    }
+    this.shadows.set(name2, dispose);
+    this.rememberSkillBody(definition);
+    this.failed.delete(name2);
+    const wantedProvider = definition.provider;
+    const recorded = this.skillSummaries.find((summary) => summary.name === name2);
+    if (wantedProvider !== void 0 && recorded !== void 0 && recorded.provider !== void 0 && recorded.provider !== wantedProvider) {
+      this.shadows.delete(name2);
+      try {
+        dispose();
+      } catch (error51) {
+        this.absorbFailure(error51, `${this.label()}\uFF1A\u64A4\u6389\u6280\u80FD ${name2} \u672A\u80DC\u51FA\u7684\u5F71\u5B50 stub \u5931\u8D25`);
+      }
+      this.failed.add(name2);
+      this.log.warn(
+        `${this.label()}\uFF1A\u6280\u80FD ${name2} \u7684\u5F71\u5B50 stub \u672A\u80DC\u51FA\uFF08skill-shadow-failed\uFF09\uFF1A\u6E05\u5355 provider \u4E3A ${recorded.provider}\uFF0C\u5F71\u5B50\u524D\u4E3A ${wantedProvider}`
+      );
+      return false;
+    }
+    this.log.info(`${this.label()}\uFF1A\u5DF2\u6CE8\u518C\u6280\u80FD ${name2} \u7684\u5F71\u5B50 stub\uFF08\u6A21\u578B\u4E0D\u53EF\u89C1\uFF0C/name \u624B\u52A8\u8C03\u7528\u4FDD\u7559\uFF09`);
+    return true;
+  }
+  /**
+   * 撤掉一个 stub（幂等、容错），并丢弃影子前定义缓存。
+   *
+   * 每次 dispose 独立 try/catch：`detach` 的逐个 dispose（H4）与状态翻转都走这里，
+   * 一个 disposer 抛错不能让其余技能留在遮蔽态。
+   * @param name - 技能名。
+   */
+  liftShadow(name2) {
+    const dispose = this.shadows.get(name2);
+    this.shadows.delete(name2);
+    this.skillBodies.delete(name2);
+    if (dispose === void 0) return;
+    try {
+      dispose();
+    } catch (error51) {
+      this.absorbFailure(error51, `${this.label()}\uFF1A\u64A4\u6389\u6280\u80FD ${name2} \u7684\u5F71\u5B50 stub \u5931\u8D25`);
+    }
+  }
+  /**
+   * 采纳一份技能句柄：保存并确保 `skills/change` 监听已装上。
+   * @param scope - `inject(['skills'])` 回调交付的句柄（或同步 `get` 的临时包装）。
+   */
+  adoptSkillScope(scope) {
+    if (this.agent === void 0) return;
+    this.skillScope = scope;
+    this.installSkillListener();
+  }
+  /**
+   * 监听 `skills/change`：只刷新清单缓存（H4），不注册、不重算。
+   *
+   * 监听器挂在 agent 的 ctx 上（Cordis 的事件服务是根 ctx 共享的），因此能收到技能注册表
+   * 的变更；它随 agent fiber 自动卸载，这里保存 disposer 只是让 `detach` 能更早收尾。
+   */
+  installSkillListener() {
+    if (this.skillListenerDispose !== void 0) return;
+    const ctx = this.agent === void 0 ? void 0 : injectableContextOf(this.agent);
+    const on = ctx?.on;
+    if (ctx === void 0 || on === void 0) return;
+    try {
+      const dispose = on.call(ctx, "skills/change", () => {
+        void this.refreshSkillCatalog();
+      });
+      if (typeof dispose === "function") this.skillListenerDispose = dispose;
+    } catch (error51) {
+      this.absorbFailure(error51, `${this.label()}\uFF1A\u76D1\u542C skills/change \u5931\u8D25`);
+    }
+  }
+  /**
+   * 读一次该 agent 视角的技能清单，刷新缓存并校验已注册的影子。
+   *
+   * `complete === false` 时不做「删旧」：上游在观测不完整时保留上一份可用目录，本层同样把
+   * 缺席当成未知而不是删除（R3 ④），否则一次 provider 抖动会让面板闪掉整组技能。
+   * 失败只降级成日志：技能分面不可用不该影响工具掩码与命令回执。
+   */
+  async refreshSkillCatalog() {
+    const scope = this.skillScope;
+    const agent = this.agent;
+    if (scope === void 0 || agent === void 0 || this.retreat) return;
+    const cwd = agent.session.header.cwd;
+    try {
+      const snapshot2 = await scope.skills.snapshot({
+        ...cwd === void 0 ? {} : { cwd },
+        scope: agent
+      });
+      if (this.skillScope !== scope || this.retreat) return;
+      this.mergeSkillCatalog(snapshot2.skills, snapshot2.complete);
+      this.verifySkillShadows();
+      this.clearResolvedFailures();
+    } catch (error51) {
+      this.absorbFailure(error51, `${this.label()}\uFF1A\u8BFB\u6280\u80FD\u6E05\u5355\u5931\u8D25`);
+    }
+  }
+  /**
+   * 把一次清单观测并入缓存。
+   * @param skills - 本次观测到的清单。
+   * @param complete - 观测是否完整（false 时保留旧条目，不把缺席当删除）。
+   */
+  mergeSkillCatalog(skills, complete) {
+    if (complete) {
+      this.skillSummaries = [...skills];
+      return;
+    }
+    const merged = new Map(this.skillSummaries.map((summary) => [summary.name, summary]));
+    for (const summary of skills) merged.set(summary.name, summary);
+    this.skillSummaries = Array.from(merged.values());
+  }
+  /**
+   * 清单刷新后校验已注册的影子：同名条目的 provider 必须仍是影子前那一个。
+   *
+   * 这是 F8 的「下一次读数」形态：`shadowSkill` 的同步回读看的是注册前的缓存，若注册其实
+   * 被同层先占者吃掉，`skills/change` 之后的这份新清单才会露出真实 provider。
+   */
+  verifySkillShadows() {
+    for (const [name2, dispose] of Array.from(this.shadows)) {
+      const definition = this.skillBodies.get(name2);
+      const recorded = this.skillSummaries.find((summary) => summary.name === name2);
+      if (definition?.provider === void 0 || recorded?.provider === void 0 || recorded.provider === definition.provider) {
+        continue;
+      }
+      this.shadows.delete(name2);
+      this.failed.add(name2);
+      try {
+        dispose();
+      } catch (error51) {
+        this.absorbFailure(error51, `${this.label()}\uFF1A\u64A4\u6389\u6280\u80FD ${name2} \u672A\u80DC\u51FA\u7684\u5F71\u5B50 stub \u5931\u8D25`);
+      }
+      this.log.warn(
+        `${this.label()}\uFF1A\u6280\u80FD ${name2} \u7684\u5F71\u5B50 stub \u5728\u6E05\u5355\u5237\u65B0\u540E\u672A\u80DC\u51FA\uFF08skill-shadow-failed\uFF09\uFF1Aprovider \u4E3A ${recorded.provider}`
+      );
+    }
+  }
+  /**
+   * 冲突解除后允许重试：名字从清单消失、或清单 provider 已回到影子前定义时清掉 `failed`。
+   *
+   * 不清 `failed` 的话，同层先占者消失后本会话永远关不掉这个技能；清掉后下一次状态变更
+   * （或重新挂载）会重新取正文并注册。
+   */
+  clearResolvedFailures() {
+    for (const name2 of Array.from(this.failed)) {
+      const definition = this.skillBodies.get(name2);
+      const recorded = this.skillSummaries.find((summary) => summary.name === name2);
+      if (recorded === void 0) {
+        this.failed.delete(name2);
+        continue;
+      }
+      if (definition?.provider !== void 0 && recorded.provider === definition.provider) {
+        this.failed.delete(name2);
+      }
+    }
+  }
+  /**
+   * 记住一份影子前定义（用于 stub 复制与面板描述），并按上限先进先出淘汰（U3）。
+   * @param definition - 真实定义。
+   */
+  rememberSkillBody(definition) {
+    this.skillBodies.delete(definition.name);
+    this.skillBodies.set(definition.name, definition);
+    while (this.skillBodies.size > MAX_CACHED_SKILL_BODIES) {
+      const oldest = this.skillBodies.keys().next();
+      if (oldest.done === true) break;
+      this.skillBodies.delete(oldest.value);
+    }
+  }
+  /**
+   * 安排一轮技能收敛（异步、不阻塞调用方）。
+   *
+   * 轮次之间不串行：代数守卫保证旧轮在 await 之后作废，`shadows` 的 diff 守卫保证已经
+   * 生效的 stub 不被重复注册。`skillTask` 只记录「还要等哪些轮次」，永不 reject。
+   */
+  scheduleSkills() {
+    if (this.skillScope === void 0 || this.retreat) return;
+    const round = this.reconcileSkills();
+    const previous = this.skillTask;
+    this.skillTask = Promise.all([previous, round]).then(
+      () => void 0,
+      () => void 0
+    );
+  }
+  /**
+   * 同步读技能服务（D-5 的第一步）。
+   * @param ctx - agent 的窄面上下文。
+   * @returns 技能服务；`get` 抛错（退场 / 未就绪）时 undefined。
+   */
+  readSkillService(ctx) {
+    const get = ctx.get;
+    if (get === void 0) return void 0;
+    try {
+      return skillServiceOf(get.call(ctx, "skills"));
+    } catch (error51) {
+      this.absorbFailure(error51, `${this.label()}\uFF1A\u540C\u6B65\u8BFB\u53D6 skills \u670D\u52A1\u5931\u8D25`);
+      return void 0;
+    }
+  }
+  /**
+   * 当前清单缓存里的原始技能名（含已遮蔽条目；`planSkills` 的 `installed` 输入）。
+   * @returns 技能名列表。
+   */
+  skillNames() {
+    return this.skillSummaries.map((summary) => summary.name);
+  }
+  /**
+   * 拆卸技能分面：作废在途轮次 → 逐个 dispose stub → 卸载监听 → 清账。
+   *
+   * 与 `detach` 的其它步骤同一纪律：显式拆卸时先把代数加一，旧一轮即使已经在 await 里，
+   * 回来也会作废，不会把 stub 重新注册到已卸载的作用域上。
+   */
+  liftSkills() {
+    this.skillGeneration += 1;
+    for (const name2 of Array.from(this.shadows.keys())) this.liftShadow(name2);
+    this.failed.clear();
+    this.skillSummaries = [];
+    this.skillBodies.clear();
+    const dispose = this.skillListenerDispose;
+    this.skillListenerDispose = void 0;
+    if (dispose !== void 0) {
+      try {
+        dispose();
+      } catch (error51) {
+        this.absorbFailure(error51, `${this.label()}\uFF1A\u5378\u8F7D skills/change \u76D1\u542C\u5931\u8D25`);
+      }
+    }
+    this.skillScope = void 0;
+    this.skillTask = Promise.resolve();
   }
   /**
    * 装执行期守卫（I1：只装一次）。
@@ -18054,7 +19613,7 @@ var SessionLayer = class {
       this.retreat = true;
       return;
     }
-    this.log.error(`${message}\uFF1A${describeError4(error51)}`);
+    this.log.error(`${message}\uFF1A${describeError5(error51)}`);
   }
   /**
    * 诊断用的会话标签。
@@ -18071,10 +19630,34 @@ function sameDeny(left, right) {
 function sectionNameOf(server) {
   return `${MCP_SECTION_PREFIX}${server}`;
 }
+function injectableContextOf(agent) {
+  const ctx = agent.ctx;
+  if (ctx === null || ctx === void 0 || typeof ctx !== "object") return void 0;
+  return ctx;
+}
+function skillHandleOf(value) {
+  if (value === null || typeof value !== "object") return void 0;
+  const skills = skillServiceOf(value.skills);
+  if (skills === void 0) return void 0;
+  return { skills };
+}
+function skillServiceOf(value) {
+  if (value === null || value === void 0 || typeof value !== "object") return void 0;
+  const candidate = value;
+  if (typeof candidate.register !== "function" || typeof candidate.get !== "function" || typeof candidate.snapshot !== "function") {
+    return void 0;
+  }
+  return candidate;
+}
+function compareSkillName(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
 function isInactiveContextError(error51) {
   return error51 instanceof Error && error51.message.includes("inactive context");
 }
-function describeError4(error51) {
+function describeError5(error51) {
   return error51 instanceof Error ? error51.message : String(error51);
 }
 function sample(names) {
@@ -18089,12 +19672,14 @@ var Config = Schema.object({
   storage: Schema.union(["auto", "memory"]).default("auto").description("\u6301\u4E45\u5316\u901A\u9053\uFF1Aauto = \u5BBF\u4E3B\u6A21\u5757\u53EF\u7528\u5219\u5199\u4F1A\u8BDD\u65E5\u5FD7\uFF0C\u5426\u5219\u5185\u5B58\u6001\uFF1Bmemory = \u53EA\u7528\u5185\u5B58\uFF08\u4E0D\u89E3\u6790\u5BBF\u4E3B\u6A21\u5757\uFF09"),
   protectedTools: Schema.array(Schema.string()).default([]).description(`\u5728\u786C\u4FDD\u62A4\u57FA\u7EBF\uFF08${PROTECTED_BASELINE.join("/")}\uFF09\u4E4B\u4E0A\u8FFD\u52A0\u7684\u4FDD\u62A4\u540D\uFF1B\u53EA\u589E\u4E0D\u51CF`),
   defaultsFile: Schema.string().description("\u8986\u76D6\u9ED8\u8BA4\u6863\u8DEF\u5F84\uFF08\u7EDD\u5BF9\u8DEF\u5F84\uFF09\uFF1B\u7701\u7565\u65F6\u4E3A $DSH_HOME/session-tool-toggle/defaults.json"),
+  workspacesFile: Schema.string().description("\u8986\u76D6\u5DE5\u4F5C\u533A\u6863\u8DEF\u5F84\uFF08\u7EDD\u5BF9\u8DEF\u5F84\uFF09\uFF1B\u7701\u7565\u65F6\u4E3A $DSH_HOME/session-tool-toggle/workspaces.json"),
   hostModuleBase: Schema.string().description("\u8986\u76D6\u5BBF\u4E3B @deepseek-ai/dsh-session \u7684\u89E3\u6790\u951A\u70B9\uFF08\u7EDD\u5BF9\u8DEF\u5F84\uFF0C\u6392\u969C / \u5355\u6D4B\u7528\uFF09")
 }).description("\u4F1A\u8BDD\u7EA7\u5DE5\u5177\u9762\u5F00\u5173\uFF1A/tools \u547D\u4EE4\u9762\u4E0E Web \u9762\u677F\u5171\u7528\u7684\u63D2\u4EF6\u914D\u7F6E");
 var LOG_PREFIX = "dsh-plugin-session-tool-toggle\uFF1A";
 var TEARDOWN_LABEL = "dsh-plugin-session-tool-toggle: \u7EDF\u4E00\u62C6\u5378";
 var AGENT_LAYER_LABEL = "dsh-plugin-session-tool-toggle: \u6BCF agent \u5C42";
 var REPORTED_TOOL_CHANGES = 3;
+var NO_WORKSPACE_TEXTS = Object.freeze([]);
 var PROJECTION_STATE_SCHEMA = external_exports.object({
   version: external_exports.literal(1),
   disabled: external_exports.array(external_exports.string()),
@@ -18111,6 +19696,8 @@ function apply(ctx, config2) {
   ]);
   const defaultsFile = defaultsPath(settings.defaultsFile);
   const defaultsIo = createNodeDefaultsIo();
+  const workspacesFile = workspacesPath(settings.workspacesFile);
+  const workspacesIo = defaultsIo;
   const layers = /* @__PURE__ */ new Map();
   const catalog = () => ctx.tools.schemas().map((schema) => schema.name);
   let projections;
@@ -18140,16 +19727,120 @@ function apply(ctx, config2) {
       activeStore = createStateStore({ host, projections: projectionsPort, log });
     } catch (error51) {
       activeStore = new MemoryStateStore();
-      log.error(`\u89E3\u6790\u4F1A\u8BDD\u6301\u4E45\u5316\u901A\u9053\u5931\u8D25\uFF08${describeError5(error51)}\uFF09\uFF0C\u5DF2\u964D\u7EA7\u4E3A\u5185\u5B58\u6001`);
+      log.error(`\u89E3\u6790\u4F1A\u8BDD\u6301\u4E45\u5316\u901A\u9053\u5931\u8D25\uFF08${describeError6(error51)}\uFF09\uFF0C\u5DF2\u964D\u7EA7\u4E3A\u5185\u5B58\u6001`);
     }
     log.info(`\u6301\u4E45\u5316\u901A\u9053\uFF1A${activeStore.kind}`);
     return activeStore;
+  }
+  let workingDirectory;
+  let workspaceRegistry;
+  let workspaceServicesReported = false;
+  let skillsDegradationReported = false;
+  const workspaceInjectionDisposers = /* @__PURE__ */ new Set();
+  function trackWorkspaceInjection(dispose) {
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      workspaceInjectionDisposers.delete(release);
+      try {
+        dispose();
+      } catch (error51) {
+        log.error(`\u6E05\u7406\u5DE5\u4F5C\u533A\u8F6F\u6CE8\u5165\u5931\u8D25\uFF08${describeError6(error51)}\uFF09`);
+      }
+    };
+    workspaceInjectionDisposers.add(release);
+    return release;
+  }
+  ctx.inject(["workingDirectory"], (scope) => {
+    workingDirectory = scope.get("workingDirectory");
+    return trackWorkspaceInjection(() => {
+      workingDirectory = void 0;
+    });
+  });
+  ctx.inject(["workspaceRegistry"], (scope) => {
+    workspaceRegistry = scope.get("workspaceRegistry");
+    return trackWorkspaceInjection(() => {
+      workspaceRegistry = void 0;
+    });
+  });
+  function reportWorkspaceServicesOnce() {
+    if (workspaceServicesReported) return;
+    workspaceServicesReported = true;
+    const missing = [];
+    const fallbacks = [];
+    if (workspaceRegistry === void 0) {
+      missing.push("workspaceRegistry");
+      fallbacks.push("\u5F52\u5C5E\u952E\u9000\u5316\u4E3A cwd \u7684 canonical\uFF08\u672A\u767B\u8BB0\uFF09");
+    }
+    if (workingDirectory === void 0) {
+      missing.push("workingDirectory");
+      fallbacks.push("cwd \u56DE\u9000\u5230\u4F1A\u8BDD\u5934");
+    }
+    if (missing.length === 0) return;
+    log.warn(
+      `\u8F6F\u6CE8\u5165\u670D\u52A1\u7F3A\u5E2D\uFF08${missing.join(" / ")}\uFF09\uFF1A${fallbacks.join("\uFF0C")}\uFF1B\u5DE5\u4F5C\u533A\u6863\u529F\u80FD\u6309\u53EF\u7528\u80FD\u529B\u964D\u7EA7`
+    );
+  }
+  function reportSkillsDegradationOnce(layer) {
+    if (skillsDegradationReported) return;
+    skillsDegradationReported = true;
+    if (layer.skills().available) return;
+    log.warn(
+      "\u6280\u80FD\u5206\u9762\u964D\u7EA7\uFF1A\u9996\u4E2A\u4F1A\u8BDD\u6302\u8F7D\u65F6 skills \u670D\u52A1\u672A\u5C31\u7EEA\uFF08\u5BBF\u4E3B\u672A\u63D0\u4F9B\u6216\u665A\u5230\uFF09\uFF0C\u6280\u80FD\u5F00\u5173\u6682\u53EA\u8BB0\u610F\u56FE\uFF08\u9762\u677F\u7ED9 skills-unavailable\uFF1B\u665A\u5230\u4F1A\u81EA\u52A8\u8865\u6302\uFF09\uFF1B\u5DE5\u5177\u63A9\u7801\u3001/tools \u4E0E\u5DE5\u4F5C\u533A\u6863\u4E0D\u53D7\u5F71\u54CD"
+    );
+  }
+  function readCwd(session) {
+    if (workingDirectory !== void 0) {
+      try {
+        return workingDirectory.get(session);
+      } catch (error51) {
+        log.warn(
+          `\u4F1A\u8BDD ${session.id}\uFF1A\u8BFB\u53D6\u5F53\u524D\u5DE5\u4F5C\u76EE\u5F55\u5931\u8D25\uFF08${describeError6(error51)}\uFF09\uFF0C\u56DE\u9000\u5230\u4F1A\u8BDD\u5934 cwd`
+        );
+      }
+    }
+    try {
+      return session.header.cwd;
+    } catch (error51) {
+      log.warn(
+        `\u4F1A\u8BDD ${session.id}\uFF1A\u8BFB\u53D6\u4F1A\u8BDD\u5934 cwd \u5931\u8D25\uFF08${describeError6(error51)}\uFF09\uFF0C\u672C\u6B21\u53EA\u6309\u7528\u6237\u7EA7\u9ED8\u8BA4\u6863\u64AD\u79CD`
+      );
+      return void 0;
+    }
+  }
+  async function workspaceOf(session) {
+    reportWorkspaceServicesOnce();
+    const cwd = readCwd(session);
+    return await resolveWorkspaceAttribution(cwd, {
+      roots: {
+        registered: () => (workspaceRegistry?.list() ?? []).map((workspace) => ({
+          path: workspace.path,
+          title: workspace.title
+        }))
+      },
+      // 端口形状见 `attribution.ts` 的 `RealpathPort`：方法对象而不是裸函数。
+      realpath: { realpath: (path) => realpath3(path) },
+      log
+    });
+  }
+  function workspaceChoices() {
+    const registered = workspaceRegistry?.list() ?? [];
+    return registered.map((workspace) => ({ key: workspace.path, title: workspace.title })).sort((left, right) => compareText6(left.title, right.title) || compareText6(left.key, right.key));
   }
   async function readOrSeed(session) {
     const current = store.read(session);
     if (current.seeded) return current;
     const defaults = await readDefaults(defaultsFile, defaultsIo, log);
-    return seed(session, current, defaults.disabled);
+    const attribution = await workspaceOf(session);
+    let workspaceTexts = NO_WORKSPACE_TEXTS;
+    if (attribution === void 0) {
+      log.info(`\u4F1A\u8BDD ${session.id}\uFF1A\u65E0\u6CD5\u5F52\u5C5E\u5DE5\u4F5C\u533A\uFF0C\u672C\u6B21\u53EA\u6309\u7528\u6237\u7EA7\u9ED8\u8BA4\u6863\u64AD\u79CD`);
+    } else {
+      const workspaceFile = await readWorkspaces(workspacesFile, workspacesIo, log);
+      workspaceTexts = disabledOf(workspaceFile, attribution.key);
+    }
+    return seed(session, current, mergeSeed(defaults.disabled, workspaceTexts));
   }
   function seed(session, state, snapshot2) {
     const withDefaults = withSnapshot(state, snapshot2);
@@ -18175,6 +19866,7 @@ function apply(ctx, config2) {
     const layer = new SessionLayer({ log, catalog });
     layers.set(id, layer);
     await layer.attach(agent, state);
+    reportSkillsDegradationOnce(layer);
   }
   function unmount(sessionId) {
     const layer = layers.get(sessionId);
@@ -18183,7 +19875,7 @@ function apply(ctx, config2) {
     try {
       layer.detach();
     } catch (error51) {
-      log.error(`\u4F1A\u8BDD ${sessionId}\uFF1A\u62C6\u5378\u6BCF agent \u5C42\u5931\u8D25\uFF08${describeError5(error51)}\uFF09`);
+      log.error(`\u4F1A\u8BDD ${sessionId}\uFF1A\u62C6\u5378\u6BCF agent \u5C42\u5931\u8D25\uFF08${describeError6(error51)}\uFF09`);
     }
   }
   ctx.on("agent/created", ({ agent }) => {
@@ -18195,7 +19887,7 @@ function apply(ctx, config2) {
       () => void 0,
       (error51) => {
         unmount(sessionId);
-        log.error(`\u4F1A\u8BDD ${sessionId}\uFF1A\u88C5\u914D\u6BCF agent \u5C42\u5931\u8D25\uFF08${describeError5(error51)}\uFF09\uFF0C\u672C\u4F1A\u8BDD\u7684\u5F00\u5173\u6682\u4E0D\u751F\u6548`);
+        log.error(`\u4F1A\u8BDD ${sessionId}\uFF1A\u88C5\u914D\u6BCF agent \u5C42\u5931\u8D25\uFF08${describeError6(error51)}\uFF09\uFF0C\u672C\u4F1A\u8BDD\u7684\u5F00\u5173\u6682\u4E0D\u751F\u6548`);
         return void 0;
       }
     );
@@ -18213,7 +19905,7 @@ function apply(ctx, config2) {
       try {
         layer.refresh();
       } catch (error51) {
-        log.error(`\u4F1A\u8BDD ${sessionId}\uFF1Atools/change \u91CD\u7B97\u5931\u8D25\uFF08${describeError5(error51)}\uFF09`);
+        log.error(`\u4F1A\u8BDD ${sessionId}\uFF1Atools/change \u91CD\u7B97\u5931\u8D25\uFF08${describeError6(error51)}\uFF09`);
       }
     }
   });
@@ -18237,7 +19929,7 @@ function apply(ctx, config2) {
       projectionDisposers.add(dispose);
       log.info("\u5DF2\u6CE8\u518C host-only \u6295\u5F71 sessionToolToggle\uFF08stateVersion 1\uFF0C\u65E0 wire\uFF09");
     } catch (error51) {
-      log.error(`\u6CE8\u518C\u6295\u5F71 sessionToolToggle \u5931\u8D25\uFF08${describeError5(error51)}\uFF09\uFF0C\u8BFB\u8DEF\u5F84\u9000\u5316\u4E3A\u65E5\u5FD7\u91CD\u653E`);
+      log.error(`\u6CE8\u518C\u6295\u5F71 sessionToolToggle \u5931\u8D25\uFF08${describeError6(error51)}\uFF09\uFF0C\u8BFB\u8DEF\u5F84\u9000\u5316\u4E3A\u65E5\u5FD7\u91CD\u653E`);
     }
   });
   const controlDeps = {
@@ -18245,6 +19937,12 @@ function apply(ctx, config2) {
     layerFor: (sessionId) => layers.get(sessionId),
     defaultsPath: defaultsFile,
     defaultsIo,
+    // 任务 6.5：工作区档的路径 / IO / 归属闭包 / 下拉投影（契约见 code-design §3.7）。
+    // 路径与 IO 都复用播种段（4.3）的变量：工作区档与用户档同目录、同一套原子写与权限位。
+    workspacesPath: workspacesFile,
+    workspacesIo,
+    workspaceOf,
+    workspaceChoices,
     protectedNames,
     log,
     // R15（任务 9.1）：全局层未掩码注册名并入 `ControlDeps`，命令面与 RPC 共用同一份。
@@ -18254,9 +19952,9 @@ function apply(ctx, config2) {
   ctx.inject(["commands"], (scope) => {
     try {
       commandDisposers.add(scope.commands.register(toolsCommand(commandDeps)));
-      log.info("\u5DF2\u6CE8\u518C /tools \u547D\u4EE4\uFF08\u672C\u4F1A\u8BDD\u5F00\u5173 + \u9ED8\u8BA4\u6863\uFF09");
+      log.info("\u5DF2\u6CE8\u518C /tools \u547D\u4EE4\uFF08\u672C\u4F1A\u8BDD\u5F00\u5173 + \u9ED8\u8BA4\u6863 + \u5DE5\u4F5C\u533A\u6863\uFF09");
     } catch (error51) {
-      log.error(`\u6CE8\u518C /tools \u547D\u4EE4\u5931\u8D25\uFF08${describeError5(error51)}\uFF09`);
+      log.error(`\u6CE8\u518C /tools \u547D\u4EE4\u5931\u8D25\uFF08${describeError6(error51)}\uFF09`);
     }
   });
   const channelDisposers = /* @__PURE__ */ new Set();
@@ -18283,10 +19981,10 @@ function apply(ctx, config2) {
       channelDisposers.delete(release);
       try {
         void handle().catch((error51) => {
-          log.error(`\u53CD\u6CE8\u518C RPC \u901A\u9053 ${CHANNEL} \u5931\u8D25\uFF08${describeError5(error51)}\uFF09`);
+          log.error(`\u53CD\u6CE8\u518C RPC \u901A\u9053 ${CHANNEL} \u5931\u8D25\uFF08${describeError6(error51)}\uFF09`);
         });
       } catch (error51) {
-        log.error(`\u53CD\u6CE8\u518C RPC \u901A\u9053 ${CHANNEL} \u5931\u8D25\uFF08${describeError5(error51)}\uFF09`);
+        log.error(`\u53CD\u6CE8\u518C RPC \u901A\u9053 ${CHANNEL} \u5931\u8D25\uFF08${describeError6(error51)}\uFF09`);
       }
     };
     channelDisposers.add(release);
@@ -18295,12 +19993,16 @@ function apply(ctx, config2) {
   });
   ctx.effect(() => () => {
     for (const sessionId of Array.from(layers.keys())) unmount(sessionId);
+    for (const dispose of Array.from(workspaceInjectionDisposers)) {
+      workspaceInjectionDisposers.delete(dispose);
+      dispose();
+    }
     for (const dispose of Array.from(projectionDisposers)) {
       projectionDisposers.delete(dispose);
       try {
         dispose();
       } catch (error51) {
-        log.error(`\u53CD\u6CE8\u518C\u6295\u5F71\u5931\u8D25\uFF08${describeError5(error51)}\uFF09`);
+        log.error(`\u53CD\u6CE8\u518C\u6295\u5F71\u5931\u8D25\uFF08${describeError6(error51)}\uFF09`);
       }
     }
     for (const dispose of Array.from(commandDisposers)) {
@@ -18308,7 +20010,7 @@ function apply(ctx, config2) {
       try {
         dispose();
       } catch (error51) {
-        log.error(`\u53CD\u6CE8\u518C /tools \u547D\u4EE4\u5931\u8D25\uFF08${describeError5(error51)}\uFF09`);
+        log.error(`\u53CD\u6CE8\u518C /tools \u547D\u4EE4\u5931\u8D25\uFF08${describeError6(error51)}\uFF09`);
       }
     }
     for (const dispose of Array.from(channelDisposers)) {
@@ -18316,27 +20018,27 @@ function apply(ctx, config2) {
       try {
         dispose();
       } catch (error51) {
-        log.error(`\u53CD\u6CE8\u518C RPC \u901A\u9053\u5931\u8D25\uFF08${describeError5(error51)}\uFF09`);
+        log.error(`\u53CD\u6CE8\u518C RPC \u901A\u9053\u5931\u8D25\uFF08${describeError6(error51)}\uFF09`);
       }
     }
-    log.info("\u5DF2\u7EDF\u4E00\u62C6\u5378\uFF1A\u4F1A\u8BDD\u5C42\u3001\u6295\u5F71\u6CE8\u518C\u3001\u547D\u4EE4\u6CE8\u518C\u3001RPC \u901A\u9053");
+    log.info("\u5DF2\u7EDF\u4E00\u62C6\u5378\uFF1A\u4F1A\u8BDD\u5C42\uFF08\u542B\u6280\u80FD\u5206\u9762\uFF09\u3001\u5DE5\u4F5C\u533A\u8F6F\u6CE8\u5165\u3001\u6295\u5F71\u6CE8\u518C\u3001\u547D\u4EE4\u6CE8\u518C\u3001RPC \u901A\u9053");
   }, TEARDOWN_LABEL);
   let existing = [];
   try {
     existing = ctx.agents.list();
   } catch (error51) {
-    log.error(`\u8BFB\u53D6\u5DF2\u5B58\u5728\u4F1A\u8BDD\u5931\u8D25\uFF08${describeError5(error51)}\uFF09\uFF0C\u8DF3\u8FC7\u542F\u52A8\u8865\u6302`);
+    log.error(`\u8BFB\u53D6\u5DF2\u5B58\u5728\u4F1A\u8BDD\u5931\u8D25\uFF08${describeError6(error51)}\uFF09\uFF0C\u8DF3\u8FC7\u542F\u52A8\u8865\u6302`);
   }
   if (existing.length > 0) {
     log.info(`\u542F\u52A8\u8865\u6302 ${existing.length} \u4E2A\u5DF2\u5B58\u5728\u4F1A\u8BDD`);
     for (const agent of existing) {
       void mount(agent).catch((error51) => {
-        log.error(`\u542F\u52A8\u8865\u6302\u4F1A\u8BDD ${agent.session.id} \u5931\u8D25\uFF08${describeError5(error51)}\uFF09`);
+        log.error(`\u542F\u52A8\u8865\u6302\u4F1A\u8BDD ${agent.session.id} \u5931\u8D25\uFF08${describeError6(error51)}\uFF09`);
       });
     }
   }
   log.info(
-    `\u5DF2\u88C5\u914D\uFF1Ainject=[${inject.join(", ")}]\uFF0C\u9ED8\u8BA4\u6863 ${defaultsFile}\uFF0C\u4FDD\u62A4\u540D\u5355 ${protectedNames.size} \u9879\uFF0C\u6301\u4E45\u5316 ${settings.storage === "memory" ? "memory\uFF08\u914D\u7F6E\u6307\u5B9A\uFF09" : "auto\uFF08\u5F85\u9996\u4E2A\u4F1A\u8BDD\u89E3\u6790\uFF09"}`
+    `\u5DF2\u88C5\u914D\uFF1Ainject=[${inject.join(", ")}]\uFF0C\u9ED8\u8BA4\u6863 ${defaultsFile}\uFF0C\u5DE5\u4F5C\u533A\u6863 ${workspacesFile}\uFF0C\u4FDD\u62A4\u540D\u5355 ${protectedNames.size} \u9879\uFF0C\u6301\u4E45\u5316 ${settings.storage === "memory" ? "memory\uFF08\u914D\u7F6E\u6307\u5B9A\uFF09" : "auto\uFF08\u5F85\u9996\u4E2A\u4F1A\u8BDD\u89E3\u6790\uFF09"}`
   );
 }
 function createLog(ctx) {
@@ -18358,22 +20060,28 @@ function createLog(ctx) {
 }
 function readSettings(raw, log) {
   if (raw === void 0 || raw === null) {
-    return { storage: "auto", protectedTools: [], defaultsFile: void 0, hostModuleBase: void 0 };
+    return {
+      storage: "auto",
+      protectedTools: [],
+      defaultsFile: void 0,
+      workspacesFile: void 0,
+      hostModuleBase: void 0
+    };
   }
   const record2 = raw;
   const storage = record2.storage;
   if (storage !== void 0 && storage !== null && storage !== "auto" && storage !== "memory") {
-    log.warn(`\u914D\u7F6E storage \u975E\u6CD5\uFF08\u6536\u5230 ${describeRaw3(storage)}\uFF09\uFF0C\u6309 auto \u5904\u7406`);
+    log.warn(`\u914D\u7F6E storage \u975E\u6CD5\uFF08\u6536\u5230 ${describeRaw4(storage)}\uFF09\uFF0C\u6309 auto \u5904\u7406`);
   }
   const protectedTools = [];
   const rawProtected = record2.protectedTools;
   if (rawProtected !== void 0 && rawProtected !== null) {
     if (!Array.isArray(rawProtected)) {
-      log.warn(`\u914D\u7F6E protectedTools \u4E0D\u662F\u6570\u7EC4\uFF08\u6536\u5230 ${describeRaw3(rawProtected)}\uFF09\uFF0C\u5FFD\u7565`);
+      log.warn(`\u914D\u7F6E protectedTools \u4E0D\u662F\u6570\u7EC4\uFF08\u6536\u5230 ${describeRaw4(rawProtected)}\uFF09\uFF0C\u5FFD\u7565`);
     } else {
       for (const entry of rawProtected) {
         if (typeof entry === "string" && entry.trim() !== "") protectedTools.push(entry.trim());
-        else log.warn(`\u914D\u7F6E protectedTools \u91CC\u6709\u975E\u5B57\u7B26\u4E32/\u7A7A\u6761\u76EE\uFF08${describeRaw3(entry)}\uFF09\uFF0C\u5DF2\u4E22\u5F03`);
+        else log.warn(`\u914D\u7F6E protectedTools \u91CC\u6709\u975E\u5B57\u7B26\u4E32/\u7A7A\u6761\u76EE\uFF08${describeRaw4(entry)}\uFF09\uFF0C\u5DF2\u4E22\u5F03`);
       }
     }
   }
@@ -18381,13 +20089,14 @@ function readSettings(raw, log) {
     storage: storage === "memory" ? "memory" : "auto",
     protectedTools: Array.from(new Set(protectedTools)),
     defaultsFile: readPathOption(record2.defaultsFile, "defaultsFile", log),
+    workspacesFile: readPathOption(record2.workspacesFile, "workspacesFile", log),
     hostModuleBase: readPathOption(record2.hostModuleBase, "hostModuleBase", log)
   };
 }
 function readPathOption(value, key, log) {
   if (value === void 0 || value === null) return void 0;
   if (typeof value !== "string" || value.trim() === "") {
-    log.warn(`\u914D\u7F6E ${key} \u4E0D\u662F\u975E\u7A7A\u5B57\u7B26\u4E32\uFF08\u6536\u5230 ${describeRaw3(value)}\uFF09\uFF0C\u6309\u672A\u8BBE\u5904\u7406`);
+    log.warn(`\u914D\u7F6E ${key} \u4E0D\u662F\u975E\u7A7A\u5B57\u7B26\u4E32\uFF08\u6536\u5230 ${describeRaw4(value)}\uFF09\uFF0C\u6309\u672A\u8BBE\u5904\u7406`);
     return void 0;
   }
   const trimmed = value.trim();
@@ -18400,7 +20109,12 @@ function readPathOption(value, key, log) {
 function isAbsolutePath(value) {
   return value.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(value);
 }
-function describeRaw3(value) {
+function compareText6(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+function describeRaw4(value) {
   if (typeof value === "string") return `\u300C${value}\u300D`;
   if (value === null) return "null";
   if (value === void 0) return "undefined";
@@ -18409,7 +20123,7 @@ function describeRaw3(value) {
   if (typeof value === "number") return `\u6570\u5B57 ${String(value)}`;
   return `${typeof value} ${String(value)}`;
 }
-function describeError5(error51) {
+function describeError6(error51) {
   return error51 instanceof Error ? error51.message : String(error51);
 }
 export {

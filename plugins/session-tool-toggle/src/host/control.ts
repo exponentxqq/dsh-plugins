@@ -1,24 +1,29 @@
 /**
  * 控制内核：`/tools` 命令面与 Web RPC 的**唯一用例内核**（设计 D14）。
  *
- * 本模块只收四件事：读面板（{@link readPanel}）、本会话开关（{@link toggleSession}）、
- * 回到创建时快照（{@link resetSession}）、写用户级默认档（{@link updateDefaults}）。
- * 命令面（`commands.ts`）与 Web RPC（`rpc.ts`，任务 9.5）都只通过这四张脸改状态，
+ * 本模块只收五件事：读面板（{@link readPanel}）、本会话开关（{@link toggleSession}）、
+ * 回到创建时快照（{@link resetSession}）、写用户级默认档（{@link updateDefaults}）、
+ * 写工作区级默认档（{@link updateWorkspaceDefaults}）。
+ * 命令面（`commands.ts`）与 Web RPC（`rpc.ts`，任务 9.5）都只通过这几张脸改状态，
  * 因此「同一会话只有一条写入路径」是**类型层面**的事实而不是约定：命令面拿到的依赖就是
  * {@link ControlDeps}，没有第二个 `StateStore` 入口（任务 9.1 的架构支点）。
+ * 两份默认档（用户级 / 工作区级）各自也只有这一条写入路径。
  *
  * 三条写死的规则：
  *
  * 1. **全有或全无校验**（设计 ③.7）：保护名单、保留名、地址文法在 {@link parseAddresses}
  *    里**一次判完**；任何一条不合法就整单拒绝，`store.write` 一次都不发生——多地址命令
- *    绝不留下「一半生效」的不可解释状态（面板的批量开关也走同一条路径）。
+ *    绝不留下「一半生效」的不可解释状态（面板的批量开关也走同一条路径）。工作区档同样
+ *    先过这一关，再进入读-改-写。
  * 2. **固定顺序**（任务 9.1 的裁定）：`withToggled`（纯函数，无变化返回**同一引用**）→
  *    `store.write` → `layer.setState` → 组装回执。先落状态再改掩码：写失败时掩码不动，
  *    不会出现「记录说关了、层还开着」的窗口。两步写失败都不让命令失败，回执里用
  *    `persistFailed` / `layerFailed` 说明代价（命令面据此补提示行）。
  * 3. **回执只报事实**：`matched` 命中数（0 也保留）、`changed`（关闭集变没变）、
- *    `schemaChanged`（**已生效的 deny** 变没变——唯一决定前缀缓存重建的判据）、可见计数
- *    与写入后的整值状态。文案拼装与 markdown 全部留在命令面，本模块不认识斜杠命令。
+ *    `schemaChanged`（**已生效的 deny 或影子 stub 集合**变没变——唯一决定前缀缓存重建的
+ *    判据）、`hiddenSkills`（影子 stub 集合的变化量；真实层为收敛前同步初值，RPC 以
+ *    `shadowedBefore` 为基准在 `await skillsSettled()` 之后重算为「已生效」口径）与写入后的整值状态。文案拼装与 markdown
+ *    全部留在命令面，本模块不认识斜杠命令。
  *
  * 零 Cordis 依赖：本模块只认 {@link ControlDeps} 这组端口，因此每条规则都能用假端口在
  * 单测里直接驱动（`test/control.test.ts`），不需要拉起宿主。
@@ -26,6 +31,9 @@
  * @module dsh-plugin-session-tool-toggle/host/control
  */
 
+import { isAbsolute } from 'node:path'
+import { DESCRIPTION_MAX_LENGTH } from '../contract.ts'
+import type { SkillView, WorkspaceAction, WorkspaceChoice, WorkspaceView } from '../contract.ts'
 import { parseAddress, type SwitchAddress } from './address.ts'
 import { readDefaults, writeDefaults } from './defaults.ts'
 import { planMask } from './mask.ts'
@@ -37,15 +45,25 @@ import type {
   LayerSnapshot,
   SessionLike,
   SessionToolState,
+  SkillLayerSnapshot,
   SpecLog,
   StoreKind,
+  WorkspaceAttribution,
 } from './types.ts'
+import {
+  EMPTY_WORKSPACES,
+  disabledOf,
+  readWorkspaces,
+  withEntry,
+  writeWorkspaces,
+  type WorkspaceDefaultsFile,
+} from './workspaces.ts'
 
 /**
  * 命令文法一行（`/tools` 的 `input.hint` 与所有错误回执共用）。
  *
- * 与设计 ③.7 的表逐项对应：`status` 缺省、`off`/`on` 接地址、`reset` 回快照、
- * `default` 只看或写默认档。
+ * 与设计 ③.8（命令面）的表逐项对应：`status` 缺省、`off`/`on` 接地址、`reset` 回快照、
+ * `default` 只看或写用户级默认档、`workspace` 只看或写本会话所属工作区的默认档。
  *
  * 常量放在内核里（而不是命令面）的理由：**地址校验的拒绝回执由内核生成**（见
  * {@link parseAddresses}），回执末尾必须带这一行命令文法；命令面从本模块 import 后既
@@ -53,12 +71,25 @@ import type {
  */
 export const TOOLS_GRAMMAR =
   'status | off <地址…> | on <地址…> | reset | default [off|on|set|reset] <地址…>'
+  + ' | workspace [status|off|on|set|reset] <地址…>'
 
 /** MCP public name 前缀：`mcp__<serverName>__<rawName>`（与 `address.ts` 同一命名契约）。 */
 const MCP_PUBLIC_PREFIX = 'mcp__'
 
 /** public name 里 serverName 与工具名的分隔符。 */
 const MCP_PUBLIC_SEPARATOR = '__'
+
+/**
+ * 层缺席 / 技能分面读失败时的空读数（冻结，多处共享）。
+ *
+ * `available: false` 同时表达「宿主没有 skills 服务」与「本会话没有层」：两者对面板的含义
+ * 相同——技能地址只记意图，影子 stub 不生效。
+ */
+const NO_SKILLS: SkillLayerSnapshot = Object.freeze({
+  available: false,
+  shadowed: Object.freeze([]) as readonly string[],
+  visible: Object.freeze([]) as readonly { readonly name: string; readonly description: string }[],
+})
 
 /** 默认档子命令：只允许这四种写动作（另有不带子命令的只读形态，属命令面）。 */
 export type DefaultsMode = 'off' | 'on' | 'set' | 'reset'
@@ -98,12 +129,26 @@ export interface ToggleReport {
   /** 关闭集是否真的变了（无变化时不会写状态，也不重装掩码）。 */
   readonly changed: boolean
   /**
-   * 已生效的 deny 集合是否变了——**唯一**决定「前缀缓存要不要重建」的事实。
+   * 已生效的 deny 集合或影子 stub 集合任一变了——**唯一**决定「前缀缓存要不要重建」的事实。
    *
    * 与 `changed` 分开是刻意的：`/tools off mcp:zzz` 会改变关闭集（意图被记录），但活读数
    * 里没有任何工具进出模型请求，缓存不该重建；反过来重复关闭同一地址两者都不变。
+   * 技能同理：`skill:<name>` 不进工具 deny，但它改变下一步的技能目录（影子 stub 集合），
+   * 目录消息属于前缀的一部分，因此影子集合的长度差也算「schema 变了」。
    */
   readonly schemaChanged: boolean
+  /**
+   * 本次影子 stub 集合的变化量（`after.shadowed.length - before.shadowed.length`，可为负）。
+   *
+   * 0 = 技能可见性没变（无技能服务 / 未安装 / 重复操作）；负值 = 本次开启了被遮蔽的技能。
+   * 与 `visibleBefore/After`（工具视角）是两个维度，不能互相推导。
+   * **真实层时序注意**：`skillsAfter` 是 `setState` 后的同步读数，stub 注册异步（D-4），
+   * 本值可能偏小；RPC 以 `shadowedBefore` 为基准、在 `await skillsSettled()` 之后重算
+   * 「已生效」口径的最终数字（见 rpc.ts 的 `mutationOfToggle`）。
+   */
+  readonly hiddenSkills: number
+  /** `setState` 之前该 agent 视角的影子 stub 数（RPC 收敛后重算 `hiddenSkills` 的基准）。 */
+  readonly shadowedBefore: number
   /** 命令执行前该 agent 视角的可见工具数。 */
   readonly visibleBefore: number
   /** 命令执行后该 agent 视角的可见工具数（层未就绪时等于 before）。 */
@@ -123,8 +168,12 @@ export interface ResetReport {
   /** 变化项数（当前关闭集与快照的对称差，R15 ③）。 */
   readonly changedCount: number
   readonly changed: boolean
-  /** 已生效的 deny 集合是否变了（`/tools reset` 的缓存重建判据）。 */
+  /** 已生效的 deny 集合或技能关闭集是否变了（`/tools reset` 的缓存重建判据）。 */
   readonly schemaChanged: boolean
+  /** 本次影子 stub 集合的变化量（可为负；真实层时序注意与重算口径同 {@link ToggleReport.hiddenSkills}）。 */
+  readonly hiddenSkills: number
+  /** `setState` 之前该 agent 视角的影子 stub 数（RPC 收敛后重算的基准）。 */
+  readonly shadowedBefore: number
   /** 创建时快照（`disabled` 的干净副本）。 */
   readonly snapshot: readonly string[]
   readonly visibleBefore: number
@@ -196,6 +245,21 @@ export interface PanelReading {
   readonly closed: readonly ClosedAddressReading[]
   /** 会话创建时间（epoch ms），用来给「快照来源」配时间。 */
   readonly createdAt: number
+  /**
+   * 技能行（模型可调用技能 ∪ 当前已遮蔽名字，按名字升序）。
+   *
+   * 行里同时带 `disabled`（意图，关闭集里有 `skill:<name>`）与 `shadowed`（实际生效，
+   * 本层已注册影子 stub）——两者不一致正是「记了但没装上」的两态区分（D-6）。
+   */
+  readonly skills: readonly SkillView[]
+  /** `skills` 服务是否可用（false = 技能地址只记意图，面板给 `skills-unavailable`）。 */
+  readonly skillsAvailable: boolean
+  /**
+   * 本会话所属工作区的默认档视图；`null` = cwd 无法归属（fail-closed）。
+   *
+   * 与 {@link PanelReading.defaults} 并列：一个讲「所有新会话」，一个讲「这个工作区的新会话」。
+   */
+  readonly workspace: WorkspaceView | null
 }
 
 /** `default off|on|set|reset` 的回执事实。 */
@@ -211,8 +275,35 @@ export interface DefaultsWriteReport {
   readonly removed: readonly string[]
 }
 
+/**
+ * 工作区档写目标的两种寻址形态（设计 D-11 / DQ4-A）。
+ *
+ * - `session`：面板分区与命令面用。宿主从会话 cwd 推键，**允许未登记目录**（`registered:false`）；
+ * - `path`：footer 下拉与 `{workspacePath}` 请求用。只接受 `workspaceChoices()` 里的规范路径，
+ *   拒绝任意路径探测（未登记目录不能借这个入口写进 `workspaces.json`）。
+ */
+export type WorkspaceTarget =
+  | { readonly kind: 'session'; readonly session: SessionLike }
+  | { readonly kind: 'path'; readonly path: string }
+
+/** `workspace off|on|set|reset` 的回执事实（与 {@link DefaultsWriteReport} 同构）。 */
+export interface WorkspaceDefaultsReport {
+  /** 本次动作（`read` = 只读分支，不写文件）。 */
+  readonly mode: WorkspaceAction
+  /** 解析出的工作区键（规范绝对路径）。 */
+  readonly key: string
+  /** 工作区档文件绝对路径。 */
+  readonly path: string
+  readonly before: WorkspaceDefaultsFile
+  readonly after: WorkspaceDefaultsFile
+  /** 目标工作区条目本次新增的条目（规范形）。 */
+  readonly added: readonly string[]
+  /** 目标工作区条目本次移除的条目（规范形）。 */
+  readonly removed: readonly string[]
+}
+
 // ---------------------------------------------------------------------------
-// 四个用例（唯一写入路径；顺序即语义）
+// 五个用例（唯一写入路径；顺序即语义）
 // ---------------------------------------------------------------------------
 
 /**
@@ -246,6 +337,7 @@ export function toggleSession(
   const layer = layerOf(deps, session)
   const catalog = catalogOf(deps)
   const before = snapshotOf(layer, deps.log)
+  const skillsBefore = skillsOf(layer, deps.log)
   const visibleBefore = before.visible.length
 
   // 匹配计数：planMask 的 matched 只含入参 disabled 的键，因此把本次涉及的地址整份传进去，
@@ -288,6 +380,9 @@ export function toggleSession(
 
   // ⑤ 组装回执：after 是「已生效的层事实」，不是计划值。
   const after = changed ? snapshotOf(layer, deps.log) : before
+  // 影子 stub 集合同样是「已生效」的读数：`setState` 之后本层已撤销 / 补挂的 stub 键集。
+  // 技能补挂是异步的（D-4），调用方（命令面 / RPC）在展示回执前 await `skillsSettled()`。
+  const skillsAfter = changed ? skillsOf(layer, deps.log) : skillsBefore
 
   const entries: ToggleEntryReport[] = parsed.entries.map((entry) => ({
     text: entry.text,
@@ -302,8 +397,15 @@ export function toggleSession(
     report: {
       entries,
       changed,
-      // 缓存重建只由「已生效的 deny 集合是否变化」决定：宽容记录的 0 匹配地址不算。
-      schemaChanged: !sameTexts(before.deny, after.deny),
+      // 缓存重建由「已生效的 deny 集合」或「影子 stub 集合」任一变化决定：宽容记录的
+      // 0 匹配地址不算；技能不进工具 deny，但技能目录属于前缀的一部分（H7 / D-4）。
+      schemaChanged:
+        !sameTexts(before.deny, after.deny)
+        || skillsBefore.shadowed.length !== skillsAfter.shadowed.length,
+      hiddenSkills: skillsAfter.shadowed.length - skillsBefore.shadowed.length,
+      // 收敛前基准（真实层同步读到的影子数）：RPC 在 `await skillsSettled()` 之后用
+      // `layer.skills().shadowed.length` 与它重算，得到「已生效」口径的回执数字（D-4）。
+      shadowedBefore: skillsBefore.shadowed.length,
       visibleBefore,
       visibleAfter: after.visible.length,
       visibleKnown: layer !== undefined,
@@ -331,6 +433,7 @@ export function resetSession(deps: ControlDeps, session: SessionLike): ResetRepo
   const stateBefore = deps.store.read(session)
   const layer = layerOf(deps, session)
   const before = snapshotOf(layer, deps.log)
+  const skillsBefore = skillsOf(layer, deps.log)
   const visibleBefore = before.visible.length
 
   // 快照是写入路径的产物，这里仍按同一套条目标尺清洗一次（损坏记录的最后一道容忍）。
@@ -360,11 +463,17 @@ export function resetSession(deps: ControlDeps, session: SessionLike): ResetRepo
   }
 
   const after = changed ? snapshotOf(layer, deps.log) : before
+  const skillsAfter = changed ? skillsOf(layer, deps.log) : skillsBefore
 
   return {
     changedCount: symmetricDifference(stateBefore.disabled, snapshot),
     changed,
-    schemaChanged: !sameTexts(before.deny, after.deny),
+    schemaChanged:
+      !sameTexts(before.deny, after.deny)
+      || skillsBefore.shadowed.length !== skillsAfter.shadowed.length,
+    hiddenSkills: skillsAfter.shadowed.length - skillsBefore.shadowed.length,
+    // 收敛前基准（同 ToggleReport.shadowedBefore，RPC 收敛后重算用）。
+    shadowedBefore: skillsBefore.shadowed.length,
     snapshot,
     visibleBefore,
     visibleAfter: after.visible.length,
@@ -399,8 +508,10 @@ export async function readPanel(deps: ControlDeps, session: SessionLike): Promis
   const layer = layerOf(deps, session)
   const catalog = catalogOf(deps)
   const applied = snapshotOf(layer, deps.log)
+  const skills = skillsOf(layer, deps.log)
   const scoped = applied.visible
   const defaults = await readDefaults(deps.defaultsPath, deps.defaultsIo, deps.log)
+  const workspace = await workspaceViewOf(deps, session)
 
   const plan = planMask({
     catalog,
@@ -460,6 +571,9 @@ export async function readPanel(deps: ControlDeps, session: SessionLike): Promis
     matched: plan.matched,
     closed,
     createdAt: session.header.createdAt,
+    skills: skillRowsOf(skills, state.disabled, deps.protectedNames),
+    skillsAvailable: skills.available,
+    workspace,
   }
 }
 
@@ -519,6 +633,101 @@ export async function updateDefaults(
       after,
       added: after.disabled.filter((item) => !before.disabled.includes(item)),
       removed: before.disabled.filter((item) => !after.disabled.includes(item)),
+    },
+  }
+}
+
+/**
+ * 写工作区级默认档（`/tools workspace off|on|set|reset` 与 `workspace` 端点的唯一写入路径）。
+ *
+ * 语义与 {@link updateDefaults} 逐条同构，只是维度换成「一个工作区一份清单」：
+ *
+ * - **不追溯**：只影响该工作区**之后新建**的会话；本会话的 `state.disabled` 一个字都不改
+ *   （spec「不追溯」）。因此本函数从不触碰 `deps.store` / `deps.layerFor`。
+ * - **全有或全无**：`off` / `on` / `set` 的地址先整批判完；任何一条不合法就整单拒绝，
+ *   文件不动。`reset` 不接地址。
+ * - **动作语义**：`off` = 并入当前条目；`on` = 从当前条目移除；`set` = 整份覆盖；
+ *   `reset` = 该工作区条目清空（保留键、空 `disabled`，见 `withEntry` 的契约）。
+ *   `read` 是只读分支（供 RPC 复用目标解析），不写文件。
+ * - **写盘失败原样抛**：权限 / 磁盘 / 目录不可建都由上层看见（RPC 映射
+ *   `workspace-unwritable`，命令面转成回执），与 `updateDefaults` 同一纪律。
+ *
+ * 目标解析失败（`{kind:'session'}` 无法归属 / `{kind:'path'}` 非绝对或未登记）是**业务拒绝**
+ * 而不是抛错：回执文案带稳定的 `workspace-unresolved` 标记与 subject，RPC 据此映射失败码。
+ *
+ * @param deps - 控制端口（含工作区档路径 / IO 与归属端口）。
+ * @param target - 两种寻址形态之一。
+ * @param mode - 工作区动作（`read` = 只读，不写）。
+ * @param texts - 地址原文（`reset` / `read` 时忽略）。
+ * @returns 写入前后的事实，或目标解析 / 地址校验的拒绝文案。
+ * @throws `writeWorkspaces` 的原始错误（端口写入失败时）。
+ */
+export async function updateWorkspaceDefaults(
+  deps: ControlDeps,
+  target: WorkspaceTarget,
+  mode: WorkspaceAction,
+  texts: readonly string[],
+): Promise<ControlOutcome<WorkspaceDefaultsReport>> {
+  const resolved = await resolveWorkspaceTarget(deps, target)
+  if (!resolved.ok) return { ok: false, text: resolved.text }
+
+  const before = await readWorkspaces(deps.workspacesPath, deps.workspacesIo, deps.log)
+
+  // `read` 只解析目标并给出当前档（RPC 的只读形态复用同一套目标校验），绝不写文件。
+  if (mode === 'read') {
+    return {
+      ok: true,
+      report: {
+        mode,
+        key: resolved.key,
+        path: deps.workspacesPath,
+        before,
+        after: before,
+        added: [],
+        removed: [],
+      },
+    }
+  }
+
+  const current = disabledOf(before, resolved.key)
+  // `reset` = 清空该工作区条目（保留键、空 disabled）；其余动作从当前条目出发。
+  let desired: readonly string[] = []
+  if (mode !== 'reset') {
+    const parsed = parseAddresses(texts, deps.protectedNames)
+    if (!parsed.ok) return { ok: false, text: parsed.message }
+    const additions = parsed.entries.map((entry) => entry.text)
+    if (mode === 'set') {
+      desired = additions
+    } else if (mode === 'off') {
+      desired = [...current, ...additions]
+    } else {
+      desired = current.filter((item) => !additions.includes(item))
+    }
+  }
+
+  // 纯函数编辑（排序去重 + 稳定排序）→ 整份原子写。坏键 / 条目上限由 `withEntry` 拒绝：
+  // 此时它返回入参本身，写路径仍按「无变化」如实回执（warn 已由 `withEntry` 发出）。
+  const after = withEntry(before, resolved.key, desired, deps.log)
+  try {
+    await writeWorkspaces(deps.workspacesPath, after, deps.workspacesIo)
+  } catch (error) {
+    deps.log.error(`工作区档写入失败（${deps.workspacesPath}）：${messageOf(error)}`)
+    // 原样向上抛：命令面 → 回执；RPC → workspace-unwritable（details = {path, reason}）。
+    throw error
+  }
+
+  const beforeDisabled = disabledOf(before, resolved.key)
+  const afterDisabled = disabledOf(after, resolved.key)
+  return {
+    ok: true,
+    report: {
+      mode,
+      key: resolved.key,
+      path: deps.workspacesPath,
+      before,
+      after,
+      added: afterDisabled.filter((item) => !beforeDisabled.includes(item)),
+      removed: beforeDisabled.filter((item) => !afterDisabled.includes(item)),
     },
   }
 }
@@ -632,6 +841,216 @@ function snapshotOf(layer: LayerHandle | undefined, log: SpecLog): LayerSnapshot
   }
 }
 
+/**
+ * 读层的一手技能分面；层缺席或读失败时返回 {@link NO_SKILLS}。
+ *
+ * 与 {@link snapshotOf} 同一纪律：技能分面是**附加**读数，读不到只降级成「不可用」，
+ * 不让一次开关 / 只读请求失败。
+ * @param layer - 层句柄（可能 undefined）。
+ * @param log - 诊断出口。
+ * @returns 影子 stub 集合与模型可调用技能清单。
+ */
+function skillsOf(layer: LayerHandle | undefined, log: SpecLog): SkillLayerSnapshot {
+  if (layer === undefined) return NO_SKILLS
+  try {
+    return layer.skills()
+  } catch (error) {
+    log.warn(`无法读取本会话技能分面：${messageOf(error)}`)
+    return NO_SKILLS
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 工作区目标解析与工作区视图（H7；两种寻址形态共用一条读取路径）
+// ---------------------------------------------------------------------------
+
+/**
+ * 工作区目标解析的结果：规范键，或一条可直接展示的拒绝文案。
+ *
+ * 拒绝文案带稳定的 `workspace-unresolved` 标记与失败主体（sessionId / 路径原文），
+ * RPC 侧据此映射 `workspace-unresolved{subject}`，命令面直接展示。
+ */
+type ResolvedWorkspaceTarget =
+  | { readonly ok: true; readonly key: string }
+  | { readonly ok: false; readonly text: string }
+
+/**
+ * 把两种寻址形态解成工作区键（`resolveWorkspaceTarget`，control 内私有）。
+ *
+ * - `{kind:'session'}`：`deps.workspaceOf(session)` 的归属键；`undefined` = cwd 缺失或
+ *   realpath 全程失败（fail-closed），**允许未登记目录**（`registered:false` 照样有键）。
+ *   归属端口抛错同样按未解析处理并 warn：一次只读请求不该因为 cwd 的 IO 问题变成 500。
+ * - `{kind:'path'}`：必须是绝对路径，且在 `deps.workspaceChoices()` 的键集合里。registry 的
+ *   `path` 已由上游保证是 realpath（A3），因此「在 choices 里」同时覆盖了「存在且
+ *   realpath 成功」——本模块不额外碰文件系统（没有 realpath 端口，也不该为此引入 IO）。
+ *
+ * @param deps - 控制端口。
+ * @param target - 目标形态。
+ * @returns 规范键或拒绝文案。
+ */
+async function resolveWorkspaceTarget(
+  deps: ControlDeps,
+  target: WorkspaceTarget,
+): Promise<ResolvedWorkspaceTarget> {
+  if (target.kind === 'session') {
+    let attribution: WorkspaceAttribution | undefined
+    try {
+      attribution = await deps.workspaceOf(target.session)
+    } catch (error) {
+      deps.log.warn(`无法解析会话所属工作区（${target.session.id}）：${messageOf(error)}`)
+      attribution = undefined
+    }
+    if (attribution === undefined) {
+      return unresolvedWorkspace(
+        target.session.id,
+        `会话「${target.session.id}」的 cwd 无法归属工作区（缺失或目录已被删除）`,
+      )
+    }
+    return { ok: true, key: attribution.key }
+  }
+
+  const path = target.path
+  if (!isAbsolute(path)) {
+    return unresolvedWorkspace(path, `路径「${path}」不是绝对路径`)
+  }
+  let choices: readonly WorkspaceChoice[]
+  try {
+    choices = deps.workspaceChoices()
+  } catch (error) {
+    deps.log.warn(`无法读取已登记工作区列表：${messageOf(error)}`)
+    choices = []
+  }
+  if (!choices.some((choice) => choice.key === path)) {
+    return unresolvedWorkspace(
+      path,
+      `路径「${path}」不在已登记工作区列表里（要求绝对路径 + realpath 成功 + 已登记）`,
+    )
+  }
+  return { ok: true, key: path }
+}
+
+/**
+ * 构造一条目标解析失败的拒绝结果（稳定标记 + subject）。
+ * @param subject - 失败主体（会话 id 或路径原文）。
+ * @param reason - 一句可读的理由。
+ * @returns `{ok:false}` 结果。
+ */
+function unresolvedWorkspace(subject: string, reason: string): ResolvedWorkspaceTarget {
+  return {
+    ok: false,
+    text: `工作区未解析（workspace-unresolved，subject：${subject}）：${reason}，未做任何改动`,
+  }
+}
+
+/**
+ * 汇总面板需要的「本会话所属工作区」视图。
+ *
+ * `null` 有三种来源，语义相同（没有可展示的工作区档）：归属端口返回 undefined、归属端口
+ * 抛错、会话 cwd 无法归属。归属成功时读整份工作区档并给出该键的条目、文件路径与两态
+ * （`readable` / `corrupt`）——**不**写文件、不碰会话状态。
+ *
+ * 两态判定与 `rpc.ts` 的默认档判定同构：`readWorkspaces` 把「缺失 / 损坏 / schema 不符」
+ * 都折成 {@link EMPTY_WORKSPACES}，只有落到降级常量时才补一次只读探测——读得到 = 文件存在
+ * 但不可用（`corrupt`），读不到 = 不存在（按空档处理，不算损坏）。
+ * @param deps - 控制端口。
+ * @param session - 目标会话。
+ * @returns 工作区视图，或 `null`。
+ */
+async function workspaceViewOf(
+  deps: ControlDeps,
+  session: SessionLike,
+): Promise<WorkspaceView | null> {
+  let attribution: WorkspaceAttribution | undefined
+  try {
+    attribution = await deps.workspaceOf(session)
+  } catch (error) {
+    deps.log.warn(`无法解析会话所属工作区（${session.id}）：${messageOf(error)}`)
+    return null
+  }
+  if (attribution === undefined) return null
+
+  const file = await readWorkspaces(deps.workspacesPath, deps.workspacesIo, deps.log)
+  const state = await workspacesStateOf(deps, file)
+  return {
+    key: attribution.key,
+    ...(attribution.title === undefined ? {} : { title: attribution.title }),
+    registered: attribution.registered,
+    disabled: disabledOf(file, attribution.key),
+    path: deps.workspacesPath,
+    readable: state.readable,
+    corrupt: state.corrupt,
+  }
+}
+
+/**
+ * 工作区档文件的两态（`readable` / `corrupt`）。
+ *
+ * 与 `rpc.ts` 的 `defaultsStateOf` 同一手法：只有读到降级常量时才补一次只读探测，正常
+ * 文件不多读一遍。探测只问「读得到吗」，不重复解析（内容好坏由 `readWorkspaces` 判定）。
+ * @param deps - 控制端口。
+ * @param file - `readWorkspaces` 的读数。
+ * @returns 两态标记。
+ */
+async function workspacesStateOf(
+  deps: ControlDeps,
+  file: WorkspaceDefaultsFile,
+): Promise<{ readonly readable: boolean; readonly corrupt: boolean }> {
+  if (file !== EMPTY_WORKSPACES) return { readable: true, corrupt: false }
+  try {
+    await deps.workspacesIo.readFile(deps.workspacesPath)
+    return { readable: true, corrupt: true }
+  } catch {
+    return { readable: false, corrupt: false }
+  }
+}
+
+/**
+ * 把技能分面读数合成面板的技能行。
+ *
+ * 行集合 = 模型可调用技能 ∪ 当前已遮蔽名字（契约 §3.6.4 的「只含…」）：
+ * - `disabled` 来自关闭集里的 `skill:<name>`（意图）；
+ * - `shadowed` 来自本层已注册 stub（实际生效）；
+ * - 阴影行不在 `visible` 里（模型不可调用），描述天然为空串（「已关且无缓存时为空串」）。
+ *
+ * 关闭集里的未知技能（意图有、未安装）**不**单独成行：它已经在 `closed` 读数里（两态区分），
+ * 再进技能行只会让面板出现一行永远无法生效的开关。
+ * @param snapshot - 层读数。
+ * @param disabled - 关闭集（规范形文本）。
+ * @param protectedNames - 生效保护名单（只影响工具地址，技能地址不受影响，传进来是为了复用解析）。
+ * @returns 按名字升序的技能行。
+ */
+function skillRowsOf(
+  snapshot: SkillLayerSnapshot,
+  disabled: readonly string[],
+  protectedNames: ReadonlySet<string>,
+): readonly SkillView[] {
+  const disabledNames = new Set<string>()
+  for (const text of disabled) {
+    const parsed = parseAddress(text, protectedNames)
+    if (parsed.ok && parsed.address.kind === 'skill') disabledNames.add(parsed.address.name)
+  }
+
+  const rows = new Map<string, SkillView>()
+  for (const visible of snapshot.visible) {
+    rows.set(visible.name, {
+      name: visible.name,
+      description: truncateDescription(visible.description),
+      disabled: disabledNames.has(visible.name),
+      shadowed: false,
+    })
+  }
+  for (const name of snapshot.shadowed) {
+    const existing = rows.get(name)
+    rows.set(name, {
+      name,
+      description: existing?.description ?? '',
+      disabled: disabledNames.has(name),
+      shadowed: true,
+    })
+  }
+  return Array.from(rows.values()).sort((left, right) => compareText(left.name, right.name))
+}
+
 // ---------------------------------------------------------------------------
 // 名字集合与分组（与掩码引擎同一套读面语义）
 // ---------------------------------------------------------------------------
@@ -690,6 +1109,21 @@ function serverOfToolName(toolName: string): string | undefined {
 // ---------------------------------------------------------------------------
 // 小工具（纯函数；文案与顺序约定与 state.ts / mask.ts 一致）
 // ---------------------------------------------------------------------------
+
+/**
+ * 把技能描述截断到契约的 {@link DESCRIPTION_MAX_LENGTH}（按 UTF-16 码元，与
+ * `contract.ts` 的 `max(160)` 计数方式一致）。
+ *
+ * 与 `panel.ts` 的截断规则同一条：切点落在代理对高位时少取一个码元，避免产出孤立代理项。
+ * @param text - 原始描述。
+ * @returns 截断后的描述（可能为空串）。
+ */
+function truncateDescription(text: string): string {
+  if (text.length <= DESCRIPTION_MAX_LENGTH) return text
+  const cut = text.slice(0, DESCRIPTION_MAX_LENGTH)
+  const last = cut.charCodeAt(cut.length - 1)
+  return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut
+}
 
 /**
  * 文本比较（UTF-16 码元序，与 `state.ts` / `mask.ts` 同一约定）。

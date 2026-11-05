@@ -11,6 +11,9 @@
  *
  * 外加 `guardReason` 的两态、`matched` 的「0 也保留键」，以及纯函数性质（不改入参、
  * 同一输入结果相等）。
+ *
+ * 还有一条范围约束（H3）：工具掩码**不认识**技能地址，`skill:<name>` 永不进 `deny`、不在
+ * `matched` 里留键；而 `tool:skill` 是整档工具地址，仍按既有工具逻辑拒绝。
  */
 import { describe, expect, it } from 'vitest'
 import { guardReason, planMask, type MaskInputs } from '../src/host/mask.ts'
@@ -122,6 +125,54 @@ describe('planMask：deny 推导', () => {
     expect(plan.deny).toEqual([])
     expect(plan.shadowServers).toEqual([])
     expect(plan.matched.size).toBe(0)
+  })
+})
+
+describe('planMask：技能地址不进工具掩码（H3）', () => {
+  it('G2-c 目标断言：只有技能地址的关闭集不产生 deny / shadowServers / matched 键', () => {
+    // 技能名不是工具注册名：即使读数里确实有 `skill` 这个工具，`skill:foo` 也不参与工具掩码。
+    const plan = planMask({ catalog: ['skill'], scoped: ['skill'], carried: [], disabled: ['skill:foo'] })
+    expect(plan).toEqual({ deny: [], shadowServers: [], matched: new Map() })
+  })
+
+  it('多条技能地址同样全部跳过（不进 deny、不计数、不留键）', () => {
+    const plan = planMask(
+      inputs({ catalog: ['skill', 'mcp__a__x'], disabled: ['skill:foo', 'skill:bar', 'skill:foo'] }),
+    )
+    expect(plan.deny).toEqual([])
+    expect(plan.shadowServers).toEqual([])
+    expect(plan.matched.size).toBe(0)
+  })
+
+  it('技能地址与 mcp 地址混排：只有 mcp 部分进 deny / matched / 遮蔽段', () => {
+    const plan = planMask(
+      inputs({
+        catalog: ['skill', 'mcp__a__x'],
+        scoped: ['mcp__a__x'],
+        disabled: ['skill:foo', 'mcp:a'],
+      }),
+    )
+    expect(plan.deny).toEqual(['mcp__a__x'])
+    expect(plan.shadowServers).toEqual(['a'])
+    expect(Array.from(plan.matched.keys())).toEqual(['mcp:a'])
+    expect(plan.matched.get('mcp:a')).toBe(1)
+  })
+
+  it('carried 里的技能名也不进 deny（技能名不是工具注册名）', () => {
+    const plan = planMask(inputs({ catalog: ['skill'], carried: ['skill'], disabled: ['skill:foo'] }))
+    expect(plan.deny).toEqual([])
+    expect(plan.matched.size).toBe(0)
+  })
+
+  it('关键区分：tool:skill（整档，kind === tool）仍按工具走既有 deny 逻辑', () => {
+    // `tool:skill` 是「关掉整档 skill 工具」的工具地址，不是技能地址；裸别名 `skill` 在解析期
+    // 归一到同一条规范形（见上方「skill 在解析期归一为 tool:skill」用例）。
+    const plan = planMask(
+      inputs({ catalog: ['skill'], scoped: ['skill'], disabled: ['tool:skill'] }),
+    )
+    expect(plan.deny).toEqual(['skill'])
+    expect(plan.shadowServers).toEqual([])
+    expect(plan.matched.get('tool:skill')).toBe(1)
   })
 })
 
@@ -281,6 +332,24 @@ describe('guardReason', () => {
     expect(() => guardReason('mcp__a__x', dirty)).not.toThrow()
     expect(guardReason('mcp__a__x', dirty)).toBeUndefined()
     expect(guardReason('bash', dirty)).toBeUndefined()
+  })
+})
+
+describe('guardReason：技能地址不产生工具拒绝理由（H3）', () => {
+  it('技能地址不命中任何工具名（含同名情形）', () => {
+    expect(guardReason('skill', ['skill:foo'])).toBeUndefined()
+    expect(guardReason('foo', ['skill:foo'])).toBeUndefined()
+    expect(guardReason('mcp__a__x', ['skill:foo'])).toBeUndefined()
+  })
+
+  it('技能地址与工具地址混排：只按工具地址拒绝', () => {
+    expect(guardReason('mcp__a__x', ['skill:foo', 'mcp:a'])).toContain('mcp:a')
+  })
+
+  it('关键区分：tool:skill 仍按工具拒绝（整档工具地址，不是技能地址）', () => {
+    const reason = guardReason('skill', ['tool:skill'])
+    expect(reason).toBeDefined()
+    expect(reason).toContain('tool:skill')
   })
 })
 

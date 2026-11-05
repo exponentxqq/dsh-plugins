@@ -12,7 +12,7 @@
  *   `@deepseek-ai/*` 运行时 import 都会让 profile 侧的 bare 安装失败（构建把它 inline 了
  *   才算合格）。
  * - **契约字面量内联**：client 端的 `panel-client.ts` 不 import 宿主半（D16：两端各持一份
- *   手写 parser），通道、四个端点、座位键与 locale 命名空间都必须是浏览器 bundle 里的字符串
+ *   手写 parser），通道、五个端点、座位键与 locale 命名空间都必须是浏览器 bundle 里的字符串
  *   字面量——否则浏览器要运行时解析宿主模块，双端就缠在一起了。
  *
  * 依赖构建产物，故 `verify:all` 的顺序（lint → typecheck → build → test）是前提。
@@ -30,6 +30,7 @@ import {
   PANEL_ENDPOINT,
   RESET_ENDPOINT,
   TOGGLE_ENDPOINT,
+  WORKSPACE_ENDPOINT,
 } from '../src/contract.ts'
 
 /** 本包目录（`test/` 的上一级）。 */
@@ -44,15 +45,25 @@ const PACKAGE_NAME = 'dsh-plugin-session-tool-toggle'
  */
 const CLIENT_REQUIRES = ['@deepseek-ai/dsh-client-ui-primitives', 'react', 'react/jsx-runtime']
 
-/** 浏览器 bundle 必须以字面量内联的契约事实（通道 / 四端点 / 座位 / 命名空间）。 */
+/**
+ * 浏览器 bundle 必须以字面量内联的契约事实（通道 / 五端点 / 两个座位 / 命名空间）。
+ *
+ * 第 5 端点 `'workspace'` 与 footer 座位 `'sidebar.footer.action'`（T18）按**字面量**直写：
+ * 产物纯度门禁（G8-a）也按这两个字面量 grep `lib/client.js`。字面量与契约常量的对应
+ * 由断言里的 `WORKSPACE_ENDPOINT` 等式钉住，防止手写漂移。
+ *
+ * 一旦它们没被打进 client bundle，浏览器就会在运行时去解析宿主模块（D16 破防）。
+ */
 const INLINED_MARKERS = [
   CHANNEL,
   PANEL_ENDPOINT,
   TOGGLE_ENDPOINT,
   RESET_ENDPOINT,
   DEFAULTS_ENDPOINT,
+  'workspace',
   'session-tool-toggle-panel',
   'conversation.session.header.utilities',
+  'sidebar.footer.action',
   'sessionToolToggle',
 ]
 
@@ -109,10 +120,12 @@ describe('浏览器半产物（lib/client.js）', () => {
     expect(imports.filter((word) => word.includes(PACKAGE_NAME))).toEqual([])
   })
 
-  it('通道、四端点、座位与命名空间都是内联字面量（不靠运行时解析宿主半）', () => {
+  it('通道、五端点、座位与命名空间都是内联字面量（不靠运行时解析宿主半）', () => {
     const source = readArtifact('client.js')
-    // 四个端点一个都不能少：contract.ts 的 ENDPOINTS 是唯一权威。
-    expect(ENDPOINTS).toHaveLength(4)
+    // 五个端点一个都不能少：contract.ts 的 ENDPOINTS 是唯一权威。
+    expect(ENDPOINTS).toHaveLength(5)
+    // 白名单里的两个字面量必须与契约常量一致（T18 的 'workspace' 是手写直写）。
+    expect(WORKSPACE_ENDPOINT).toBe('workspace')
     for (const marker of INLINED_MARKERS) {
       expect(source).toContain(JSON.stringify(marker))
     }
@@ -127,7 +140,7 @@ describe('宿主半产物（lib/index.js）', () => {
     expect(imports.filter((word) => word.startsWith('@deepseek-ai/'))).toEqual([])
   })
 
-  it('带有通道与四个端点（宿主是通道的挂载方）', () => {
+  it('带有通道与五个端点（宿主是通道的挂载方）', () => {
     const source = readArtifact('index.js')
     for (const marker of [CHANNEL, ...ENDPOINTS]) {
       expect(source).toContain(JSON.stringify(marker))

@@ -229,6 +229,14 @@
   list-style: none;
 }
 
+/* —— 技能行（C11 / 任务 7.7）：`SkillPanel` 复用同一套 `.rows` / `.row` / `.tag` / `.pending`，
+ *    但它的列表**直接挂在分区下**（没有分组标题行），26px 的层级缩进在这里会与分区标题错位，
+ *    所以只取消缩进、其余与工具行完全一致（一行一个开关、等宽名字、状态标签）。
+ *    工具行的 `.rows` 嵌在 `.group` 里，不受这条直接子选择器影响。 —— */
+.section > .rows {
+  padding-left: 0;
+}
+
 .row {
   display: flex;
   align-items: center;
@@ -342,6 +350,27 @@
   width: 100%;
 }
 
+/* —— 工作区默认档下拉（对话框形态）：原生 select，与输入框同高（C2） —— */
+.select {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  color: var(--dsw-alias-label-secondary, #545557);
+  font-size: 13px;
+  background: var(--dsw-alias-bg-layer-2, #f7f7f8);
+  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));
+  border-radius: 6px;
+}
+
+/* 工作区默认档对话框正文：只做纵向排布，**不**重复 Modal 卡片的宽度/高度约束
+ * （footer 对话框由 7.3 的 `WorkspaceEntry` 持有，宽度压到 560px）。 */
+.workspaceBody {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .actions {
   display: flex;
   align-items: center;
@@ -354,4 +383,50 @@
   color: var(--dsw-alias-state-success-primary, #16955f);
   font-size: 12px;
   line-height: 18px;
+}
+
+/* —— 侧栏 footer 的工作区默认档入口（7.3，C3）：宽态是一行「图标 + 文案」，
+ *    折叠态只剩 28px 方形图标（`wide === false` 的面包屑栏）。 —— */
+.workspaceEntry {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+/* 宽态：整行可点，文案左对齐；颜色沿用侧栏 footer 的次级文字 token。 */
+.workspaceEntryTrigger {
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  color: var(--dsw-alias-label-secondary, #545557);
+}
+
+/* 折叠态：28px 方形（与头部入口同尺寸），只有图标。 */
+.workspaceEntryRail {
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--dsw-alias-label-tertiary, #7f8287);
+}
+
+.workspaceEntryLabel {
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* footer 对话框比面板窄：只编辑一个工作区的档，不需要 760px 的宽度（D-13：复用同一套
+ * Modal 骨架与 --dsw-* 令牌，只覆盖宽度与最大高度）。 */
+.workspaceDialog {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - 32px));
+  max-width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 96px);
 }

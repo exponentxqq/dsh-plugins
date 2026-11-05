@@ -26,7 +26,15 @@
  * @module dsh-plugin-session-tool-toggle/client/panel-controller
  */
 
-import type { DefaultsAction, DefaultsView, PanelSnapshot } from '../contract.ts'
+import type {
+  DefaultsAction,
+  DefaultsView,
+  PanelSnapshot,
+  WorkspaceAction,
+  WorkspaceChoice,
+  WorkspaceRequest,
+  WorkspaceView,
+} from '../contract.ts'
 import { PanelError, type PanelClient } from './panel-client.ts'
 
 /** 面板的可见阶段：`idle`（未打开）→ `loading` → `ready` / `failed`。 */
@@ -70,6 +78,23 @@ export interface PanelState {
   readonly defaults?: DefaultsView
   /** 默认档写失败；与面板级 `error` 分开，避免一次保存失败糊掉整个面板。 */
   readonly defaultsError?: PanelError
+  /**
+   * 工作区档的**活视图**：面板快照里的 `workspace` 与 `workspace` 端点的读数都写这里。
+   *
+   * `undefined` 有两种来源，界面都按「空档」渲染：还没读过，或目标无法归属
+   * （`WorkspaceValue.workspace === null`，例如会话 cwd 已删 / 路径未登记）。类型面与
+   * `code-design.md` C6 一致（`workspace?: WorkspaceView`），`null` 在落状态时折成
+   * `undefined`——需要区分「读失败」时看 {@link PanelState.workspaceError}。
+   */
+  readonly workspace?: WorkspaceView
+  /** footer / 对话框下拉的可选项（`workspace` 端点的 `choices`；未读过时为空数组）。 */
+  readonly workspaceChoices: readonly WorkspaceChoice[]
+  /** 工作区档写在途（`WorkspaceDefaultsEditor` 据此禁用保存按钮，与 `resetting` 同一先例）。 */
+  readonly savingWorkspace: boolean
+  /** 最近一次工作区档**写**成功（`read` 不算写，不会置 true；下一次写开始时清）。 */
+  readonly workspaceSaved: boolean
+  /** 工作区档读 / 写失败；与面板级 `error` / `defaultsError` 分开，避免一次保存失败糊掉整个面板。 */
+  readonly workspaceError?: PanelError
   /** 最近一次成功取得面板快照的时间（`now()`，epoch ms；0 = 还没成功过）。 */
   readonly loadedAt: number
 }
@@ -163,6 +188,9 @@ export class PanelController {
     pending: new Set<string>(),
     resetting: false,
     savingDefaults: false,
+    workspaceChoices: [],
+    savingWorkspace: false,
+    workspaceSaved: false,
     loadedAt: 0,
   }
   private readonly listeners = new Set<() => void>()
@@ -170,6 +198,8 @@ export class PanelController {
   private focusDisposer: (() => void) | undefined
   /** 拉取序号：只有最后一次发出的拉取可以落状态（focus / 命令 / 手动刷新可能重叠）。 */
   private loadSeq = 0
+  /** 工作区读 / 写序号：与 `loadSeq` 同一条纪律，防止迟到的旧读数覆盖新目标。 */
+  private workspaceSeq = 0
   private disposed = false
 
   /**
@@ -220,10 +250,16 @@ export class PanelController {
     if (this.disposed) return
     this.detachFocus()
     this.loadSeq += 1
-    if (this.state.phase === 'idle' && this.state.error === undefined && this.state.defaultsError === undefined) {
+    this.workspaceSeq += 1
+    if (
+      this.state.phase === 'idle' &&
+      this.state.error === undefined &&
+      this.state.defaultsError === undefined &&
+      this.state.workspaceError === undefined
+    ) {
       return
     }
-    this.patch({ phase: 'idle', error: undefined, defaultsError: undefined })
+    this.patch({ phase: 'idle', error: undefined, defaultsError: undefined, workspaceError: undefined })
   }
 
   /**
@@ -246,7 +282,14 @@ export class PanelController {
     this.patch({ phase: 'loading', error: undefined })
     try {
       const snapshot = await client.panel(this.sessionId)
-      this.commitLoad(seq, { phase: 'ready', snapshot, defaults: snapshot.defaults, error: undefined, loadedAt: this.now() })
+      this.commitLoad(seq, {
+        phase: 'ready',
+        snapshot,
+        defaults: snapshot.defaults,
+        workspace: snapshot.workspace ?? undefined,
+        error: undefined,
+        loadedAt: this.now(),
+      })
     } catch (error: unknown) {
       this.commitLoad(seq, { phase: 'failed', error: asPanelError(error) })
     }
@@ -279,6 +322,7 @@ export class PanelController {
         pending: withoutPending(this.state.pending, address),
         snapshot: value.snapshot,
         defaults: value.snapshot.defaults,
+        workspace: value.snapshot.workspace ?? undefined,
         error: undefined,
         phase: this.state.phase === 'idle' ? 'idle' : 'ready',
         loadedAt: this.now(),
@@ -316,6 +360,7 @@ export class PanelController {
         resetting: false,
         snapshot: value.snapshot,
         defaults: value.snapshot.defaults,
+        workspace: value.snapshot.workspace ?? undefined,
         error: undefined,
         phase: this.state.phase === 'idle' ? 'idle' : 'ready',
         loadedAt: this.now(),
@@ -355,6 +400,84 @@ export class PanelController {
   }
 
   /**
+   * 重读本会话所属工作区的默认档（`{sessionId, action:'read'}` 形态）。
+   *
+   * 只动工作区三态（`workspace` / `workspaceChoices` / `workspaceError`）：面板快照、
+   * `defaults` 与面板级 `error` 都不动——工作区档不追溯已存在的会话（§3.4），没必要为一次
+   * 工作区刷新重拉整份快照。失败时保留上一次可用视图（stale-while-revalidate），只把失败
+   * 放进 `workspaceError`：connection 缺席与传输异常都归 `unavailable`，界面据此渲染
+   * `error.unavailable` 降级行；宿主拒绝码（如 `workspace-unresolved`）原样保留。
+   * @returns 本次读取完成的 promise（失败已落状态，不 reject）。
+   */
+  async refreshWorkspace(): Promise<void> {
+    if (this.disposed) return
+    const client = this.resolveClient()
+    if (client === undefined) {
+      this.patch({ workspaceError: new PanelError('unavailable', CLIENT_MISSING_MESSAGE) })
+      return
+    }
+    const seq = (this.workspaceSeq += 1)
+    if (this.state.workspaceError !== undefined) this.patch({ workspaceError: undefined })
+    try {
+      const value = await client.workspace({ sessionId: this.sessionId, action: 'read' })
+      this.commitWorkspace(seq, {
+        workspace: value.workspace ?? undefined,
+        workspaceChoices: value.choices,
+        workspaceError: undefined,
+      })
+    } catch (error: unknown) {
+      this.commitWorkspace(seq, { workspaceError: asPanelError(error) })
+    }
+  }
+
+  /**
+   * 写工作区级默认档；`action: 'read'` + `key` 也用它按路径切到另一个工作区。
+   *
+   * 寻址：`key` 存在 → `{workspacePath: key}`（footer 下拉切换），否则
+   * `{sessionId: this.sessionId}`（面板分区、footer 默认项）。请求体**精确**构造：不传
+   * 缺省 `action`，也不给 `read` / `reset` 带 `addresses`（strict 端点会判 `bad-request`）。
+   *
+   * 成功后直接吃响应里的目标工作区视图与下拉项（写工作区档不追溯当前会话，不重拉
+   * panel 快照），`workspaceSaved` 只在真正的写动作后置 true；失败进 `workspaceError`、
+   * 保留旧视图与面板级 `error`。在途时 `savingWorkspace` 为 `true` 并忽略重复调用。
+   * @param action - `read` / `set` / `off` / `on` / `reset`。
+   * @param addresses - 目标地址（`set` / `off` / `on` 必需；`read` / `reset` 忽略）。
+   * @param key - 工作区规范路径（省略 = 按本会话寻址）。
+   * @returns 本次请求完成的 promise（失败已落状态，不 reject）。
+   */
+  async updateWorkspace(
+    action: WorkspaceAction,
+    addresses?: readonly string[],
+    key?: string,
+  ): Promise<void> {
+    if (this.disposed || this.state.savingWorkspace) return
+    const client = this.resolveClient()
+    if (client === undefined) {
+      this.patch({ workspaceError: new PanelError('unavailable', CLIENT_MISSING_MESSAGE) })
+      return
+    }
+    const seq = (this.workspaceSeq += 1)
+    this.patch({ savingWorkspace: true, workspaceSaved: false, workspaceError: undefined })
+    try {
+      const value = await client.workspace(this.workspaceRequest(action, addresses, key))
+      this.commitWorkspace(seq, {
+        savingWorkspace: false,
+        // `read` 不是写：把「已保存」置 true 会让切换工作区的界面谎报一次保存。
+        workspaceSaved: action !== 'read',
+        workspace: value.workspace ?? undefined,
+        workspaceChoices: value.choices,
+        workspaceError: undefined,
+      })
+    } catch (error: unknown) {
+      this.commitWorkspace(seq, {
+        savingWorkspace: false,
+        workspaceSaved: false,
+        workspaceError: asPanelError(error),
+      })
+    }
+  }
+
+  /**
    * 摘掉全部订阅（命令事件、focus），清空监听者并丢弃在途响应。
    *
    * 幂等；之后所有动作方法都是空操作，不再发请求。
@@ -363,6 +486,7 @@ export class PanelController {
     if (this.disposed) return
     this.disposed = true
     this.loadSeq += 1
+    this.workspaceSeq += 1
     this.detachFocus()
     this.commandDisposer?.()
     this.commandDisposer = undefined
@@ -431,6 +555,39 @@ export class PanelController {
   private commitLoad(seq: number, change: Partial<PanelState>): void {
     if (this.disposed || seq !== this.loadSeq) return
     this.patch(change)
+  }
+
+  /**
+   * 落一次工作区读 / 写结果：与 {@link PanelController.commitLoad} 同一条纪律，只允许最后
+   * 一次发出的操作提交（`close()` / 下一次读或写 / `dispose()` 都会推进序号）。
+   * @param seq - 该次操作启动时的序号。
+   * @param change - 要合并进状态的变化。
+   */
+  private commitWorkspace(seq: number, change: Partial<PanelState>): void {
+    if (this.disposed || seq !== this.workspaceSeq) return
+    this.patch(change)
+  }
+
+  /**
+   * 构造 `workspace` 端点的请求体（精确 payload，不多带键）。
+   *
+   * 两种寻址形态恰好出现一个；`addresses` 只在 `set` / `off` / `on` 下采用——`read` /
+   * `reset` 带地址会被宿主 strict parser 拒绝，所以这里直接不给（即使调用方误传空数组）。
+   * @param action - 动作。
+   * @param addresses - 目标地址（可缺省）。
+   * @param key - 工作区规范路径（省略 = 按会话寻址）。
+   * @returns 只含必需 / 显式字段的请求。
+   */
+  private workspaceRequest(
+    action: WorkspaceAction,
+    addresses?: readonly string[],
+    key?: string,
+  ): WorkspaceRequest {
+    const target = key === undefined ? { sessionId: this.sessionId } : { workspacePath: key }
+    const writes = action === 'set' || action === 'off' || action === 'on'
+    if (!writes || addresses === undefined) return { ...target, action }
+    // 复制地址数组：调用方在 await 期间改自己的数组不该影响已发出的请求。
+    return { ...target, action, addresses: [...addresses] }
   }
 
   /**

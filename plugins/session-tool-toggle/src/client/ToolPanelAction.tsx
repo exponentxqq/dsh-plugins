@@ -14,8 +14,10 @@
  * - **唯一状态源**：`useSyncExternalStore(controller.subscribe, controller.getSnapshot)`。控制器
  *   每会话一个（`useMemo` 按 `sessionId` 建），`useEffect` 的清理函数负责 `dispose()` 摘订阅。
  *   注入面可能每次渲染都是新对象（座位重新给 inject face），所以用 ref 骑住，避免控制器重建。
- * - **四段布局**（自上而下）：状态摘要 → 本会话开关（`ToolPanelGroups`）→ 用户级默认档
- *   （`DefaultsEditor`）→ 关闭集；footer 左「刷新」右「关闭」。
+ * - **六段布局**（自上而下）：状态摘要 → 本会话开关（`ToolPanelGroups`）→ 技能
+ *   （`SkillPanel`，标题 `section.skills`）→ 工作区默认档（`WorkspaceDefaultsEditor`
+ *   `variant='section'`，标题由该组件渲染）→ 用户级默认档（`DefaultsEditor`）→ 关闭集；
+ *   footer 左「刷新」右「关闭」。
  * - **stale-while-revalidate**（§3.6）：`failed` 可与 `snapshot` 并存——有旧快照时渲染旧内容
  *   加一条错误行；只有连旧快照都没有时才走不可用降级，且那时**不渲染任何开关**（spec
  *   「RPC 不可用时的降级表现」）。
@@ -41,7 +43,9 @@ import type { DefaultsAction, NoticeView, PanelSnapshot } from '../contract.ts'
 import type { PanelClient, PanelError } from './panel-client.ts'
 import { PanelController, type CommandExecutedHandler } from './panel-controller.ts'
 import { DefaultsEditor, type PanelFailure } from './DefaultsEditor.tsx'
+import { SkillPanel } from './SkillPanel.tsx'
 import { ToolPanelGroups } from './ToolPanelGroups.tsx'
+import { WorkspaceDefaultsEditor } from './WorkspaceDefaultsEditor.tsx'
 import { NS, zh, type Key } from './locales.ts'
 import css from './panel.module.css'
 
@@ -97,8 +101,9 @@ export function errorKeyOf(code: string): Key {
 /**
  * 从失败细节里取文案占位符的值。
  *
- * 只认 §2.3 表里带占位符的四类细节：`bad-address`（`{address}`）、`protected` / `reserved`
- * （`{names}`）、`defaults-unwritable`（`{path}`）；其余码没有占位符，多传参数不会出现在文案里。
+ * 只认 §2.3 表里带占位符的五类细节：`bad-address`（`{address}`）、`protected` / `reserved`
+ * （`{names}`）、`defaults-unwritable` / `workspace-unwritable`（`{path}`）、
+ * `workspace-unresolved`（`{subject}`）；其余码没有占位符，多传参数不会出现在文案里。
  * @param error - 一次面板调用失败。
  * @returns 插值参数；无结构化细节时是 `undefined`。
  */
@@ -108,6 +113,7 @@ export function failureParams(error: PanelError): Record<string, string> | undef
   if ('names' in details) return { names: details.names.join(', ') }
   if ('address' in details) return { address: details.address }
   if ('path' in details) return { path: details.path }
+  if ('subject' in details) return { subject: details.subject }
   return undefined
 }
 
@@ -133,7 +139,7 @@ function formatTime(at: number): string {
 }
 
 /**
- * 提示码 → 文案（`notice.<code>`；三个码是宿主契约里的闭集，穷尽 switch 保证漏一个就是编译错误）。
+ * 提示码 → 文案（`notice.<code>`；五个码是宿主契约里的闭集，穷尽 switch 保证漏一个就是编译错误）。
  * @param code - 提示码。
  * @param t - 翻译函数。
  * @returns 提示文案。
@@ -146,6 +152,10 @@ function noticeText(code: NoticeView, t: Translate): string {
       return t('notice.defaults-corrupt')
     case 'session-subagent':
       return t('notice.session-subagent')
+    case 'skills-unavailable':
+      return t('notice.skills-unavailable')
+    case 'skill-shadow-failed':
+      return t('notice.skill-shadow-failed')
   }
 }
 
@@ -332,9 +342,10 @@ export function ToolPanelAction({
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot)
   const opened = state.phase !== 'idle'
   const snapshot = state.snapshot
-  // 两份失败展示各自 memo：`failureOf` 每次调用都造新对象，稳定住 identity 才不让子组件无谓重渲染。
+  // 三份失败展示各自 memo：`failureOf` 每次调用都造新对象，稳定住 identity 才不让子组件无谓重渲染。
   const failure = useMemo(() => failureOf(state.error, t), [state.error, t])
   const defaultsFailure = useMemo(() => failureOf(state.defaultsError, t), [state.defaultsError, t])
+  const workspaceFailure = useMemo(() => failureOf(state.workspaceError, t), [state.workspaceError, t])
 
   // 「本次关闭 N 个工具」= 相邻两份快照的 `stats.denied` 正增量。控制器不存回执（D17：面板
   // 不自建状态），这条提示只是把两次读数相比的可观测副产物；开工具（负增量）不提示 KV 重建。
@@ -437,6 +448,44 @@ export function ToolPanelAction({
                   t={t}
                 />
               </section>
+              <section className={css.section} aria-label={t('section.skills')}>
+                <h3 className={css.sectionTitle}>{t('section.skills')}</h3>
+                <SkillPanel
+                  skills={snapshot.skills}
+                  // 宿主没有 `skills` 服务时快照里必带这条提示码（rpc 的 `snapshotOf` 组装），
+                  // 面板据此整块降级——技能地址此时只记意图，开关点不出真实效果。
+                  unavailable={snapshot.notices.includes('skills-unavailable')}
+                  // 整档 `tool:skill` 关闭 = 影子 stub 不再注册：逐技能开关保留意图、暂不生效
+                  // （DQ3=A）。关闭集是全地址归一的，整组地址 `tool:skill` 也在其中。
+                  blocked={snapshot.state.disabled.includes('tool:skill')}
+                  pending={state.pending}
+                  busy={state.resetting}
+                  onToggle={(address, on) => {
+                    void controller.toggle(address, on)
+                  }}
+                  t={t}
+                />
+              </section>
+              <WorkspaceDefaultsEditor
+                workspace={state.workspace ?? null}
+                choices={state.workspaceChoices}
+                variant="section"
+                saving={state.savingWorkspace}
+                saved={state.workspaceSaved}
+                failure={workspaceFailure}
+                // 分区形态不渲染下拉（作用域恒为本会话的工作区）；接上控制器让未来复用
+                // dialog 形态时不必改这一处。
+                onSelect={(key) => {
+                  void controller.updateWorkspace('read', undefined, key)
+                }}
+                onUpdate={(action, addresses) => {
+                  void controller.updateWorkspace(action, addresses)
+                }}
+                onRefresh={() => {
+                  void controller.refreshWorkspace()
+                }}
+                t={t}
+              />
               <DefaultsEditor
                 defaults={state.defaults ?? snapshot.defaults}
                 createdAt={snapshot.createdAt}

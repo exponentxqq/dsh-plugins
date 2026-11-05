@@ -16,7 +16,10 @@
     "test/record-store.test.ts",
     "test/rpc.test.ts",
     "test/session-layer.test.ts",
+    "test/skills-plan.test.ts",
     "test/state.test.ts",
-    "test/wire-contract.test.ts"
+    "test/wire-contract.test.ts",
+    "test/workspace-attribution.test.ts",
+    "test/workspaces.test.ts"
   ]
 }

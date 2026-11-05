@@ -1,9 +1,9 @@
 /**
- * RPC dispatcher 测试（规范：dsh-session-tool-toggle —— 通道的四条成功路径与七条失败码）。
+ * RPC dispatcher 测试（规范：dsh-session-tool-toggle —— 通道的五条成功路径与九条失败码）。
  *
  * 全部用例都在**假 `RpcDeps`** 上驱动，不拉起宿主、不注册通道、不读写真实 `$DSH_HOME`：
- * 状态端口、层句柄、默认档 IO、全局层读数、agent 表与内核都是内存替身，因此「内核有没有被
- * 调用、写了几次状态、文件里落了什么、日志收到了什么」都能直接断言。
+ * 状态端口、层句柄、默认档 / 工作区档 IO、全局层读数、agent 表、工作区归属与内核都是内存
+ * 替身，因此「内核有没有被调用、写了几次状态、文件里落了什么、日志收到了什么」都能直接断言。
  *
  * 任务 9.4 的四条主验证句逐条落地：
  *
@@ -20,12 +20,36 @@
  * （`{path, reason}`）、响应自检失败（假内核返回坏形状）→ `internal`、`reset` 的 `applied`
  * 语义（被移除的关闭项）、`defaults` 不返回会话快照、dispatcher 可直接交给
  * `connection.rpc.handle`（一次赋值即编译期断言）。
+ *
+ * 组 6.3（T10）追加的验证面：
+ *
+ * - `workspace` 端点 5 动作 × 两种寻址形态的成功路径（`sessionId` / `workspacePath`）；
+ * - `{sessionId}` 的会话 cwd 已删 → `workspace-unresolved{subject: sessionId}`；
+ * - `{workspacePath:'/etc'}` 未登记 → `workspace-unresolved`；写盘抛错 → `workspace-unwritable`
+ *   （`{path, reason}`，文件不变）；
+ * - R6：未登记目录（`registered:false`）照常返回，不判 unresolved；
+ * - H10：`toggle` 在组装成功值**之前** `await layer.skillsSettled()`（闸未开时 dispatch 不结算），
+ *   回执 `hiddenSkills` 与快照技能行都是收敛后的事实。
  */
 import { describe, expect, it } from 'vitest'
 import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
-import { parseDefaultsValue, parsePanelSnapshot, parseToggleValue, type PanelSnapshot } from '../src/contract.ts'
-import { PROTECTED_BASELINE } from '../src/host/address.ts'
-import { readPanel, resetSession, toggleSession, updateDefaults } from '../src/host/control.ts'
+import {
+  parseDefaultsValue,
+  parsePanelSnapshot,
+  parseToggleValue,
+  parseWorkspaceValue,
+  type PanelSnapshot,
+  type WorkspaceChoice,
+  type WorkspaceValue,
+} from '../src/contract.ts'
+import { PROTECTED_BASELINE, parseAddress } from '../src/host/address.ts'
+import {
+  readPanel,
+  resetSession,
+  toggleSession,
+  updateDefaults,
+  updateWorkspaceDefaults,
+} from '../src/host/control.ts'
 import type { ToggleReport } from '../src/host/control.ts'
 import { planMask } from '../src/host/mask.ts'
 import { createRpcDispatcher } from '../src/host/rpc.ts'
@@ -38,22 +62,45 @@ import type {
   LayerSnapshot,
   SessionLike,
   SessionToolState,
+  SkillLayerSnapshot,
   SpecLog,
   StateStore,
   StoreKind,
+  WorkspaceAttribution,
 } from '../src/host/types.ts'
 
 /** 假文件系统里的默认档绝对路径（形状与生产一致，但不指向任何真实文件）。 */
 const DEFAULTS_PATH = '/fake/dsh-home/session-tool-toggle/defaults.json'
 
+/** 假文件系统里的工作区档绝对路径（与默认档同目录，生产口径）。 */
+const WORKSPACES_PATH = '/fake/dsh-home/session-tool-toggle/workspaces.json'
+
+/** 会话默认归属到的工作区（形态 A 的断言基准）。 */
+const PRIMARY_WORKSPACE = '/w1'
+
+/** 另一个已登记工作区（形态 B / 下拉切换的断言基准）。 */
+const SECOND_WORKSPACE = '/w2'
+
+/** 默认的已登记工作区列表（与 `workspaceChoices` 的投影同形）。 */
+const DEFAULT_CHOICES: readonly WorkspaceChoice[] = [
+  { key: PRIMARY_WORKSPACE, title: '工作区一' },
+  { key: SECOND_WORKSPACE, title: '工作区二' },
+]
+
 /** 假会话的创建时间（固定值，让 `panel.createdAt` 可断言）。 */
 const CREATED_AT = 1_700_000_000_000
 
-/** 用例里那个活着的会话 id。 */
-const SESSION_ID = 'session-1'
+/** 用例里那个活着的会话 id（G6 出口断言的字面主体）。 */
+const SESSION_ID = 's1'
 
 /** 真实内核（注入面的缺省值；测试只按需替换其中一个用例）。 */
-const REAL_KERNEL: RpcKernel = { toggleSession, resetSession, readPanel, updateDefaults }
+const REAL_KERNEL: RpcKernel = {
+  toggleSession,
+  resetSession,
+  readPanel,
+  updateDefaults,
+  updateWorkspaceDefaults,
+}
 
 /**
  * 收集日志的假出口（与仓内其它套件同形）。
@@ -142,9 +189,33 @@ class FakeStore implements StateStore {
   }
 }
 
+/** 假层的技能分面配置（缺省 = 技能可用但没有技能行，既有用例零改动）。 */
+interface FakeSkillOptions {
+  /** `skills` 服务是否可用（默认 true；false 用于降级用例）。 */
+  readonly available?: boolean
+  /** 初始「模型可调用」技能（带描述）。 */
+  readonly visible?: readonly { readonly name: string; readonly description: string }[]
+  /** 初始已注册影子 stub 的技能名。 */
+  readonly shadowed?: readonly string[]
+  /**
+   * 模拟「同层先到先得」而未胜出的技能名：`applySkills` 会把它们从 shadowed 里剔掉，
+   * 用于驱动 `skill-shadow-failed`（disabled ∧ visible ∧ ¬shadowed）。
+   */
+  readonly failedShadows?: readonly string[]
+  /**
+   * 技能收敛闸：给了它，`skillsSettled()` 会等它 resolve（驱动「toggle 回执前必须 await」）。
+   * 不给时立即 resolve。
+   */
+  readonly gate?: Promise<void>
+}
+
 /**
  * 假层句柄：按 `planMask` 的三读并集重算掩码（与生产层同构：掩码生效后名字从 `scoped`
  * 消失，因此 `carried` 必须参与并集，否则第二读会缩水）。
+ *
+ * 技能分面按 `state.disabled` **同步**重算 shadowed（生产层注册 stub 是异步的，这里刻意同步，
+ * 让「回执里的 hiddenSkills」与「快照里的技能行」都能断言；异步时序由 `skillsSettled` 的
+ * 闸单独验证）。
  */
 class FakeLayer implements LayerHandle {
   /** 已生效的 deny（同时是下一轮的 carried）。 */
@@ -153,17 +224,31 @@ class FakeLayer implements LayerHandle {
   /** 已生效的遮蔽段服务器。 */
   private sections: readonly string[] = []
 
+  /** 该层「模型可调用」的初始技能（不含被遮蔽的行）。 */
+  private readonly skillCatalog: readonly { readonly name: string; readonly description: string }[]
+
+  /** 当前已注册影子 stub 的技能名（排序）。 */
+  private shadowedSkills: readonly string[]
+
+  /** `skillsSettled()` 被调用的次数（断言「回执前等过一次」）。 */
+  settleCalls = 0
+
   /**
    * @param catalog - 全局层注册名。
    * @param scope - 该 agent **未**被本插件掩码时的视角名字。
    * @param initial - 初始整值状态（构造即应用一次，模拟 `attach`）。
+   * @param skills - 技能分面配置（缺省 = 可用但空）。
    */
   constructor(
     private readonly catalog: readonly string[],
     private readonly scope: readonly string[],
     initial: SessionToolState,
+    private readonly skillsOptions: FakeSkillOptions = {},
   ) {
+    this.skillCatalog = skillsOptions.visible ?? []
+    this.shadowedSkills = [...(skillsOptions.shadowed ?? [])].sort()
     this.reconcile(initial)
+    this.applySkills(initial)
   }
 
   /**
@@ -172,6 +257,7 @@ class FakeLayer implements LayerHandle {
    */
   setState(state: SessionToolState): void {
     this.reconcile(state)
+    this.applySkills(state)
   }
 
   /**
@@ -188,6 +274,50 @@ class FakeLayer implements LayerHandle {
    */
   visibleNames(): readonly string[] {
     return this.scope.filter((name) => !this.masked.includes(name))
+  }
+
+  /**
+   * 读本会话的技能分面：shadowed 来自当前关闭集（本假层同步重算），visible 排除已遮蔽行。
+   * @returns 技能分面读数。
+   */
+  skills(): SkillLayerSnapshot {
+    const shadowed = new Set(this.shadowedSkills)
+    return {
+      available: this.skillsOptions.available ?? true,
+      shadowed: [...this.shadowedSkills],
+      visible: this.skillCatalog
+        .filter((row) => !shadowed.has(row.name))
+        .map((row) => ({ name: row.name, description: row.description })),
+    }
+  }
+
+  /**
+   * 等待在途技能收敛结算（有闸时等闸，同时记录调用次数）。
+   * @returns 已结算的 Promise。
+   */
+  skillsSettled(): Promise<void> {
+    this.settleCalls += 1
+    const gate = this.skillsOptions.gate
+    return gate === undefined ? Promise.resolve() : gate
+  }
+
+  /**
+   * 按关闭集重算技能面：`tool:skill` 整档关闭 → shadowed 为空；否则逐条 `skill:<name>`。
+   * @param state - 当前整值状态。
+   */
+  private applySkills(state: SessionToolState): void {
+    let wholeClosed = false
+    const names: string[] = []
+    for (const text of state.disabled) {
+      // 技能地址不受保护名单影响（D15）：传空集即可，也只关心 `skill:` 与 `tool:skill` 两类。
+      const parsed = parseAddress(text, new Set())
+      if (!parsed.ok) continue
+      if (parsed.address.kind === 'skill') names.push(parsed.address.name)
+      else if (parsed.address.kind === 'tool' && parsed.address.name === 'skill') wholeClosed = true
+    }
+    this.shadowedSkills = wholeClosed
+      ? []
+      : [...new Set(names)].filter((name) => !(this.skillsOptions.failedShadows ?? []).includes(name)).sort()
   }
 
   /**
@@ -268,6 +398,10 @@ function countingKernel(): { readonly kernel: RpcKernel; readonly calls: () => n
         calls += 1
         return updateDefaults(...args)
       },
+      updateWorkspaceDefaults: (...args) => {
+        calls += 1
+        return updateWorkspaceDefaults(...args)
+      },
     },
     calls: () => calls,
   }
@@ -282,6 +416,7 @@ const BAD_TOGGLE_REPORT = {
   entries: [{ text: 42, kind: 'mcp-group', matched: 0, wasDisabled: false, changed: true }],
   changed: true,
   schemaChanged: true,
+  hiddenSkills: 0,
   visibleBefore: 0,
   visibleAfter: 0,
   visibleKnown: true,
@@ -314,6 +449,8 @@ interface HarnessOptions {
   readonly storeWriteError?: Error
   /** 注入默认档写入错误（驱动 `defaults-unwritable`）。 */
   readonly defaultsWriteError?: Error
+  /** 注入工作区档写入错误（驱动 `workspace-unwritable`）。 */
+  readonly workspacesWriteError?: Error
   /** agent 表行为：`live`（缺省，命中 SESSION_ID）/ `absent` / `mismatched`（拿到别的会话）。 */
   readonly agent?: 'live' | 'absent' | 'mismatched'
   /** 注入 `agents.get` 抛错。 */
@@ -326,6 +463,18 @@ interface HarnessOptions {
   readonly descriptions?: ReadonlyMap<string, string>
   /** 注入描述读数抛错（描述只是展示增强，读不到应降级而非失败）。 */
   readonly descriptionsError?: Error
+  /** 会话归属；`null` = cwd 无法归属（目录已删），缺省 = 归属到 `/w1`。 */
+  readonly attribution?: WorkspaceAttribution | null
+  /** 注入归属读数抛错（归属失败按 `workspace-unresolved` 降级）。 */
+  readonly workspaceOfError?: Error
+  /** 已登记工作区可选项（默认 `/w1`、`/w2` 两项）。 */
+  readonly choices?: readonly WorkspaceChoice[]
+  /** 工作区档条目：键 → 该工作区的关闭集；缺省 = 文件不存在。 */
+  readonly workspaces?: Readonly<Record<string, readonly string[]>>
+  /** 工作区档原始文本（损坏 / 半写用例；给了就不看 `workspaces`）。 */
+  readonly workspacesText?: string
+  /** 假层的技能分面配置。 */
+  readonly skills?: FakeSkillOptions
 }
 
 /** 一套假端口 + 可断言的记录。 */
@@ -335,6 +484,7 @@ interface Harness {
   readonly store: FakeStore
   readonly layer: FakeLayer | undefined
   readonly defaultsIo: FakeDefaultsIo
+  readonly workspacesIo: FakeDefaultsIo
   readonly log: { readonly log: SpecLog; readonly warnings: string[]; readonly errors: string[] }
   readonly dispatch: ReturnType<typeof createRpcDispatcher>
 }
@@ -357,7 +507,7 @@ function harness(options: HarnessOptions = {}): Harness {
   }
 
   const store = new FakeStore(initial, options.storeKind ?? 'record', options.storeReadError, options.storeWriteError)
-  const layer = options.withLayer === false ? undefined : new FakeLayer(catalog, scope, initial)
+  const layer = options.withLayer === false ? undefined : new FakeLayer(catalog, scope, initial, options.skills)
 
   const defaultsIo = new FakeDefaultsIo()
   if (options.defaultsText !== undefined) defaultsIo.files.set(DEFAULTS_PATH, options.defaultsText)
@@ -365,6 +515,24 @@ function harness(options: HarnessOptions = {}): Harness {
     defaultsIo.files.set(DEFAULTS_PATH, JSON.stringify({ version: 1, disabled: options.defaults ?? [] }))
   }
   defaultsIo.failWrite = options.defaultsWriteError
+
+  // 工作区档与默认档共用同一份假 IO 形状（生产也是同一个 `createNodeDefaultsIo` 实例）。
+  const workspacesIo = new FakeDefaultsIo()
+  if (options.workspacesText !== undefined) {
+    workspacesIo.files.set(WORKSPACES_PATH, options.workspacesText)
+  } else if (options.workspaces !== undefined) {
+    const workspaces = Object.fromEntries(
+      Object.entries(options.workspaces).map(([key, disabled]) => [key, { disabled }]),
+    )
+    workspacesIo.files.set(WORKSPACES_PATH, JSON.stringify({ version: 1, workspaces }))
+  }
+  workspacesIo.failWrite = options.workspacesWriteError
+
+  const attribution: WorkspaceAttribution | undefined =
+    options.attribution === null
+      ? undefined
+      : options.attribution ?? { key: PRIMARY_WORKSPACE, registered: true, title: '工作区一' }
+  const choices = options.choices ?? DEFAULT_CHOICES
 
   const described = options.descriptions
   const agents: AgentLookup = {
@@ -389,6 +557,13 @@ function harness(options: HarnessOptions = {}): Harness {
     catalog: () => catalog,
     log: recorded.log,
     agents,
+    workspacesPath: WORKSPACES_PATH,
+    workspacesIo,
+    workspaceOf: async () => {
+      if (options.workspaceOfError !== undefined) throw options.workspaceOfError
+      return attribution
+    },
+    workspaceChoices: () => choices,
     ...(options.kernel === undefined ? {} : { kernel: options.kernel }),
     ...(described === undefined
       ? {}
@@ -406,6 +581,7 @@ function harness(options: HarnessOptions = {}): Harness {
     store,
     layer,
     defaultsIo,
+    workspacesIo,
     log: recorded,
     dispatch: createRpcDispatcher(deps),
   }
@@ -437,6 +613,18 @@ function failureOf(result: Awaited<ReturnType<Harness['dispatch']>>): {
 function panelOf(result: Awaited<ReturnType<Harness['dispatch']>>): PanelSnapshot {
   if (!result.ok) throw new Error(result.error.message)
   const parsed = parsePanelSnapshot(result.value)
+  if (!parsed.ok) throw new Error(parsed.message)
+  return parsed.value
+}
+
+/**
+ * 取 `workspace` 的成功值并过一遍响应 parser（同 `panelOf` 的理由）。
+ * @param result - dispatcher 的结果。
+ * @returns 工作区端点成功值。
+ */
+function workspaceValueOf(result: Awaited<ReturnType<Harness['dispatch']>>): WorkspaceValue {
+  if (!result.ok) throw new Error(result.error.message)
+  const parsed = parseWorkspaceValue(result.value)
   if (!parsed.ok) throw new Error(parsed.message)
   return parsed.value
 }
@@ -696,6 +884,44 @@ describe('panel：只读快照', () => {
     expect(degraded.ok).toBe(true)
     expect(broken.log.warnings.join('\n')).toContain('描述读数炸了')
   })
+
+  it('层未就绪 → skills-unavailable（R6：只降级、不失败）', async () => {
+    const h = harness({ withLayer: false })
+    const snapshot = panelOf(await h.dispatch('panel', { sessionId: SESSION_ID }))
+
+    expect(snapshot.skills).toEqual([])
+    expect(snapshot.notices).toEqual(['skills-unavailable'])
+  })
+
+  it('技能 stub 未胜出（disabled ∧ visible ∧ ¬shadowed）→ skill-shadow-failed', async () => {
+    const h = harness({
+      disabled: ['skill:openspec-propose'],
+      skills: {
+        visible: [{ name: 'openspec-propose', description: '提案工作流' }],
+        failedShadows: ['openspec-propose'],
+      },
+    })
+    const snapshot = panelOf(await h.dispatch('panel', { sessionId: SESSION_ID }))
+
+    expect(snapshot.notices).toEqual(['skill-shadow-failed'])
+    // 意图在、影子没挂上：技能行两态分开（disabled true / shadowed false）。
+    expect(snapshot.skills).toEqual([
+      { name: 'openspec-propose', description: '提案工作流', disabled: true, shadowed: false },
+    ])
+  })
+
+  it('整档 tool:skill 关闭时不报 skill-shadow-failed（D16：stub 刻意不注册）', async () => {
+    const h = harness({
+      disabled: ['tool:skill', 'skill:openspec-propose'],
+      skills: {
+        visible: [{ name: 'openspec-propose', description: '提案工作流' }],
+        failedShadows: ['openspec-propose'],
+      },
+    })
+    const snapshot = panelOf(await h.dispatch('panel', { sessionId: SESSION_ID }))
+
+    expect(snapshot.notices).toEqual([])
+  })
 })
 
 describe('toggle：批量开关', () => {
@@ -711,6 +937,7 @@ describe('toggle：批量开关', () => {
     expect(parsed.value.mutation).toEqual({
       applied: [{ address: 'mcp:a', on: false, matched: 2 }],
       hiddenTools: 2,
+      hiddenSkills: 0,
       visibleBefore: 2,
       visibleAfter: 0,
       kvRebuild: true,
@@ -766,6 +993,53 @@ describe('toggle：批量开关', () => {
     expect(parsed.value.mutation.notices).toEqual(['persistence-degraded'])
     expect(h.log.errors.join('\n')).toContain('日志写入失败')
   })
+
+  it('技能收敛（H10）：回执前 await skillsSettled，hiddenSkills 正确、快照含新影子行', async () => {
+    // 闸不 resolve 时 dispatch 必须停在 settledSkills 上：这是「回执前等待」的直接证据。
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const h = harness({
+      catalog: ['skill'],
+      skills: {
+        available: true,
+        visible: [{ name: 'openspec-propose', description: '提案工作流' }],
+        gate,
+      },
+    })
+
+    let done = false
+    const pending = h.dispatch('toggle', {
+      sessionId: SESSION_ID,
+      on: false,
+      addresses: ['skill:openspec-propose'],
+    })
+    void pending.then(() => {
+      done = true
+    })
+    // 让出微任务：预检、内核、settledSkills 应已执行到等待点。
+    for (let index = 0; index < 50 && (h.layer?.settleCalls ?? 0) === 0; index += 1) {
+      await Promise.resolve()
+    }
+    expect(h.layer?.settleCalls).toBe(1)
+    expect(done).toBe(false)
+
+    release()
+    const result = await pending
+    if (!result.ok) throw new Error(result.error.message)
+    const parsed = parseToggleValue(result.value)
+    if (!parsed.ok) throw new Error(parsed.message)
+
+    // 影子 stub 集合从 0 → 1（关闭技能即遮蔽），缓存因技能目录变化而重建。
+    expect(parsed.value.mutation.hiddenSkills).toBe(1)
+    expect(parsed.value.mutation.kvRebuild).toBe(true)
+    expect(parsed.value.snapshot.skills).toEqual([
+      { name: 'openspec-propose', description: '', disabled: true, shadowed: true },
+    ])
+    // 技能地址不进工具 deny（D15 / `mask.ts` 跳过 skill），因此工具面计数不变。
+    expect(parsed.value.snapshot.stats.denied).toBe(0)
+  })
 })
 
 describe('reset：回创建时快照', () => {
@@ -785,6 +1059,7 @@ describe('reset：回创建时快照', () => {
     expect(parsed.value.mutation).toEqual({
       applied: [{ address: 'mcp:a', on: true, matched: 1 }],
       hiddenTools: -1,
+      hiddenSkills: 0,
       visibleBefore: 1,
       visibleAfter: 2,
       kvRebuild: true,
@@ -858,6 +1133,207 @@ describe('defaults：默认档写（不返回会话快照）', () => {
     expect(error.message).toContain(DEFAULTS_PATH)
     // 写失败时文件一个字节都不动。
     expect(h.defaultsIo.files.get(DEFAULTS_PATH)).toBe(before)
+  })
+})
+
+describe('workspace：工作区级默认档（两形态 × 5 动作）', () => {
+  it('形态 A（sessionId）：read + set/off/on/reset 全动作写盘并回读一致', async () => {
+    const h = harness({ workspaces: { [PRIMARY_WORKSPACE]: ['mcp:a'] } })
+
+    // ── read：归属视图 + 下拉 + changed 为空 ──
+    const read = workspaceValueOf(await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'read' }))
+    expect(read.workspace).toEqual({
+      key: PRIMARY_WORKSPACE,
+      title: '工作区一',
+      registered: true,
+      disabled: ['mcp:a'],
+      path: WORKSPACES_PATH,
+      readable: true,
+      corrupt: false,
+    })
+    expect(read.choices).toEqual(DEFAULT_CHOICES)
+    expect(read.changed).toEqual([])
+
+    // ── set：整份覆盖 ──
+    const set = workspaceValueOf(
+      await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'set', addresses: ['skill:x'] }),
+    )
+    expect(set.changed).toEqual(['skill:x'])
+    expect(set.workspace?.disabled).toEqual(['skill:x'])
+
+    // ── off：并入当前条目（排序去重）──
+    const off = workspaceValueOf(
+      await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'off', addresses: ['mcp:b'] }),
+    )
+    expect(off.changed).toEqual(['mcp:b', 'skill:x'])
+    expect(off.workspace?.disabled).toEqual(['mcp:b', 'skill:x'])
+
+    // ── on：从当前条目移除 ──
+    const on = workspaceValueOf(
+      await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'on', addresses: ['skill:x'] }),
+    )
+    expect(on.changed).toEqual(['mcp:b'])
+    expect(on.workspace?.disabled).toEqual(['mcp:b'])
+
+    // ── reset：条目清空（保留键）──
+    const reset = workspaceValueOf(await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'reset' }))
+    expect(reset.changed).toEqual([])
+    expect(reset.workspace?.disabled).toEqual([])
+    // 落盘内容与回执一致（写路径只读 `report.after`，不回读文件）。
+    const persisted = JSON.parse(h.workspacesIo.files.get(WORKSPACES_PATH) ?? '{}') as {
+      workspaces?: Record<string, { disabled?: readonly string[] }>
+    }
+    expect(persisted.workspaces?.[PRIMARY_WORKSPACE]?.disabled).toEqual([])
+  })
+
+  it('形态 B（workspacePath）：read + set/off/on/reset 全动作', async () => {
+    const h = harness({ workspaces: { [SECOND_WORKSPACE]: ['mcp:z'] } })
+
+    const read = workspaceValueOf(
+      await h.dispatch('workspace', { workspacePath: SECOND_WORKSPACE, action: 'read' }),
+    )
+    expect(read.workspace).toEqual({
+      key: SECOND_WORKSPACE,
+      title: '工作区二',
+      registered: true,
+      disabled: ['mcp:z'],
+      path: WORKSPACES_PATH,
+      readable: true,
+      corrupt: false,
+    })
+    expect(read.choices).toEqual(DEFAULT_CHOICES)
+    expect(read.changed).toEqual([])
+
+    const set = workspaceValueOf(
+      await h.dispatch('workspace', {
+        workspacePath: SECOND_WORKSPACE,
+        action: 'set',
+        addresses: ['skill:q'],
+      }),
+    )
+    expect(set.changed).toEqual(['skill:q'])
+
+    const off = workspaceValueOf(
+      await h.dispatch('workspace', {
+        workspacePath: SECOND_WORKSPACE,
+        action: 'off',
+        addresses: ['mcp:y'],
+      }),
+    )
+    expect(off.changed).toEqual(['mcp:y', 'skill:q'])
+
+    const on = workspaceValueOf(
+      await h.dispatch('workspace', {
+        workspacePath: SECOND_WORKSPACE,
+        action: 'on',
+        addresses: ['mcp:y'],
+      }),
+    )
+    expect(on.changed).toEqual(['skill:q'])
+
+    const reset = workspaceValueOf(
+      await h.dispatch('workspace', { workspacePath: SECOND_WORKSPACE, action: 'reset' }),
+    )
+    expect(reset.changed).toEqual([])
+    expect(reset.workspace?.disabled).toEqual([])
+  })
+
+  it('R6：会话归属未登记目录时 registered:false 照常返回，不判 unresolved', async () => {
+    const h = harness({ attribution: { key: '/unregistered', registered: false } })
+    const value = workspaceValueOf(await h.dispatch('workspace', { sessionId: SESSION_ID }))
+
+    expect(value.workspace).toMatchObject({
+      key: '/unregistered',
+      registered: false,
+      disabled: [],
+      path: WORKSPACES_PATH,
+      readable: false,
+      corrupt: false,
+    })
+    // 未登记没有标题（契约里是可缺省字段，不塞空串）。
+    expect(value.workspace?.title).toBeUndefined()
+  })
+
+  it('工作区档损坏：readable=true / corrupt=true（按空档处理），会话照常可用', async () => {
+    const h = harness({ workspacesText: '{ "version": 1, "workspaces": [' })
+    const value = workspaceValueOf(await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'read' }))
+
+    expect(value.workspace).toMatchObject({ readable: true, corrupt: true, disabled: [] })
+    expect(h.log.warnings.join('\n')).toContain('工作区档')
+  })
+
+  it('{sessionId} 的会话 cwd 已删（归属 undefined）→ workspace-unresolved{subject: sessionId}', async () => {
+    const h = harness({ attribution: null })
+    const error = failureOf(await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'read' }))
+
+    expect(error.code).toBe('workspace-unresolved')
+    expect(error.details).toEqual({ subject: SESSION_ID })
+    expect(error.message).toContain('无法归属')
+  })
+
+  it('{workspacePath:"/etc"} 未登记 → workspace-unresolved{subject: 路径原文}', async () => {
+    const h = harness()
+    const error = failureOf(await h.dispatch('workspace', { workspacePath: '/etc', action: 'read' }))
+
+    expect(error.code).toBe('workspace-unresolved')
+    expect(error.details).toEqual({ subject: '/etc' })
+    expect(error.message).toContain('不是已登记的工作区')
+  })
+
+  it('写盘抛错 → workspace-unwritable{path, reason}，文件一个字节都不动', async () => {
+    const h = harness({
+      workspaces: { [PRIMARY_WORKSPACE]: ['mcp:a'] },
+      workspacesWriteError: new Error('EACCES: 目录不可写'),
+    })
+    const before = h.workspacesIo.files.get(WORKSPACES_PATH)
+    const error = failureOf(
+      await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'off', addresses: ['skill:x'] }),
+    )
+
+    expect(error.code).toBe('workspace-unwritable')
+    expect(error.details).toEqual({ path: WORKSPACES_PATH, reason: 'EACCES: 目录不可写' })
+    expect(h.workspacesIo.files.get(WORKSPACES_PATH)).toBe(before)
+    expect(h.log.warnings.join('\n')).toContain('工作区档写入失败')
+  })
+
+  it('地址预检复用（R17）：tool:bash → protected，内核零调用、文件不动', async () => {
+    const counted = countingKernel()
+    const h = harness({ kernel: counted.kernel })
+    const error = failureOf(
+      await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'off', addresses: ['tool:bash'] }),
+    )
+
+    expect(error.code).toBe('protected')
+    expect(error.details).toEqual({ names: ['bash'] })
+    expect(counted.calls()).toBe(0)
+    expect(h.workspacesIo.writes).toHaveLength(0)
+  })
+
+  it('会话不在宿主中运行 → session-not-live（先于归属解析）', async () => {
+    const h = harness({ agent: 'absent' })
+    const error = failureOf(await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'set', addresses: ['skill:x'] }))
+
+    expect(error.code).toBe('session-not-live')
+    expect(error.details).toEqual({ sessionId: SESSION_ID })
+    expect(h.workspacesIo.writes).toHaveLength(0)
+  })
+
+  it('坏请求 → bad-request（两形态互斥 / 动作与地址约束）', async () => {
+    const h = harness()
+    const payloads: unknown[] = [
+      {},
+      { sessionId: SESSION_ID, workspacePath: SECOND_WORKSPACE },
+      { sessionId: SESSION_ID, action: 'set' },
+      { sessionId: SESSION_ID, action: 'read', addresses: ['mcp:a'] },
+      { sessionId: SESSION_ID, action: 'reset', addresses: ['mcp:a'] },
+      { sessionId: SESSION_ID, action: 'bogus' },
+      { sessionId: SESSION_ID, extra: true },
+      { workspacePath: 'relative/path' },
+    ]
+    for (const payload of payloads) {
+      expect(failureOf(await h.dispatch('workspace', payload)).code).toBe('bad-request')
+    }
+    expect(h.workspacesIo.writes).toHaveLength(0)
   })
 })
 

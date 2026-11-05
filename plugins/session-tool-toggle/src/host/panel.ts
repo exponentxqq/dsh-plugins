@@ -13,7 +13,19 @@
  *    其余名字里 `skill` 单列「技能」组、剩下的进「内置工具」组；
  * 3. 每条工具四个标记：`disabled`（命中关闭集）/ `protected`（生效保护名单）/
  *    `reserved`（注册表保留名）/ `shadowed`（全局层有、本会话看不见，**且不是本插件掩的**）；
- * 4. `stats` 四计数、`hiddenByOthers`、`intentOnly`、`notices` 汇总。
+ * 4. `stats` 四计数、`hiddenByOthers`、`intentOnly`、`notices` 汇总；
+ * 5. 两个顶层视图：`skills`（逐技能行，来自 `inputs.skills` 的技能分面读数）与
+ *    `workspace`（本会话所属工作区的默认档视图；无法归属时为 `null`）。
+ *
+ * 关闭集（`state.disabled`）走**全地址归一**：逐条 `parseAddress` 取规范形文本，不再只取
+ * `planMask.matched` 的键。工具掩码不认识技能地址（`skill:<name>` 不进 `deny`、也不在
+ * `matched` 里留键，见 `mask.ts`），因此旧口径会让技能关闭项从面板的关闭集里凭空消失。
+ * `intentOnly` 因此由两段并成：工具地址在 `planMask.matched` 里命中 0 的键 ∪ 技能地址
+ * 在当前技能分面读数里**无安装**（既不在 `visible` 也不在 `shadowed`）的地址。
+ *
+ * 技能行与工具分组是**互补**关系：`groups` 里的 `skill` 整档行（`kind:'skill'`）保持原样，
+ * 逐技能行只出现在顶层 `skills`。技能名不是工具注册名，技能行不能混进 `ToolGroup`，否则该
+ * 行只能恒显示「未关闭」，或者迫使技能名进入 `restrict` 的 deny（对未知名字会抛错）。
  *
  * 一条与面板交互直接相关的口径（diff-matrix R18）：「被其他作用域隐藏」= `catalog \ (scoped
  * ∪ carried)`。`carried` 是本插件**已生效**的掩码（`layer.snapshot().deny`），它同样会让名字
@@ -34,9 +46,16 @@
  * @module dsh-plugin-session-tool-toggle/host/panel
  */
 
-import { formatAddress, parseAddress } from './address.ts'
+import { PROTECTED_BASELINE, formatAddress, parseAddress } from './address.ts'
+import type { SwitchAddress } from './address.ts'
 import { planMask } from './mask.ts'
-import type { NoticeCode, PanelInputs, StoreKind } from './types.ts'
+import type {
+  NoticeCode,
+  PanelInputs,
+  SkillLayerSnapshot,
+  StoreKind,
+  WorkspacePanelInputs,
+} from './types.ts'
 
 /** 描述截断上限（字符）：schema 的 `description` 是 `max(160)`，两处必须是同一个数。 */
 export const DESCRIPTION_MAX_LENGTH = 160
@@ -63,6 +82,8 @@ const NOTICE_ORDER: readonly NoticeCode[] = [
   'persistence-degraded',
   'defaults-corrupt',
   'session-subagent',
+  'skills-unavailable',
+  'skill-shadow-failed',
 ]
 
 /**
@@ -72,6 +93,20 @@ const NOTICE_ORDER: readonly NoticeCode[] = [
  * 就不会把保护名误判成保留名。
  */
 const NO_PROTECTED_NAMES: ReadonlySet<string> = new Set()
+
+/**
+ * 关闭集归一用的保护名单：只用硬编码基线 {@link PROTECTED_BASELINE}。
+ *
+ * 与 `mask.ts` 的 `PROTECTED_NAMES` 是同一份名单：生效名单只在写入路径（`state.ts` 的
+ * `parseDisabledTexts`）过滤，面板是读路径的最后一道容忍。用基线而不是
+ * `inputs.protectedNames`，可以保证「面板展示的关闭集」与「掩码实际解析的地址」在同一份
+ * 名单上收口——配置追加的保护项若漏进一条坏记录，两边都按普通开关处理，不会一边显示
+ * 一边不生效。常量只在 `address.ts` 定义一份，这里不复制。
+ */
+const TOLERATED_PROTECTED_NAMES: ReadonlySet<string> = new Set(PROTECTED_BASELINE)
+
+/** 空名字集合（不可变，避免每次重建）。 */
+const NO_NAMES: ReadonlySet<string> = new Set()
 
 /**
  * 一条工具条目（`ToolEntrySchema` 的宿主侧形状，逐字段同名）。
@@ -119,6 +154,36 @@ export interface ToolGroup {
   readonly disabled: boolean
   /** 组内工具（按注册名升序）。 */
   readonly tools: readonly ToolEntry[]
+}
+
+/** 面板的一条技能行（`SkillViewSchema` 的宿主侧形状）。 */
+export interface SkillView {
+  /** kebab-case 技能名（= `skill:<name>` 的 `<name>`）。 */
+  readonly name: string
+  /** 描述首 160 字符（已截断）；无缓存时为空串（已关且分面读数里没有它）。 */
+  readonly description: string
+  /** 在某条 `skill:<name>` 关闭地址里（**意图**）。 */
+  readonly disabled: boolean
+  /** 本会话已注册影子 stub（**实际生效**；与 `disabled` 构成两态区分）。 */
+  readonly shadowed: boolean
+}
+
+/** 本会话所属工作区的默认档视图（`WorkspaceViewSchema` 的宿主侧形状）。 */
+export interface WorkspaceView {
+  /** 工作区键（规范绝对路径）。 */
+  readonly key: string
+  /** 显示标题（未登记时缺省）。 */
+  readonly title?: string
+  /** 是否由 `workspaceRegistry` 登记。 */
+  readonly registered: boolean
+  /** 该工作区当前的默认关闭集（已归一、排序）。 */
+  readonly disabled: readonly string[]
+  /** 工作区档文件绝对路径（面板展示，便于手编）。 */
+  readonly path: string
+  /** 文件可读（false = 不存在，按空档处理）。 */
+  readonly readable: boolean
+  /** 文件存在但损坏 / 半写（已降级空档）。 */
+  readonly corrupt: boolean
 }
 
 /** 会话状态视图（`StateViewSchema` 的宿主侧形状）。 */
@@ -186,12 +251,21 @@ export interface PanelSnapshot {
   readonly defaults: DefaultsView
   /** 全局层有、本会话看不到的名字（`catalog \ (scoped ∪ carried)`，已排序；R18）。 */
   readonly hiddenByOthers: readonly string[]
-  /** 关闭集里当前命中 0 个注册名的地址（「意图已记录、暂无匹配」）。 */
+  /**
+   * 关闭集里当前匹配不到的地址（「意图已记录、暂无匹配」）。
+   *
+   * 两段并集：工具地址在掩码计划里命中 0 个注册名 ∪ 技能地址在当前技能分面读数里
+   * **无安装**（既不在 `visible` 也不在 `shadowed`）。
+   */
   readonly intentOnly: readonly string[]
   /** 统计四计数。 */
   readonly stats: Stats
   /** 降级 / 提示码（已去重、按固定顺序）。 */
   readonly notices: readonly Notice[]
+  /** 技能行（按名字升序；只含模型可调用技能 ∪ 当前已遮蔽名字）。 */
+  readonly skills: readonly SkillView[]
+  /** 本会话所属工作区的默认档视图；`null` = cwd 无法归属 / 无 registry。 */
+  readonly workspace: WorkspaceView | null
 }
 
 /**
@@ -229,9 +303,28 @@ export function buildPanelSnapshot(inputs: PanelInputs): PanelSnapshot {
     catalogNames.filter((name) => !scopedSet.has(name) && !carriedSet.has(name)),
   )
 
-  // 关闭集：`planMask` 的键就是规范化后的关闭地址（含 0 命中的条目，两态区分靠它）。
-  const closedTexts = sortedTexts(Array.from(plan.matched.keys()))
-  const intentOnly = closedTexts.filter((text) => plan.matched.get(text) === 0)
+  // 关闭集：**全地址归一**（逐条 `parseAddress` 取规范形），不再只取 `planMask.matched`
+  // 的键。工具掩码刻意不认识技能地址（`skill:<name>` 不进 deny、也不在 matched 里留键，
+  // 见 `mask.ts`），只读 matched 会让用户关掉的技能从面板关闭集里消失。
+  const closed = closedAddressesOf(inputs.state.disabled)
+  const closedTexts = closed.map((entry) => entry.text)
+  const closedSkillNames = new Set<string>()
+  for (const entry of closed) {
+    if (entry.address.kind === 'skill') closedSkillNames.add(entry.address.name)
+  }
+
+  // `intentOnly` 三分：工具地址 0 命中 ∪ 技能地址无安装。工具段以 `planMask.matched` 为准
+  // （0 也保留键，且与掩码实际解析的地址同一份口径）；技能段用当前技能分面读数判「安装」，
+  // 已注册影子 stub 与模型可调用都算安装，只有无安装才是纯意图。
+  const installedSkillNames = installedSkillNamesOf(inputs.skills)
+  const toolIntentOnly = Array.from(plan.matched)
+    .filter(([, hits]) => hits === 0)
+    .map(([text]) => text)
+  const skillIntentOnly = closed.flatMap((entry) => {
+    if (entry.address.kind !== 'skill') return []
+    return installedSkillNames.has(entry.address.name) ? [] : [entry.text]
+  })
+  const intentOnly = sortedTexts([...toolIntentOnly, ...skillIntentOnly])
 
   const context: EntryContext = {
     deny: new Set(plan.deny),
@@ -268,6 +361,113 @@ export function buildPanelSnapshot(inputs: PanelInputs): PanelSnapshot {
       shadowed: hiddenByOthers.length,
     },
     notices: noticesOf(inputs),
+    skills: skillViewsOf(inputs.skills, closedSkillNames),
+    workspace: workspaceViewOf(inputs.workspace),
+  }
+}
+
+/** 一条解析成功的关闭地址：规范形文本 + 地址形状。 */
+interface ResolvedClosedAddress {
+  /** `formatAddress` 的输出（`state.disabled` 的展示形）。 */
+  readonly text: string
+  /** 解析出的地址（区分工具面 / 技能面）。 */
+  readonly address: SwitchAddress
+}
+
+/**
+ * 把关闭集原文逐条归一为规范形地址：按文本去重、按文本排序。
+ *
+ * 容忍纪律与 `mask.ts` 的 `resolveAddresses` 同一份：不可解析的条目（空串、错前缀、保留名、
+ * 保护基线、损坏记录里的任意垃圾）静默跳过，不让一条坏记录拖垮整份快照。与 `mask.ts`
+ * 的唯一差别是这里**保留**技能地址（`kind === 'skill'`）——工具掩码跳过它，但面板的关闭集
+ * 与 `intentOnly` 必须看得见它。
+ * @param disabled - 关闭集原文（允许非规范形与脏条目）。
+ * @returns 排序去重后的关闭地址；全部不可解析时为空数组。
+ */
+function closedAddressesOf(disabled: readonly string[]): readonly ResolvedClosedAddress[] {
+  const byText = new Map<string, SwitchAddress>()
+  for (const text of disabled) {
+    const parsed = parseAddress(text, TOLERATED_PROTECTED_NAMES)
+    if (!parsed.ok) continue
+    if (!byText.has(parsed.text)) byText.set(parsed.text, parsed.address)
+  }
+  return Array.from(byText)
+    .sort(([left], [right]) => compareText(left, right))
+    .map(([text, address]) => ({ text, address }))
+}
+
+/**
+ * 技能分面读数里「已安装」的技能名：模型可调用（`visible`）∪ 已注册影子 stub（`shadowed`）。
+ *
+ * `skills` 缺席或 `available:false` 时返回空集：没有技能服务时技能地址只记意图，一律进
+ * `intentOnly`（与 `SkillLayerSnapshot.available` 的文档语义一致）。
+ * @param skills - 技能分面读数（可能缺席）。
+ * @returns 已安装技能名集合。
+ */
+function installedSkillNamesOf(skills: SkillLayerSnapshot | undefined): ReadonlySet<string> {
+  if (skills === undefined || !skills.available) return NO_NAMES
+  return new Set([...skills.visible.map((row) => row.name), ...skills.shadowed])
+}
+
+/**
+ * 组装顶层技能行。
+ *
+ * 来源写死：模型可调用技能（`skills.visible`）∪ 当前已遮蔽名字（`skills.shadowed`），按名字
+ * 升序。两个标记各自表达一种事实：`disabled` = 用户意图（在关闭集里），`shadowed` = 本会话
+ * 实际生效（层已注册影子 stub）——两者同时为 true 才是「关掉且已生效」。
+ *
+ * 描述只从 `visible` 取（`shadowed` 只给名字，没有描述来源），按与工具描述同一上限截断；
+ * 已遮蔽且不在 `visible` 的行因此是空串（契约允许，client 按「无描述」渲染）。
+ * `skills` 缺席或 `available:false` → 空数组：没有技能服务就没有可信的技能行。
+ * @param skills - 技能分面读数（可能缺席）。
+ * @param closedSkillNames - 关闭集里的技能名（意图）。
+ * @returns 按名字升序的技能行。
+ */
+function skillViewsOf(
+  skills: SkillLayerSnapshot | undefined,
+  closedSkillNames: ReadonlySet<string>,
+): readonly SkillView[] {
+  if (skills === undefined || !skills.available) return []
+
+  const descriptions = new Map<string, string>()
+  for (const row of skills.visible) descriptions.set(row.name, row.description)
+  const shadowed = new Set(skills.shadowed)
+  const names = new Set<string>(descriptions.keys())
+  for (const name of shadowed) names.add(name)
+
+  const views: SkillView[] = []
+  for (const name of names) {
+    views.push({
+      name,
+      description: descriptionOf(name, descriptions) ?? '',
+      disabled: closedSkillNames.has(name),
+      shadowed: shadowed.has(name),
+    })
+  }
+  views.sort((left, right) => compareText(left.name, right.name))
+  return views
+}
+
+/**
+ * 组装顶层工作区视图。
+ *
+ * `workspace` 输入缺席或 `attribution` 缺席（cwd 无法归属，fail-closed）时返回 `null`：
+ * 面板只展示用户级默认档，不凭空造一个工作区键。`title` 只在登记层给过标题时出现。
+ * @param workspace - 工作区档读数（可能缺席）。
+ * @returns 工作区视图或 `null`。
+ */
+function workspaceViewOf(workspace: WorkspacePanelInputs | undefined): WorkspaceView | null {
+  if (workspace === undefined) return null
+  const attribution = workspace.attribution
+  if (attribution === undefined) return null
+  return {
+    key: attribution.key,
+    ...(attribution.title === undefined ? {} : { title: attribution.title }),
+    registered: attribution.registered,
+    disabled: sortedTexts(workspace.disabled),
+    path: workspace.path,
+    readable: workspace.readable,
+    corrupt: workspace.corrupt,
   }
 }
 
@@ -465,6 +665,12 @@ function descriptionOf(
  *
  * 推导是「面板不轻信单个字段」的兜底：`storeKind === 'memory'` 本身已经解释了降级，即使
  * 调用方忘了往 `notices` 里塞 `persistence-degraded`，面板也要提示；默认档损坏同理。
+ *
+ * 产出分工（本函数只负责**排序与去重**）：`skills-unavailable` / `skill-shadow-failed` 由
+ * 装配层从技能分面读数得出（`skillsAvailable === false`；或某技能 `disabled ∧ ¬shadowed`，
+ * 即意图在、影子 stub 没胜出）后放进 `inputs.notices`；`session-subagent` 同理由调用方按
+ * 会话来源给入参。放在装配层是因为面板入参没有「会话来源」，而技能两态在控制读数里已经
+ * 算好（`PanelReading.skills` / `skillsAvailable`），两处重复推导反而会分叉。
  * @param inputs - 面板入参。
  * @returns 去重且有序的提示码。
  */

@@ -4,10 +4,10 @@
  * 两端各自内联一份（客户端 bundle 与宿主产物各打包一次），不共享任何运行时身份。
  * 本模块有三类职责：
  *
- * - **常量骨架**：通道名、四个端点、7 个宿主失败码 + 2 个传输码、长度/数量上限；
+ * - **常量骨架**：通道名、五个端点、9 个宿主失败码 + 2 个传输码、长度/数量上限；
  * - **形状**：`code-design.md` 附录 §2.2 的 zod 草案是**形状权威**，这里逐字段抄成
  *   TS 接口（只有数据形状，不含 zod）；
- * - **边界校验**：四个端点的请求 parser、四个成功值的响应 parser，以及失败细节
+ * - **边界校验**：五个端点的请求 parser、五个成功值的响应 parser，以及失败细节
  *   （`details`）的校验器。`parse*` 一律**不抛错**：失败时给一句可读的简体中文说明，
  *   让两端都能把"形状不对"变成 `bad-request` / `bad-response` 而不是崩溃。
  *
@@ -39,8 +39,22 @@ export const RESET_ENDPOINT = 'reset'
 /** 用户级默认档写（`set` / `off` / `on` / `reset`），不追溯已存在的会话。 */
 export const DEFAULTS_ENDPOINT = 'defaults'
 
-/** 全部端点名，供两端穷举与测试表驱动。 */
-export const ENDPOINTS = [PANEL_ENDPOINT, TOGGLE_ENDPOINT, RESET_ENDPOINT, DEFAULTS_ENDPOINT] as const
+/**
+ * 工作区级默认档读 / 写（`read` / `set` / `off` / `on` / `reset`）。
+ *
+ * 两种寻址形态：按会话 id（面板分区、footer 默认项）或按工作区规范路径（footer 下拉切换、
+ * 未来的上游座位）。工作区档只影响之后新建的会话，不追溯。
+ */
+export const WORKSPACE_ENDPOINT = 'workspace'
+
+/** 全部端点名，供两端穷举与测试表驱动（顺序即文档 / 诊断顺序）。 */
+export const ENDPOINTS = [
+  PANEL_ENDPOINT,
+  TOGGLE_ENDPOINT,
+  RESET_ENDPOINT,
+  DEFAULTS_ENDPOINT,
+  WORKSPACE_ENDPOINT,
+] as const
 
 /** 端点名类型。 */
 export type SessionToolToggleEndpoint = (typeof ENDPOINTS)[number]
@@ -51,8 +65,14 @@ export const DEFAULTS_ACTIONS = ['set', 'off', 'on', 'reset'] as const
 /** `defaults` 动作类型。 */
 export type DefaultsAction = (typeof DEFAULTS_ACTIONS)[number]
 
+/** `workspace` 端点的动作集（`read` 是缺省值）。 */
+export const WORKSPACE_ACTIONS = ['read', 'set', 'off', 'on', 'reset'] as const
+
+/** `workspace` 动作类型。 */
+export type WorkspaceAction = (typeof WORKSPACE_ACTIONS)[number]
+
 /**
- * 宿主侧稳定失败码（7 个）。业务拒绝码保留自己的语义，不合并成 `internal`：
+ * 宿主侧稳定失败码（9 个）。业务拒绝码保留自己的语义，不合并成 `internal`：
  * 界面按码给本地化文案，宿主 `message` 只作二级说明。
  */
 export const HOST_FAILURE_CODES = [
@@ -70,6 +90,10 @@ export const HOST_FAILURE_CODES = [
   'defaults-unwritable',
   /** 未预期抛错（宿主已 warn）。 */
   'internal',
+  /** 会话 cwd 无法归属 / 工作区路径未登记或不可 realpath。 */
+  'workspace-unresolved',
+  /** 工作区档写入失败（细节里带 `{path, reason}`）。 */
+  'workspace-unwritable',
 ] as const
 
 /** 宿主失败码类型。 */
@@ -105,6 +129,13 @@ export const SESSION_ID_MAX_LENGTH = 255
 /** 单条地址的长度上限：超长即视为异常输入。 */
 export const ADDRESS_MAX_LENGTH = 200
 
+/**
+ * 工作区路径的长度上限（与 {@link ADDRESS_MAX_LENGTH} 同级的线上护栏）。
+ *
+ * 只挡异常输入；`/` 开头、绝对路径、realpath 是否成功等文法与归属判断在宿主侧。
+ */
+export const MAX_WORKSPACE_PATH_LENGTH = 4096
+
 /** 一次请求允许携带的地址数量上限。 */
 export const MAX_ADDRESSES = 64
 
@@ -127,6 +158,10 @@ export const NOTICE_CODES = [
   'defaults-corrupt',
   /** 子代理会话：不继承父会话的会话级开关。 */
   'session-subagent',
+  /** 技能服务不可用：技能地址只记意图，影子 stub 不生效。 */
+  'skills-unavailable',
+  /** 影子 stub 注册未胜出（同层先到先得）：该技能行的开关不可用。 */
+  'skill-shadow-failed',
 ] as const
 
 /** 面板提示码类型。 */
@@ -185,6 +220,23 @@ export interface DefaultsRequest {
   /** 动作：`set` / `off` / `on` / `reset`。 */
   readonly action: DefaultsAction
   /** 目标地址；`reset` 时缺省且不得出现。 */
+  readonly addresses?: readonly string[]
+}
+
+/**
+ * `workspace` 端点的请求体：工作区级默认档读 / 写（两种寻址形态，strict）。
+ *
+ * 恰好出现 `sessionId` / `workspacePath` 之一：前者由宿主解析会话 cwd 的归属，后者用于
+ * footer 下拉切换（只接受已登记工作区的规范路径）。`action` 缺省 = `read`。
+ */
+export interface WorkspaceRequest {
+  /** 形态 A：按会话寻址（面板分区、footer 默认项）。 */
+  readonly sessionId?: string
+  /** 形态 B：按工作区规范路径寻址（footer 下拉切换、未来的上游座位）。 */
+  readonly workspacePath?: string
+  /** 动作；缺省 = `read`。 */
+  readonly action?: WorkspaceAction
+  /** `set` / `off` / `on` 必需（1–{@link MAX_ADDRESSES} 条），`read` / `reset` 禁止出现。 */
   readonly addresses?: readonly string[]
 }
 
@@ -268,6 +320,44 @@ export interface StatsView {
   readonly shadowed: number
 }
 
+/** footer 下拉的一项。 */
+export interface WorkspaceChoice {
+  /** 工作区规范路径（= 写入的键）。 */
+  readonly key: string
+  /** 显示标题（registry 有则用它，否则用路径最后一段）。 */
+  readonly title: string
+}
+
+/** 面板快照与 `workspace` 端点共用的工作区档视图。 */
+export interface WorkspaceView {
+  /** 工作区键（规范绝对路径）。 */
+  readonly key: string
+  /** 显示标题（未登记时缺省）。 */
+  readonly title?: string
+  /** 是否由 workspaceRegistry 登记。 */
+  readonly registered: boolean
+  /** 该工作区当前的默认关闭集（已归一、排序）。 */
+  readonly disabled: readonly string[]
+  /** 工作区档文件绝对路径（面板展示，便于手编）。 */
+  readonly path: string
+  /** 文件可读（false = 不存在，按空档处理）。 */
+  readonly readable: boolean
+  /** 文件存在但损坏 / 半写（已降级空档）。 */
+  readonly corrupt: boolean
+}
+
+/** 技能行（面板的技能分面；与 `groups` 里的 `skill` 整档行互补）。 */
+export interface SkillView {
+  /** kebab-case 技能名（= `skill:<name>` 的 `<name>`）。 */
+  readonly name: string
+  /** 描述（≤ 160 字符；已关且无缓存时为空串）。 */
+  readonly description: string
+  /** 在关闭集里（意图）。 */
+  readonly disabled: boolean
+  /** 本会话已注册影子 stub（实际生效；与 disabled 构成两态区分）。 */
+  readonly shadowed: boolean
+}
+
 /** `panel` 端点的成功值：面板快照。 */
 export interface PanelSnapshot {
   /** 目标会话 id。 */
@@ -290,6 +380,10 @@ export interface PanelSnapshot {
   readonly stats: StatsView
   /** 降级 / 子代理提示码。 */
   readonly notices: readonly NoticeView[]
+  /** 技能行（按名字升序；只含模型可调用技能 ∪ 当前已遮蔽名字）。 */
+  readonly skills: readonly SkillView[]
+  /** 本会话所属工作区的默认档视图；`null` = cwd 无法归属 / 无 registry。 */
+  readonly workspace: WorkspaceView | null
 }
 
 /** 逐地址回执。 */
@@ -308,11 +402,13 @@ export interface Mutation {
   readonly applied: readonly MutationApplied[]
   /** deny 集合的变化量（可为负）。 */
   readonly hiddenTools: number
+  /** 本次影子 stub 集合的变化量（可为负；0 = 技能可见性没变）。 */
+  readonly hiddenSkills: number
   /** 变更前可见工具数。 */
   readonly visibleBefore: number
   /** 变更后可见工具数。 */
   readonly visibleAfter: number
-  /** 是否提示「前缀缓存将从第一个变化的 schema token 起重建一次」。 */
+  /** 是否提示「前缀缓存将从第一个变化的 schema token 起重建一次」；工具 schema 或技能目录任一变化 → true。 */
   readonly kvRebuild: boolean
   /** 本次变更产生的提示码。 */
   readonly notices: readonly NoticeView[]
@@ -339,6 +435,16 @@ export interface DefaultsValue {
   /** 写入后的默认档视图。 */
   readonly defaults: DefaultsView
   /** 实际写入的规范形地址（已归一、排序、去重）。 */
+  readonly changed: readonly string[]
+}
+
+/** `workspace` 端点的成功值：目标工作区视图 + 下拉可选项 + 实际写入项。 */
+export interface WorkspaceValue {
+  /** 目标工作区视图；`null` = cwd 无法归属 / 路径未登记。 */
+  readonly workspace: WorkspaceView | null
+  /** 下拉可选项（已登记工作区，按标题+路径排序）。 */
+  readonly choices: readonly WorkspaceChoice[]
+  /** 本次实际写入的规范形地址（`read` 时为空数组）。 */
   readonly changed: readonly string[]
 }
 
@@ -378,6 +484,12 @@ export interface DefaultsUnwritableDetails {
   readonly reason: string
 }
 
+/** `workspace-unresolved` 的细节：失败主体（会话 id 或被拒绝的路径原文）。 */
+export interface WorkspaceUnresolvedDetails {
+  /** 失败主体：会话 id 或被拒绝的路径原文（面板按此渲染占位符）。 */
+  readonly subject: string
+}
+
 /** 已知的失败细节形状（`internal` 的 `{}` 不在其中：它没有结构化信息）。 */
 export type FailureDetails =
   | BadRequestDetails
@@ -385,6 +497,7 @@ export type FailureDetails =
   | NameListDetails
   | SessionNotLiveDetails
   | DefaultsUnwritableDetails
+  | WorkspaceUnresolvedDetails
 
 /* ────────────────────────── 解析结果与内部助手 ────────────────────────── */
 
@@ -663,7 +776,7 @@ function readEnumArrayField<T extends string>(
   })
 }
 
-/* ────────────────────────── 请求 parser（4 个端点） ────────────────────────── */
+/* ────────────────────────── 请求 parser（5 个端点） ────────────────────────── */
 
 /** `panel` 请求的字段集（strict）。 */
 const PANEL_REQUEST_KEYS = ['sessionId'] as const
@@ -673,6 +786,9 @@ const TOGGLE_REQUEST_KEYS = ['sessionId', 'on', 'addresses'] as const
 
 /** `defaults` 请求的字段集（strict）。 */
 const DEFAULTS_REQUEST_KEYS = ['action', 'addresses'] as const
+
+/** `workspace` 请求的字段集（strict）。 */
+const WORKSPACE_REQUEST_KEYS = ['sessionId', 'workspacePath', 'action', 'addresses'] as const
 
 /**
  * 校验 `panel` 端点的请求体。
@@ -768,8 +884,86 @@ export function parseDefaultsRequest(raw: unknown): Parsed<DefaultsRequest> {
   return { ok: true, value: { action: action.value, addresses: addresses.value } }
 }
 
+/**
+ * 校验 `workspace` 端点的请求体（两种寻址形态，strict）。
+ *
+ * 规则（§3.6.2）：恰好出现 `sessionId` / `workspacePath` 之一；前者 1–255 字符，后者
+ * 1–{@link MAX_WORKSPACE_PATH_LENGTH} 字符且以 `/` 开头；`action` 缺省 `read`；`set` /
+ * `off` / `on` 必须带 1–{@link MAX_ADDRESSES} 条地址，`read` / `reset` 不得出现地址。
+ *
+ * `action` 在返回值里**总是**归一为显式取值（缺省补 `read`）：宿主 dispatcher 因此不必
+ * 在每个分支里再写一次 `?? 'read'`，也不会把「缺省」误读成未知动作。
+ * @param raw - 原始请求体。
+ * @returns 请求，或不合契约的原因。
+ */
+export function parseWorkspaceRequest(raw: unknown): Parsed<WorkspaceRequest> {
+  const subject = 'workspace 请求体'
+  const body = readStrictObject(raw, subject, WORKSPACE_REQUEST_KEYS)
+  if (!body.ok) return body
+  const record = body.value
+  // JSON 里没有 undefined：字段存在但值为 undefined 等价于缺省（与 defaults parser 一致）。
+  const hasSessionId = record['sessionId'] !== undefined
+  const hasWorkspacePath = record['workspacePath'] !== undefined
+  if (hasSessionId === hasWorkspacePath) {
+    return fail(`${subject} 必须且只能出现 sessionId 或 workspacePath 之一`)
+  }
+  let sessionId: string | undefined
+  let workspacePath: string | undefined
+  if (hasSessionId) {
+    const parsed = readStringField(record, 'sessionId', subject, {
+      minLength: 1,
+      maxLength: SESSION_ID_MAX_LENGTH,
+    })
+    if (!parsed.ok) return parsed
+    sessionId = parsed.value
+  } else {
+    const parsed = readStringField(record, 'workspacePath', subject, {
+      minLength: 1,
+      maxLength: MAX_WORKSPACE_PATH_LENGTH,
+    })
+    if (!parsed.ok) return parsed
+    if (!parsed.value.startsWith('/')) return fail(`${subject}.workspacePath 必须以 / 开头`)
+    workspacePath = parsed.value
+  }
+  const action =
+    record['action'] === undefined ? undefined : readEnumField(record, 'action', subject, WORKSPACE_ACTIONS)
+  if (action !== undefined && !action.ok) return action
+  const resolvedAction: WorkspaceAction = action === undefined ? 'read' : action.value
+  const hasAddresses = record['addresses'] !== undefined
+  if (resolvedAction === 'read' || resolvedAction === 'reset') {
+    if (hasAddresses) return fail(`${subject}.addresses 在 action=${resolvedAction} 时不允许出现`)
+    return {
+      ok: true,
+      value: {
+        ...(sessionId === undefined ? {} : { sessionId }),
+        ...(workspacePath === undefined ? {} : { workspacePath }),
+        action: resolvedAction,
+      },
+    }
+  }
+  if (!hasAddresses) return fail(`${subject}.addresses 在 action=${resolvedAction} 时必需`)
+  const addresses = readStringArrayField(record, 'addresses', subject, {
+    minItems: 1,
+    maxItems: MAX_ADDRESSES,
+    itemMinLength: 1,
+    itemMaxLength: ADDRESS_MAX_LENGTH,
+  })
+  if (!addresses.ok) return addresses
+  return {
+    ok: true,
+    value: {
+      ...(sessionId === undefined ? {} : { sessionId }),
+      ...(workspacePath === undefined ? {} : { workspacePath }),
+      action: resolvedAction,
+      addresses: addresses.value,
+    },
+  }
+}
+
 /** 请求 parser 的统一签名。 */
-export type RequestParser = (raw: unknown) => Parsed<PanelRequest | ToggleRequest | DefaultsRequest>
+export type RequestParser = (raw: unknown) => Parsed<
+  PanelRequest | ToggleRequest | DefaultsRequest | WorkspaceRequest
+>
 
 /**
  * 端点 → 请求 parser 的表。
@@ -782,9 +976,10 @@ export const REQUEST_PARSERS: Readonly<Record<SessionToolToggleEndpoint, Request
   toggle: parseToggleRequest,
   reset: parseResetRequest,
   defaults: parseDefaultsRequest,
+  workspace: parseWorkspaceRequest,
 }
 
-/* ────────────────────────── 响应 parser（4 个成功值） ────────────────────────── */
+/* ────────────────────────── 响应 parser（5 个成功值） ────────────────────────── */
 
 /** `ToolEntry` 的字段集（strict）。 */
 const TOOL_ENTRY_KEYS = [
@@ -810,6 +1005,15 @@ const DEFAULTS_VIEW_KEYS = ['version', 'disabled', 'path', 'readable', 'corrupt'
 /** `StatsView` 的字段集（strict）。 */
 const STATS_VIEW_KEYS = ['visible', 'catalog', 'denied', 'shadowed'] as const
 
+/** `WorkspaceChoice` 的字段集（strict）。 */
+const WORKSPACE_CHOICE_KEYS = ['key', 'title'] as const
+
+/** `WorkspaceView` 的字段集（strict）。 */
+const WORKSPACE_VIEW_KEYS = ['key', 'title', 'registered', 'disabled', 'path', 'readable', 'corrupt'] as const
+
+/** `SkillView` 的字段集（strict）。 */
+const SKILL_VIEW_KEYS = ['name', 'description', 'disabled', 'shadowed'] as const
+
 /** `PanelSnapshot` 的字段集（strict；**不含** `parameters`）。 */
 const PANEL_SNAPSHOT_KEYS = [
   'sessionId',
@@ -822,13 +1026,23 @@ const PANEL_SNAPSHOT_KEYS = [
   'intentOnly',
   'stats',
   'notices',
+  'skills',
+  'workspace',
 ] as const
 
 /** `MutationApplied` 的字段集（strict）。 */
 const MUTATION_APPLIED_KEYS = ['address', 'on', 'matched'] as const
 
 /** `Mutation` 的字段集（strict）。 */
-const MUTATION_KEYS = ['applied', 'hiddenTools', 'visibleBefore', 'visibleAfter', 'kvRebuild', 'notices'] as const
+const MUTATION_KEYS = [
+  'applied',
+  'hiddenTools',
+  'hiddenSkills',
+  'visibleBefore',
+  'visibleAfter',
+  'kvRebuild',
+  'notices',
+] as const
 
 /**
  * 校验一条工具条目。
@@ -1008,6 +1222,105 @@ function readStatsView(value: unknown, subject: string): Parsed<StatsView> {
 }
 
 /**
+ * 校验一条技能行。
+ * @param value - 原始值。
+ * @param subject - 字段路径前缀（已含下标）。
+ * @returns 技能行，或不合契约的原因。
+ */
+function readSkillView(value: unknown, subject: string): Parsed<SkillView> {
+  const object = readStrictObject(value, subject, SKILL_VIEW_KEYS)
+  if (!object.ok) return object
+  const record = object.value
+  const name = readStringField(record, 'name', subject, { minLength: 1 })
+  if (!name.ok) return name
+  // 描述允许为空串（已关且无缓存），但仍受与工具描述相同的截断上限约束。
+  const description = readStringField(record, 'description', subject, {
+    maxLength: DESCRIPTION_MAX_LENGTH,
+  })
+  if (!description.ok) return description
+  const disabled = readBooleanField(record, 'disabled', subject)
+  if (!disabled.ok) return disabled
+  const shadowed = readBooleanField(record, 'shadowed', subject)
+  if (!shadowed.ok) return shadowed
+  return {
+    ok: true,
+    value: {
+      name: name.value,
+      description: description.value,
+      disabled: disabled.value,
+      shadowed: shadowed.value,
+    },
+  }
+}
+
+/**
+ * 校验 footer 下拉的一项。
+ * @param value - 原始值。
+ * @param subject - 字段路径前缀（已含下标）。
+ * @returns 下拉项，或不合契约的原因。
+ */
+function readWorkspaceChoice(value: unknown, subject: string): Parsed<WorkspaceChoice> {
+  const object = readStrictObject(value, subject, WORKSPACE_CHOICE_KEYS)
+  if (!object.ok) return object
+  const record = object.value
+  const key = readStringField(record, 'key', subject, { minLength: 1 })
+  if (!key.ok) return key
+  // 标题允许为空串：`/` 的「路径最后一段」就是空串，展示层自行兜底。
+  const title = readStringField(record, 'title', subject)
+  if (!title.ok) return title
+  return { ok: true, value: { key: key.value, title: title.value } }
+}
+
+/**
+ * 校验工作区档视图（面板与 `workspace` 端点共用）。
+ * @param value - 原始值。
+ * @param subject - 字段路径前缀。
+ * @returns 工作区视图，或不合契约的原因。
+ */
+function readWorkspaceView(value: unknown, subject: string): Parsed<WorkspaceView> {
+  const object = readStrictObject(value, subject, WORKSPACE_VIEW_KEYS)
+  if (!object.ok) return object
+  const record = object.value
+  const key = readStringField(record, 'key', subject, { minLength: 1 })
+  if (!key.ok) return key
+  const title = readOptionalStringField(record, 'title', subject)
+  if (!title.ok) return title
+  const registered = readBooleanField(record, 'registered', subject)
+  if (!registered.ok) return registered
+  const disabled = readStringArrayField(record, 'disabled', subject)
+  if (!disabled.ok) return disabled
+  const path = readStringField(record, 'path', subject, { minLength: 1 })
+  if (!path.ok) return path
+  const readable = readBooleanField(record, 'readable', subject)
+  if (!readable.ok) return readable
+  const corrupt = readBooleanField(record, 'corrupt', subject)
+  if (!corrupt.ok) return corrupt
+  return {
+    ok: true,
+    value: {
+      key: key.value,
+      ...(title.value === undefined ? {} : { title: title.value }),
+      registered: registered.value,
+      disabled: disabled.value,
+      path: path.value,
+      readable: readable.value,
+      corrupt: corrupt.value,
+    },
+  }
+}
+
+/**
+ * 校验可空的工作区视图（`null` = cwd 无法归属 / 无 registry）。
+ * @param value - 原始值。
+ * @param subject - 字段路径前缀。
+ * @returns 工作区视图、`null`，或不合契约的原因。
+ */
+function readNullableWorkspaceView(value: unknown, subject: string): Parsed<WorkspaceView | null> {
+  if (value === null) return { ok: true, value: null }
+  return readWorkspaceView(value, subject)
+}
+
+/**
  * 校验面板快照（`panel` 的成功值，也是 `toggle` / `reset` 成功值里的 `snapshot`）。
  *
  * 快照**不携带**工具入参 schema（`parameters`）：面板不展示入参，携带它会让响应体积
@@ -1040,6 +1353,10 @@ function readPanelSnapshot(value: unknown, subject: string): Parsed<PanelSnapsho
   if (!stats.ok) return stats
   const notices = readEnumArrayField(record, 'notices', subject, NOTICE_CODES)
   if (!notices.ok) return notices
+  const skills = readArrayField(record, 'skills', subject, readSkillView)
+  if (!skills.ok) return skills
+  const workspace = readNullableWorkspaceView(record['workspace'], `${subject}.workspace`)
+  if (!workspace.ok) return workspace
   return {
     ok: true,
     value: {
@@ -1053,6 +1370,8 @@ function readPanelSnapshot(value: unknown, subject: string): Parsed<PanelSnapsho
       intentOnly: intentOnly.value,
       stats: stats.value,
       notices: notices.value,
+      skills: skills.value,
+      workspace: workspace.value,
     },
   }
 }
@@ -1090,6 +1409,8 @@ function readMutation(value: unknown, subject: string): Parsed<Mutation> {
   if (!applied.ok) return applied
   const hiddenTools = readIntField(record, 'hiddenTools', subject)
   if (!hiddenTools.ok) return hiddenTools
+  const hiddenSkills = readIntField(record, 'hiddenSkills', subject)
+  if (!hiddenSkills.ok) return hiddenSkills
   const visibleBefore = readCountField(record, 'visibleBefore', subject)
   if (!visibleBefore.ok) return visibleBefore
   const visibleAfter = readCountField(record, 'visibleAfter', subject)
@@ -1103,6 +1424,7 @@ function readMutation(value: unknown, subject: string): Parsed<Mutation> {
     value: {
       applied: applied.value,
       hiddenTools: hiddenTools.value,
+      hiddenSkills: hiddenSkills.value,
       visibleBefore: visibleBefore.value,
       visibleAfter: visibleAfter.value,
       kvRebuild: kvRebuild.value,
@@ -1172,6 +1494,27 @@ export function parseDefaultsValue(raw: unknown): Parsed<DefaultsValue> {
   return { ok: true, value: { defaults: defaults.value, changed: changed.value } }
 }
 
+/**
+ * 校验 `workspace` 端点的成功值（目标工作区视图 + 下拉可选项 + 实际写入项）。
+ *
+ * `workspace` 为 `null` 是合法读数（cwd 无法归属 / 无 registry）：面板按空档展示，
+ * 不把它当响应损坏。
+ * @param raw - 端点返回的原始值。
+ * @returns 成功值，或不合契约的原因。
+ */
+export function parseWorkspaceValue(raw: unknown): Parsed<WorkspaceValue> {
+  const subject = 'workspace 响应'
+  const object = readStrictObject(raw, subject, ['workspace', 'choices', 'changed'] as const)
+  if (!object.ok) return object
+  const workspace = readNullableWorkspaceView(object.value['workspace'], `${subject}.workspace`)
+  if (!workspace.ok) return workspace
+  const choices = readArrayField(object.value, 'choices', subject, readWorkspaceChoice)
+  if (!choices.ok) return choices
+  const changed = readStringArrayField(object.value, 'changed', subject, { itemMinLength: 1 })
+  if (!changed.ok) return changed
+  return { ok: true, value: { workspace: workspace.value, choices: choices.value, changed: changed.value } }
+}
+
 /* ────────────────────────── 失败细节 parser ────────────────────────── */
 
 /** 一个细节对象里是否**恰好**只有这些字段（多字段 = 不是已知形状）。 */
@@ -1219,6 +1562,9 @@ export function parseFailureDetails(details: unknown): FailureDetails | undefine
     typeof record['reason'] === 'string'
   ) {
     return { path: record['path'], reason: record['reason'] }
+  }
+  if (hasExactKeys(record, ['subject']) && typeof record['subject'] === 'string') {
+    return { subject: record['subject'] }
   }
   return undefined
 }

@@ -1,15 +1,17 @@
 /**
- * 线上契约测试（规范：dsh-session-tool-toggle —— 通道契约、四端点形状、失败码）。
+ * 线上契约测试（规范：dsh-session-tool-toggle —— 通道契约、五端点形状、失败码）。
  *
- * 覆盖五类事实：
+ * 覆盖六类事实：
  *
- * 1. **常量**：通道名合宿主的 `CHANNEL_PATTERN`、四个端点且端点段单段、7 个宿主码 +
- *    2 个传输码、`isFailureCode` 对未知码返回 false、四处上限值、视图枚举取值。
- * 2. **请求 parser（4 个）**：合法样本通过；缺字段 / **未知字段（strict）** / 类型错 /
- *    超长地址（>200）/ 地址数量越界（>64）/ `defaults` 的 action ↔ addresses 约束全部拒绝。
- * 3. **响应 parser（4 个）**：合法样本原样通过（`toStrictEqual`，顺带钉住"不新增键"）；
- *    嵌套形状（工具条目 / 分组 / 统计 / 变更回执）逐字段校验；缺字段与多余字段都拒绝。
- * 4. **失败细节**：五种 `details` 形状可读，未知 / 多字段 / 类型不符降级 `undefined`。
+ * 1. **常量**：通道名合宿主的 `CHANNEL_PATTERN`、五个端点且端点段单段、9 个宿主码 +
+ *    2 个传输码、`isFailureCode` 对未知码返回 false、五处上限值、视图枚举取值。
+ * 2. **请求 parser（5 个）**：合法样本通过；缺字段 / **未知字段（strict）** / 类型错 /
+ *    超长地址（>200）/ 地址数量越界（>64）/ `defaults` 与 `workspace` 的 action ↔ addresses
+ *    约束、`workspace` 的两种寻址形态互斥全部拒绝。
+ * 3. **响应 parser（5 个）**：合法样本原样通过（`toStrictEqual`，顺带钉住"不新增键"）；
+ *    嵌套形状（工具条目 / 分组 / 技能行 / 工作区视图 / 统计 / 变更回执）逐字段校验；
+ *    缺字段与多余字段都拒绝。
+ * 4. **失败细节**：六种 `details` 形状可读，未知 / 多字段 / 类型不符降级 `undefined`。
  * 5. **FORK/兼容**：快照不携带工具入参 schema（`parameters`），本文件只断言"出现即拒绝"，
  *    不断言任何字段在未来版本里的存在性。
  * 6. **交叉校验**：宿主侧快照（任务 9.3 的 `panel.ts` 自带一份 host 类型）与本契约的形状
@@ -29,12 +31,15 @@ import {
   FAILURE_CODES,
   HOST_FAILURE_CODES,
   MAX_ADDRESSES,
+  MAX_WORKSPACE_PATH_LENGTH,
   NOTICE_CODES,
   REQUEST_PARSERS,
   SESSION_ID_MAX_LENGTH,
   STORE_KINDS,
   TOOL_GROUP_KINDS,
   TRANSPORT_FAILURE_CODES,
+  WORKSPACE_ACTIONS,
+  WORKSPACE_ENDPOINT,
   isFailureCode,
   parseDefaultsRequest,
   parseDefaultsValue,
@@ -45,10 +50,13 @@ import {
   parseResetValue,
   parseToggleRequest,
   parseToggleValue,
+  parseWorkspaceRequest,
+  parseWorkspaceValue,
   type DefaultsValue,
   type PanelSnapshot,
   type Parsed,
   type ToggleValue,
+  type WorkspaceValue,
 } from '../src/contract.ts'
 // 交叉校验用的宿主侧类型（任务 9.3 的 `panel.ts`）。`import type` 在运行期被完全抹除，
 // 本套件因此仍然只加载 `contract.ts` 一个模块。
@@ -151,6 +159,19 @@ const SNAPSHOT: PanelSnapshot = {
   intentOnly: ['mcp:gone'],
   stats: { visible: 12, catalog: 214, denied: 2, shadowed: 1 },
   notices: ['persistence-degraded', 'session-subagent'],
+  skills: [
+    { name: 'openspec-propose', description: '提案工作流', disabled: true, shadowed: true },
+    { name: 'skill-creator', description: '', disabled: false, shadowed: false },
+  ],
+  workspace: {
+    key: '/home/u/develop/proj',
+    title: 'proj',
+    registered: true,
+    disabled: ['skill:skill-creator'],
+    path: '/home/u/.dsh/session-tool-toggle/workspaces.json',
+    readable: true,
+    corrupt: false,
+  },
 }
 
 /** `toggle` 的成功值：新快照 + 逐地址回执（含一条 0 匹配的"意图"）。 */
@@ -162,6 +183,7 @@ const TOGGLE_VALUE: ToggleValue = {
       { address: 'mcp:gone', on: true, matched: 0 },
     ],
     hiddenTools: -3,
+    hiddenSkills: 1,
     visibleBefore: 12,
     visibleAfter: 15,
     kvRebuild: true,
@@ -179,6 +201,24 @@ const DEFAULTS_VALUE: DefaultsValue = {
     corrupt: false,
   },
   changed: ['mcp:b', 'tool:skill'],
+}
+
+/** `workspace` 的成功值：目标工作区视图 + 下拉可选项 + 实际写入项。 */
+const WORKSPACE_VALUE: WorkspaceValue = {
+  workspace: {
+    key: '/home/u/develop/proj',
+    title: 'proj',
+    registered: true,
+    disabled: ['mcp:b', 'skill:skill-creator'],
+    path: '/home/u/.dsh/session-tool-toggle/workspaces.json',
+    readable: true,
+    corrupt: false,
+  },
+  choices: [
+    { key: '/home/u/develop/proj', title: 'proj' },
+    { key: '/home/u/develop/other', title: 'other' },
+  ],
+  changed: ['mcp:b'],
 }
 
 /* ────────────────────────────── 助手 ────────────────────────────── */
@@ -289,9 +329,10 @@ describe('通道与端点常量', () => {
     expect(CHANNEL).not.toBe('/api')
   })
 
-  it('端点集恰好 4 个、各自单段（能被端点段文法接受，不带 /）', () => {
-    expect(ENDPOINTS).toHaveLength(4)
-    expect(ENDPOINTS).toEqual(['panel', 'toggle', 'reset', 'defaults'])
+  it('端点集恰好 5 个、各自单段（能被端点段文法接受，不带 /）', () => {
+    expect(ENDPOINTS).toHaveLength(5)
+    expect(ENDPOINTS).toEqual(['panel', 'toggle', 'reset', 'defaults', 'workspace'])
+    expect(WORKSPACE_ENDPOINT).toBe('workspace')
     for (const endpoint of ENDPOINTS) {
       expect(endpoint).toMatch(/^[A-Za-z0-9_$.-]+$/)
       expect(endpoint.includes('/')).toBe(false)
@@ -302,9 +343,19 @@ describe('通道与端点常量', () => {
     expect(DEFAULTS_ACTIONS).toEqual(['set', 'off', 'on', 'reset'])
   })
 
+  it('workspace 动作集与 §3.6.1 一致（read 是缺省值）', () => {
+    expect(WORKSPACE_ACTIONS).toEqual(['read', 'set', 'off', 'on', 'reset'])
+  })
+
   it('视图枚举取值与 §2.2 草案一致', () => {
     expect(TOOL_GROUP_KINDS).toEqual(['mcp', 'skill', 'builtin'])
-    expect(NOTICE_CODES).toEqual(['persistence-degraded', 'defaults-corrupt', 'session-subagent'])
+    expect(NOTICE_CODES).toEqual([
+      'persistence-degraded',
+      'defaults-corrupt',
+      'session-subagent',
+      'skills-unavailable',
+      'skill-shadow-failed',
+    ])
     expect(STORE_KINDS).toEqual(['record', 'memory'])
     expect(DEFAULTS_VERSION).toBe(1)
   })
@@ -314,12 +365,13 @@ describe('通道与端点常量', () => {
     expect(ADDRESS_MAX_LENGTH).toBe(200)
     expect(MAX_ADDRESSES).toBe(64)
     expect(DESCRIPTION_MAX_LENGTH).toBe(160)
+    expect(MAX_WORKSPACE_PATH_LENGTH).toBe(4096)
   })
 })
 
 describe('失败码常量', () => {
-  it('宿主侧 7 个码，顺序即界面兜底顺序（业务拒绝码不合并成 internal）', () => {
-    expect(HOST_FAILURE_CODES).toHaveLength(7)
+  it('宿主侧 9 个码，顺序即界面兜底顺序（业务拒绝码不合并成 internal）', () => {
+    expect(HOST_FAILURE_CODES).toHaveLength(9)
     expect(HOST_FAILURE_CODES).toEqual([
       'bad-request',
       'bad-address',
@@ -328,6 +380,8 @@ describe('失败码常量', () => {
       'session-not-live',
       'defaults-unwritable',
       'internal',
+      'workspace-unresolved',
+      'workspace-unwritable',
     ])
   })
 
@@ -336,14 +390,14 @@ describe('失败码常量', () => {
     expect(TRANSPORT_FAILURE_CODES).toEqual(['unavailable', 'bad-response'])
   })
 
-  it('合表 7 + 2 = 9 且无重复', () => {
-    expect(FAILURE_CODES).toHaveLength(9)
-    expect(new Set(FAILURE_CODES).size).toBe(9)
-    expect(FAILURE_CODES.slice(0, 7)).toEqual([...HOST_FAILURE_CODES])
-    expect(FAILURE_CODES.slice(7)).toEqual([...TRANSPORT_FAILURE_CODES])
+  it('合表 9 + 2 = 11 且无重复', () => {
+    expect(FAILURE_CODES).toHaveLength(11)
+    expect(new Set(FAILURE_CODES).size).toBe(11)
+    expect(FAILURE_CODES.slice(0, 9)).toEqual([...HOST_FAILURE_CODES])
+    expect(FAILURE_CODES.slice(9)).toEqual([...TRANSPORT_FAILURE_CODES])
   })
 
-  it('isFailureCode：9 个已知码为 true，未知码为 false', () => {
+  it('isFailureCode：11 个已知码为 true，未知码为 false', () => {
     for (const code of FAILURE_CODES) expect(isFailureCode(code)).toBe(true)
     for (const code of ['', 'BAD-REQUEST', 'timeout', 'not-found', 'bad_response', 'internal ']) {
       expect(isFailureCode(code), `未知码 ${code} 应判 false`).toBe(false)
@@ -358,6 +412,7 @@ describe('REQUEST_PARSERS 端点表', () => {
     expect(REQUEST_PARSERS.toggle).toBe(parseToggleRequest)
     expect(REQUEST_PARSERS.reset).toBe(parseResetRequest)
     expect(REQUEST_PARSERS.defaults).toBe(parseDefaultsRequest)
+    expect(REQUEST_PARSERS.workspace).toBe(parseWorkspaceRequest)
   })
 
   it('每个 parser 都拒绝明显不合契约的输入', () => {
@@ -535,6 +590,141 @@ describe('parseDefaultsRequest：action ↔ addresses 约束', () => {
   ])
 })
 
+describe('parseWorkspaceRequest：两种寻址形态 + action ↔ addresses 约束', () => {
+  it('{workspacePath} 缺省 action 归一为显式 read', () => {
+    expect(parseWorkspaceRequest({ workspacePath: '/w' })).toStrictEqual({
+      ok: true,
+      value: { workspacePath: '/w', action: 'read' },
+    })
+  })
+
+  it('{sessionId} 显式 read 原样通过', () => {
+    expect(parseWorkspaceRequest({ sessionId: 's-1', action: 'read' })).toStrictEqual({
+      ok: true,
+      value: { sessionId: 's-1', action: 'read' },
+    })
+  })
+
+  it('set 带地址保留寻址形态与动作语义', () => {
+    expect(parseWorkspaceRequest({ sessionId: 's-1', action: 'set', addresses: ['skill:x'] })).toStrictEqual({
+      ok: true,
+      value: { sessionId: 's-1', action: 'set', addresses: ['skill:x'] },
+    })
+  })
+
+  it('sessionId 取到长度上限（255）仍通过', () => {
+    const sessionId = 's'.repeat(SESSION_ID_MAX_LENGTH)
+    expect(parseWorkspaceRequest({ sessionId })).toStrictEqual({
+      ok: true,
+      value: { sessionId, action: 'read' },
+    })
+  })
+
+  it('workspacePath 取到长度上限（4096）仍通过', () => {
+    const workspacePath = `/${'w'.repeat(MAX_WORKSPACE_PATH_LENGTH - 1)}`
+    expect(parseWorkspaceRequest({ workspacePath })).toStrictEqual({
+      ok: true,
+      value: { workspacePath, action: 'read' },
+    })
+  })
+
+  runAccepted(parseWorkspaceRequest, [
+    { name: '按会话 read（缺省 action）', raw: { sessionId: 's-1' } },
+    { name: '按工作区路径 read（缺省 action）', raw: { workspacePath: '/w' } },
+    { name: 'workspacePath 为根 /', raw: { workspacePath: '/' } },
+    { name: 'off 带一条地址（按会话）', raw: { sessionId: 's-1', action: 'off', addresses: ['mcp:a'] } },
+    { name: 'on 带一条地址（按路径）', raw: { workspacePath: '/w', action: 'on', addresses: ['skill:x'] } },
+    { name: 'reset 不带 addresses', raw: { sessionId: 's-1', action: 'reset' } },
+    { name: 'set 取到条数上限（64）', raw: { sessionId: 's-1', action: 'set', addresses: addressList(MAX_ADDRESSES) } },
+    { name: 'set 单条地址取到上限（200 字符）', raw: { sessionId: 's-1', action: 'set', addresses: ['x'.repeat(ADDRESS_MAX_LENGTH)] } },
+  ])
+
+  runRejected(parseWorkspaceRequest, [
+    { name: '请求体是数组', raw: [] },
+    { name: '请求体是 null', raw: null },
+    { name: '请求体是字符串', raw: 'workspace' },
+    {
+      name: '两种寻址字段同时出现',
+      raw: { sessionId: 's', workspacePath: '/w' },
+      fragment: /必须且只能出现 sessionId 或 workspacePath 之一/,
+    },
+    {
+      name: '两种寻址字段都缺',
+      raw: { action: 'read' },
+      fragment: /必须且只能出现 sessionId 或 workspacePath 之一/,
+    },
+    { name: 'sessionId 为空串', raw: { sessionId: '' }, fragment: /为空/ },
+    {
+      name: 'sessionId 超长（256）',
+      raw: { sessionId: 's'.repeat(SESSION_ID_MAX_LENGTH + 1) },
+      fragment: /超过 255 字符/,
+    },
+    { name: 'sessionId 不是字符串', raw: { sessionId: 1 }, fragment: /不是字符串/ },
+    { name: 'workspacePath 为空串', raw: { workspacePath: '' }, fragment: /为空/ },
+    {
+      name: 'workspacePath 不是绝对路径（不以 / 开头）',
+      raw: { workspacePath: 'relative/w' },
+      fragment: /必须以 \/ 开头/,
+    },
+    {
+      name: 'workspacePath 超长（4097）',
+      raw: { workspacePath: `/${'w'.repeat(MAX_WORKSPACE_PATH_LENGTH)}` },
+      fragment: /超过 4096 字符/,
+    },
+    { name: 'workspacePath 不是字符串', raw: { workspacePath: 1 }, fragment: /不是字符串/ },
+    { name: '未知 action', raw: { sessionId: 's', action: 'remove' }, fragment: /不是已知取值/ },
+    { name: 'action 不是字符串', raw: { sessionId: 's', action: 1 }, fragment: /不是已知取值/ },
+    { name: 'set 缺 addresses', raw: { sessionId: 's', action: 'set' }, fragment: /在 action=set 时必需/ },
+    { name: 'off 缺 addresses', raw: { workspacePath: '/w', action: 'off' }, fragment: /在 action=off 时必需/ },
+    { name: 'on 缺 addresses', raw: { sessionId: 's', action: 'on' }, fragment: /在 action=on 时必需/ },
+    {
+      name: 'read 带 addresses',
+      raw: { sessionId: 's', action: 'read', addresses: ['a'] },
+      fragment: /在 action=read 时不允许出现/,
+    },
+    {
+      name: '缺省 read 带 addresses（出现即越界）',
+      raw: { sessionId: 's', addresses: ['a'] },
+      fragment: /在 action=read 时不允许出现/,
+    },
+    {
+      name: 'reset 带 addresses',
+      raw: { sessionId: 's', action: 'reset', addresses: ['a'] },
+      fragment: /在 action=reset 时不允许出现/,
+    },
+    {
+      name: 'set 带空数组',
+      raw: { sessionId: 's', action: 'set', addresses: [] },
+      fragment: /至少需要 1 项/,
+    },
+    {
+      name: 'set 地址数量越界（65 > 64）',
+      raw: { sessionId: 's', action: 'set', addresses: addressList(MAX_ADDRESSES + 1) },
+      fragment: /超过上限 64 项/,
+    },
+    {
+      name: 'set 地址为空串',
+      raw: { sessionId: 's', action: 'set', addresses: [''] },
+      fragment: /为空/,
+    },
+    {
+      name: 'set 地址超长（201 > 200）',
+      raw: { sessionId: 's', action: 'set', addresses: ['x'.repeat(ADDRESS_MAX_LENGTH + 1)] },
+      fragment: /超过 200 字符/,
+    },
+    {
+      name: 'set 地址不是字符串',
+      raw: { sessionId: 's', action: 'set', addresses: [1] },
+      fragment: /不是字符串/,
+    },
+    {
+      name: '未知字段 extra',
+      raw: { sessionId: 's', extra: true },
+      fragment: /未知字段：extra/,
+    },
+  ])
+})
+
 /* ────────────────────────────── 响应 parser ────────────────────────────── */
 
 describe('parsePanelSnapshot：合法快照', () => {
@@ -570,6 +760,27 @@ describe('parsePanelSnapshot：合法快照', () => {
     expect(result.value.groups).toEqual([])
     expect(result.value.state.disabled).toEqual([])
     expect(result.value.notices).toEqual([])
+  })
+
+  it('workspace 为 null（cwd 无法归属 / 无 registry）与空 skills 合法', () => {
+    const empty = setAt(setAt(SNAPSHOT, 'workspace', null), 'skills', [])
+    const result = parsePanelSnapshot(empty)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.workspace).toBeNull()
+    expect(result.value.skills).toEqual([])
+  })
+
+  it('技能行的空描述合法（已关且无缓存）', () => {
+    const result = parsePanelSnapshot(SNAPSHOT)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.skills[1]).toStrictEqual({
+      name: 'skill-creator',
+      description: '',
+      disabled: false,
+      shadowed: false,
+    })
   })
 
   it('解析不修改输入、也不复用输入的数组（两端都不共享运行时身份）', () => {
@@ -643,6 +854,27 @@ describe('parsePanelSnapshot：strict 拒绝', () => {
     { name: 'stats 带未知字段', raw: setAt(SNAPSHOT, 'stats.total', 214), fragment: /未知字段：total/ },
     { name: 'notices 含未知码', raw: setAt(SNAPSHOT, 'notices', ['unknown']), fragment: /不是已知取值/ },
     { name: 'notices 不是数组', raw: setAt(SNAPSHOT, 'notices', 'persistence-degraded') },
+    { name: '缺 skills（新增字段不可缺省）', raw: dropAt(SNAPSHOT, 'skills'), fragment: /skills 不是数组/ },
+    { name: 'skills 不是数组', raw: setAt(SNAPSHOT, 'skills', {}) },
+    { name: '技能行不是对象', raw: setAt(SNAPSHOT, 'skills.0', 'openspec-propose') },
+    { name: '技能行 name 为空串', raw: setAt(SNAPSHOT, 'skills.0.name', ''), fragment: /为空/ },
+    { name: '技能行缺 description', raw: dropAt(SNAPSHOT, 'skills.0.description'), fragment: /不是字符串/ },
+    {
+      name: '技能行描述超长（161 > 160）',
+      raw: setAt(SNAPSHOT, 'skills.0.description', 'd'.repeat(DESCRIPTION_MAX_LENGTH + 1)),
+      fragment: /超过 160 字符/,
+    },
+    { name: '技能行 disabled 不是布尔值', raw: setAt(SNAPSHOT, 'skills.0.disabled', 'yes') },
+    { name: '技能行带未知字段', raw: setAt(SNAPSHOT, 'skills.0.provider', 'x'), fragment: /未知字段：provider/ },
+    { name: '缺 workspace（新增字段不可缺省）', raw: dropAt(SNAPSHOT, 'workspace'), fragment: /不是对象/ },
+    { name: 'workspace 不是对象', raw: setAt(SNAPSHOT, 'workspace', '/w') },
+    { name: 'workspace.key 为空串', raw: setAt(SNAPSHOT, 'workspace.key', '') },
+    { name: 'workspace.registered 不是布尔值', raw: setAt(SNAPSHOT, 'workspace.registered', 'yes') },
+    { name: 'workspace.disabled 含非字符串', raw: setAt(SNAPSHOT, 'workspace.disabled', ['mcp:a', 1]) },
+    { name: 'workspace.path 为空串', raw: setAt(SNAPSHOT, 'workspace.path', '') },
+    { name: 'workspace.title 不是字符串', raw: setAt(SNAPSHOT, 'workspace.title', 1) },
+    { name: 'workspace 带未知字段', raw: setAt(SNAPSHOT, 'workspace.size', 1), fragment: /未知字段：size/ },
+    { name: '未知快照键 groupsX', raw: setAt(SNAPSHOT, 'groupsX', []), fragment: /未知字段：groupsX/ },
     { name: '顶层未知字段 extra', raw: setAt(SNAPSHOT, 'extra', true), fragment: /未知字段：extra/ },
   ])
 })
@@ -667,6 +899,13 @@ describe('parseToggleValue / parseResetValue：新快照 + 变更回执', () => 
   it('hiddenTools 允许为负（开启方向的撤销量）', () => {
     const result = parseToggleValue(setAt(TOGGLE_VALUE, 'mutation.hiddenTools', -70))
     expect(result.ok).toBe(true)
+  })
+
+  it('hiddenSkills 允许为负（影子 stub 撤销量）', () => {
+    const result = parseToggleValue(setAt(TOGGLE_VALUE, 'mutation.hiddenSkills', -2))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.mutation.hiddenSkills).toBe(-2)
   })
 
   runRejected(parseToggleValue, [
@@ -694,6 +933,8 @@ describe('parseToggleValue / parseResetValue：新快照 + 变更回执', () => 
     { name: '回执条目的 address 为空串', raw: setAt(TOGGLE_VALUE, 'mutation.applied.0.address', '') },
     { name: '回执条目的 on 不是布尔值', raw: setAt(TOGGLE_VALUE, 'mutation.applied.0.on', 1) },
     { name: 'mutation.hiddenTools 非整数', raw: setAt(TOGGLE_VALUE, 'mutation.hiddenTools', 1.5) },
+    { name: 'mutation 缺 hiddenSkills', raw: dropAt(TOGGLE_VALUE, 'mutation.hiddenSkills'), fragment: /hiddenSkills/ },
+    { name: 'mutation.hiddenSkills 非整数', raw: setAt(TOGGLE_VALUE, 'mutation.hiddenSkills', 1.5), fragment: /hiddenSkills/ },
     { name: 'mutation.visibleBefore 为负', raw: setAt(TOGGLE_VALUE, 'mutation.visibleBefore', -1) },
     { name: 'mutation.notices 含未知码', raw: setAt(TOGGLE_VALUE, 'mutation.notices', ['nope']) },
     { name: '顶层未知字段 extra', raw: setAt(TOGGLE_VALUE, 'sessionId', 's-1'), fragment: /未知字段：sessionId/ },
@@ -726,21 +967,89 @@ describe('parseDefaultsValue：默认档视图', () => {
   ])
 })
 
+describe('parseWorkspaceValue：工作区档视图', () => {
+  it('合法成功值原样通过（不新增键、不丢键）', () => {
+    expect(parseWorkspaceValue(plain(WORKSPACE_VALUE))).toStrictEqual({ ok: true, value: WORKSPACE_VALUE })
+  })
+
+  it('workspace 为 null 合法（cwd 无法归属 / 无 registry）', () => {
+    const result = parseWorkspaceValue(setAt(WORKSPACE_VALUE, 'workspace', null))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.workspace).toBeNull()
+  })
+
+  it('choices / changed 为空数组合法（无已登记工作区 / 只读）', () => {
+    const result = parseWorkspaceValue(setAt(setAt(WORKSPACE_VALUE, 'choices', []), 'changed', []))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.choices).toEqual([])
+    expect(result.value.changed).toEqual([])
+  })
+
+  it('无 title 的工作区视图合法（未登记时缺省）', () => {
+    const result = parseWorkspaceValue(dropAt(WORKSPACE_VALUE, 'workspace.title'))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.workspace === null ? undefined : 'title' in result.value.workspace).toBe(false)
+  })
+
+  runRejected(parseWorkspaceValue, [
+    { name: '成功值是数组', raw: [] },
+    { name: '成功值是 null', raw: null },
+    { name: '缺 workspace', raw: dropAt(WORKSPACE_VALUE, 'workspace'), fragment: /不是对象/ },
+    { name: '缺 choices', raw: dropAt(WORKSPACE_VALUE, 'choices'), fragment: /choices 不是数组/ },
+    { name: '缺 changed', raw: dropAt(WORKSPACE_VALUE, 'changed'), fragment: /changed 不是数组/ },
+    { name: 'choices 不是数组', raw: setAt(WORKSPACE_VALUE, 'choices', {}) },
+    { name: '下拉项不是对象', raw: setAt(WORKSPACE_VALUE, 'choices.0', '/w') },
+    { name: '下拉项缺 title', raw: dropAt(WORKSPACE_VALUE, 'choices.0.title') },
+    { name: '下拉项 key 为空串', raw: setAt(WORKSPACE_VALUE, 'choices.0.key', ''), fragment: /为空/ },
+    {
+      name: '下拉项带未知字段',
+      raw: setAt(WORKSPACE_VALUE, 'choices.0.registered', true),
+      fragment: /未知字段：registered/,
+    },
+    { name: 'workspace.key 为空串', raw: setAt(WORKSPACE_VALUE, 'workspace.key', ''), fragment: /为空/ },
+    {
+      name: 'workspace.registered 不是布尔值',
+      raw: setAt(WORKSPACE_VALUE, 'workspace.registered', 'yes'),
+    },
+    { name: 'workspace.disabled 含非字符串', raw: setAt(WORKSPACE_VALUE, 'workspace.disabled', [1]) },
+    { name: 'workspace.path 为空串', raw: setAt(WORKSPACE_VALUE, 'workspace.path', '') },
+    { name: 'workspace.corrupt 不是布尔值', raw: setAt(WORKSPACE_VALUE, 'workspace.corrupt', 'no') },
+    { name: 'workspace.title 不是字符串', raw: setAt(WORKSPACE_VALUE, 'workspace.title', 1) },
+    { name: 'workspace 带未知字段', raw: setAt(WORKSPACE_VALUE, 'workspace.size', 1), fragment: /未知字段：size/ },
+    { name: 'changed 含空串', raw: setAt(WORKSPACE_VALUE, 'changed', ['']), fragment: /为空/ },
+    { name: 'changed 含非字符串', raw: setAt(WORKSPACE_VALUE, 'changed', [1]) },
+    { name: '顶层未知字段 extra', raw: setAt(WORKSPACE_VALUE, 'extra', true), fragment: /未知字段：extra/ },
+    { name: '把 defaults 成功值当 workspace 解码', raw: plain(DEFAULTS_VALUE) },
+  ])
+})
+
 describe('端点之间的形状互不串用（一个端点一种响应）', () => {
-  it('panel 快照不能被当 toggle / defaults 成功值解码', () => {
+  it('panel 快照不能被当 toggle / defaults / workspace 成功值解码', () => {
     expect(parseToggleValue(plain(SNAPSHOT)).ok).toBe(false)
     expect(parseDefaultsValue(plain(SNAPSHOT)).ok).toBe(false)
+    expect(parseWorkspaceValue(plain(SNAPSHOT)).ok).toBe(false)
   })
 
-  it('toggle 成功值不能被当 panel 快照或 defaults 成功值解码', () => {
+  it('toggle 成功值不能被当 panel 快照 / defaults / workspace 成功值解码', () => {
     expect(parsePanelSnapshot(plain(TOGGLE_VALUE)).ok).toBe(false)
     expect(parseDefaultsValue(plain(TOGGLE_VALUE)).ok).toBe(false)
+    expect(parseWorkspaceValue(plain(TOGGLE_VALUE)).ok).toBe(false)
   })
 
-  it('defaults 成功值不能被当 panel 快照或 toggle 成功值解码', () => {
+  it('defaults 成功值不能被当 panel 快照 / toggle / workspace 成功值解码', () => {
     expect(parsePanelSnapshot(plain(DEFAULTS_VALUE)).ok).toBe(false)
     expect(parseToggleValue(plain(DEFAULTS_VALUE)).ok).toBe(false)
     expect(parseResetValue(plain(DEFAULTS_VALUE)).ok).toBe(false)
+    expect(parseWorkspaceValue(plain(DEFAULTS_VALUE)).ok).toBe(false)
+  })
+
+  it('workspace 成功值不能被当 panel 快照 / toggle / defaults 成功值解码', () => {
+    expect(parsePanelSnapshot(plain(WORKSPACE_VALUE)).ok).toBe(false)
+    expect(parseToggleValue(plain(WORKSPACE_VALUE)).ok).toBe(false)
+    expect(parseDefaultsValue(plain(WORKSPACE_VALUE)).ok).toBe(false)
   })
 })
 
@@ -774,6 +1083,11 @@ describe('parseFailureDetails：§2.3 的 details 形状', () => {
     expect(parseFailureDetails(details)).toStrictEqual(details)
   })
 
+  it('workspace-unresolved：subject（会话 id 或被拒绝的路径原文）', () => {
+    expect(parseFailureDetails({ subject: '/home/u/gone' })).toStrictEqual({ subject: '/home/u/gone' })
+    expect(parseFailureDetails({ subject: 'session-1' })).toStrictEqual({ subject: 'session-1' })
+  })
+
   const unrecognized: readonly { readonly name: string; readonly details: unknown }[] = [
     { name: '空对象（internal 的 details）', details: {} },
     { name: '非对象', details: 'oops' },
@@ -785,6 +1099,8 @@ describe('parseFailureDetails：§2.3 的 details 形状', () => {
     { name: 'path 非字符串', details: { path: 1, reason: 'EACCES' } },
     { name: 'issues 非字符串', details: { issues: 1 } },
     { name: 'sessionId 非字符串', details: { sessionId: 1 } },
+    { name: 'subject 非字符串', details: { subject: 1 } },
+    { name: 'subject 形状多出未知字段', details: { subject: '/w', extra: true } },
   ]
 
   for (const testCase of unrecognized) {
@@ -801,6 +1117,8 @@ describe('与宿主侧快照（任务 9.3 的 panel.ts）的形状一致性', ()
     // 9.3 的 `PanelSnapshot` 是宿主侧的独立类型（它不 import 本模块）。9.4 的 dispatcher 会
     // 把这个对象**直接**交给 `parsePanelSnapshot`：任一侧多/少/改一个字段，下面的三行赋值
     // 会在 typecheck 阶段失败，而不是等到运行时才以 `bad-response` / `internal` 暴露。
+    // 组 5 先冻结契约：宿主侧的 `skills` / `workspace` 由 6.1 补齐，在那之前本块 typecheck
+    // 红属 diff-matrix R4 的规划内瞬态（运行时本用例仍然通过）。
     const wire: PanelSnapshot = SNAPSHOT
     const host: HostPanelSnapshot = wire
     const back: PanelSnapshot = host

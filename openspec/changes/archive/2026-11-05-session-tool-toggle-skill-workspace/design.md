@@ -131,6 +131,8 @@
 - 被否：整档关闭仍注册 stub（白触发缓存失效与目录消息）；清空逐项地址（破坏意图保留）。
 - 反例：整档关闭时注册 stub 会让 `skills/change` 触发一轮无效目录重算，而 `skill` 工具 schema 已不可见、目录本就停发。
 
+- 执行环境：直用主工作区。创建于 2026-11-04
+
 ## 代码级契约（承接 `code-design.md` 六字段）
 
 ### ① 触达面清单（仓归属：全部本仓 `dsh-plugins`，插件目录 `plugins/session-tool-toggle/`）
@@ -232,7 +234,7 @@
 | 6 | 内核与装配接线（5 项并行：H6/H7/H10/H11/H12 接线段） | `vitest run test/panel.test.ts test/control.test.ts test/rpc.test.ts test/commands.test.ts` |
 | 7 | Web 半（7 项并行：C1/C2/C3、C4+C5、C9、C6+C7、C8+C10+C11） | `vitest run test/skill-panel.test.tsx test/workspace-editor.test.tsx test/panel-controller.test.ts test/panel-client.test.ts test/client-index.test.ts test/locale-parity.test.ts test/tool-panel.test.tsx` |
 | 8 | 静态门禁 + 隔离实例冒烟 + 浏览器证据（2 项并行） | `pnpm --filter dsh-plugin-session-tool-toggle verify:all` + `pnpm dsh:check` + 冒烟 6 条 + 截图 |
-| 9 | 文档与发布（3 项并行：插件 README、根 README/AGENTS、release 1.5.0） | `pnpm release --dry-run` 清单符合预期 + `pnpm verify`/`dsh:check` 全绿 |
+| 9 | 文档与发布（3 项并行：插件 README、根 README/AGENTS、release 1.6.0） | `pnpm release --dry-run` 清单符合预期 + `pnpm verify`/`dsh:check` 全绿 |
 
 ### ⑥ 设计假设与未决项
 
@@ -250,7 +252,7 @@
 | `/` 菜单对被关技能显示「仅限用户调用」前缀，用户可能困惑 | 面板行标注「模型不可见，`/name` 可用」；README 说明这是设计语义 |
 | 契约 strict 双端不同步 → `bad-response` | 沿用「升级后重启 web profile」纪律；client 侧已有降级文案；不改 strict |
 | 工作区档损坏 / 不可写 / 无 registry | 两级降级 + warn + 面板 `corrupt`/`readable` 视图 + 失败码 `workspace-unwritable`；`skills`/`workspaceRegistry` 缺席只降级对应功能 |
-| 回滚到 1.4.0 丢 `skill:` 条目与工作区档 | 用户已拍板不保证；README/发布说明写明 |
+| 回滚到不含本功能的旧版（1.4.0/1.5.0 均如此）丢 `skill:` 条目与工作区档 | 用户已拍板不保证；README/发布说明写明 |
 | 面板体积膨胀（技能行 + 工作区视图） | 描述截 160；只输出必要字段；沿用 200 KB 阈值口径 |
 | footer 对话框在折叠态的宽度/定位 | 复用 primitives + 本轮 G8 截图确认；必要时自带浮层定位 |
 | 目录发布侧 `complete === false` 时目录不更新 | 回执提示「下一步收敛」；不重复注册；如实记录 |
@@ -258,7 +260,7 @@
 ## Migration Plan
 
 1. 落档 → 执行（组 1–9）→ `pnpm --filter dsh-plugin-session-tool-toggle verify:all` + 根 `pnpm verify` + `pnpm dsh:check` 全绿。
-2. 版本 1.4.0 → 1.5.0（`pnpm release` 统一抬；`lib/` 重建随提交）。
+2. 版本 1.5.0 → 1.6.0（`pnpm release` 统一抬；`lib/` 重建随提交；勘误 2026-11-04：落档时基座为 1.4.0，其间 v1.5.0 已发布，故本变更发 1.6.0）。
 3. live profile 为 `link:` 安装：重建 `lib/` 后**重启 dsh 进程**加载新宿主半（浏览器半随页面刷新）；重启会中断当前会话，部署前先在隔离实例完成冒烟。
 4. 回滚：不保证兼容（旧版丢弃 `skill:` 与工作区档）；若要回滚，需同时回退状态记录与 `workspaces.json`（README 写明）。
 

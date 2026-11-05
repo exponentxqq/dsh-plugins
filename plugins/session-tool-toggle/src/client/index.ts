@@ -3,10 +3,10 @@
  *
  * **双端职责**：宿主半（`src/host/index.ts`）承载 `/tools` 命令面与 Connection RPC 通道
  * `/session-tool-toggle`——工具面的状态、校验、落盘全在那边；本文件只把**同一份状态**
- * 接到 Web：会话头部工具区放一个入口按钮，点开就是 `/tools` 的可视面。两半共用
- * `src/contract.ts` 的通道/端点常量，client 侧的 `panel-client.ts` 直接内联同一组字面量
- * （D16：两端各持一份手写 parser），因此浏览器 bundle 不依赖宿主产物、也不需要运行时
- * 解析彼此的模块。
+ * 接到 Web：会话头部工具区放一个入口按钮，点开就是 `/tools` 的可视面；侧栏底部再放一个
+ * 工作区默认档入口（footer 对话框）。两半共用 `src/contract.ts` 的通道/端点常量，client
+ * 侧的 `panel-client.ts` 直接内联同一组字面量（D16：两端各持一份手写 parser），因此浏览器
+ * bundle 不依赖宿主产物、也不需要运行时解析彼此的模块。
  *
  * 装配三件事，按依赖顺序：
  *
@@ -17,10 +17,15 @@
  *    处理函数按面板开合进出集合——多会话的头部可能同时挂着多份入口，共用一份宿主事件即可，
  *    不必每开一次面板往 fiber 上叠一个 effect（`ctx.on` 本身已经是一个 effect，见
  *    `@deepseek-ai/cordis/lib/index.js:335-345`）。
- * 3. **座位软注册**：`conversation.session.header.utilities`（list / scope `session`，设计
- *    §3.1 的 order 20）。`register` 整体包 `try/catch`：**座位缺席或拒绝注册时，最坏结果
- *    是入口不出现**，而不是 client 半整体装配失败——同一个 shell 里还有别的插件、别的座位
- *    （设计 §4 R2：utilities 座位的会话由框架保证，座位本身却可能不在这个壳里）。
+ * 3. **座位软注册**（两处，按 `seats.ts` 的常量与顺序）：
+ *    - 会话头部工具区 `conversation.session.header.utilities`（list / scope `session`，
+ *      order 20，设计 §3.1）；
+ *    - 侧栏底部 `sidebar.footer.action`（list / scope `root`，order 60，工作区默认档入口）。
+ *
+ *    两处 `register` 各自整体包 `try/catch`：**座位缺席或拒绝注册时，最坏结果是该入口不出现**，
+ *    而不是 client 半整体装配失败——同一个 shell 里还有别的插件、别的座位（设计 §4 R2：
+ *    utilities 座位的会话由框架保证，座位本身却可能不在这个壳里）；两处互相独立，一个座位
+ *    注册失败不连累另一个。
  *
  * **`connection` 为什么不在 `inject` 里**：Web 壳的 `connection` 由 api-gateway 在 remote
  * 网关就绪后才 provide，**晚于**本插件 `apply`（web-ux v1.2.0 的踩坑，
@@ -43,20 +48,25 @@
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-// 类型专用 import：把 renderer 的 ctx.slots、conversation 的座位契约（SlotMap 键）、
+// 类型专用 import：把 renderer 的 ctx.slots、conversation / sidebar 的座位契约（SlotMap 键）、
 // session 的 SessionStandardProps（sessionId 座）、locale 的 ctx.locale、commands 的
 // `command/executed` 事件声明并进本文件的程序。少任何一个，下面 register / on / locale
 // 的调用点都会类型不成立（这些合并声明只在被 import 后才可见）。
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-commands/client'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type { CommandExecutedHandler } from './panel-controller.ts'
 import type { PanelClient } from './panel-client.ts'
+import type { WorkspaceFooterActionProps } from './WorkspaceEntry.tsx'
 import type { ToolPanelActionInjected } from './ToolPanelAction.tsx'
 import { ToolPanelAction } from './ToolPanelAction.tsx'
+import { WorkspaceFooterAction } from './WorkspaceEntry.tsx'
+import { currentSessionIdOf } from './current-session.ts'
+import { FOOTER_ID, FOOTER_ORDER, FOOTER_SEAT, HEADER_SEAT, PANEL_ID, PANEL_ORDER } from './seats.ts'
 import { NS, en, zh } from './locales.ts'
 import { createPanelClient } from './panel-client.ts'
 
@@ -70,23 +80,27 @@ export const name = 'session-tool-toggle'
  */
 export const inject: readonly string[] = ['slots', 'locale']
 
-/** 入口的 SlotMap 键：会话头部工具区（list / scope `session`，设计 §3.1）。 */
-export const SEAT = 'conversation.session.header.utilities'
-
-/** 入口 entry 的 id（list 座位的 cell 身份；同 cell 同优先级重复注册会 fail loud）。 */
-export const PANEL_ID = 'session-tool-toggle-panel'
-
 /**
- * 入口的显示顺序。
+ * 座位常量统一由 `seats.ts` 提供（任务 7.4 / 设计 C5）。
  *
- * 官方三项是 `-10`（open-in-app）/ `-5`（schedule）/ 缺省 `0`（session-log-export），
- * 见设计 §3.1 的取值论证。取 `20`：保持「越靠右越大」的单调关系、与最大官方值留出间隔，
- * 又不与缺省的 `0` 并列（并列时的先后取决于注册时序，不稳定）。
+ * 这里保留 `SEAT` / `PANEL_ID` / `PANEL_ORDER` 三个旧导出名（值不变）：它们已是本模块
+ * 对外的注册契约，外部调用方与既有套件按名引用；新代码应直接从 `seats.ts` 取
+ * `HEADER_SEAT` / `FOOTER_SEAT` / 两个 entry 的 id 与 order。
  */
-export const PANEL_ORDER = 20
+export { HEADER_SEAT as SEAT, PANEL_ID, PANEL_ORDER }
 
 /** 诊断日志里的子系统名。 */
 const LOG_LABEL = 'session-tool-toggle'
+
+/**
+ * footer 注册面交给组件的业务份额。
+ *
+ * `WorkspaceFooterActionProps` 里剩下的两项由框架与座位 owner 提供：`t` 来自
+ * 注册选项的 `locale: NS`（`PropsLocale` 合成），`wide` 来自 `sidebar.footer.action`
+ * 的 owner 份额（`{ wide: boolean }`）。注入面的两个端口都**不缓存服务**：每次动作
+ * 现取，与头部入口同一纪律（`connection` / `sessions` 都可能晚于 `apply` 就绪）。
+ */
+type WorkspaceFooterActionInjected = Pick<WorkspaceFooterActionProps, 'resolveClient' | 'currentSessionId'>
 
 /**
  * 把 `window` 的 `focus` 事件接到一个回调上。
@@ -141,12 +155,12 @@ export function apply(ctx: ClientContext): void {
     attachFocusListener,
   }
 
-  // ④ 座位软注册：座位被声明时回调才执行；被拒绝时只丢这个入口。
-  ctx.slots.inject(SEAT, () => {
+  // ④ 头部座位软注册：座位被声明时回调才执行；被拒绝时只丢这个入口。
+  ctx.slots.inject(HEADER_SEAT, () => {
     try {
       return ctx.slots.register(
         {
-          name: SEAT,
+          name: HEADER_SEAT,
           id: PANEL_ID,
           order: PANEL_ORDER,
           locale: NS,
@@ -157,6 +171,33 @@ export function apply(ctx: ClientContext): void {
     } catch (error) {
       // 座位在但拒绝了这次注册（例如同 cell 同优先级已被占用）：入口不显示，其余照常。
       ctx.logger.warn('%s: 会话头部工具区座位注册失败，本会话的入口不显示', LOG_LABEL)
+      ctx.logger.warn(error)
+      return () => {}
+    }
+  })
+
+  // ⑤ footer 实注册：侧栏底部的工作区默认档入口（list / root，owner 只给 `{wide}`）。
+  //    与头部各自 try/catch：一个座位拒绝注册不连累另一个，`apply` 始终正常返回。
+  ctx.slots.inject(FOOTER_SEAT, () => {
+    try {
+      return ctx.slots.register(
+        {
+          name: FOOTER_SEAT,
+          id: FOOTER_ID,
+          order: FOOTER_ORDER,
+          locale: NS,
+          inject: (): WorkspaceFooterActionInjected => ({
+            // 复用头部入口的现取客户端：两个入口对 `connection` 是同一份纪律。
+            resolveClient: ports.resolveClient,
+            // 每次动作现取当前会话（`current-session.ts` 的两步探测，服务缺席返回 undefined）。
+            currentSessionId: () => currentSessionIdOf(ctx),
+          }),
+        },
+        WorkspaceFooterAction,
+      )
+    } catch (error) {
+      // 同头部：座位在但拒绝了这次注册时，工作区默认档入口不显示，其余照常。
+      ctx.logger.warn('%s: 侧栏底部工作区默认档座位注册失败，本入口不显示', LOG_LABEL)
       ctx.logger.warn(error)
       return () => {}
     }

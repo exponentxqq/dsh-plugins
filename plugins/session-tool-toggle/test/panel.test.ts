@@ -5,9 +5,12 @@
  * `stats` 四计数 → `hiddenByOthers` / `intentOnly` / `notices`。另加：
  *
  * - **形状**：字段名、嵌套与可选性与附录 §2.2 逐字段对齐；**绝不**出现 `parameters`；
- * - **描述**：只取首 160 字符，短描述原样，无描述时连键都不出现；
+ * - **描述**：只取首 160 字符，短描述原样，无描述时连键都不出现（技能行的描述字段恒存在，
+ *   无来源时是空串）；
  * - **纯函数**：入参不被修改，同一输入两次调用结果深相等；
- * - **空输入**：空 catalog / 空关闭集不抛错，得到一份全空快照。
+ * - **空输入**：空 catalog / 空关闭集不抛错，得到一份全空快照；
+ * - **技能行与工作区视图**（H6）：顶层 `skills` / `workspace`，技能行的 `disabled`（意图）
+ *   与 `shadowed`（实际生效）两态，以及关闭集的**全地址归一**与 `intentOnly` 三分。
  *
  * 两个刻意记录在案的口径（不是断言笔误）：
  *
@@ -18,11 +21,21 @@
  *    两个用例）。
  * 2. `mcp__a__b__c` 按**首个** `__` 归 serverName `a`（§6.1 A12 的已知歧义：与 server
  *    `a__b` + suffix `c` 的拆法不可区分）。歧义只影响展示分组，开关地址匹配不看分组。
+ *
+ * 技能行与工具分组互补：`groups` 里的 `skill` 整档行保持不变，逐技能行只在顶层 `skills`。
+ * `skills.visible` 只给模型可调用技能，`skills.shadowed` 只给名字——因此「已关且已遮蔽」的
+ * 行没有描述来源，`description` 是空串（契约允许，注释 §3.6.4 写的就是这条）。
  */
 import { describe, expect, it } from 'vitest'
 import { buildPanelSnapshot, DESCRIPTION_MAX_LENGTH } from '../src/host/panel.ts'
 import type { ToolEntry, ToolGroup } from '../src/host/panel.ts'
-import type { DefaultsFile, PanelInputs, SessionToolState } from '../src/host/types.ts'
+import type {
+  DefaultsFile,
+  PanelInputs,
+  SessionToolState,
+  SkillLayerSnapshot,
+  WorkspacePanelInputs,
+} from '../src/host/types.ts'
 
 /** 空状态：新会话 / 空日志的合法取值（关闭集与快照都为空）。 */
 const EMPTY_STATE: SessionToolState = {
@@ -67,6 +80,38 @@ function inputs(partial: Partial<PanelInputs> = {}): PanelInputs {
  */
 function stateWith(disabled: readonly string[]): SessionToolState {
   return { ...EMPTY_STATE, disabled, updatedAt: 42 }
+}
+
+/**
+ * 构造技能分面读数：默认是「服务可用、没有技能」，用例只写它关心的字段。
+ * @param partial - 要覆盖的字段。
+ * @returns 技能分面读数。
+ */
+function skillsOf(partial: Partial<SkillLayerSnapshot> = {}): SkillLayerSnapshot {
+  return { available: true, shadowed: [], visible: [], ...partial }
+}
+
+/** 工作区归属夹具：已登记、带标题（覆盖 `title` 的映射）。 */
+const ATTRIBUTION: NonNullable<WorkspacePanelInputs['attribution']> = {
+  key: '/home/user/project',
+  registered: true,
+  title: 'dsh-plugins',
+}
+
+/**
+ * 构造工作区档读数：默认可归属、空关闭集。
+ * @param partial - 要覆盖的字段。
+ * @returns 工作区档读数。
+ */
+function workspaceOf(partial: Partial<WorkspacePanelInputs> = {}): WorkspacePanelInputs {
+  return {
+    attribution: ATTRIBUTION,
+    disabled: [],
+    path: '/home/user/.dsh/session-tool-toggle/workspaces.json',
+    readable: true,
+    corrupt: false,
+    ...partial,
+  }
 }
 
 /**
@@ -180,6 +225,9 @@ describe('buildPanelSnapshot：分组（首个 __ 切分）', () => {
     expect(snapshot.intentOnly).toEqual([])
     expect(snapshot.notices).toEqual([])
     expect(snapshot.state.disabled).toEqual([])
+    // 技能分面与工作区读数都没有输入 → 空视图（不是缺字段）。
+    expect(snapshot.skills).toEqual([])
+    expect(snapshot.workspace).toBeNull()
     expect(snapshot.stats).toEqual({ visible: 0, catalog: 0, denied: 0, shadowed: 0 })
   })
 })
@@ -435,6 +483,243 @@ describe('buildPanelSnapshot：关闭集视图与两态区分', () => {
   })
 })
 
+describe('buildPanelSnapshot：技能行（skills）', () => {
+  it('G6 出口断言：已关技能行同时带 disabled 与 shadowed，关闭集含 skill:<name>', () => {
+    const snapshot = buildPanelSnapshot(
+      inputs({
+        catalog: ['skill'],
+        scoped: ['skill'],
+        state: stateWith(['skill:openspec-propose', 'skill:ghost']),
+        skills: skillsOf({ shadowed: ['openspec-propose'] }),
+      }),
+    )
+
+    // 已关且已注册影子 stub：disabled（意图）+ shadowed（实际生效）同时为 true。
+    // `shadowed` 只给名字、没有描述来源 → description 是空串（契约允许，已关且无缓存）。
+    expect(snapshot.skills).toEqual([
+      { name: 'openspec-propose', description: '', disabled: true, shadowed: true },
+    ])
+    expect(snapshot.intentOnly).toEqual(['skill:ghost'])
+    expect(snapshot.state.disabled).toContain('skill:openspec-propose')
+    // 技能行必须同时带两个事实字段（客户端据此区分「已关但没生效」与「已生效」）。
+    expect(snapshot.skills[0]).toHaveProperty('disabled', true)
+    expect(snapshot.skills[0]).toHaveProperty('shadowed', true)
+  })
+
+  it('技能行 = 模型可调用 ∪ 已遮蔽名字：按名字升序、同名字只出一行', () => {
+    const snapshot = buildPanelSnapshot(
+      inputs({
+        skills: skillsOf({
+          visible: [
+            { name: 'openspec-apply', description: '按任务清单实施变更' },
+            { name: 'openspec-propose', description: '起草变更提案' },
+          ],
+          shadowed: ['openspec-propose', 'zebra-skill'],
+        }),
+      }),
+    )
+
+    expect(snapshot.skills).toEqual([
+      { name: 'openspec-apply', description: '按任务清单实施变更', disabled: false, shadowed: false },
+      // 同名的 visible 行与 shadowed 名字只出一行；描述取 visible（唯一有描述的来源）。
+      { name: 'openspec-propose', description: '起草变更提案', disabled: false, shadowed: true },
+      { name: 'zebra-skill', description: '', disabled: false, shadowed: true },
+    ])
+  })
+
+  it('disabled 是意图、shadowed 是实际生效：已关但仍在 visible 里 → shadowed:false（stub 未胜出）', () => {
+    const snapshot = buildPanelSnapshot(
+      inputs({
+        catalog: ['skill'],
+        state: stateWith(['skill:openspec-propose']),
+        skills: skillsOf({
+          visible: [{ name: 'openspec-propose', description: '起草变更提案' }],
+        }),
+      }),
+    )
+
+    // 技能已关（意图在），但影子 stub 没胜出：它仍在模型可调用清单里。
+    expect(snapshot.skills).toEqual([
+      { name: 'openspec-propose', description: '起草变更提案', disabled: true, shadowed: false },
+    ])
+    // 已安装（在 visible 里）不算「无安装」，因此不进 intentOnly。
+    expect(snapshot.intentOnly).toEqual([])
+  })
+
+  it('描述按 160 字符截断；空描述的 visible 行给空串（字段恒存在）', () => {
+    const raw = '技'.repeat(DESCRIPTION_MAX_LENGTH + 20)
+    const snapshot = buildPanelSnapshot(
+      inputs({
+        skills: skillsOf({
+          visible: [
+            { name: 'long-skill', description: raw },
+            { name: 'empty-skill', description: '' },
+          ],
+        }),
+      }),
+    )
+
+    expect(snapshot.skills[0]?.name).toBe('empty-skill')
+    expect(snapshot.skills[0]?.description).toBe('')
+    expect(snapshot.skills[1]?.description).toHaveLength(DESCRIPTION_MAX_LENGTH)
+    expect(snapshot.skills[1]?.description).toBe(raw.slice(0, DESCRIPTION_MAX_LENGTH))
+    // 技能行的字段集固定：没有 parameters，description 恒存在（可以是空串）。
+    expect(Object.keys(snapshot.skills[0] ?? {}).sort()).toEqual([
+      'description',
+      'disabled',
+      'name',
+      'shadowed',
+    ])
+  })
+
+  it('skills 缺席 → 空技能视图，技能关闭项只记意图（intentOnly）', () => {
+    const snapshot = buildPanelSnapshot(inputs({ state: stateWith(['skill:openspec-propose']) }))
+
+    expect(snapshot.skills).toEqual([])
+    // 没有技能分面读数就没有「已安装」证据 → 技能地址一律是纯意图。
+    expect(snapshot.intentOnly).toEqual(['skill:openspec-propose'])
+  })
+
+  it('available:false → 空技能视图（整块降级），技能关闭项只记意图', () => {
+    const snapshot = buildPanelSnapshot(
+      inputs({
+        state: stateWith(['skill:openspec-propose']),
+        skills: skillsOf({
+          available: false,
+          shadowed: ['openspec-propose'],
+          visible: [{ name: 'openspec-apply', description: '实施变更' }],
+        }),
+      }),
+    )
+
+    expect(snapshot.skills).toEqual([])
+    expect(snapshot.intentOnly).toEqual(['skill:openspec-propose'])
+  })
+})
+
+describe('buildPanelSnapshot：关闭集全地址归一与 intentOnly 三分', () => {
+  it('全地址归一：技能地址保留在 state.disabled（旧实现只取 planMask.matched 键会整个丢掉）', () => {
+    const snapshot = buildPanelSnapshot(inputs({ state: stateWith(['skill:openspec-propose']) }))
+
+    expect(snapshot.state.disabled).toEqual(['skill:openspec-propose'])
+    // 技能地址不参与工具掩码：deny 不变，也不进工具分组。
+    expect(snapshot.stats.denied).toBe(0)
+    expect(snapshot.groups).toEqual([])
+    // 旧口径下 planMask.matched 里根本没有这个键，state.disabled 会是空数组。
+    expect(snapshot.state.disabled).toContain('skill:openspec-propose')
+  })
+
+  it('归一：skill / skill:* → tool:skill；skill:<name> 保留；非法条目静默丢弃', () => {
+    const snapshot = buildPanelSnapshot(
+      inputs({
+        state: stateWith([
+          'skill',
+          'skill:*',
+          'skill:openspec-propose',
+          'skill:Foo',
+          'tool:bash',
+          '',
+        ]),
+      }),
+    )
+
+    // `skill` 与 `skill:*` 是整档别名的两种拼写，归一到 tool:skill；大写技能名、保护基线、
+    // 空串都不可解析 → 丢弃。排序按 UTF-16 码元（skill:… < tool:…）。
+    expect(snapshot.state.disabled).toEqual(['skill:openspec-propose', 'tool:skill'])
+  })
+
+  it('intentOnly 三分：工具地址 0 命中 ∪ 技能地址无安装，合并后排序', () => {
+    const snapshot = buildPanelSnapshot(
+      inputs({
+        catalog: ['mcp__a__x'],
+        state: stateWith(['mcp:zzz', 'skill:ghost', 'skill:openspec-propose']),
+        skills: skillsOf({
+          visible: [{ name: 'openspec-propose', description: '起草变更提案' }],
+        }),
+      }),
+    )
+
+    expect(snapshot.state.disabled).toEqual(['mcp:zzz', 'skill:ghost', 'skill:openspec-propose'])
+    // mcp:zzz 命中 0；skill:ghost 无安装；openspec-propose 已安装 → 不在 intentOnly。
+    expect(snapshot.intentOnly).toEqual(['mcp:zzz', 'skill:ghost'])
+    // 工具地址 0 命中只影响 intentOnly，不产生工具 deny。
+    expect(snapshot.stats.denied).toBe(0)
+  })
+
+  it('已注册影子 stub 的技能名算「已安装」，不进 intentOnly', () => {
+    const snapshot = buildPanelSnapshot(
+      inputs({
+        state: stateWith(['skill:openspec-propose']),
+        skills: skillsOf({ shadowed: ['openspec-propose'] }),
+      }),
+    )
+
+    expect(snapshot.intentOnly).toEqual([])
+  })
+
+  it('不可解析条目全部丢弃后关闭集为空（不抛错）', () => {
+    const snapshot = buildPanelSnapshot(
+      inputs({ state: stateWith(['', 'skill:Foo', 'tool:bash']) }),
+    )
+    expect(snapshot.state.disabled).toEqual([])
+    expect(snapshot.intentOnly).toEqual([])
+  })
+})
+
+describe('buildPanelSnapshot：工作区视图（workspace）', () => {
+  it('workspace 输入缺席 / attribution 缺席 → null（fail-closed，只展示用户级默认档）', () => {
+    expect(buildPanelSnapshot(inputs()).workspace).toBeNull()
+    expect(buildPanelSnapshot(inputs({ workspace: workspaceOf() })).workspace).not.toBeNull()
+    // cwd 无法归属：即使有工作区档读数，也不凭空造一个工作区键。
+    expect(
+      buildPanelSnapshot(inputs({ workspace: workspaceOf({ attribution: undefined }) })).workspace,
+    ).toBeNull()
+  })
+
+  it('工作区视图逐字段映射（title / registered / disabled 排序去重 / path / readable / corrupt）', () => {
+    const snapshot = buildPanelSnapshot(
+      inputs({
+        workspace: workspaceOf({
+          disabled: ['skill:zebra', 'mcp:a', 'skill:zebra'],
+          path: '/tmp/workspaces.json',
+          readable: false,
+          corrupt: true,
+        }),
+      }),
+    )
+
+    expect(snapshot.workspace).toEqual({
+      key: '/home/user/project',
+      title: 'dsh-plugins',
+      registered: true,
+      disabled: ['mcp:a', 'skill:zebra'],
+      path: '/tmp/workspaces.json',
+      readable: false,
+      corrupt: true,
+    })
+  })
+
+  it('未登记工作区没有 title 键；registered:false 原样带出', () => {
+    const snapshot = buildPanelSnapshot(
+      inputs({
+        workspace: workspaceOf({
+          attribution: { key: '/home/user/scratch', registered: false },
+        }),
+      }),
+    )
+
+    expect(snapshot.workspace).toEqual({
+      key: '/home/user/scratch',
+      registered: false,
+      disabled: [],
+      path: '/home/user/.dsh/session-tool-toggle/workspaces.json',
+      readable: true,
+      corrupt: false,
+    })
+    expect(snapshot.workspace !== null && 'title' in snapshot.workspace).toBe(false)
+  })
+})
+
 describe('buildPanelSnapshot：notices', () => {
   it('入参提示码 ∪ 由 storeKind / defaultsCorrupt 推导的码，去重后按固定顺序', () => {
     const snapshot = buildPanelSnapshot(
@@ -450,6 +735,29 @@ describe('buildPanelSnapshot：notices', () => {
       'persistence-degraded',
       'defaults-corrupt',
       'session-subagent',
+    ])
+  })
+
+  it('新增两码（skills-unavailable / skill-shadow-failed）按固定顺序排在既有三码之后', () => {
+    const snapshot = buildPanelSnapshot(
+      inputs({
+        // 入参顺序与枚举顺序相反：输出顺序只由 NOTICE_ORDER 决定。
+        notices: [
+          'skill-shadow-failed',
+          'skills-unavailable',
+          'session-subagent',
+          'defaults-corrupt',
+          'persistence-degraded',
+        ],
+      }),
+    )
+
+    expect(snapshot.notices).toEqual([
+      'persistence-degraded',
+      'defaults-corrupt',
+      'session-subagent',
+      'skills-unavailable',
+      'skill-shadow-failed',
     ])
   })
 
@@ -533,6 +841,8 @@ describe('buildPanelSnapshot：形状（附录 §2.2）', () => {
         catalog: ['mcp__a__x', 'workflow'],
         scoped: ['mcp__a__x', 'workflow'],
         descriptions: new Map([['mcp__a__x', '列出项目']]),
+        skills: skillsOf({ visible: [{ name: 'openspec-propose', description: '起草变更提案' }] }),
+        workspace: workspaceOf({ disabled: ['mcp:a'] }),
       }),
     )
 
@@ -546,8 +856,10 @@ describe('buildPanelSnapshot：形状（附录 §2.2）', () => {
       'notices',
       'protectedNames',
       'sessionId',
+      'skills',
       'state',
       'stats',
+      'workspace',
     ])
     expect(Object.keys(snapshot.state).sort()).toEqual([
       'disabled',
@@ -595,6 +907,24 @@ describe('buildPanelSnapshot：形状（附录 §2.2）', () => {
 
     // 整份快照的序列化里不出现 parameters（工具入参描述只属于模型面，不进面板）。
     expect(JSON.stringify(snapshot)).not.toContain('parameters')
+
+    // 技能行：四个字段全在，没有 parameters。
+    expect(Object.keys(snapshot.skills[0] ?? {}).sort()).toEqual([
+      'description',
+      'disabled',
+      'name',
+      'shadowed',
+    ])
+    // 工作区视图：字段集固定，title 是唯一可选键。
+    expect(Object.keys(snapshot.workspace ?? {}).sort()).toEqual([
+      'corrupt',
+      'disabled',
+      'key',
+      'path',
+      'readable',
+      'registered',
+      'title',
+    ])
   })
 
   it('纯函数：不修改入参，同一输入两次调用深相等', () => {
@@ -602,12 +932,17 @@ describe('buildPanelSnapshot：形状（附录 §2.2）', () => {
     const scoped = ['mcp__a__x']
     const disabled = ['mcp:a::x']
     const descriptions = new Map([['mcp__a__x', '列出项目']])
+    const visible = [{ name: 'openspec-propose', description: '起草变更提案' }]
+    const shadowed = ['openspec-apply']
+    const workspaceDisabled = ['mcp:a']
     const params = inputs({
       catalog,
       scoped,
       carried: ['mcp__a__y'],
       descriptions,
       state: stateWith(disabled),
+      skills: skillsOf({ visible, shadowed }),
+      workspace: workspaceOf({ disabled: workspaceDisabled }),
     })
 
     const first = buildPanelSnapshot(params)
@@ -619,10 +954,15 @@ describe('buildPanelSnapshot：形状（附录 §2.2）', () => {
     expect(scoped).toEqual(['mcp__a__x'])
     expect(disabled).toEqual(['mcp:a::x'])
     expect(descriptions.size).toBe(1)
+    expect(visible).toEqual([{ name: 'openspec-propose', description: '起草变更提案' }])
+    expect(shadowed).toEqual(['openspec-apply'])
+    expect(workspaceDisabled).toEqual(['mcp:a'])
     // 返回的数组是新引用，调用方改快照不会回写到状态；两次调用之间也不共享数组。
     expect(first.state.disabled).not.toBe(params.state.disabled)
     expect(first.state.snapshot).not.toBe(params.state.snapshot)
     expect(first.protectedNames).not.toBe(params.protectedNames)
+    expect(first.skills).not.toBe(second.skills)
+    expect(first.workspace?.disabled).not.toBe(workspaceDisabled)
     expect(second.state.snapshot).not.toBe(first.state.snapshot)
     expect(second.hiddenByOthers).not.toBe(first.hiddenByOthers)
   })

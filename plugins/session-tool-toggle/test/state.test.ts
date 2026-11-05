@@ -31,11 +31,12 @@ function recordingLog(): { log: SpecLog; warnings: string[] } {
   }
 }
 
-/** 常用地址：整组 / 单工具 / 内置工具。 */
+/** 常用地址：整组 / 单工具 / 内置工具 / 技能。 */
 const MCP_A: SwitchAddress = { kind: 'mcp-group', server: 'a' }
 const MCP_B: SwitchAddress = { kind: 'mcp-group', server: 'b' }
 const MCP_A_X: SwitchAddress = { kind: 'mcp-tool', server: 'a', pattern: 'x' }
 const SKILL: SwitchAddress = { kind: 'tool', name: 'skill' }
+const SKILL_OPENSPEC: SwitchAddress = { kind: 'skill', name: 'openspec-propose' }
 
 /** 构造一份合法状态；只覆盖用例关心的字段。 */
 function stateOf(overrides: Partial<SessionToolState> = {}): SessionToolState {
@@ -137,6 +138,16 @@ describe('withToggled：关闭集增删', () => {
     expect(withToggled(EMPTY_STATE, MCP_A_X, false).disabled).toEqual(['mcp:a::x'])
   })
 
+  it('技能地址按规范形写入，与 tool:skill 共处同一份关闭集', () => {
+    const withSkill = withToggled(EMPTY_STATE, SKILL_OPENSPEC, false)
+    const both = withToggled(withSkill, SKILL, false)
+
+    expect(withSkill.disabled).toEqual(['skill:openspec-propose'])
+    expect(both.disabled).toEqual(['skill:openspec-propose', 'tool:skill'])
+    // 开启技能不影响 tool:skill：两者是不同的开关对象。
+    expect(withToggled(both, SKILL_OPENSPEC, true).disabled).toEqual(['tool:skill'])
+  })
+
   it('updatedAt 不由 withToggled 更新（时间戳由调用方在写入前打）', () => {
     const before = stateOf({ updatedAt: 1234 })
 
@@ -194,6 +205,21 @@ describe('normalizeState：合法载荷与条目级降级', () => {
     expect(normalizeState(EMPTY_STATE, QUIET_LOG)).toEqual(EMPTY_STATE)
   })
 
+  it('含 skill:<name> 的整值记录原样往返（经 parseAddress 自动接受，不告警）', () => {
+    const { log, warnings } = recordingLog()
+    const raw = {
+      version: 1,
+      disabled: ['skill:openspec-propose', 'tool:skill'],
+      snapshot: ['skill:openspec-propose'],
+      seeded: true,
+      updatedAt: 21,
+    }
+
+    expect(normalizeState(raw, log)).toEqual(raw)
+    // 规范形直接通过：不产生「丢弃」也不产生「归一」告警。
+    expect(warnings).toEqual([])
+  })
+
   it('坏条目逐条丢弃，好条目保留，并按字段汇总成一条告警', () => {
     const { log, warnings } = recordingLog()
     const raw = {
@@ -236,6 +262,24 @@ describe('normalizeState：合法载荷与条目级降级', () => {
     // 每个字段各汇总一条（disabled / snapshot）。
     expect(warnings).toHaveLength(2)
     expect(warnings.every((warning) => warning.includes('归一'))).toBe(true)
+  })
+
+  it('skill 与 skill:* 归一为 tool:skill（整档别名，语义不变）', () => {
+    const raw = {
+      version: 1,
+      disabled: ['skill', 'skill:*'],
+      snapshot: ['skill:*'],
+      seeded: true,
+      updatedAt: 0,
+    }
+
+    expect(normalizeState(raw, QUIET_LOG)).toEqual({
+      version: 1,
+      disabled: ['tool:skill'],
+      snapshot: ['tool:skill'],
+      seeded: true,
+      updatedAt: 0,
+    })
   })
 
   it('顺带修复排序与重复：被外部改写的记录也收敛到规范形', () => {
@@ -284,6 +328,19 @@ describe('parseDisabledTexts：存储层双保险', () => {
 
   it('可解析的非规范形条目归一为规范形', () => {
     expect(parseDisabledTexts(['mcp:a::*', 'skill'], PROTECTED)).toEqual(['mcp:a', 'tool:skill'])
+  })
+
+  it('接受 skill:<name>，并把 skill / skill:* 归一为 tool:skill', () => {
+    expect(parseDisabledTexts(['skill:openspec-propose', 'skill', 'skill:*'], PROTECTED)).toEqual([
+      'skill:openspec-propose',
+      'tool:skill',
+    ])
+  })
+
+  it('技能名非法的条目与其它文法错误同样丢弃', () => {
+    expect(parseDisabledTexts(['skill:', 'skill:Foo', 'skill:openspec-propose'], PROTECTED)).toEqual([
+      'skill:openspec-propose',
+    ])
   })
 
   it('排序去重', () => {
@@ -343,6 +400,14 @@ describe('foldStatus：读路径日志重放', () => {
       seeded: true,
       updatedAt: 3,
     })
+  })
+
+  it('重放含 skill:<name> 的整值记录（技能地址是一等状态文本）', () => {
+    const events = [
+      recordOf(0, stateOf({ disabled: ['skill:openspec-propose'], seeded: true, updatedAt: 1 })),
+    ]
+
+    expect(foldStatus(events, QUIET_LOG).disabled).toEqual(['skill:openspec-propose'])
   })
 
   it('最后一条载荷损坏时降级空态，不回退到更早的记录', () => {

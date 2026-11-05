@@ -5,8 +5,8 @@
  * 兜四层：
  *
  * 1. **zh/en 键集合双向相等**——有人把 `en` 的类型断言改宽也逃不过；
- * 2. **稳定码全覆盖**——`contract.ts` 的 7 个宿主失败码 + 2 个传输码必须有 `error.<code>`，
- *    `NOTICE_CODES` 三个必须有 `notice.<code>`，`STORE_KINDS` / `TOOL_GROUP_KINDS` 的取值
+ * 2. **稳定码全覆盖**——`contract.ts` 的 9 个宿主失败码 + 2 个传输码必须有 `error.<code>`，
+ *    `NOTICE_CODES` 五个必须有 `notice.<code>`，`STORE_KINDS` / `TOOL_GROUP_KINDS` 的取值
  *    也必须各有键（否则面板只能写死中文，R6 破防）；
  * 3. **与设计附录 §3.5 表逐字对齐**——失败码文案是规范事实，漂移要在测试里暴露，而不是
  *    等到界面上看到两种说法；
@@ -54,6 +54,9 @@ const SECTION_3_5: ReadonlyArray<readonly [FailureKey, string]> = [
   ['error.reserved', '{names} 是保留工具，不能关闭。'],
   ['error.session-not-live', '该会话未在宿主中运行（可能已归档或已结束），无法调整工具面。'],
   ['error.defaults-unwritable', '默认档写入失败：{path}。'],
+  // C10 新增两码：§3.5 表是变更前的旧表，这两条文案由本变更冻结（同样逐字比对，防漂移）。
+  ['error.workspace-unresolved', '工作区无法归属：{subject}。'],
+  ['error.workspace-unwritable', '工作区默认档写入失败：{path}。'],
   ['error.internal', '宿主内部错误，本次操作未完成。'],
   ['error.unavailable', '无法连接到 dsh 主进程。'],
   ['error.bad-response', '宿主返回了无法识别的响应。'],
@@ -63,7 +66,7 @@ const SECTION_3_5: ReadonlyArray<readonly [FailureKey, string]> = [
 /** §3.5 表里出现的键名类型（`Key` 的子集，写错键名在编译期就会被抓）。 */
 type FailureKey = Extract<Key, `error.${string}`>
 
-/** 面板真正会读的键（入口、骨架、四分区、行级标记、关闭集、默认档、状态摘要）。 */
+/** 面板真正会读的键（入口、骨架、六分区、行级标记、关闭集、默认档、技能、工作区、状态摘要）。 */
 const REQUIRED_KEYS: readonly Key[] = [
   // 入口按钮（设计 §3.1）
   'action.label',
@@ -75,9 +78,10 @@ const REQUIRED_KEYS: readonly Key[] = [
   'panel.loading',
   'panel.empty',
   'panel.refresh',
-  // 四分区标题
+  // 六分区标题（工作区分区的标题是 `workspace.title`，见下）
   'section.state',
   'section.groups',
+  'section.skills',
   'section.defaults',
   'section.disabled',
   // 分组（设计 §3.3）
@@ -107,6 +111,38 @@ const REQUIRED_KEYS: readonly Key[] = [
   'defaults.placeholder',
   'defaults.saved',
   'defaults.empty',
+  // 技能分面（设计 §3.3 的技能段 / D-7：行不进 `ToolGroup`）
+  'skill.region',
+  'skill.unavailable',
+  'skill.blocked',
+  'skill.empty',
+  'skill.pending',
+  'skill.switchLabel',
+  'skill.effective',
+  'skill.intentOnly',
+  // 工作区默认档（设计 §3.4 / C2；面板分区与侧栏对话框共用同一组键）
+  'workspace.title',
+  'workspace.select',
+  'workspace.refresh',
+  'workspace.loading',
+  'workspace.unavailable',
+  'workspace.key',
+  'workspace.path',
+  'workspace.registered',
+  'workspace.unregistered',
+  'workspace.unresolved',
+  'workspace.corrupt',
+  'workspace.scope',
+  'workspace.union',
+  'workspace.empty',
+  'workspace.add',
+  'workspace.addPlaceholder',
+  'workspace.placeholder',
+  'workspace.remove',
+  'workspace.removeAria',
+  'workspace.saved',
+  'workspace.clear',
+  'workspace.clearConfirm',
   // 状态摘要
   'state.visible',
   'state.catalog',
@@ -173,8 +209,8 @@ describe('sessionToolToggle 文案', () => {
     }
   })
 
-  it('7 个宿主失败码 + 2 个传输码都有 error.<code> 键', () => {
-    expect(FAILURE_CODES).toHaveLength(9)
+  it('9 个宿主失败码 + 2 个传输码都有 error.<code> 键', () => {
+    expect(FAILURE_CODES).toHaveLength(11)
     for (const code of FAILURE_CODES) {
       const key = `error.${code}`
       expect(zh, `zh.${key}`).toHaveProperty(key)
@@ -182,8 +218,8 @@ describe('sessionToolToggle 文案', () => {
     }
   })
 
-  it('3 个提示码都有 notice.<code> 键', () => {
-    expect(NOTICE_CODES).toHaveLength(3)
+  it('5 个提示码都有 notice.<code> 键', () => {
+    expect(NOTICE_CODES).toHaveLength(5)
     for (const code of NOTICE_CODES) {
       const key = `notice.${code}`
       expect(zh, `zh.${key}`).toHaveProperty(key)
