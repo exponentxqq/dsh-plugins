@@ -62,13 +62,27 @@ describe('浏览器半产物', () => {
     expect(imports.filter((word) => word.includes(PACKAGE_NAME))).toEqual([])
   })
 
-  it('内联了删除能力的契约，而不是引用宿主半', () => {
+  it('内联了删除与会话管理能力的契约，而不是引用宿主半', () => {
     const source = readArtifact('client.js')
     expect(source).toContain('/web-ux')
     expect(source).toContain('preview-delete')
     expect(source).toContain('delete-session')
     expect(source).toContain('sidebar.workspaces.session.menu.item')
     expect(source).toContain('shell.overlay')
+    // 会话管理面：侧栏底部的 footer action 入口 + shell.overlay 浮层（靠 id 区分），
+    // 以及管理面调用的五个新端点（批量 2 个、迁移域 3 个）。
+    expect(source).toContain('sidebar.footer.action')
+    // 加引号是为了区分浮层 id 与 `web-ux-session-manager-trigger`（入口 id）。
+    expect(source).toContain(JSON.stringify('web-ux-session-manager'))
+    for (const endpoint of [
+      'preview-delete-batch',
+      'delete-session-batch',
+      'list-migrated',
+      'delete-migrated',
+      'restore-migrated',
+    ]) {
+      expect(source).toContain(endpoint)
+    }
   })
 
   it('内联了命令结果通知能力：事件名、座位与卡片身份', () => {
@@ -80,11 +94,11 @@ describe('浏览器半产物', () => {
 
   it('每个 css 模块都注入自己的样式表（防重护栏按包+模块，而非只按包）', () => {
     const source = readArtifact('client.js')
-    // 三个 css 模块（badge / delete / notice）各自携带一个 data-dsh-css 注入器；
-    // 只按包名防重会让第一个模块之后的样式永远被跳过（v1.4.0 的 delete 样式
-    // 即因此从未生效）。
+    // 四个 css 模块（badge / delete / notice / session-manager）各自携带一个
+    // data-dsh-css 注入器；只按包名防重会让第一个模块之后的样式永远被跳过
+    // （v1.4.0 的 delete 样式即因此从未生效）。
     const injectors = source.match(/style\.setAttribute\((["'])data-dsh-css\1/g) ?? []
-    expect(injectors).toHaveLength(3)
+    expect(injectors).toHaveLength(4)
     // 通知卡的样式确实内联（不透明背景变量来自 notice.module.css）。
     expect(source).toContain('--dsw-alias-bg-layer-2')
   })
@@ -97,9 +111,20 @@ describe('宿主半产物', () => {
     expect(foreign).toEqual([])
   })
 
-  it('带有 channel、两个端点与借用的移除事件名', () => {
+  it('带有 channel、七个端点与两个会话事件名', () => {
     const source = readArtifact('index.js')
-    for (const marker of ['/web-ux', 'preview-delete', 'delete-session', 'api-session/removed']) {
+    for (const marker of [
+      '/web-ux',
+      'preview-delete',
+      'delete-session',
+      'preview-delete-batch',
+      'delete-session-batch',
+      'list-migrated',
+      'delete-migrated',
+      'restore-migrated',
+      'api-session/removed',
+      'api-session/added',
+    ]) {
       expect(source).toContain(marker)
     }
   })

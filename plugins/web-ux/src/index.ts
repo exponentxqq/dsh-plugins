@@ -1,12 +1,19 @@
 /**
- * dsh-plugin-web-ux —— 宿主半的实载体：浏览器侧「处置已归档会话（删除 / 归档）」入口
- * 背后的 Connection RPC 通道。
+ * dsh-plugin-web-ux —— 宿主半的实载体：浏览器侧「会话管理」（单会话 / 批量处置与
+ * 归档目录管理）入口背后的 Connection RPC 通道。
  *
- * 浏览器半（`exports "./client"`）负责侧栏菜单项与确认对话框；真正的工作在这里，因为
- * 它需要工作区注册表、会话持久化与磁盘上的 harness home。通道（`CHANNEL`，见
- * `./contract.ts`）服务两个端点：`preview-delete` 校验并统计处置集合（并原样回声宿主
- * 解析后的归档根），`delete-session` 重新校验后按请求体里的 `mode` 二选一执行——
- * `delete` 物理删除、`archive` 把日志目录迁移到归档根——再为每个受影响会话广播移除事件。
+ * 浏览器半（`exports "./client"`）负责侧栏入口、管理浮层与确认对话框；真正的工作在这里，
+ * 因为它需要工作区注册表、会话持久化与磁盘上的 harness home。通道（`CHANNEL`，见
+ * `./contract.ts`）服务七个端点，按三个域分组：
+ *
+ * - **单会话**：`preview-delete` 校验并统计处置集合（并原样回声宿主解析后的归档根），
+ *   `delete-session` 重新校验后按请求体里的 `mode` 二选一执行——`delete` 物理删除、
+ *   `archive` 把日志目录迁移到归档根——再为每个受影响会话广播移除事件。
+ * - **批量**：`preview-delete-batch` / `delete-session-batch`，与单会话共用同一套校验与
+ *   执行循环，只是目标从 1 个扩成一批（并集统计、整单拒绝、逐项 warnings）。
+ * - **已迁移**：`list-migrated` 枚举归档根下的条目，`delete-migrated` 物理删除条目，
+ *   `restore-migrated` 把条目搬回 `<home>/sessions` 并挂回工作区；恢复成功后再按
+ *   **真实会话头**广播 `api-session/added`，浏览器会话列表因此即时补行。
  *
  * 归档根由 `./config.ts` 的 {@link resolveArchiveRoot} 从插件配置解析：缺省跟随
  * `$DSH_HOME`（`archive/sessions`），支持绝对路径与 `~/`；相对路径告警后回落缺省。
@@ -18,8 +25,9 @@
  * 本入口也不再是空壳：它既是载体，也是 RPC 服务。
  *
  * 每个上游触点都是软的：通道只在存在宿主 Connection 与 web server 时挂载，
- * `connection` 解析不到只告警一条，缺 harness-home 解析器时两个端点都退化为 `internal`
- * 而不是猜一个路径。
+ * `connection` 解析不到只告警一条，缺 harness-home 解析器时所有端点都退化为 `internal`
+ * 而不是猜一个路径；迁移域的挂回 / 归档集合 / 广播失败只让流程记一条 warning，会话仍算
+ * 已恢复。
  *
  * 运行时 import 只有 `node:*`、本包自己的模块，以及配置模块的 `Config`（原生
  * Schemastery 图，由 esbuild 内联进产物，宿主运行时不为它解析任何 `@deepseek-ai/*`）；
@@ -34,25 +42,40 @@ import type { ConnectionRpcResult } from '@deepseek-ai/dsh-client-connection'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // 类型面：加载 `sessionPersistence` 的上下文服务声明合并。
 import type {} from '@deepseek-ai/dsh-session-persistence'
-// 类型面：加载 `workspaceRegistry` 的上下文服务声明合并。
-import type {} from '@deepseek-ai/dsh-workspace'
+// 类型面：加载 `workspaceRegistry` 的上下文服务声明合并，并借用它的 `WorkspaceId` 品牌。
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace'
 import { Config, resolveArchiveRoot, type WebUxConfig } from './config.ts'
 import {
   CHANNEL,
+  DELETE_BATCH_ENDPOINT,
   DELETE_ENDPOINT,
+  DELETE_MIGRATED_ENDPOINT,
+  LIST_MIGRATED_ENDPOINT,
+  PREVIEW_BATCH_ENDPOINT,
   PREVIEW_ENDPOINT,
-  parseDeleteRequest,
+  RESTORE_MIGRATED_ENDPOINT,
+  parseRequest,
   type FailureCode,
 } from './contract.ts'
 import {
   SESSION_REMOVED_EVENT,
   archiveSession,
+  archiveSessionBatch,
   createSessionFiles,
   deleteSession,
+  deleteSessionBatch,
   previewDelete,
+  previewDeleteBatch,
   type DeletePorts,
   type FileSystemOps,
 } from './delete-session.ts'
+import {
+  SESSION_ADDED_EVENT,
+  deleteMigrated,
+  listMigrated,
+  restoreMigrated,
+  type MigratedPorts,
+} from './migrated.ts'
 
 /**
  * 插件配置 schema 的转出口：loader 只从包入口读 `plugin.Config`。
@@ -100,7 +123,7 @@ export function apply(ctx: Context, config?: WebUxConfig): void {
   ctx.inject(['connection', 'webServer'], (connectionCtx) => {
     const connection = connectionCtx.root.get('connection')
     if (connection === undefined) {
-      ctx.logger.warn('web-ux: connection resolved without the service; the session-delete channel is not mounted')
+      ctx.logger.warn('web-ux: connection resolved without the service; the session-management channel is not mounted')
       return
     }
     const dispose = connection.rpc.handle(CHANNEL, createDispatcher(ctx, config))
@@ -111,12 +134,15 @@ export function apply(ctx: Context, config?: WebUxConfig): void {
 /**
  * 为一份宿主上下文构建通道 handler。
  *
- * handler 承载整条线上边界：请求体先校验（它来自浏览器），端口再从上游公开面装配，所有
- * 结论都映射到 `ConnectionRpcResult` 信封——业务拒绝保留稳定码（含
- * `archive-unavailable`：这是纯流程层的映射结果，本层不得吞掉或改码），未预期抛出变成
- * `internal`。执行端点按 `parsed.value.mode` 分派：`archive` 走
- * {@link archiveSession}（需要归档根），`delete` 走 {@link deleteSession}。模式没有隐式
- * 默认值，缺失在 parser 层已按 `bad-request` 拒绝。
+ * handler 承载整条线上边界：请求先由 {@link parseRequest} 把端点名与请求体一起校验成
+ * `WebUxRequest` 判别联合（请求来自浏览器），端口再从上游公开面装配，所有结论都映射到
+ * `ConnectionRpcResult` 信封——业务拒绝保留稳定码（含 `archive-unavailable`：这是纯流程层
+ * 的映射结果，本层不得吞掉或改码），未预期抛出变成 `internal`。
+ *
+ * 七个端点各占 `switch` 的一个分支：单会话两个与批量两个按 `body.mode` 分派到删除或迁移
+ * （`archive` 需要归档根），已迁移三个直接交给 `./migrated.ts` 的流程。模式没有隐式默认
+ * 值，缺失在 parser 层已按 `bad-request` 拒绝；端点与请求体在类型上绑定，分支内不需要
+ * 再断言。
  *
  * 导出供测试：dispatcher 不需要活的 Connection 就能驱动。
  * @param ctx - 端口所需服务所在的宿主上下文。
@@ -128,26 +154,51 @@ export function createDispatcher(
   config?: WebUxConfig,
 ): (endpoint: string, payload: unknown, signal: AbortSignal) => Promise<ConnectionRpcResult<unknown>> {
   return async (endpoint, payload) => {
-    const parsed = parseDeleteRequest(endpoint, payload)
+    const parsed = parseRequest(endpoint, payload)
     if (!parsed.ok) return failure('bad-request', parsed.message)
+    const request = parsed.value
     try {
       const ports = createPorts(ctx, config)
       if (ports === undefined) return failure('internal', NO_HOME_MESSAGE)
-      if (endpoint === PREVIEW_ENDPOINT) {
-        // 归档根与 mode 无关：两种模式下预览都回声宿主解析后的真实去向。
-        const result = await previewDelete(ports, parsed.value.sessionId, ports.archiveRoot)
-        return result.ok ? { ok: true, value: result.preview } : failure(result.code, result.message)
+      switch (request.endpoint) {
+        case PREVIEW_ENDPOINT: {
+          // 归档根与 mode 无关：两种模式下预览都回声宿主解析后的真实去向。
+          const result = await previewDelete(ports, request.body.sessionId, ports.archiveRoot)
+          return result.ok ? { ok: true, value: result.preview } : failure(result.code, result.message)
+        }
+        case DELETE_ENDPOINT: {
+          const result = request.body.mode === 'archive'
+            ? await archiveSession(ports, request.body.sessionId, ports.archiveRoot)
+            : await deleteSession(ports, request.body.sessionId)
+          return result.ok ? { ok: true, value: result.outcome } : failure(result.code, result.message)
+        }
+        case PREVIEW_BATCH_ENDPOINT:
+          // 批量预览永不因个别目标失效而整单失败：软失败清单随结果返回。
+          return { ok: true, value: await previewDeleteBatch(ports, request.body.sessionIds, ports.archiveRoot) }
+        case DELETE_BATCH_ENDPOINT: {
+          const result = request.body.mode === 'archive'
+            ? await archiveSessionBatch(ports, request.body.sessionIds, ports.archiveRoot)
+            : await deleteSessionBatch(ports, request.body.sessionIds)
+          return result.ok ? { ok: true, value: result.outcome } : failure(result.code, result.message)
+        }
+        case LIST_MIGRATED_ENDPOINT: {
+          const result = await listMigrated(ports)
+          return result.ok ? { ok: true, value: result.listing } : failure(result.code, result.message)
+        }
+        case DELETE_MIGRATED_ENDPOINT: {
+          const result = await deleteMigrated(ports, request.body.entries)
+          return result.ok ? { ok: true, value: result.outcome } : failure(result.code, result.message)
+        }
+        case RESTORE_MIGRATED_ENDPOINT: {
+          const result = await restoreMigrated(ports, request.body.entries)
+          return result.ok ? { ok: true, value: result.outcome } : failure(result.code, result.message)
+        }
+        default:
+          // parseRequest 已把端点限制在上面七个里；这里只是运行期兜底。
+          return failure('bad-request', `unknown endpoint "${endpoint}"`)
       }
-      if (endpoint === DELETE_ENDPOINT) {
-        const result = parsed.value.mode === 'archive'
-          ? await archiveSession(ports, parsed.value.sessionId, ports.archiveRoot)
-          : await deleteSession(ports, parsed.value.sessionId)
-        return result.ok ? { ok: true, value: result.outcome } : failure(result.code, result.message)
-      }
-      // parseDeleteRequest 已把端点限制在上面两个里。
-      return failure('bad-request', `unknown endpoint "${endpoint}"`)
     } catch (error: unknown) {
-      ctx.logger.warn('web-ux: the session-delete endpoint failed unexpectedly', error)
+      ctx.logger.warn('web-ux: a session-management endpoint failed unexpectedly', error)
       return failure('internal', error instanceof Error ? error.message : String(error))
     }
   }
@@ -156,10 +207,16 @@ export function createDispatcher(
 /**
  * `node:fs/promises` 绑定到结构化 {@link FileSystemOps} 端口。单一共享适配器：它不持有
  * 状态，永远解析到同一个模块。
+ *
+ * `lstat` 显式投影 `mtimeMs`：删除域只用 `size`，迁移域的列表把目录 mtime 当作条目的
+ * `updatedAt`（可选宽度信息，缺了按 0）。
  */
 const nodeFileSystem: FileSystemOps = {
   readdir: async (path) => await readdir(path, { withFileTypes: true }),
-  lstat: async (path) => await lstat(path),
+  lstat: async (path) => {
+    const stats = await lstat(path)
+    return { size: stats.size, mtimeMs: stats.mtimeMs, isDirectory: () => stats.isDirectory() }
+  },
   rm: async (path, options) => { await rm(path, { recursive: options.recursive, force: options.force }) },
   unlink: async (path) => { await unlink(path) },
   mkdir: async (path, options) => { await mkdir(path, { recursive: options.recursive }) },
@@ -168,26 +225,31 @@ const nodeFileSystem: FileSystemOps = {
 }
 
 /**
- * 在 {@link DeletePorts} 之上携带本次请求解析后的归档根。
+ * 单对象同时满足两个域（{@link DeletePorts} 与 {@link MigratedPorts}），端点各自取切片。
  *
  * 归档根与端口在**同一次装配**里解析并同行返回，调用方因此不必为了拿根再读一次 home
  * 解析器，也不会出现「预览说的是 A 路径、执行写到 B 路径」的漂移。
  */
-interface HostPorts extends DeletePorts {
+interface HostPorts extends DeletePorts, MigratedPorts {
   /** 本次请求解析后的归档根（绝对路径；缺省 `homePath('archive','sessions')`，或配置值）。 */
   readonly archiveRoot: string
 }
 
 /**
- * 在上游公开面上装配处置端口。
+ * 在上游公开面上装配处置端口（两个域共用一份装配）。
  *
  * 每个端口都是对上游的一次调用：会话头来自 `ctx.sessionPersistence.list()`
  * （`listStoredHeaders()` 是上游私有方法），存活判定读内存里的 `sessions` store（显式
  * 兄弟查找，因为属性访问会要求本行声明一个它并未注入的 `sessions` 依赖），registry 清理
  * 就是三个幂等的 registry 操作。归档根在这里经 {@link resolveArchiveRoot} 归一：home
  * 解析器跟随 `$DSH_HOME`，`~/` 展开用 `node:os` 的 `homedir()`，坏配置只走宿主日志告警
- * 一条（与既有日志写法一致），绝不抛错。返回对象保持「活」：每次访问都重新读服务，重新
- * 装载的行永远不会被钉在过期实例上。
+ * 一条（与既有日志写法一致），绝不抛错。
+ *
+ * 迁移域新增的四个端口全部软失败：工作区列表抛错由流程捕获（恢复时全部按「未分组」），
+ * 挂回 / 归档集合的拒绝原样抛出（流程记 warning，会话仍已搬回），广播读一次真实 header
+ * 列表、只对命中的 id 发事件（未命中只告警，绝不伪造一个持久化里不存在的 id）。
+ *
+ * 返回对象保持「活」：每次访问都重新读服务，重新装载的行永远不会被钉在过期实例上。
  *
  * @param ctx - 宿主上下文。
  * @param config - 插件配置（可省略）。
@@ -197,7 +259,7 @@ interface HostPorts extends DeletePorts {
 function createPorts(ctx: Context, config: WebUxConfig | undefined): HostPorts | undefined {
   const homePath = ctx.dshHomePath
   if (homePath === undefined) {
-    ctx.logger.warn('web-ux: dshHomePath is unavailable; the session-delete endpoints answer internal')
+    ctx.logger.warn('web-ux: dshHomePath is unavailable; the session-management endpoints answer internal')
     return undefined
   }
   const archiveRoot = resolveArchiveRoot(config?.archiveRoot, {
@@ -211,6 +273,8 @@ function createPorts(ctx: Context, config: WebUxConfig | undefined): HostPorts |
   const emitter = ctx as unknown as { emit(event: string, ...args: unknown[]): void }
   return {
     archiveRoot,
+    homePath,
+    fs: nodeFileSystem,
     listStoredHeaders: async () => (await ctx.sessionPersistence.list()).map((snapshot) => snapshot.header),
     isLive: (sessionId) => ctx.get('sessions')?.get(sessionId as SessionId) !== undefined,
     isArchived: (sessionId) => ctx.workspaceRegistry.archivedSessionIds.includes(sessionId as SessionId),
@@ -235,6 +299,48 @@ function createPorts(ctx: Context, config: WebUxConfig | undefined): HostPorts |
         emitter.emit(SESSION_REMOVED_EVENT, sessionId)
       } catch (error: unknown) {
         ctx.logger.warn('web-ux: broadcasting the session-removed event failed', error)
+      }
+    },
+    listWorkspaces: () => ctx.workspaceRegistry.list().map((workspace) => ({
+      workspaceId: workspace.id,
+      path: workspace.path,
+    })),
+    attachToWorkspace: async (workspaceId, sessionId) => {
+      // 匹配不到工作区是流程层的事（那里会记「未分组」）；走到这里说明匹配到的工作区
+      // 已在两步之间消失或拒绝挂回——直接抛，由流程降级成一条 warning。
+      const workspace = ctx.workspaceRegistry.get(workspaceId as WorkspaceId)
+      if (workspace === undefined) throw new Error(`workspace "${workspaceId}" is not registered`)
+      await workspace.attachSession(sessionId as SessionId)
+    },
+    readdToArchiveSet: async (sessionId) => {
+      await ctx.workspaceRegistry.archiveSession(sessionId as SessionId)
+    },
+    announceRestored: async (entries) => {
+      // 一次读全量 header：只广播持久化里真实存在的 id（D6 真实 header 优先），字段取自
+      // header，`updatedAt` 取自归档目录的 mtime。
+      const headers = new Map(
+        (await ctx.sessionPersistence.list()).map((snapshot) => [snapshot.header.id, snapshot.header]),
+      )
+      for (const entry of entries) {
+        const header = headers.get(entry.sessionId as SessionId)
+        if (header === undefined) {
+          ctx.logger.warn(`web-ux: the restored session "${entry.sessionId}" is missing from session persistence; the session-added event was skipped`)
+          continue
+        }
+        try {
+          emitter.emit(SESSION_ADDED_EVENT, {
+            sessionId: entry.sessionId,
+            updatedAt: entry.updatedAt,
+            running: false,
+            blank: false,
+            agentAvailable: false,
+            cwd: header.cwd,
+            parentSessionId: header.parentSession,
+            origin: header.origin,
+          })
+        } catch (error: unknown) {
+          ctx.logger.warn('web-ux: broadcasting the session-added event failed', error)
+        }
       }
     },
     warn: (message, error) => { ctx.logger.warn(message, error) },

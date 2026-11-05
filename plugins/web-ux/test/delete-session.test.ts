@@ -10,11 +10,16 @@ import { basename, dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   archiveSession,
+  archiveSessionBatch,
   collectDeleteSet,
+  collectDeleteSetMany,
   createSessionFiles,
   deleteSession,
+  deleteSessionBatch,
   planDelete,
+  planDeleteBatch,
   previewDelete,
+  previewDeleteBatch,
   type DeletePorts,
   type DirectoryEntry,
   type FileSystemOps,
@@ -918,5 +923,402 @@ describe('createSessionFiles.archive', () => {
       `${cache}: EPERM: operation not permitted`,
     ])
     expect(fake.has(src)).toBe(false)
+  })
+})
+
+/** 批量用例共用的会话头清单：两个目标各带一条子代理链，外加一条无关会话。 */
+const BATCH: readonly StoredSessionHeader[] = [
+  { id: 'session-a' },
+  { id: 'session-a-child', origin: 'subagent', parentSession: 'session-a' },
+  { id: 'session-b' },
+  { id: 'session-b-child', origin: 'subagent', parentSession: 'session-b' },
+  { id: 'session-b-grandchild', origin: 'subagent', parentSession: 'session-b-child' },
+  { id: 'session-other' },
+]
+
+/** 目标 b 在前、a 在后时的并集处置集合（首见顺序）。 */
+const UNION_BA = ['session-b', 'session-b-child', 'session-b-grandchild', 'session-a', 'session-a-child']
+
+/**
+ * 在既有记录端口之外再包一层全局调用轨迹：`createPorts` 只为会话级动作记 `calls`，
+ * 这里把 `listStoredHeaders` 与 `prepareArchive` 也按发生顺序记进来，于是「单次读取」
+ * 与「归档根先于任何写动作」都能直接断言。
+ * @param recording - {@link createPorts} 的产物。
+ * @returns 包好的端口与调用轨迹（按发生顺序）。
+ */
+function tracePorts(recording: RecordingPorts): { readonly ports: DeletePorts; readonly trace: string[] } {
+  const trace: string[] = []
+  const ports: DeletePorts = {
+    listStoredHeaders: async () => {
+      trace.push('listStoredHeaders')
+      return recording.ports.listStoredHeaders()
+    },
+    isLive: (sessionId) => recording.ports.isLive(sessionId),
+    isArchived: (sessionId) => recording.ports.isArchived(sessionId),
+    cleanupRegistry: async (sessionId) => {
+      trace.push(`cleanup:${sessionId}`)
+      await recording.ports.cleanupRegistry(sessionId)
+    },
+    measureFiles: async (sessionId) => {
+      trace.push(`measure:${sessionId}`)
+      return recording.ports.measureFiles(sessionId)
+    },
+    removeFiles: async (sessionId) => {
+      trace.push(`remove:${sessionId}`)
+      return recording.ports.removeFiles(sessionId)
+    },
+    prepareArchive: async (archiveRoot) => {
+      trace.push(`prepare:${archiveRoot}`)
+      await recording.ports.prepareArchive(archiveRoot)
+    },
+    archiveFiles: async (sessionId, archiveRoot) => {
+      trace.push(`archive:${sessionId}`)
+      return recording.ports.archiveFiles(sessionId, archiveRoot)
+    },
+    emitRemoved: (sessionId) => {
+      trace.push(`emit:${sessionId}`)
+      recording.ports.emitRemoved(sessionId)
+    },
+    warn: (message, error) => {
+      trace.push('warn')
+      recording.ports.warn(message, error)
+    },
+  }
+  return { ports, trace }
+}
+
+describe('collectDeleteSetMany', () => {
+  it('按输入顺序展开并集、合并去重并保持首见顺序', () => {
+    expect(collectDeleteSetMany(['session-a', 'session-b', 'session-a'], BATCH)).toEqual([
+      'session-a',
+      'session-a-child',
+      'session-b',
+      'session-b-child',
+      'session-b-grandchild',
+    ])
+  })
+
+  it('跨目标级联重叠按首见位置合并：子会话既当目标又是后代', () => {
+    expect(collectDeleteSetMany(['session-a-child', 'session-a'], BATCH)).toEqual(['session-a-child', 'session-a'])
+    expect(collectDeleteSetMany(['session-a', 'session-a-child'], BATCH)).toEqual(['session-a', 'session-a-child'])
+  })
+
+  it('空目标返回空并集', () => {
+    expect(collectDeleteSetMany([], BATCH)).toEqual([])
+  })
+})
+
+describe('planDeleteBatch', () => {
+  it('逐目标独立校验：not-found / session-live / not-archived 混合，软失败带码与消息', async () => {
+    const { ports } = createPorts({
+      headers: BATCH,
+      archived: ['session-a', 'session-b'],
+      live: ['session-b-grandchild'],
+    })
+    expect(await planDeleteBatch(['session-a', 'session-ghost', 'session-b', 'session-other'], ports)).toEqual({
+      accepted: ['session-a'],
+      union: ['session-a', 'session-a-child'],
+      rejected: [
+        { sessionId: 'session-ghost', code: 'not-found', message: expect.stringContaining('"session-ghost"') },
+        { sessionId: 'session-b', code: 'session-live', message: expect.stringContaining('"session-b-grandchild"') },
+        { sessionId: 'session-other', code: 'not-archived', message: expect.stringContaining('"session-other"') },
+      ],
+    })
+  })
+
+  it('被拒目标不做级联展开，也不进入并集', async () => {
+    const { ports } = createPorts({ headers: BATCH, archived: [] })
+    expect(await planDeleteBatch(['session-b'], ports)).toEqual({
+      accepted: [],
+      union: [],
+      rejected: [{ sessionId: 'session-b', code: 'not-archived', message: expect.any(String) }],
+    })
+  })
+
+  it('每个目标至多一条拒绝，按 not-found → not-archived → session-live 首错即止', async () => {
+    const { ports } = createPorts({ headers: BATCH, archived: [], live: ['session-ghost', 'session-other'] })
+    expect(await planDeleteBatch(['session-ghost', 'session-other', 'session-b'], ports)).toEqual({
+      accepted: [],
+      union: [],
+      rejected: [
+        { sessionId: 'session-ghost', code: 'not-found', message: expect.any(String) },
+        { sessionId: 'session-other', code: 'not-archived', message: expect.any(String) },
+        { sessionId: 'session-b', code: 'not-archived', message: expect.any(String) },
+      ],
+    })
+  })
+
+  it('目标按首见顺序去重，只校验一次', async () => {
+    const { ports } = createPorts({ headers: BATCH, archived: ['session-a'] })
+    expect(await planDeleteBatch(['session-a', 'session-a'], ports)).toEqual({
+      accepted: ['session-a'],
+      union: ['session-a', 'session-a-child'],
+      rejected: [],
+    })
+  })
+
+  it('多个目标只读一次 listStoredHeaders，且计划阶段不产生任何写动作', async () => {
+    const recording = createPorts({ headers: BATCH, archived: ['session-a', 'session-b'] })
+    const { ports, trace } = tracePorts(recording)
+    await planDeleteBatch(['session-a', 'session-b', 'session-ghost'], ports)
+    expect(trace.filter((call) => call === 'listStoredHeaders')).toHaveLength(1)
+    expect(trace).toEqual(['listStoredHeaders'])
+    expect(recording.calls).toEqual([])
+  })
+
+  it('空目标：结论为空但仍只读一次', async () => {
+    const recording = createPorts({ headers: BATCH })
+    const { ports, trace } = tracePorts(recording)
+    expect(await planDeleteBatch([], ports)).toEqual({ accepted: [], union: [], rejected: [] })
+    expect(trace).toEqual(['listStoredHeaders'])
+  })
+})
+
+describe('previewDeleteBatch', () => {
+  it('软失败不整单失败：统计按并集口径，rejected 带码与消息', async () => {
+    const sizes = new Map([['session-a', 10], ['session-a-child', 20]])
+    const { ports, calls } = createPorts({
+      headers: BATCH,
+      archived: ['session-a', 'session-b'],
+      live: ['session-b-grandchild'],
+      measure: async (sessionId) => sizes.get(sessionId) ?? 0,
+    })
+    expect(await previewDeleteBatch(ports, ['session-a', 'session-ghost', 'session-b', 'session-other', 'session-a'], ARCHIVE_ROOT)).toEqual({
+      targetCount: 4,
+      sessionCount: 2,
+      descendantCount: 1,
+      logBytes: 30,
+      archiveRoot: ARCHIVE_ROOT,
+      rejected: [
+        { sessionId: 'session-ghost', code: 'not-found', message: expect.stringContaining('"session-ghost"') },
+        { sessionId: 'session-b', code: 'session-live', message: expect.stringContaining('"session-b-grandchild"') },
+        { sessionId: 'session-other', code: 'not-archived', message: expect.stringContaining('"session-other"') },
+      ],
+    })
+    // 只测量并集成员：被拒目标一次都不测量。
+    expect(calls).toEqual(['measure:session-a', 'measure:session-a-child'])
+  })
+
+  it('measureFiles 抛错按 0 计并告警，预览仍成功', async () => {
+    const { ports, warnings } = createPorts({
+      headers: BATCH,
+      archived: ['session-a'],
+      measure: async (sessionId) => {
+        if (sessionId === 'session-a-child') throw new Error('EACCES: permission denied')
+        return 5
+      },
+    })
+    expect(await previewDeleteBatch(ports, ['session-a'], ARCHIVE_ROOT)).toEqual({
+      targetCount: 1,
+      sessionCount: 2,
+      descendantCount: 1,
+      logBytes: 5,
+      archiveRoot: ARCHIVE_ROOT,
+      rejected: [],
+    })
+    expect(warnings).toHaveLength(1)
+  })
+
+  it('全部目标被拒时仍返回预览（不整单失败）', async () => {
+    const { ports, calls } = createPorts({ headers: BATCH, archived: [] })
+    expect(await previewDeleteBatch(ports, ['session-a', 'session-ghost'], ARCHIVE_ROOT)).toEqual({
+      targetCount: 2,
+      sessionCount: 0,
+      descendantCount: 0,
+      logBytes: 0,
+      archiveRoot: ARCHIVE_ROOT,
+      rejected: [
+        { sessionId: 'session-a', code: 'not-archived', message: expect.any(String) },
+        { sessionId: 'session-ghost', code: 'not-found', message: expect.any(String) },
+      ],
+    })
+    expect(calls).toEqual([])
+  })
+
+  it('空目标：零统计、零测量、无软失败', async () => {
+    const { ports, calls } = createPorts({ headers: BATCH })
+    expect(await previewDeleteBatch(ports, [], ARCHIVE_ROOT)).toEqual({
+      targetCount: 0,
+      sessionCount: 0,
+      descendantCount: 0,
+      logBytes: 0,
+      archiveRoot: ARCHIVE_ROOT,
+      rejected: [],
+    })
+    expect(calls).toEqual([])
+  })
+})
+
+describe('deleteSessionBatch', () => {
+  it('按并集全量逐 id 执行 cleanup → remove → emit，removed 是并集而不是勾选目标', async () => {
+    const recording = createPorts({ headers: BATCH, archived: ['session-a', 'session-b'] })
+    const { ports, trace } = tracePorts(recording)
+    expect(await deleteSessionBatch(ports, ['session-b', 'session-a'])).toEqual({
+      ok: true,
+      outcome: { removed: UNION_BA, warnings: [] },
+    })
+    expect(recording.calls).toEqual(UNION_BA.flatMap((id) => [`cleanup:${id}`, `remove:${id}`, `emit:${id}`]))
+    expect(trace.filter((call) => call === 'listStoredHeaders')).toHaveLength(1)
+  })
+
+  it('重复目标只处置一次', async () => {
+    const { ports, calls } = createPorts({ headers: BATCH, archived: ['session-a'] })
+    expect(await deleteSessionBatch(ports, ['session-a', 'session-a'])).toEqual({
+      ok: true,
+      outcome: { removed: ['session-a', 'session-a-child'], warnings: [] },
+    })
+    expect(calls.filter((call) => call === 'cleanup:session-a')).toHaveLength(1)
+  })
+
+  it('任一目标被拒即整单拒绝（首个拒绝码），零副作用', async () => {
+    const recording = createPorts({ headers: BATCH, archived: ['session-a'] })
+    const { ports, trace } = tracePorts(recording)
+    expect(await deleteSessionBatch(ports, ['session-a', 'session-ghost'])).toEqual({
+      ok: false,
+      code: 'not-found',
+      message: expect.stringContaining('"session-ghost"'),
+    })
+    // 唯一的 I/O 是只读的 listStoredHeaders：cleanup / remove / emit 一次都没有发生。
+    expect(trace).toEqual(['listStoredHeaders'])
+    expect(recording.calls.filter((call) => /^(cleanup|remove|emit):/.test(call))).toEqual([])
+    expect(recording.prepared).toEqual([])
+  })
+
+  it('「首个」按输入顺序取：not-archived 在前时返回 not-archived', async () => {
+    const { ports } = createPorts({ headers: BATCH, archived: ['session-a'] })
+    expect(await deleteSessionBatch(ports, ['session-other', 'session-ghost'])).toEqual({
+      ok: false,
+      code: 'not-archived',
+      message: expect.stringContaining('"session-other"'),
+    })
+  })
+
+  it('文件失败不中止不回滚：warnings 按并集顺序收集，removed 仍是并集全量', async () => {
+    const { ports, calls } = createPorts({
+      headers: BATCH,
+      archived: ['session-a', 'session-b'],
+      remove: async (sessionId) => {
+        if (sessionId === 'session-b') return ['/home/tester/.dsh/sessions/proj/session-b: EACCES']
+        if (sessionId === 'session-b-child') throw new Error('driver exploded')
+        return []
+      },
+    })
+    expect(await deleteSessionBatch(ports, ['session-b', 'session-a'])).toEqual({
+      ok: true,
+      outcome: {
+        removed: UNION_BA,
+        warnings: [
+          '/home/tester/.dsh/sessions/proj/session-b: EACCES',
+          'files: session-b-child: driver exploded',
+        ],
+      },
+    })
+    // 失败之后的后代与第二个目标照常处置，registry 清理与广播也都发生。
+    for (const id of UNION_BA) {
+      expect(calls).toContain(`cleanup:${id}`)
+      expect(calls).toContain(`emit:${id}`)
+      expect(calls).toContain(`remove:${id}`)
+    }
+  })
+
+  it('空目标：成功且无任何会话动作', async () => {
+    const { ports, calls } = createPorts({ headers: BATCH })
+    expect(await deleteSessionBatch(ports, [])).toEqual({ ok: true, outcome: { removed: [], warnings: [] } })
+    expect(calls).toEqual([])
+  })
+})
+
+describe('archiveSessionBatch', () => {
+  it('prepareArchive 在任何写动作之前，随后按并集 cleanup → archive → emit', async () => {
+    const recording = createPorts({ headers: BATCH, archived: ['session-a'] })
+    const { ports, trace } = tracePorts(recording)
+    expect(await archiveSessionBatch(ports, ['session-a'], ARCHIVE_ROOT)).toEqual({
+      ok: true,
+      outcome: { removed: ['session-a', 'session-a-child'], warnings: [] },
+    })
+    expect(trace).toEqual([
+      'listStoredHeaders',
+      `prepare:${ARCHIVE_ROOT}`,
+      'cleanup:session-a', 'archive:session-a', 'emit:session-a',
+      'cleanup:session-a-child', 'archive:session-a-child', 'emit:session-a-child',
+    ])
+    expect(recording.prepared).toEqual([ARCHIVE_ROOT])
+  })
+
+  it('prepareArchive 失败 → archive-unavailable，零写动作', async () => {
+    const recording = createPorts({
+      headers: BATCH,
+      archived: ['session-a'],
+      prepare: async () => { throw new Error('EACCES: permission denied') },
+    })
+    const { ports, trace } = tracePorts(recording)
+    expect(await archiveSessionBatch(ports, ['session-a'], ARCHIVE_ROOT)).toEqual({
+      ok: false,
+      code: 'archive-unavailable',
+      message: `archive root "${ARCHIVE_ROOT}" is not usable: EACCES: permission denied`,
+    })
+    expect(recording.calls).toEqual([])
+    expect(trace).toEqual(['listStoredHeaders', `prepare:${ARCHIVE_ROOT}`])
+  })
+
+  it('相对 archiveRoot → archive-unavailable，且根本不准备归档根', async () => {
+    const recording = createPorts({ headers: BATCH, archived: ['session-a'] })
+    const { ports, trace } = tracePorts(recording)
+    expect(await archiveSessionBatch(ports, ['session-a'], 'archive/sessions')).toEqual({
+      ok: false,
+      code: 'archive-unavailable',
+      message: 'archive root "archive/sessions" is not an absolute path',
+    })
+    expect(recording.prepared).toEqual([])
+    expect(trace).toEqual(['listStoredHeaders'])
+  })
+
+  it('校验先于归档根准备：目标被拒时返回业务码而不是 archive-unavailable', async () => {
+    const recording = createPorts({
+      headers: BATCH,
+      archived: ['session-a'],
+      prepare: async () => { throw new Error('EACCES: permission denied') },
+    })
+    const { ports, trace } = tracePorts(recording)
+    expect(await archiveSessionBatch(ports, ['session-ghost'], ARCHIVE_ROOT)).toEqual({
+      ok: false,
+      code: 'not-found',
+      message: expect.stringContaining('"session-ghost"'),
+    })
+    expect(recording.prepared).toEqual([])
+    expect(trace).toEqual(['listStoredHeaders'])
+  })
+
+  it('逐项迁移失败只进 warnings，不中止不回滚，removed 仍是并集全量', async () => {
+    const { ports, calls } = createPorts({
+      headers: BATCH,
+      archived: ['session-a', 'session-b'],
+      archive: async (sessionId) => {
+        if (sessionId === 'session-b-child') return [`${ARCHIVE_ROOT}/proj/session-b-child: EACCES`]
+        if (sessionId === 'session-a') throw new Error('driver exploded')
+        return []
+      },
+    })
+    expect(await archiveSessionBatch(ports, ['session-b', 'session-a'], ARCHIVE_ROOT)).toEqual({
+      ok: true,
+      outcome: {
+        removed: UNION_BA,
+        warnings: [
+          `${ARCHIVE_ROOT}/proj/session-b-child: EACCES`,
+          'files: session-a: driver exploded',
+        ],
+      },
+    })
+    expect(calls.filter((call) => call === 'cleanup:session-a')).toHaveLength(1)
+    expect(calls.filter((call) => call === `archive:session-a-child:${ARCHIVE_ROOT}`)).toHaveLength(1)
+  })
+
+  it('空目标：成功且无任何会话动作', async () => {
+    const { ports, calls } = createPorts({ headers: BATCH })
+    expect(await archiveSessionBatch(ports, [], ARCHIVE_ROOT)).toEqual({
+      ok: true,
+      outcome: { removed: [], warnings: [] },
+    })
+    expect(calls).toEqual([])
   })
 })

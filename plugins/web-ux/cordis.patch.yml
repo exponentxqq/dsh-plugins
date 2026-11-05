@@ -4,11 +4,15 @@
 #
 # 该行以「裸包名」形态插入，且这一形态是 REQUIRED：Web 侧的 client-module scan 正是从这
 # 一行读取 package.json 里的 `dsh.client` 声明，浏览器半（exports "./client"，经
-# /plugins/<id>/client.js 提供）才得以在 Web GUI 中加载。浏览器半贡献输入框状态行的
-# provider 徽章与侧栏已归档会话的处置入口（永久删除，或移动到归档目录）。宿主半
-# （exports "."）是处置能力的实载体：挂载 Connection RPC 通道 `/web-ux`（端点
-# `preview-delete` / `delete-session`），不做别的事——没有浏览器宿主就没有通道，徽章
-# 照常工作。
+# /plugins/<id>/client.js 提供）才得以在 Web GUI 中加载。浏览器半贡献三处入口：输入框
+# 状态行的 provider 徽章、侧栏已归档会话的处置入口（永久删除，或移动到归档目录），以及
+# 侧栏底部的「会话管理」——批量会话管理（活跃 / 已归档两 tab：预览逐条报告、执行整单
+# 拒绝）+ 归档目录管理（已迁移 tab：列出归档根下的会话日志，清理或恢复）。宿主半
+# （exports "."）是这些能力的实载体：挂载 Connection RPC 通道 `/web-ux`，端点
+# `preview-delete` / `delete-session` / `preview-delete-batch` / `delete-session-batch` /
+# `list-migrated` / `delete-migrated` / `restore-migrated` 共 7 个；恢复成功后另广播
+# `api-session/added`，让恢复的会话在侧栏即时补行——没有浏览器宿主就没有通道，
+# 徽章照常工作。
 #
 # `archiveRoot` 是**可选**配置键（原生 Schemastery schema，见 src/config.ts）：接受绝对
 # 路径或 `~/` 开头的路径，缺省为 `$DSH_HOME/archive/sessions`。本文件因此**不带**

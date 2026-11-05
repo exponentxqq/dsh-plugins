@@ -5,6 +5,7 @@
     "src/client",
     "src/contract.ts",
     "src/css-modules.d.ts",
+    "src/project-key.ts",
     "test/**/*.test.tsx",
     "test/client-apply.test.ts",
     "test/delete-client.test.ts",
@@ -12,6 +13,7 @@
     "test/locale-parity.test.ts",
     "test/notice-store.test.ts",
     "test/notice-visibility.test.ts",
+    "test/session-manager-model.test.ts",
     "test/stubs/ui-primitives.tsx"
   ]
 }

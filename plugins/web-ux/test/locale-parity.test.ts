@@ -21,7 +21,7 @@ describe('webUx 文案', () => {
     for (const [key, value] of Object.entries(en)) expect(value, `en.${key}`).not.toBe('')
   })
 
-  it('覆盖入口、对话框与全部失败码', () => {
+  it('覆盖入口、对话框、会话管理面与全部失败码', () => {
     const required = [
       'menu.delete',
       'dialog.title',
@@ -62,6 +62,49 @@ describe('webUx 文案', () => {
       'error.unavailable',
       'error.bad-response',
       'error.fallback',
+      // —— 会话管理面：入口、外壳与三 tab ——
+      'manager.action',
+      'manager.title',
+      'manager.close',
+      'manager.unavailable',
+      'manager.workspace.label',
+      'manager.workspace.unassigned',
+      'manager.tab.active',
+      'manager.tab.archived',
+      'manager.tab.migrated',
+      'manager.tabs.label',
+      'manager.empty.unassigned.archived',
+      'manager.truncated',
+      // —— 会话管理面：动作与确认 ——
+      'manager.action.archive',
+      'manager.action.dispose',
+      'manager.action.purge',
+      'manager.action.restore',
+      'manager.action.unarchive',
+      'manager.confirm.title',
+      'manager.confirm.rejected',
+      'manager.confirm.restoreUnassigned',
+      'manager.confirm.run',
+      // —— 会话管理面：执行、结果与失败 ——
+      'manager.running',
+      'manager.done.archive',
+      'manager.done.dispose',
+      'manager.done.purge',
+      'manager.done.restore',
+      'manager.done.restoreSplit',
+      'manager.partial',
+      'manager.warnings',
+      'manager.failed',
+      'manager.itemFailure',
+      // —— 会话管理面：批量取消归档 ——
+      'manager.unarchive.confirm',
+      'manager.unarchive.run',
+      'manager.unarchive.done',
+      'manager.unarchive.partial',
+      // —— 会话管理面新增失败码 ——
+      'error.not-migrated',
+      'error.target-exists',
+      'error.workspace/session-active',
     ] as const
     for (const key of required) {
       expect(zh, key).toHaveProperty(key)

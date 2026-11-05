@@ -360,6 +360,9 @@ importers:
       '@deepseek-ai/cordis':
         specifier: 4.0.5
         version: 4.0.5(@deepseek-ai/cordis-plugin-include@1.0.10)(@deepseek-ai/cordis-plugin-loader@1.0.6)
+      '@deepseek-ai/dsh-api-session-controller':
+        specifier: 0.2.1-rc.5
+        version: 0.2.1-rc.5(6822c2eb34b7a0317367f2caf744ad76)
       '@deepseek-ai/dsh-api-workspace-controller':
         specifier: 0.2.1-rc.5
         version: 0.2.1-rc.5(6bbe7941758f6407400458631a80b5fa)
@@ -391,6 +394,9 @@ importers:
         specifier: 0.2.1-rc.5
         version: 0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)
       '@deepseek-ai/dsh-client-ui-session':
+        specifier: 0.2.1-rc.5
+        version: 0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)
+      '@deepseek-ai/dsh-client-ui-sidebar':
         specifier: 0.2.1-rc.5
         version: 0.2.1-rc.5(@deepseek-ai/cordis@4.0.5)
       '@deepseek-ai/dsh-client-ui-slots':

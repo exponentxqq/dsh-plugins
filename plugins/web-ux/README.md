@@ -1,14 +1,15 @@
 # dsh-plugin-web-ux
 
-DSH Web GUI 插件（**双端**，`exports "."` 宿主 + `exports "./client"` 浏览器），承载三项 Web 界面体验：
+DSH Web GUI 插件（**双端**，`exports "."` 宿主 + `exports "./client"` 浏览器），承载四项 Web 界面体验：
 
 1. **Provider 徽章**——输入框下方状态行（`conversation.composer.dock`）追加一枚静态胶囊，以 `provider/model` 原始标识符显示当前会话所选模型路由；
-2. **删除已归档会话**——侧栏已归档会话行的 "..." 菜单入口 + 两步确认框，框内二选一：**移动到归档目录**（默认）或**永久删除**；宿主半承载 Connection RPC 通道 `/web-ux`（预览与执行两个端点，按请求里的处置模式分派）；
-3. **命令结果通知**——命令结果在当前视图无处渲染时（典型：空会话首屏），composer 上方弹一张可展开全文的临时通知卡。
+2. **删除已归档会话**——侧栏已归档会话行的 "..." 菜单入口 + 两步确认框，框内二选一：**移动到归档目录**（默认）或**永久删除**；宿主半的 Connection RPC 通道 `/web-ux` 承载其预览与执行两个端点（按请求里的处置模式分派）；
+3. **会话管理**——侧栏底部全局入口（`sidebar.footer.action`）打开 `shell.overlay` 浮层，按工作区批量管理活跃 / 已归档 / 已迁移三类会话：批量归档、批量删除（迁移归档 / 永久删除）、批量取消归档、物理删除归档条目与恢复；宿主通道因此从 2 个端点扩到 7 个；
+4. **命令结果通知**——命令结果在当前视图无处渲染时（典型：空会话首屏），composer 上方弹一张可展开全文的临时通知卡。
 
-宿主半不再是空壳——它承载会话处置能力的 Connection RPC 通道 `/web-ux`（删除与迁移共用一条通道，按请求里的模式分派），同时继续充当 web 客户端模块扫描读取 `dsh.client` 声明的锚点。
+宿主半不再是空壳——它承载会话处置与归档目录管理的 Connection RPC 通道 `/web-ux`（单会话 2 端点 + 批量 / 已迁移 5 端点，共 7 个），同时继续充当 web 客户端模块扫描读取 `dsh.client` 声明的锚点。
 
-本包自 `split-project-mcp-plugin` 变更起**只做 Web 界面体验**——原先同包的「项目级 MCP」宿主能力已拆为独立插件 [`dsh-plugin-project-mcp`](../project-mcp/README.md)（纯宿主面，任何 profile 可单独安装）。自 `add-web-ux-archived-session-delete`（v1.2.0）起宿主半因「删除已归档会话」重新变成实载体：文件系统与工作区注册表只有宿主碰得到，这与拆出去的 MCP 能力互不相干；自 `web-ux-session-delete-archive-option` 起同一入口再补上「移动到归档目录」，宿主半因此多了一个可选配置键 `archiveRoot`（`src/config.ts`），处置面仍然只有这一条通道。后续其他 Web 界面体验优化仍落在本包。
+本包自 `split-project-mcp-plugin` 变更起**只做 Web 界面体验**——原先同包的「项目级 MCP」宿主能力已拆为独立插件 [`dsh-plugin-project-mcp`](../project-mcp/README.md)（纯宿主面，任何 profile 可单独安装）。自 `add-web-ux-archived-session-delete`（v1.2.0）起宿主半因「删除已归档会话」重新变成实载体：文件系统与工作区注册表只有宿主碰得到，这与拆出去的 MCP 能力互不相干；自 `web-ux-session-delete-archive-option` 起同一入口再补上「移动到归档目录」，宿主半因此多了一个可选配置键 `archiveRoot`（`src/config.ts`）；自 `web-ux-session-manager` 起再叠加「会话管理」——归档目录从「只能手工找回」变成可列出、可清理、可恢复（恢复只回到已归档态），通道扩到 7 个端点，配置面零增量。后续其他 Web 界面体验优化仍落在本包。
 
 ## Provider 徽章
 
@@ -19,7 +20,7 @@ DSH Web GUI 插件（**双端**，`exports "."` 宿主 + `exports "./client"` �
 
 ## 删除已归档会话
 
-DSH 上游只有「归档」没有删除：持久化层不提供删除接口，归档像一只软删除抽屉，抽屉里的会话日志却在 `~/.dsh/sessions/` 无限累积，用户只能停 Host 后手工删目录、自己清理 `workspace.json` 引用。本能力给已归档会话补上两个出口：**移动到归档目录**（默认——日志搬去可配置的归档根，随时可按会话 id 手工找回）与**永久删除**（碎纸机——磁盘日志、投影缓存与工作区引用三处一起清掉）。两种处置都会让会话从侧栏与工作区记录中消失，区别只在磁盘上的日志是被**搬走**还是被**销毁**，全程无需停机手工操作。
+DSH 上游只有「归档」没有删除：持久化层不提供删除接口，归档像一只软删除抽屉，抽屉里的会话日志却在 `~/.dsh/sessions/` 无限累积，用户只能停 Host 后手工删目录、自己清理 `workspace.json` 引用。本能力给已归档会话补上两个出口：**移动到归档目录**（默认——日志搬去可配置的归档根，可在「会话管理 → 已迁移」里恢复，也可按会话 id 手工找回）与**永久删除**（碎纸机——磁盘日志、投影缓存与工作区引用三处一起清掉）。两种处置都会让会话从侧栏与工作区记录中消失，区别只在磁盘上的日志是被**搬走**还是被**销毁**，全程无需停机手工操作。
 
 ### 入口规则
 
@@ -42,7 +43,7 @@ DSH 上游只有「归档」没有删除：持久化层不提供删除接口，�
 | --- | --- | --- |
 | 描述 | 「{title}」的会话日志将被移动到归档目录。 | 「{title}」归档的全部内容将被永久移除。 |
 | 体积行 | 移动体积：… | 预计释放：… |
-| 警示 | 日志移动到上述目录（保留项目目录层级），投影缓存与工作区记录同步清除；需要时可按会话 id 手工找回，**插件不提供恢复入口**。 | **不可撤销**：日志、投影缓存与工作区记录全部移除，任何界面都无法恢复。 |
+| 警示 | 日志移动到上述目录（保留项目目录层级），投影缓存与工作区记录同步清除；需要时可在侧栏「会话管理 → 已迁移」里恢复（只回到已归档态），也可按会话 id 手工找回。 | **不可撤销**：日志、投影缓存与工作区记录全部移除，任何界面都无法恢复。 |
 | 确认按钮 | 移动到归档目录（常规色） | 永久删除（危险色） |
 | 进行中 / 完成 / 失败 | 正在移动… / 已移动 N 个会话到归档目录。 / 归档未能完成：… | 正在删除… / 已删除 N 个会话。 / 删除未能完成：… |
 | warnings 标题 | 以下项未能完成，需要手动清理： | 以下文件删除失败，需要手动清理： |
@@ -112,7 +113,7 @@ docker exec dsh dsh --profile web --dump-config-schema   # 本插件条目走原
 docker exec dsh dsh --profile web --dump-config | grep -A2 'id: web-ux'
 ```
 
-**手工找回**：归档目录只是普通目录，插件**不提供恢复入口**（没有「从归档还原」的 GUI 或命令）。需要拿回数据时自己搬：
+**恢复与手工找回**：归档目录只是普通目录。插件在侧栏「会话管理 → 已迁移」里提供 GUI 恢复：把条目搬回 `sessions/<项目目录>/<会话id>/`，按项目目录正推匹配工作区并重新挂回，**只回到已归档态**（不恢复置顶，也不会直接变回活跃）；匹配不到工作区的条目落到「未分组」。GUI 恢复只处理归档根下「项目目录 / 会话目录」两层结构里的条目；归档根之外的目录请手工处理。也可以自己搬：
 
 ```bash
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
@@ -125,23 +126,26 @@ mv "$DSH_HOME/archive/sessions/$PROJECT_DIR/$SESSION_ID" \
    "$DSH_HOME/sessions/$PROJECT_DIR/"
 ```
 
-- **搬回日志 ≠ 恢复原样**：处置时工作区记录（成员 / 归档集合 / 置顶）已被清除，`mv` 回去只让日志回到原位置；宿主重启后会重新扫描到它，但它只会落在「未分组」里，**原项目分组不会自动恢复**。插件不提供重新挂回原项目的入口，也不建议手改 `workspace.json`。
-- **归档目录归用户管理**：插件只创建目录、只搬入；升级、卸载或回滚后它都是无主数据，可自行备份、移动或删除——**删除归档目录不影响任何 dsh 功能**（旧版本也从不读它）。
+- **搬回日志 ≠ 恢复原样**：处置时工作区记录（成员 / 归档集合 / 置顶）已被清除。走「会话管理 → 已迁移」的 GUI 恢复会按 `projectDir` 正推匹配工作区并 `attachSession`（上游按 header cwd 二次校验），匹配成功即挂回原项目、回到**已归档**列表，匹配不到则落到「未分组」（管理面「未匹配工作区」伪选项下可见）；手工 `mv` 只让日志回到原位置，宿主重启后会重新扫描到它，但它只会落在「未分组」里，**原项目分组不会自动恢复**。两条路径都不恢复置顶，也不建议手改 `workspace.json`。
+- **归档目录归用户管理**：插件只在归档时创建目录、搬入条目；「会话管理」会按用户显式操作删除或恢复条目，但不会自动清理空项目目录，也不会在升级 / 卸载 / 回滚时改动它。升级、卸载或回滚后它都是无主数据，可自行备份、移动或删除——**删除归档目录不影响任何 dsh 功能**（旧版本也从不读它）。
 - 自定义 `archiveRoot` 时把命令里的缺省路径换成配置值；不确定项目目录名就直接 `ls "$DSH_HOME/archive/sessions"`。
 
 ### 拒绝码
 
-预览与执行各自校验，拒绝时返回稳定错误码 + 可读原因（界面按码给本地化文案）：
+预览与执行各自校验，拒绝时返回稳定错误码 + 可读原因（界面按码给本地化文案）。单会话、批量与已迁移域共用这张表：
 
 | 错误码 | 触发条件 | 界面表现 |
 | --- | --- | --- |
 | `not-found` | 持久化层已无该会话头（例如已在别处删除） | 提示会话不存在；刷新后该行消失 |
 | `not-archived` | 目标不在归档集合（含预览后被其它窗口取消归档） | 提示先归档再删除 |
+| `not-migrated` | **仅已迁移域**：归档根下没有该条目（已被手工移动 / 删除，或不是目录） | 提示归档条目不存在；刷新列表后该行消失 |
+| `target-exists` | **仅已迁移域（恢复）**：恢复目标位 `sessions/<项目目录>/<会话id>` 已存在同名目录 | 提示目标已存在、**未做任何改动**；先处理冲突再重试 |
 | `session-live` | 删除集合中任一成员仍存活于宿主内存（消息点名具体 id） | 提示会话仍在运行，稍后重试 |
-| `archive-unavailable` | **仅迁移档**：归档根不可用（不是绝对路径，或无法创建 / 没有写权限）；判定发生在**任何写动作之前** | 提示归档目录不可用、**未做任何改动**；会话保持归档状态，可排除原因后重试 |
-| `bad-request` | 线上形状不合契约（含旧客户端不带处置模式、未知模式取值） | 内部错误文案 |
+| `archive-unavailable` | 归档根不可用（不是绝对路径，或无法创建 / 读取 / 没有写权限）；判定发生在**任何写动作之前** | 提示归档目录不可用、**未做任何改动**；会话保持归档状态，可排除原因后重试 |
+| `bad-request` | 线上形状不合契约（含旧客户端不带处置模式、未知模式取值、单批超过 500 个目标） | 内部错误文案 |
+| `internal` | 宿主未预期故障（服务缺失、I/O 异常等非业务拒绝） | 内部错误文案；失败可能发生在流程中途，以 warnings / 宿主日志为准 |
 
-宿主未预期故障归一为 `internal`，传输异常与坏响应在浏览器半归一为 `unavailable` / `bad-response`，未知码统一走兜底文案。`archive-unavailable` 与逐项失败的区别是「什么都没发生」与「部分发生」：前者不碰 registry、不搬任何文件；后者只进 warnings（见「半失败」）。
+传输异常与坏响应在浏览器半归一为 `unavailable` / `bad-response`，未知码统一走兜底文案。`archive-unavailable` 与逐项失败的区别是「什么都没发生」与「部分发生」：前者不碰 registry、不搬任何文件；后者只进 warnings（见「半失败」）。批量与已迁移域的**整单拒绝**返回首个被拒目标的码；逐项文件失败不是失败码，只进结果里的 warnings。
 
 ### 上游依赖与降级
 
@@ -193,12 +197,120 @@ rm -f  ~/.dsh/storages/session_projcache/sessions/<会话id>.json
 
 ### 非目标（本能力）
 
-- **批量处置**：V1 一次一个会话，只能从行菜单逐个来（两种模式都是）。
+（批量处置与归档目录的 GUI 恢复见下一节[「会话管理」](#会话管理)——单会话行菜单入口与对话框保留不动，批量是叠加而不是替代。）
+
 - **「停止并删除」**：live/运行中会话一律拒绝，本能力不负责停会话。
 - **未归档会话直接删除**：想删先归档——两步防误删的第一道就是归档。
-- **不做恢复 GUI**：归档目录归用户手工管理，本插件只创建与搬入，不提供「从归档还原 / 重新挂回原项目」的界面或命令；找回方式见[「归档目录与手工找回」](#归档目录与手工找回)。
 - **附件/图片 GC**：上游没有安全回收路径，见上。
 - **多 DSH 版本精确兼容门**：接触点全部软降级，不引入版本 allowlist（与 multi-root 插件的 fail-closed 策略差异源于风险属性——本功能失效的代价只是入口消失）。
+
+## 会话管理
+
+侧栏底部的一处全局入口，打开一个按工作区定向的管理浮层：把活跃会话批量归档、把已归档会话批量删除或取消归档、把归档目录里的已迁移日志清理或恢复。它是既有单会话「...」菜单入口的**叠加**而不是替代（D17）——最短路径仍是行菜单，批量与归档目录管理才走这里。宿主通道因此从 2 个端点扩到 7 个，配置面零增量（归档根沿用既有 `archiveRoot`）。
+
+### 入口与降级
+
+入口在侧栏底部动作区（`sidebar.footer.action`，order **100**）：宽栏渲染「图标 + 会话管理」整行按钮，侧栏折叠成 56px 轨道时只留图标（`aria-label` 恒为「会话管理」）。点击只往跨 entry 的请求 store 登记一次「打开」，浮层挂在 `shell.overlay`（order **520**，既有删除对话框 500 之后）上；两者是两个独立 slot 注册，不共享 React 状态。
+
+浮层是一个 Modal + 五个阶段（选择 → 确认 → 执行 → 完成 / 失败），不叠第二个 Modal；每次打开都是新的 `seq`，阶段、选择、预览与已迁移列表全部重置。
+
+全部接触点软注册、服务在**渲染期**解析（理由同既有删除面：web 壳的工作区 / 会话服务晚于本插件 `apply` 就绪）：
+
+| 依赖 | 用途 | 失效表现 |
+| --- | --- | --- |
+| slot `sidebar.footer.action`（`dsh-client-ui-sidebar`） | 侧栏底部入口 | 入口不渲染；其余能力不受影响 |
+| slot `shell.overlay`（`dsh-client-ui-layout`） | 管理浮层 | 点入口无反应（浮层不挂载） |
+| Connection RPC `/web-ux`（client `connection`） | 批量 / 已迁移端点调用 | `connection` 服务缺席 → 入口整颗不渲染；通道不可达 → 调用失败并提示传输错误 |
+| client 服务 `workspaces` / `sessions`（渲染期软读，不在 cordis `inject`） | 三域行集、选择与动作 | 任一缺席 → 浮层保留，体内显示「服务尚未就绪」空态；服务晚于 `apply` 就绪也能正常生效 |
+| host 事件 `api-session/added`（**借用**） | 恢复后侧栏即时补行 | 恢复仍成功，但需手动刷新页面才看见行（spec 已声明该降级） |
+| host 事件 `api-session/removed`（**借用**，批量删除复用既有处置流程） | 批量删除后行即时消失 | 处置成功，但当前页面上的行需手动刷新才消失 |
+
+宿主通道 `/web-ux` 共 7 个端点：既有 `preview-delete` / `delete-session`，新增 `preview-delete-batch` / `delete-session-batch` / `list-migrated` / `delete-migrated` / `restore-migrated`；请求体仍走白名单严格校验（未知字段拒绝、必填处置模式、单批 ≤500、路径片段合法性）。
+
+一个工作区都没有时，选择器只剩伪选项，活跃域给「还没有任何工作区」空态。既有单会话「...」菜单入口与两步确认框**保留不动**，管理面与它互不替代。
+
+### 工作区与三个 tab
+
+打开浮层默认选中「最近使用」的工作区（该工作区成员会话里最大的 `updatedAt`；全部为 0 时取 Host 顺序第一个；没有任何工作区时回退到伪选项）。切换工作区、tab 或处置模式都会丢弃当前确认页与结果、回到选择阶段；各 tab 的选择集合分开保存，切 tab 不丢另一边的勾选。
+
+| tab | 行集 | 批量动作 |
+| --- | --- | --- |
+| **活跃** | 所选工作区的成员、未归档、在 Host 会话列表中，滤掉 `origin === 'subagent'`；运行中的行保留但置灰不可选 | 「归档所选」——客户端逐个调用上游 `archiveSession`，逐项报告 |
+| **已归档** | `archivedSessionIds ∩ 所选工作区 sessionIds`（伪选项下改为孤儿集合），滤掉 subagent；运行中的行同样置灰 | 「处置所选」——按当前处置模式删除（**移动到归档目录**（默认）/ **永久删除**，单选复用单会话对话框的文案；预览 → 确认 → 执行）；「取消归档所选」——客户端逐个调用上游 `unarchiveSession`，逐项报告。两动作共享同一选择集合、任一在途时互斥 |
+| **已迁移** | 归档根下「项目目录 / 会话目录」两层条目，按 `projectDir` 正推匹配工作区；目录名即会话 id（不做 `session-` 前缀归一），体积只算目录内一层文件、时间取目录 mtime、按 `updatedAt` 倒序；不读日志头，不承诺会话标题 | 「永久删除所选」与「恢复所选」——确认后一次调用；删除没有预览端点（条数与体积在客户端聚合），恢复有校验阶段（见[「恢复语义」](#恢复语义)） |
+
+行标题取 `displayTitle`，空标题显示「（无标题）」；`running` / `blank` 以徽标标出。**管理面不出现子代理会话**（与侧栏一致）：它们的处置依赖父会话级联；父会话已删的孤立归档子代理因此没有入口（已接受的代价）。运行中的行置灰不可选，服务端拒绝仍是竞态兜底。
+
+### 伪选项：未匹配工作区
+
+工作区选择框末尾**恒有一枚**「未匹配工作区的归档」伪选项（即使当前没有无主条目，也不忽隐忽现）：
+
+- **已归档**：`archivedSessionIds` 中不属于任何工作区成员位的会话——典型是工作区被删后留下的孤儿归档。这些行没有工作区入口，但在伪选项下同样可删、可取消归档。
+- **已迁移**：`projectDir` 正推匹配不到任何工作区的归档条目；可删、可恢复。
+- **活跃**：恒为空态并说明原因（孤儿定义即无归属；未归档但不在任何工作区的会话仍显示在侧栏「未分组」，不归本伪选项管）。
+- 伪选项下恢复的条目必然匹配不到工作区，恢复后落在「未分组」，可在本伪选项的已归档域再次找到（确认页会显式提示）。
+
+### 批量语义
+
+这些动作按「有没有文件动作」分两档，失败语义刻意不同：
+
+**文件动作类：预览软失败 + 执行整单拒绝**
+
+- **已归档删除**：点「处置所选」先向宿主请求批量预览——宿主对全部勾选目标逐项校验，一次算清目标数、去重后的级联并集会话数、级联子代理数、合并体积与归档根回声，并返回被拒清单（id + 失败码）。预览**不会因为个别目标被拒而失败**：被拒项在确认页列出并从本批剔除，其余目标照常可确认；全部被拒时确认按钮禁用。执行只发送未被拒的目标，宿主**重新校验**——预览后状态漂移（取消归档 / 转为 live）会整单拒绝、零副作用，界面显示首个被拒码。
+- **已迁移物理删除**：没有预览端点，确认页的条数与体积由客户端聚合；宿主先逐条校验条目存在且是目录（`not-migrated`），任一失败整单拒绝，然后逐条删除。
+- **恢复**：校验阶段先逐条确认条目存在（`not-migrated`）且目标位不存在（`target-exists`），任一失败整单拒绝、一条都不搬；执行阶段逐条搬运（见[「恢复语义」](#恢复语义)）。
+- 通过校验后的文件动作**失败不中止、不回滚**：已归档删除的工作区记录已先清理（界面行不会回来，磁盘残留由 warnings 点名）；已迁移删除失败时目录仍在，刷新后会重新出现；恢复失败时条目留在归档根、不计入 `restored[]`。失败项逐条形如 `<路径>: <原因>` 进结果里的 warnings，界面原样列出、需手工清理。批量删除的 `removed` 按校验通过的并集全量计，文件失败不回退这个结论——**结果计数按校验通过的条目计，真实落盘状态以 warnings 为准**。
+
+**registry 可逆类：客户端循环 + 逐项报告**
+
+- **批量归档 / 批量取消归档**：上游单调用面是可逆的 registry 操作，客户端按会话逐个串行执行，绝不因单项失败中断；结果给出成功数与逐条失败原因（如 `workspace/session-active`）。这类动作不适用整单拒绝。运行中的行在选择阶段已置灰，竞态失败按上游码逐项报告。逐项循环中途关闭页面会留下部分已完成的结果，剩余项需重新选择。
+
+**在途互斥与结果**
+
+任一动作执行期间浮层进入 `running`：动作按钮与选择条一起消失，同一时刻只有一个动作在飞；`关闭` / Escape 在此期间被忽略（请求已发出，界面留在原地报告结果）。完成后：
+
+- **成功面板**给出计数（归档 / 取消归档 / 处置 / 永久删除 / 恢复）、逐项失败清单与 warnings；恢复成功**停在原 tab** 展示结果（不自动切走，P3=A），已迁移列表在 purge / restore 成功后自动重发一次。
+- **失败面板**给出失败码文案与宿主兜底 message；`[返回]` 回到选择阶段，`[关闭]` 退出。再次打开会重置阶段、选择与列表。
+
+### 500 上限与分批操作
+
+- **单批上限 500**（`MAX_BATCH_TARGETS`）：全选只取当前行序里前 500 个可勾选行并显示「条目过多，只列出前 500 个…」提示；手动勾选到 500 后新行不再进入选择；请求体超过 500 直接 `bad-request`。运行中的行不计入这 500。
+- **分批序列**（超出时）：① 先按工作区拆，或选伪选项处理无主条目；② 全选 → 确认执行——已归档行处置后即从列表消失，已迁移列表在成功后自动重发；③ 再次全选剩余 → 重复；已迁移 tab 必要时点「刷新归档列表」；④ 单个范围长期超过 500 时按项目目录 / 伪选项分开处理，或先清理归档根。
+- **列表上限 2000**（`MAX_LISTED_MIGRATED`）：已迁移列表一次最多列 2000 条，超出显示截断提示（先清理再刷新）；活跃 / 已归档两 tab 由客户端快照派生，不设此上限，但单批动作仍受 500 限制。
+- 量级假设是「数百条」：不做虚拟滚动，列表一次渲染；超过 2000 条请先分批清理。
+
+### 恢复语义
+
+恢复把归档根里的条目搬回会话持久化目录原位，并重新挂回工作区。归档根沿用既有 `archiveRoot`（缺省 `$DSH_HOME/archive/sessions`），本能力不新增配置键。
+
+1. **目标路径取自归档树自身**：`<home>/sessions/<projectDir>/<dirName>`——`projectKey` 只用于「条目 ↔ 工作区」匹配，绝不用于反推目录位置（它有意有损）。
+2. **校验阶段零写**：条目必须在归档根下存在且是目录（否则 `not-migrated`）；目标位不得存在（否则 `target-exists`）；任一条失败整单拒绝，一条都不搬。
+3. **搬运**：`mkdir -p` 目标父目录 → `rename`（同设备原子完成）；跨文件系统（`EXDEV`）回退到递归复制，全部复制成功后才删源，中途失败源保留、目标可能留半成品（warning 点名）。
+4. **挂回工作区**：按 `projectKey(workspace.path) === projectDir` 正推匹配；匹配到就 `attachSession` 挂回（上游按 header cwd 二次校验——即使匹配错也只会被拒，不会写错工作区），匹配不到或上游拒绝则记 warning、条目仍算已恢复并落到「未分组」（管理面「未匹配工作区」伪选项下可见）。随后把会话放回 registry 归档集合，**状态回到已归档**（不是活跃，也不恢复置顶）。
+5. **即时可见**：宿主读一次持久化列表拿真实 header，对恢复出的 id 广播 `api-session/added`——匹配到工作区的行在侧栏已归档区无需刷新即出现；广播缺失或失败只记 warning，刷新页面后可见（恢复本身不受影响）。
+6. **收尾**：归档根下对应目录消失，已迁移列表自动重发；空项目目录不清理（无害且幂等）。恢复只认归档根下「项目目录 / 会话目录」两层结构里的条目，归档根之外的目录不在列表里，请走[「归档目录与手工找回」](#归档目录与手工找回)的手工流程。
+
+### 失败码
+
+批量与已迁移域沿用上一节[「拒绝码」](#拒绝码)的稳定码表（8 个），本次新增两码：
+
+| 错误码 | 触发场景 | 语义 |
+| --- | --- | --- |
+| `not-migrated` | 已迁移条目在归档根下不存在 / 不是目录 | 整单拒绝、零副作用 |
+| `target-exists` | 恢复目标位已有同名目录 | 整单拒绝、零副作用 |
+
+整单拒绝取首个被拒目标的码（`bad-request` 也用于超限与形状不符）；逐项文件失败只进 warnings，不产生失败码。客户端把宿主码原样透传，未知码走 `error.fallback`。
+
+### 边界与已知限制
+
+- 管理面不出现 subagent 会话；父会话已删的孤立归档子代理没有入口（其处置依赖父会话级联）。
+- 不提供「停止并删除」：运行中行置灰不可选，服务端 `session-live` / `workspace/session-active` 是竞态兜底。
+- 无虚拟滚动；列表一次渲染，已迁移列表超过 2000 条截断并提示先清理再刷新。
+- 恢复不恢复置顶，只回到已归档态；归档根下的空项目目录不清理（无害且幂等）。
+- 「已迁移」tab 不轮询：用「刷新归档列表」手动取数；purge / restore 成功后自动重发一次。
+- 不做 undo：恢复可再归档，物理删除不可逆（danger 色 + 确认页已明示）。
+- 共享附件存储永不清理（与既有删除 / 迁移一致）。
+- 借用的 `api-session/added` 若上游不再转发：恢复仍成功，侧栏行需手动刷新（spec 已声明该降级）。
 
 ## 命令结果通知
 
@@ -227,27 +339,34 @@ DSH 的命令结果只渲染为会话 transcript 里的持久 flow node（compos
 ## 双端结构
 
 ```text
-src/index.ts           宿主半：挂 Connection RPC 通道 /web-ux（按 mode 分派删除 / 迁移）
-src/config.ts          宿主配置：原生 Schemastery `Config`（archiveRoot）+ 归档根解析
-src/contract.ts        双端共享契约：通道 / 端点 / 处置模式 / 失败码 + 手写边界校验（不引入 zod）
-src/delete-session.ts  宿主处置流程：删除与迁移共用的 DI 纯流程 + 文件操作工厂（可 mock 单测）
-src/client/            浏览器半：provider 徽章 + 删除入口 / 模式单选确认框 + 命令通知卡 + locale + CSS module
-test/                  单测：宿主 *.test.ts（node 环境，config 用例无需 jsdom）与浏览器 *.test.tsx（jsdom）
+src/index.ts                          宿主半：挂 Connection RPC 通道 /web-ux（7 端点分派）+ 恢复后广播 api-session/added
+src/config.ts                         宿主配置：原生 Schemastery `Config`（archiveRoot）+ 归档根解析
+src/contract.ts                       双端共享契约：通道 / 7 端点 / 处置模式 / 8 个失败码 / 3 个上限 + 手写边界校验
+src/project-key.ts                    双端共享纯函数：projectKey 本地镜像 + projectDir → 工作区正推匹配（零 import）
+src/delete-session.ts                 宿主处置流程：单会话与批量删除 / 迁移共用 DI 纯流程 + 文件操作工厂
+src/migrated.ts                       宿主已迁移域：枚举归档根、物理删除、恢复（两阶段；rename 优先、EXDEV 回退复制）
+src/client/                           浏览器半：provider 徽章 + 删除入口 / 确认框 + 会话管理入口 / 浮层 + 命令通知卡 + locale + CSS module
+src/client/session-manager-store.ts   管理面「打开浮层」请求 store（跨 entry 桥接）
+src/client/session-manager-model.ts   管理面纯派生：工作区选项、三域行集、伪选项聚合、500 上限
+src/client/SessionManagerTrigger.tsx  侧栏底部入口（宽栏图标 + 文案 / 折叠栏图标）
+src/client/SessionManagerDialog.tsx   管理浮层：五阶段机 + 三 tab + 工作区选择 + 批量动作
+src/client/session-manager.module.css 管理面样式（复用 --dsw-alias-* 令牌）
+test/                                 单测：宿主 *.test.ts（node 环境）与浏览器 *.test.tsx（jsdom）
 ```
 
-宿主半对 `@deepseek-ai/*` 一律 **type-only import**，运行时只靠 `inject` 字符串拿服务，产物 `lib/index.js` self-contained（仅 `node:*` 外置）。**唯一例外是 `src/config.ts` 的 Schemastery `Config`**：它必须是**原生 Schemastery** 图（`--dump-config-schema` 只认原生图，换成 zod / 手写对象会把 profile 的 schema dump 拖红），由 esbuild 在构建期**内联**进宿主产物——因此只是构建依赖，运行时不解析任何 `@deepseek-ai/*`（`test/bundle.test.ts` 的模块词断言守护这一点）。它在宿主侧除处置职责外仍是**客户端模块扫描的锚点**：web 客户端模块扫描只从 **bare 包名行**读取 `dsh.client` 声明，所以 bundle patch 必须继续按包名插入本包，徽章与删除入口才会被浏览器加载——宿主半因此不能删。
+宿主半对 `@deepseek-ai/*` 一律 **type-only import**，运行时只靠 `inject` 字符串拿服务，产物 `lib/index.js` self-contained（仅 `node:*` 外置）。**唯一例外是 `src/config.ts` 的 Schemastery `Config`**：它必须是**原生 Schemastery** 图（`--dump-config-schema` 只认原生图，换成 zod / 手写对象会把 profile 的 schema dump 拖红），由 esbuild 在构建期**内联**进宿主产物——因此只是构建依赖，运行时不解析任何 `@deepseek-ai/*`（`test/bundle.test.ts` 的模块词断言守护这一点）。它在宿主侧除处置与归档目录管理职责外仍是**客户端模块扫描的锚点**：web 客户端模块扫描只从 **bare 包名行**读取 `dsh.client` 声明，所以 bundle patch 必须继续按包名插入本包，徽章、删除入口与会话管理入口才会被浏览器加载——宿主半因此不能删。
 
 ## 构建
 
 双端自包含产物，`build.mjs`（esbuild）一次产出两个文件，external 列表里只有 `node:*` 与浏览器壳提供的运行时模块：
 
-- `lib/client.js` — `src/client/index.ts` 打成单个 CJS bundle 并包进 `window.__ModuleLoader__.load({ id, factory })` 外壳（`react` / `react-dom` / `react/jsx-runtime` / `@deepseek-ai/dsh-client-ui-primitives` 由浏览器壳经 loader `require` 提供），CSS modules 编译为运行时 `<style>` 注入，因此**没有独立样式文件**，也不依赖本包 `dependencies`。
-- `lib/index.js` — 宿主半的单个 self-contained ESM 产物，承载 `/web-ux` Connection RPC 通道，同时是客户端模块扫描的 bare 包名锚点；Schemastery 已由 esbuild 内联，外置项仍只有 `node:*`。
+- `lib/client.js` — `src/client/index.ts` 打成单个 CJS bundle 并包进 `window.__ModuleLoader__.load({ id, factory })` 外壳（`react` / `react-dom` / `react/jsx-runtime` / `@deepseek-ai/dsh-client-ui-primitives` 由浏览器壳经 loader `require` 提供），CSS modules 编译为运行时 `<style>` 注入，因此**没有独立样式文件**，也不依赖本包 `dependencies`；bundle 里含徽章、单会话删除入口 / 确认框、会话管理入口 / 浮层与命令通知卡。
+- `lib/index.js` — 宿主半的单个 self-contained ESM 产物，承载 `/web-ux` Connection RPC 通道的 7 个端点与恢复后的 `api-session/added` 广播，同时是客户端模块扫描的 bare 包名锚点；Schemastery 已由 esbuild 内联，外置项仍只有 `node:*`。
 
 类型工程是一个 solution（`tsconfig.json` 只汇总 references）+ 两个 composite 子工程，共享 `tsconfig.base.json` 的编译选项；两个子工程都是 `noEmit` 纯检查（不产 d.ts，只留 `.tsbuildinfo`，已被 `.gitignore` 忽略）：
 
-- `tsconfig.host.json` — 宿主面（node 环境）：`src/index.ts`、`src/config.ts`、`src/contract.ts`、`src/delete-session.ts` 与宿主测试 `test/{bundle,config,contract,delete-session,index}.test.ts`。
-- `tsconfig.client.json` — 浏览器面（jsdom 环境的用例自带 `// @vitest-environment jsdom`）：`src/client/**`、`src/contract.ts`（两端共享的边界 parser）、`test/**/*.test.tsx` 与 `test/{client-apply,delete-client,delete-store,locale-parity}.test.ts`、`test/stubs/ui-primitives.tsx`（vitest alias 的 primitives 替身）。
+- `tsconfig.host.json` — 宿主面（node 环境）：`src/index.ts`、`src/config.ts`、`src/contract.ts`、`src/delete-session.ts`、`src/migrated.ts`、`src/project-key.ts` 与宿主测试 `test/{bundle,config,contract,delete-session,index,migrated,project-key}.test.ts`。
+- `tsconfig.client.json` — 浏览器面（jsdom 环境的用例自带 `// @vitest-environment jsdom`）：`src/client/**`、`src/contract.ts`（两端共享的边界 parser）、`src/project-key.ts`（两端共享的匹配纯函数）、`test/**/*.test.tsx` 与 `test/{client-apply,delete-client,delete-store,locale-parity,notice-store,notice-visibility,session-manager-model}.test.ts`、`test/stubs/ui-primitives.tsx`（vitest alias 的 primitives 替身）。
 
 两个工程都显式列出被 import 的测试文件：composite 工程要求程序里的每个文件都在自己的 `include` 内（`test/**/*.test.ts` 会把客户端 `.ts` 用例拉进宿主工程而报 TS6307），所以按宿主/浏览器归属逐条列名，而不是用宽通配。
 
@@ -255,9 +374,9 @@ test/                  单测：宿主 *.test.ts（node 环境，config 用例�
 cd /home/xuqinqin/develop/person/dsh-plugins/plugins/web-ux   # 本包是 dsh-plugins workspace 成员
 pnpm install
 pnpm typecheck     # tsc -b：host + client 双工程
-pnpm test          # vitest：徽章 + 删除/迁移流程与界面用例
+pnpm test          # vitest：徽章 + 删除/迁移 + 会话管理流程与界面用例
 pnpm lint          # oxlint
-pnpm build         # esbuild → lib/index.js（宿主 RPC 载体，Schemastery 内联）、lib/client.js（徽章 + 删除/模式入口）
+pnpm build         # esbuild → lib/index.js（宿主 RPC 载体，Schemastery 内联）、lib/client.js（徽章 + 删除 / 会话管理入口）
 pnpm verify:all    # lint + typecheck + build + test
 
 # 只查单侧类型（等价于 tsc -b 的对应子工程）
@@ -288,12 +407,18 @@ docker exec dsh dsh --profile web --dump-config | grep -A2 'id: web-ux'
 ### 版本迁移（v1.2.0）
 
 - **升级**：v1.2.0 起本包双端化——新增删除入口与宿主 RPC 通道，provider 徽章行为零变化；`dsh.client.inject` 增补 workspace / connection / locale 依赖，peer 范围统一为 `>=0.2.1-rc.2 <0.3.0`。按 tag 重装即可：`dsh plugin --profile web add "github:exponentxqq/dsh-plugins#v1.2.0&path:plugins/web-ux"`，重启 web profile 生效。
-- **回滚**：同一条命令改指 `#v1.1.1` 重装并重启，**只撤掉删除入口与宿主通道**（徽章照旧）；删除是真实写操作，已被删除的会话日志、投影缓存与工作区引用**不可恢复**，回滚不会让它们回来。
+- **回滚**：同一条命令改指 `#v1.1.1` 重装并重启，**只撤掉删除入口、会话管理入口与宿主通道**（徽章照旧）；删除是真实写操作，已被删除的会话日志、投影缓存与工作区引用**不可恢复**，回滚不会让它们回来。
 
 ### 版本迁移（含迁移归档）
 
-- **升级**：本能力随下一个发布 tag 生效。`/web-ux` 请求体新增**必填** `mode`（`delete` / `archive`）、预览响应新增 `archiveRoot`，其余契约不变；`dsh.client.inject` 与 peer 范围不变，按 tag 重装并重启 profile 即可。**升级前已打开的旧标签页**跑的是旧客户端（不带 `mode`）：新宿主会在**预览阶段**直接返回 `bad-request`，界面显示失败、不会发生「没选模式就被处置」；刷新页面加载新客户端即恢复。归档根可选，不配就用缺省 `$DSH_HOME/archive/sessions`。
+- **升级**：本能力随下一个发布 tag 生效。`/web-ux` 请求体新增**必填** `mode`（`delete` / `archive`）、预览响应新增 `archiveRoot`，其余契约不变；归档档本身不改 `dsh.client.inject` 与 peer 范围（同一发布 tag 里的「会话管理」会再 +3，见下一节），按 tag 重装并重启 profile 即可。**升级前已打开的旧标签页**跑的是旧客户端（不带 `mode`）：新宿主会在**预览阶段**直接返回 `bad-request`，界面显示失败、不会发生「没选模式就被处置」；刷新页面加载新客户端即恢复。归档根可选，不配就用缺省 `$DSH_HOME/archive/sessions`。
 - **回滚**：改指不含本能力的旧 tag（**当前已发布的 `v1.5.0` 及更早版本都没有本能力**）重装并重启。旧宿主不认带 `mode` 的请求，新标签页预览同样得到 `bad-request`，**刷新页面**加载随旧版回落的客户端即恢复「只能永久删除」的旧行为。回滚**不会**把已迁移的日志搬回 `sessions/`，也不会删除归档目录——已迁移数据留在归档目录不受影响（旧版本从不读取它），需要时按[「归档目录与手工找回」](#归档目录与手工找回)手动搬回。
+
+### 版本迁移（会话管理与恢复）
+
+- **升级**：本能力随下一个发布 tag 生效。`dsh.client.inject` 增补 3 项（`dsh-client-ui-sidebar`、`dsh-api-workspace-controller`、`dsh-api-session-controller`，共 12 项），宿主 `/web-ux` 通道扩到 7 个端点（既有两端点一字未动），`archiveRoot` 与 peer 范围不变。按 tag 重装并**重启 web profile**：新增的客户端模块要进 boot 图，只换磁盘产物不重启，入口不会出现。
+- **新旧混跑**：新客户端 + 旧宿主 = 新端点一律 `bad-request`（界面显示「请求不合法，宿主拒绝了本次调用」），既有单会话删除 / 迁移照旧——刷新页面只能换客户端，换不掉旧宿主。旧客户端 + 新宿主 = 只调既有两端点，单会话能力完全照旧（旧页面里本来就没有管理面入口）。
+- **回滚**：改指不含本能力的旧 tag 重装并重启，入口消失；注意 `v1.5.0` 及更早版本连「移动到归档目录」也还没有，回滚会一并失去该档。回滚**不会**把已恢复的日志再搬回归档根，也不会复活已物理删除的归档条目；归档根数据不受影响（旧版本从不读它）。
 
 两点运维须知：
 
@@ -304,7 +429,7 @@ docker exec dsh dsh --profile web --dump-config | grep -A2 'id: web-ux'
 
 - 徽章不做点击交互（跨插件触发模型菜单无公开 API）。
 - 不接管或重排官方 composer 工具行、模型选择器。
-- 除「删除已归档会话」（删除 / 迁移处置）所需的 Connection RPC 通道外不提供其他宿主能力（项目级 MCP 属 [`dsh-plugin-project-mcp`](../project-mcp/README.md)）；处置能力自身的边界见「[删除已归档会话 → 非目标](#非目标本能力)」。
+- 除「删除已归档会话」与「会话管理」所需的 Connection RPC 通道（7 个端点）外不提供其他宿主能力（项目级 MCP 属 [`dsh-plugin-project-mcp`](../project-mcp/README.md)）；处置能力自身的边界见「[删除已归档会话 → 非目标](#非目标本能力)」，会话管理的边界见「[会话管理 → 边界与已知限制](#边界与已知限制)」。
 
 ## 许可
 

@@ -892,32 +892,157 @@ function resolveArchiveRoot(configured, context) {
 var CHANNEL = "/web-ux";
 var PREVIEW_ENDPOINT = "preview-delete";
 var DELETE_ENDPOINT = "delete-session";
-var ENDPOINTS = [PREVIEW_ENDPOINT, DELETE_ENDPOINT];
+var PREVIEW_BATCH_ENDPOINT = "preview-delete-batch";
+var DELETE_BATCH_ENDPOINT = "delete-session-batch";
+var LIST_MIGRATED_ENDPOINT = "list-migrated";
+var DELETE_MIGRATED_ENDPOINT = "delete-migrated";
+var RESTORE_MIGRATED_ENDPOINT = "restore-migrated";
+var FAILURE_CODES = [
+  "bad-request",
+  "not-found",
+  "not-archived",
+  "not-migrated",
+  "target-exists",
+  "session-live",
+  "archive-unavailable",
+  "internal"
+];
+function isFailureCode(code) {
+  return FAILURE_CODES.includes(code);
+}
 var DISPOSAL_MODES = ["delete", "archive"];
 function isDisposalMode(value) {
   return typeof value === "string" && DISPOSAL_MODES.includes(value);
 }
-var SESSION_ID_MAX = 255;
-function readRequest(payload) {
-  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
-    return { ok: false, message: "\u8BF7\u6C42\u4F53\u4E0D\u662F\u5BF9\u8C61" };
+var MAX_BATCH_TARGETS = 500;
+var MAX_LISTED_MIGRATED = 2e3;
+var MAX_PATH_SEGMENT = 255;
+function readObject(value, subject) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return { ok: false, message: `${subject}\u4E0D\u662F\u5BF9\u8C61` };
   }
-  const record = payload;
-  const extra2 = Object.keys(record).filter((key) => key !== "sessionId" && key !== "mode");
-  if (extra2.length > 0) return { ok: false, message: `\u8BF7\u6C42\u4F53\u542B\u672A\u77E5\u5B57\u6BB5\uFF1A${extra2.join(", ")}` };
-  const sessionId = record["sessionId"];
-  if (typeof sessionId !== "string" || sessionId === "") return { ok: false, message: "sessionId \u7F3A\u5931\u6216\u4E0D\u662F\u975E\u7A7A\u5B57\u7B26\u4E32" };
-  if (sessionId.length > SESSION_ID_MAX) return { ok: false, message: "sessionId \u8D85\u957F" };
-  if (/[\u0000-\u001f\u007f]/.test(sessionId)) return { ok: false, message: "sessionId \u542B\u63A7\u5236\u5B57\u7B26" };
+  return { ok: true, value };
+}
+function readExactFields(record, allowed, subject) {
+  const extra2 = Object.keys(record).filter((key) => !allowed.includes(key));
+  if (extra2.length > 0) return { ok: false, message: `${subject}\u542B\u672A\u77E5\u5B57\u6BB5\uFF1A${extra2.join(", ")}` };
+  return { ok: true, value: record };
+}
+function readPathSegment(value, subject) {
+  if (typeof value !== "string" || value === "") return { ok: false, message: `${subject} \u7F3A\u5931\u6216\u4E0D\u662F\u975E\u7A7A\u5B57\u7B26\u4E32` };
+  if (value.length > MAX_PATH_SEGMENT) return { ok: false, message: `${subject} \u8D85\u957F` };
+  if (/[\u0000-\u001f\u007f]/.test(value)) return { ok: false, message: `${subject} \u542B\u63A7\u5236\u5B57\u7B26` };
+  if (value === "." || value === "..") return { ok: false, message: `${subject} \u4E0D\u80FD\u662F . \u6216 ..` };
+  if (value.includes("/") || value.includes("\\")) return { ok: false, message: `${subject} \u542B\u8DEF\u5F84\u5206\u9694\u7B26` };
+  return { ok: true, value };
+}
+function readDeleteRequest(payload) {
+  const object = readObject(payload, "\u8BF7\u6C42\u4F53");
+  if (!object.ok) return object;
+  const fields = readExactFields(object.value, ["sessionId", "mode"], "\u8BF7\u6C42\u4F53");
+  if (!fields.ok) return fields;
+  const record = fields.value;
+  const sessionId = readPathSegment(record["sessionId"], "sessionId");
+  if (!sessionId.ok) return sessionId;
   const mode = record["mode"];
   if (!isDisposalMode(mode)) return { ok: false, message: "mode \u7F3A\u5931\u6216\u4E0D\u662F delete / archive" };
-  return { ok: true, value: { sessionId, mode } };
+  return { ok: true, value: { sessionId: sessionId.value, mode } };
 }
-function parseDeleteRequest(endpoint, payload) {
-  if (!ENDPOINTS.includes(endpoint)) {
-    return { ok: false, message: `\u672A\u77E5\u7AEF\u70B9 "${endpoint}"` };
+function readBatchRequest(payload) {
+  const object = readObject(payload, "\u8BF7\u6C42\u4F53");
+  if (!object.ok) return object;
+  const fields = readExactFields(object.value, ["sessionIds", "mode"], "\u8BF7\u6C42\u4F53");
+  if (!fields.ok) return fields;
+  const record = fields.value;
+  const sessionIds = record["sessionIds"];
+  if (!Array.isArray(sessionIds)) return { ok: false, message: "sessionIds \u7F3A\u5931\u6216\u4E0D\u662F\u6570\u7EC4" };
+  if (sessionIds.length === 0) return { ok: false, message: "sessionIds \u4E0D\u80FD\u4E3A\u7A7A\u6570\u7EC4" };
+  if (sessionIds.length > MAX_BATCH_TARGETS) {
+    return { ok: false, message: `sessionIds \u8D85\u8FC7\u5355\u6279\u4E0A\u9650 ${MAX_BATCH_TARGETS}` };
   }
-  return readRequest(payload);
+  const ids = [];
+  for (let index = 0; index < sessionIds.length; index += 1) {
+    const id = readPathSegment(sessionIds[index], `sessionIds[${index}]`);
+    if (!id.ok) return id;
+    ids.push(id.value);
+  }
+  const mode = record["mode"];
+  if (!isDisposalMode(mode)) return { ok: false, message: "mode \u7F3A\u5931\u6216\u4E0D\u662F delete / archive" };
+  return { ok: true, value: { sessionIds: ids, mode } };
+}
+function readMigratedRequest(payload) {
+  const object = readObject(payload, "\u8BF7\u6C42\u4F53");
+  if (!object.ok) return object;
+  const fields = readExactFields(object.value, ["entries"], "\u8BF7\u6C42\u4F53");
+  if (!fields.ok) return fields;
+  const entries = fields.value["entries"];
+  if (!Array.isArray(entries)) return { ok: false, message: "entries \u7F3A\u5931\u6216\u4E0D\u662F\u6570\u7EC4" };
+  if (entries.length === 0) return { ok: false, message: "entries \u4E0D\u80FD\u4E3A\u7A7A\u6570\u7EC4" };
+  if (entries.length > MAX_BATCH_TARGETS) {
+    return { ok: false, message: `entries \u8D85\u8FC7\u5355\u6279\u4E0A\u9650 ${MAX_BATCH_TARGETS}` };
+  }
+  const targets = [];
+  for (let index = 0; index < entries.length; index += 1) {
+    const subject = `entries[${index}]`;
+    const entry = readObject(entries[index], subject);
+    if (!entry.ok) return entry;
+    const exact = readExactFields(entry.value, ["projectDir", "dirName"], subject);
+    if (!exact.ok) return exact;
+    const projectDir = readPathSegment(exact.value["projectDir"], `${subject}.projectDir`);
+    if (!projectDir.ok) return projectDir;
+    const dirName = readPathSegment(exact.value["dirName"], `${subject}.dirName`);
+    if (!dirName.ok) return dirName;
+    targets.push({ projectDir: projectDir.value, dirName: dirName.value });
+  }
+  return { ok: true, value: { entries: targets } };
+}
+function readEmptyRequest(payload) {
+  const object = readObject(payload, "\u8BF7\u6C42\u4F53");
+  if (!object.ok) return object;
+  const keys = Object.keys(object.value);
+  if (keys.length > 0) return { ok: false, message: `\u8BF7\u6C42\u4F53\u542B\u672A\u77E5\u5B57\u6BB5\uFF1A${keys.join(", ")}` };
+  return { ok: true, value: {} };
+}
+function parseRequest(endpoint, payload) {
+  switch (endpoint) {
+    case PREVIEW_ENDPOINT: {
+      const body = readDeleteRequest(payload);
+      if (!body.ok) return body;
+      return { ok: true, value: { endpoint: PREVIEW_ENDPOINT, body: body.value } };
+    }
+    case DELETE_ENDPOINT: {
+      const body = readDeleteRequest(payload);
+      if (!body.ok) return body;
+      return { ok: true, value: { endpoint: DELETE_ENDPOINT, body: body.value } };
+    }
+    case PREVIEW_BATCH_ENDPOINT: {
+      const body = readBatchRequest(payload);
+      if (!body.ok) return body;
+      return { ok: true, value: { endpoint: PREVIEW_BATCH_ENDPOINT, body: body.value } };
+    }
+    case DELETE_BATCH_ENDPOINT: {
+      const body = readBatchRequest(payload);
+      if (!body.ok) return body;
+      return { ok: true, value: { endpoint: DELETE_BATCH_ENDPOINT, body: body.value } };
+    }
+    case LIST_MIGRATED_ENDPOINT: {
+      const body = readEmptyRequest(payload);
+      if (!body.ok) return body;
+      return { ok: true, value: { endpoint: LIST_MIGRATED_ENDPOINT, body: body.value } };
+    }
+    case DELETE_MIGRATED_ENDPOINT: {
+      const body = readMigratedRequest(payload);
+      if (!body.ok) return body;
+      return { ok: true, value: { endpoint: DELETE_MIGRATED_ENDPOINT, body: body.value } };
+    }
+    case RESTORE_MIGRATED_ENDPOINT: {
+      const body = readMigratedRequest(payload);
+      if (!body.ok) return body;
+      return { ok: true, value: { endpoint: RESTORE_MIGRATED_ENDPOINT, body: body.value } };
+    }
+    default:
+      return { ok: false, message: `\u672A\u77E5\u7AEF\u70B9 "${endpoint}"` };
+  }
 }
 
 // src/delete-session.ts
@@ -989,6 +1114,89 @@ async function archiveSession(ports, sessionId, archiveRoot) {
   }
   return { ok: true, outcome: await disposeAll(ports, plan.ids, (id) => ports.archiveFiles(id, archiveRoot)) };
 }
+function collectDeleteSetMany(targets, headers) {
+  const ids = [];
+  const included = /* @__PURE__ */ new Set();
+  for (const target of targets) {
+    for (const id of collectDeleteSet(target, headers)) {
+      if (included.has(id)) continue;
+      included.add(id);
+      ids.push(id);
+    }
+  }
+  return ids;
+}
+async function planDeleteBatch(targets, ports) {
+  const headers = await ports.listStoredHeaders();
+  const stored = new Set(headers.map((header) => header.id));
+  const accepted = [];
+  const rejected = [];
+  for (const target of uniqueTargets(targets)) {
+    if (!stored.has(target)) {
+      rejected.push({ sessionId: target, code: "not-found", message: `session "${target}" is not in session persistence` });
+      continue;
+    }
+    if (!ports.isArchived(target)) {
+      rejected.push({ sessionId: target, code: "not-archived", message: `session "${target}" is not archived` });
+      continue;
+    }
+    const live = collectDeleteSet(target, headers).find((id) => ports.isLive(id));
+    if (live !== void 0) {
+      rejected.push({ sessionId: target, code: "session-live", message: `session "${live}" is still live on the host` });
+      continue;
+    }
+    accepted.push(target);
+  }
+  return { accepted, union: collectDeleteSetMany(accepted, headers), rejected };
+}
+async function previewDeleteBatch(ports, targets, archiveRoot) {
+  const plan = await planDeleteBatch(targets, ports);
+  let logBytes = 0;
+  for (const id of plan.union) {
+    try {
+      logBytes += await ports.measureFiles(id);
+    } catch (error) {
+      ports.warn(`web-ux: measuring the stored files of session "${id}" failed`, error);
+    }
+  }
+  return {
+    targetCount: uniqueTargets(targets).length,
+    sessionCount: plan.union.length,
+    descendantCount: plan.union.length - plan.accepted.length,
+    logBytes,
+    archiveRoot,
+    rejected: plan.rejected
+  };
+}
+async function deleteSessionBatch(ports, targets) {
+  return disposeBatch(ports, targets, { mode: "delete" });
+}
+async function archiveSessionBatch(ports, targets, archiveRoot) {
+  return disposeBatch(ports, targets, { mode: "archive", archiveRoot });
+}
+async function disposeBatch(ports, targets, disposal) {
+  const plan = await planDeleteBatch(targets, ports);
+  if (plan.rejected.length > 0) {
+    const [first] = plan.rejected;
+    return { ok: false, code: isFailureCode(first.code) ? first.code : "internal", message: first.message };
+  }
+  const archiveRoot = disposal.mode === "archive" ? disposal.archiveRoot : void 0;
+  if (archiveRoot !== void 0) {
+    if (!isAbsolute2(archiveRoot)) {
+      return { ok: false, code: "archive-unavailable", message: `archive root "${archiveRoot}" is not an absolute path` };
+    }
+    try {
+      await ports.prepareArchive(archiveRoot);
+    } catch (error) {
+      return { ok: false, code: "archive-unavailable", message: `archive root "${archiveRoot}" is not usable: ${reasonOf(error)}` };
+    }
+  }
+  const outcome = archiveRoot === void 0 ? await disposeAll(ports, plan.union, (id) => ports.removeFiles(id)) : await disposeAll(ports, plan.union, (id) => ports.archiveFiles(id, archiveRoot));
+  return { ok: true, outcome };
+}
+function uniqueTargets(targets) {
+  return [...new Set(targets)];
+}
 async function disposeAll(ports, ids, disposeFiles) {
   const warnings = [];
   for (const id of ids) {
@@ -1012,10 +1220,13 @@ async function disposeAll(ports, ids, disposeFiles) {
   }
   return { removed: ids, warnings };
 }
-var SESSION_ID_MAX2 = 255;
+var SESSION_ID_MAX = 255;
 var CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
+function isSafePathSegment(value) {
+  return value !== "" && value.length <= SESSION_ID_MAX && value !== "." && value !== ".." && !value.includes("/") && !value.includes("\\") && !CONTROL_CHARACTERS.test(value);
+}
 function isSafeSessionId(sessionId) {
-  return sessionId !== "" && sessionId.length <= SESSION_ID_MAX2 && sessionId !== "." && sessionId !== ".." && !sessionId.includes("/") && !sessionId.includes("\\") && !CONTROL_CHARACTERS.test(sessionId);
+  return isSafePathSegment(sessionId);
 }
 function isMissing(error) {
   return typeof error === "object" && error !== null && error.code === "ENOENT";
@@ -1078,7 +1289,7 @@ function createSessionFiles(layout) {
     for (const entry of entries) total += await sizeOf(join(path, entry.name));
     return total;
   }
-  async function copyTree(from2, to) {
+  async function copyTree2(from2, to) {
     const warnings = [];
     try {
       await fs.mkdir(to, { recursive: false });
@@ -1101,7 +1312,7 @@ function createSessionFiles(layout) {
         continue;
       }
       if (entry.isDirectory()) {
-        warnings.push(...await copyTree(src, dest));
+        warnings.push(...await copyTree2(src, dest));
         continue;
       }
       try {
@@ -1176,7 +1387,7 @@ function createSessionFiles(layout) {
             continue;
           }
         }
-        const copyWarnings = await copyTree(src, dest);
+        const copyWarnings = await copyTree2(src, dest);
         if (copyWarnings.length > 0) {
           warnings.push(...copyWarnings);
           continue;
@@ -1207,6 +1418,391 @@ function createSessionFiles(layout) {
   };
 }
 
+// src/project-key.ts
+function projectKey(cwd) {
+  if (cwd.length === 0) throw new Error("cannot encode an empty project path");
+  let readable = "";
+  let separatorRun = false;
+  for (let index = 0; index < cwd.length; index += 1) {
+    const code = cwd.charCodeAt(index);
+    const ch = String.fromCharCode(code);
+    if (ch === "/" || ch === "\\" || ch === ":") {
+      if (!separatorRun) readable += "-";
+      separatorRun = true;
+    } else if (ch !== "~" && /^[A-Za-z0-9._-]$/.test(ch)) {
+      readable += ch;
+      separatorRun = false;
+    } else {
+      readable += `~${code.toString(16).toUpperCase().padStart(4, "0")}`;
+      separatorRun = false;
+    }
+  }
+  const body = (readable.replace(/^-+/, "") || "root").slice(0, 251);
+  return `--${body}--`;
+}
+function workspaceForProjectDir(projectDir, workspaces) {
+  const owner = workspaces.find((workspace) => projectKey(workspace.path) === projectDir);
+  return owner?.workspaceId ?? null;
+}
+
+// src/migrated.ts
+var SESSION_ADDED_EVENT = "api-session/added";
+function ownerOfProjectDir(projectDir, workspaces) {
+  return workspaceForProjectDir(projectDir, workspaces);
+}
+function sessionIdOfEntry(dirName) {
+  return dirName;
+}
+function joinUnder(base, ...segments) {
+  const separator = base.includes("\\") && !base.includes("/") ? "\\" : "/";
+  let path = base;
+  while (path.length > 1 && (path.endsWith("/") || path.endsWith("\\"))) path = path.slice(0, -1);
+  for (const segment of segments) {
+    if (path === "" || path === "/") path = `${path}${segment}`;
+    else path = `${path}${separator}${segment}`;
+  }
+  return path;
+}
+function archivePathOf(archiveRoot, target) {
+  return joinUnder(archiveRoot, target.projectDir, target.dirName);
+}
+function isMissing2(error) {
+  return typeof error === "object" && error !== null && error.code === "ENOENT";
+}
+function isCrossDevice2(error) {
+  return typeof error === "object" && error !== null && error.code === "EXDEV";
+}
+function reasonOf2(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+function updatedAtOf(stats) {
+  const value = stats.mtimeMs;
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+}
+function copyFailure2(src, dest, error) {
+  return `copy ${src} -> ${dest}: ${reasonOf2(error)} (the source was kept; the partial copy at the destination needs manual cleanup)`;
+}
+async function copyTree(fs, from2, to) {
+  const warnings = [];
+  try {
+    await fs.mkdir(to, { recursive: false });
+  } catch (error) {
+    return [`${from2} -> ${to}: ${reasonOf2(error)}`];
+  }
+  let entries;
+  try {
+    entries = await fs.readdir(from2);
+  } catch (error) {
+    return [`${from2} -> ${to}: ${reasonOf2(error)}`];
+  }
+  for (const entry of entries) {
+    const src = joinUnder(from2, entry.name);
+    const dest = joinUnder(to, entry.name);
+    if (entry.isSymbolicLink?.() === true) {
+      warnings.push(`${src}: symbolic link was not copied (the source directory was kept)`);
+      continue;
+    }
+    if (entry.isDirectory()) {
+      warnings.push(...await copyTree(fs, src, dest));
+      continue;
+    }
+    try {
+      await fs.copyFile(src, dest);
+    } catch (error) {
+      warnings.push(copyFailure2(src, dest, error));
+    }
+  }
+  return warnings;
+}
+async function inspectArchiveEntry(fs, archiveRoot, target) {
+  if (!isSafePathSegment(target.projectDir)) {
+    return { ok: false, code: "bad-request", message: `project directory ${JSON.stringify(target.projectDir)} is not a safe path segment` };
+  }
+  if (!isSafePathSegment(target.dirName)) {
+    return { ok: false, code: "bad-request", message: `archive entry name ${JSON.stringify(target.dirName)} is not a safe path segment` };
+  }
+  const path = archivePathOf(archiveRoot, target);
+  let stats;
+  try {
+    stats = await fs.lstat(path);
+  } catch (error) {
+    if (isMissing2(error)) {
+      return { ok: false, code: "not-migrated", message: `archive entry "${path}" does not exist` };
+    }
+    return { ok: false, code: "archive-unavailable", message: `archive entry "${path}" is not readable: ${reasonOf2(error)}` };
+  }
+  if (!stats.isDirectory()) {
+    return { ok: false, code: "not-migrated", message: `archive entry "${path}" is not a directory` };
+  }
+  return { ok: true, path, updatedAt: updatedAtOf(stats) };
+}
+async function inspectRestoreTarget(fs, path) {
+  try {
+    await fs.lstat(path);
+    return { ok: false, code: "target-exists", message: `restore target "${path}" already exists` };
+  } catch (error) {
+    if (isMissing2(error)) return { ok: true };
+    return { ok: false, code: "internal", message: `restore target "${path}" cannot be inspected: ${reasonOf2(error)}` };
+  }
+}
+function uniqueTargets2(targets) {
+  const seen = /* @__PURE__ */ new Set();
+  const unique = [];
+  for (const target of targets) {
+    const key = `${target.projectDir}\0${target.dirName}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(target);
+  }
+  return unique;
+}
+async function listArchiveEntries(fs, archiveRoot, warn) {
+  let projects;
+  try {
+    projects = await fs.readdir(archiveRoot);
+  } catch (error) {
+    if (isMissing2(error)) return { entries: [], truncated: false };
+    throw error;
+  }
+  const entries = [];
+  let truncated = false;
+  projectLoop: for (const project of projects) {
+    const projectPath = joinUnder(archiveRoot, project.name);
+    if (project.isSymbolicLink?.() === true) {
+      warn(`${projectPath}: symbolic-linked project directory was not followed`);
+      continue;
+    }
+    if (!project.isDirectory()) {
+      warn(`${projectPath}: not a directory; skipped`);
+      continue;
+    }
+    let sessions;
+    try {
+      sessions = await fs.readdir(projectPath);
+    } catch (error) {
+      if (!isMissing2(error)) warn(`${projectPath}: ${reasonOf2(error)}`);
+      continue;
+    }
+    for (const session of sessions) {
+      const sessionPath = joinUnder(projectPath, session.name);
+      if (session.isSymbolicLink?.() === true) {
+        warn(`${sessionPath}: symbolic-linked session directory was not followed`);
+        continue;
+      }
+      if (!session.isDirectory()) {
+        warn(`${sessionPath}: not a directory; skipped`);
+        continue;
+      }
+      let stats;
+      try {
+        stats = await fs.lstat(sessionPath);
+      } catch (error) {
+        if (!isMissing2(error)) warn(`${sessionPath}: ${reasonOf2(error)}`);
+        continue;
+      }
+      if (!stats.isDirectory()) {
+        warn(`${sessionPath}: not a directory; skipped`);
+        continue;
+      }
+      if (entries.length >= MAX_LISTED_MIGRATED) {
+        truncated = true;
+        break projectLoop;
+      }
+      let bytes = 0;
+      let members;
+      try {
+        members = await fs.readdir(sessionPath);
+      } catch (error) {
+        warn(`${sessionPath}: ${reasonOf2(error)}`);
+        members = [];
+      }
+      for (const member of members) {
+        if (member.isDirectory()) continue;
+        try {
+          const fileStats = await fs.lstat(joinUnder(sessionPath, member.name));
+          bytes += fileStats.size > 0 ? fileStats.size : 0;
+        } catch {
+        }
+      }
+      entries.push({
+        sessionId: sessionIdOfEntry(session.name),
+        dirName: session.name,
+        projectDir: project.name,
+        bytes,
+        updatedAt: updatedAtOf(stats)
+      });
+    }
+  }
+  return { entries, truncated };
+}
+async function removeEntries(fs, archiveRoot, targets) {
+  const warnings = [];
+  for (const target of targets) {
+    const path = archivePathOf(archiveRoot, target);
+    try {
+      await fs.rm(path, { recursive: true, force: true });
+    } catch (error) {
+      warnings.push(`${path}: ${reasonOf2(error)}`);
+    }
+  }
+  return warnings;
+}
+async function moveArchiveEntry(fs, source, parent, destination) {
+  try {
+    await fs.mkdir(parent, { recursive: true });
+  } catch (error) {
+    return { moved: false, warnings: [`${source} -> ${destination}: ${reasonOf2(error)}`] };
+  }
+  try {
+    await fs.rename(source, destination);
+    return { moved: true, warnings: [] };
+  } catch (error) {
+    if (!isCrossDevice2(error)) {
+      return { moved: false, warnings: [`${source} -> ${destination}: ${reasonOf2(error)}`] };
+    }
+  }
+  const copyWarnings = await copyTree(fs, source, destination);
+  if (copyWarnings.length > 0) return { moved: false, warnings: copyWarnings };
+  const warnings = [];
+  try {
+    await fs.rm(source, { recursive: true, force: false });
+  } catch (error) {
+    warnings.push(`moved to ${destination} but the source could not be removed: ${source}: ${reasonOf2(error)}`);
+  }
+  return { moved: true, warnings };
+}
+async function restoreEntries(fs, homePath, archiveRoot, targets) {
+  const moved = [];
+  const warnings = [];
+  for (const target of targets) {
+    const result = await moveArchiveEntry(
+      fs,
+      archivePathOf(archiveRoot, target),
+      homePath("sessions", target.projectDir),
+      homePath("sessions", target.projectDir, target.dirName)
+    );
+    warnings.push(...result.warnings);
+    if (result.moved) moved.push(target);
+  }
+  return { moved, warnings };
+}
+function createArchiveFiles(layout) {
+  const { fs, homePath } = layout;
+  return {
+    /** 列出归档根下的条目；未建归档根（ENOENT）按空列表处理。 */
+    async list(archiveRoot, warn = () => {
+    }) {
+      return await listArchiveEntries(fs, archiveRoot, warn);
+    },
+    /** 物理删除条目；逐条失败只进 warnings。 */
+    async remove(targets, archiveRoot) {
+      return await removeEntries(fs, archiveRoot, targets);
+    },
+    /** 把条目搬回 `sessions/`；逐条失败只进 warnings。 */
+    async restore(targets, archiveRoot) {
+      return await restoreEntries(fs, homePath, archiveRoot, targets);
+    }
+  };
+}
+async function listMigrated(ports) {
+  if (ports.archiveRoot === "") {
+    return { ok: false, code: "archive-unavailable", message: "the archive root is empty" };
+  }
+  try {
+    const { entries, truncated } = await listArchiveEntries(ports.fs, ports.archiveRoot, ports.warn);
+    return { ok: true, listing: { archiveRoot: ports.archiveRoot, entries, truncated } };
+  } catch (error) {
+    return {
+      ok: false,
+      code: "archive-unavailable",
+      message: `archive root "${ports.archiveRoot}" is not readable: ${reasonOf2(error)}`
+    };
+  }
+}
+async function deleteMigrated(ports, targets) {
+  const unique = uniqueTargets2(targets);
+  if (unique.length === 0) {
+    return { ok: false, code: "bad-request", message: "no archive entries were selected" };
+  }
+  if (ports.archiveRoot === "") {
+    return { ok: false, code: "archive-unavailable", message: "the archive root is empty" };
+  }
+  for (const target of unique) {
+    const checked = await inspectArchiveEntry(ports.fs, ports.archiveRoot, target);
+    if (!checked.ok) return checked;
+  }
+  const files = createArchiveFiles({ homePath: ports.homePath, fs: ports.fs });
+  const warnings = await files.remove(unique, ports.archiveRoot);
+  return {
+    ok: true,
+    outcome: { removed: unique.map((target) => sessionIdOfEntry(target.dirName)), warnings }
+  };
+}
+async function restoreMigrated(ports, targets) {
+  const unique = uniqueTargets2(targets);
+  if (unique.length === 0) {
+    return { ok: false, code: "bad-request", message: "no archive entries were selected" };
+  }
+  if (ports.archiveRoot === "") {
+    return { ok: false, code: "archive-unavailable", message: "the archive root is empty" };
+  }
+  const checked = [];
+  for (const target of unique) {
+    const entry = await inspectArchiveEntry(ports.fs, ports.archiveRoot, target);
+    if (!entry.ok) return entry;
+    const destination = ports.homePath("sessions", target.projectDir, target.dirName);
+    const targetCheck = await inspectRestoreTarget(ports.fs, destination);
+    if (!targetCheck.ok) return targetCheck;
+    checked.push({ target, updatedAt: entry.updatedAt });
+  }
+  const warnings = [];
+  let workspaces = [];
+  try {
+    workspaces = ports.listWorkspaces();
+  } catch (error) {
+    warnings.push(`workspaces: ${reasonOf2(error)}`);
+    ports.warn("web-ux: listing the workspaces for restoring archived sessions failed", error);
+  }
+  const files = createArchiveFiles({ homePath: ports.homePath, fs: ports.fs });
+  const restored = [];
+  const announced = [];
+  for (const entry of checked) {
+    const sessionId = sessionIdOfEntry(entry.target.dirName);
+    const moved = await files.restore([entry.target], ports.archiveRoot);
+    warnings.push(...moved.warnings);
+    if (moved.moved.length === 0) continue;
+    let workspaceId = null;
+    try {
+      const matched = ownerOfProjectDir(entry.target.projectDir, workspaces);
+      if (matched === null) {
+        warnings.push(`attach: ${sessionId}: no workspace matches project directory "${entry.target.projectDir}"`);
+        ports.warn(`web-ux: restored session "${sessionId}" has no matching workspace; it stays ungrouped`);
+      } else {
+        await ports.attachToWorkspace(matched, sessionId);
+        workspaceId = matched;
+      }
+    } catch (error) {
+      warnings.push(`attach: ${sessionId}: ${reasonOf2(error)}`);
+      ports.warn(`web-ux: attaching the restored session "${sessionId}" to its workspace failed`, error);
+    }
+    try {
+      await ports.readdToArchiveSet(sessionId);
+    } catch (error) {
+      warnings.push(`archive-set: ${sessionId}: ${reasonOf2(error)}`);
+      ports.warn(`web-ux: putting the restored session "${sessionId}" back into the archive set failed`, error);
+    }
+    restored.push({ sessionId, workspaceId });
+    announced.push({ sessionId, updatedAt: entry.updatedAt });
+  }
+  try {
+    await ports.announceRestored(announced);
+  } catch (error) {
+    warnings.push(`announce: ${reasonOf2(error)}`);
+    ports.warn("web-ux: broadcasting the restored sessions failed", error);
+  }
+  return { ok: true, outcome: { restored, warnings } };
+}
+
 // src/index.ts
 var name = "web-ux";
 var inject = ["workspaceRegistry", "sessionPersistence", "dshHomePath"];
@@ -1215,7 +1811,7 @@ function apply(ctx, config) {
   ctx.inject(["connection", "webServer"], (connectionCtx) => {
     const connection = connectionCtx.root.get("connection");
     if (connection === void 0) {
-      ctx.logger.warn("web-ux: connection resolved without the service; the session-delete channel is not mounted");
+      ctx.logger.warn("web-ux: connection resolved without the service; the session-management channel is not mounted");
       return;
     }
     const dispose = connection.rpc.handle(CHANNEL, createDispatcher(ctx, config));
@@ -1226,29 +1822,54 @@ function apply(ctx, config) {
 }
 function createDispatcher(ctx, config) {
   return async (endpoint, payload) => {
-    const parsed = parseDeleteRequest(endpoint, payload);
+    const parsed = parseRequest(endpoint, payload);
     if (!parsed.ok) return failure("bad-request", parsed.message);
+    const request = parsed.value;
     try {
       const ports = createPorts(ctx, config);
       if (ports === void 0) return failure("internal", NO_HOME_MESSAGE);
-      if (endpoint === PREVIEW_ENDPOINT) {
-        const result = await previewDelete(ports, parsed.value.sessionId, ports.archiveRoot);
-        return result.ok ? { ok: true, value: result.preview } : failure(result.code, result.message);
+      switch (request.endpoint) {
+        case PREVIEW_ENDPOINT: {
+          const result = await previewDelete(ports, request.body.sessionId, ports.archiveRoot);
+          return result.ok ? { ok: true, value: result.preview } : failure(result.code, result.message);
+        }
+        case DELETE_ENDPOINT: {
+          const result = request.body.mode === "archive" ? await archiveSession(ports, request.body.sessionId, ports.archiveRoot) : await deleteSession(ports, request.body.sessionId);
+          return result.ok ? { ok: true, value: result.outcome } : failure(result.code, result.message);
+        }
+        case PREVIEW_BATCH_ENDPOINT:
+          return { ok: true, value: await previewDeleteBatch(ports, request.body.sessionIds, ports.archiveRoot) };
+        case DELETE_BATCH_ENDPOINT: {
+          const result = request.body.mode === "archive" ? await archiveSessionBatch(ports, request.body.sessionIds, ports.archiveRoot) : await deleteSessionBatch(ports, request.body.sessionIds);
+          return result.ok ? { ok: true, value: result.outcome } : failure(result.code, result.message);
+        }
+        case LIST_MIGRATED_ENDPOINT: {
+          const result = await listMigrated(ports);
+          return result.ok ? { ok: true, value: result.listing } : failure(result.code, result.message);
+        }
+        case DELETE_MIGRATED_ENDPOINT: {
+          const result = await deleteMigrated(ports, request.body.entries);
+          return result.ok ? { ok: true, value: result.outcome } : failure(result.code, result.message);
+        }
+        case RESTORE_MIGRATED_ENDPOINT: {
+          const result = await restoreMigrated(ports, request.body.entries);
+          return result.ok ? { ok: true, value: result.outcome } : failure(result.code, result.message);
+        }
+        default:
+          return failure("bad-request", `unknown endpoint "${endpoint}"`);
       }
-      if (endpoint === DELETE_ENDPOINT) {
-        const result = parsed.value.mode === "archive" ? await archiveSession(ports, parsed.value.sessionId, ports.archiveRoot) : await deleteSession(ports, parsed.value.sessionId);
-        return result.ok ? { ok: true, value: result.outcome } : failure(result.code, result.message);
-      }
-      return failure("bad-request", `unknown endpoint "${endpoint}"`);
     } catch (error) {
-      ctx.logger.warn("web-ux: the session-delete endpoint failed unexpectedly", error);
+      ctx.logger.warn("web-ux: a session-management endpoint failed unexpectedly", error);
       return failure("internal", error instanceof Error ? error.message : String(error));
     }
   };
 }
 var nodeFileSystem = {
   readdir: async (path) => await readdir(path, { withFileTypes: true }),
-  lstat: async (path) => await lstat(path),
+  lstat: async (path) => {
+    const stats = await lstat(path);
+    return { size: stats.size, mtimeMs: stats.mtimeMs, isDirectory: () => stats.isDirectory() };
+  },
   rm: async (path, options) => {
     await rm(path, { recursive: options.recursive, force: options.force });
   },
@@ -1268,7 +1889,7 @@ var nodeFileSystem = {
 function createPorts(ctx, config) {
   const homePath = ctx.dshHomePath;
   if (homePath === void 0) {
-    ctx.logger.warn("web-ux: dshHomePath is unavailable; the session-delete endpoints answer internal");
+    ctx.logger.warn("web-ux: dshHomePath is unavailable; the session-management endpoints answer internal");
     return void 0;
   }
   const archiveRoot = resolveArchiveRoot(config?.archiveRoot, {
@@ -1282,6 +1903,8 @@ function createPorts(ctx, config) {
   const emitter = ctx;
   return {
     archiveRoot,
+    homePath,
+    fs: nodeFileSystem,
     listStoredHeaders: async () => (await ctx.sessionPersistence.list()).map((snapshot2) => snapshot2.header),
     isLive: (sessionId) => ctx.get("sessions")?.get(sessionId) !== void 0,
     isArchived: (sessionId) => ctx.workspaceRegistry.archivedSessionIds.includes(sessionId),
@@ -1308,6 +1931,44 @@ function createPorts(ctx, config) {
         emitter.emit(SESSION_REMOVED_EVENT, sessionId);
       } catch (error) {
         ctx.logger.warn("web-ux: broadcasting the session-removed event failed", error);
+      }
+    },
+    listWorkspaces: () => ctx.workspaceRegistry.list().map((workspace) => ({
+      workspaceId: workspace.id,
+      path: workspace.path
+    })),
+    attachToWorkspace: async (workspaceId, sessionId) => {
+      const workspace = ctx.workspaceRegistry.get(workspaceId);
+      if (workspace === void 0) throw new Error(`workspace "${workspaceId}" is not registered`);
+      await workspace.attachSession(sessionId);
+    },
+    readdToArchiveSet: async (sessionId) => {
+      await ctx.workspaceRegistry.archiveSession(sessionId);
+    },
+    announceRestored: async (entries) => {
+      const headers = new Map(
+        (await ctx.sessionPersistence.list()).map((snapshot2) => [snapshot2.header.id, snapshot2.header])
+      );
+      for (const entry of entries) {
+        const header = headers.get(entry.sessionId);
+        if (header === void 0) {
+          ctx.logger.warn(`web-ux: the restored session "${entry.sessionId}" is missing from session persistence; the session-added event was skipped`);
+          continue;
+        }
+        try {
+          emitter.emit(SESSION_ADDED_EVENT, {
+            sessionId: entry.sessionId,
+            updatedAt: entry.updatedAt,
+            running: false,
+            blank: false,
+            agentAvailable: false,
+            cwd: header.cwd,
+            parentSessionId: header.parentSession,
+            origin: header.origin
+          });
+        } catch (error) {
+          ctx.logger.warn("web-ux: broadcasting the session-added event failed", error);
+        }
       }
     },
     warn: (message, error) => {

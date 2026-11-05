@@ -1,0 +1,424 @@
+/*
+ * 会话管理浮层的样式（SessionManagerTrigger 与 SessionManagerDialog 两个组件）。
+ *
+ * 只补官方 primitives 给不了的东西：侧栏底部的触发按钮、浮层工具栏（工作区选择器 +
+ * 三个 tab）、列表行与行内徽标、选择条、确认与结果区的文字层级。Modal / Button /
+ * SegmentedTabs / Checkbox / Menu 的骨架、尺寸与焦点环全部由 primitives 负责，这里
+ * 不复制它们的配色，也不与删除确认对话框的样式文件混用（两处视觉语义不同，且 bundle
+ * 的样式注入器按模块各自计数）。
+ *
+ * 颜色纪律：每一处颜色都是 `var(--dsw-alias-*, <兜底>, )` 形态——兜底值只用 CSS 关键字
+ * （`currentColor`、具名色）与 `color-mix()`，不写死具体色值。这样令牌整体缺席时最坏
+ * 退化成「当前文字色的深浅变化」，而不是某一种主题下的固定颜色（深色主题下不会出现
+ * 白底白字）。尺寸与圆角同样优先取令牌，令牌缺失时退回 px。
+ *
+ * 类名契约（管理浮层组件按此清单消费；均按 CSS Modules 局部类引用）：
+ *   trigger、triggerLabel                                 —— 侧栏底部入口
+ *   toolbar、workspaceButton、workspaceName、tabsRow      —— 工具栏与工作区选择器
+ *   modes、modeRow、modeText                              —— tab 2 的处置方式单选
+ *   selectionBar、list、row、rowSelected、rowDisabled     —— 选择条与列表
+ *   rowMeta、badge、badgeRunning、badgeBlank              —— 行内元信息与徽标
+ *   empty、truncated、muted                               —— 空态 / 截断 / 过程文案
+ *   summary、rejected                                     —— 确认阶段的摘要与被拒清单
+ *   result、warnings、failure、detail、danger             —— 结果区与底部危险按钮
+ *
+ * 构建期类名由构建脚本的 cssModulesPlugin 重写为 `wux_<local>_<hash>`。
+ */
+
+/* —— 侧栏底部入口：宽栏是「图标 + 文案」整行按钮，折叠栏退化成方形图标按钮 —— */
+.trigger {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--dsw-radius-md, 8px);
+  background: none;
+  color: var(--dsw-alias-label-secondary, currentColor);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.trigger:hover {
+  background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentColor 8%, transparent));
+  color: var(--dsw-alias-label-primary, currentColor);
+}
+
+.trigger:active {
+  background: var(--dsw-alias-interactive-bg-active, color-mix(in srgb, currentColor 12%, transparent));
+}
+
+/* 焦点环与官方按钮同款：内缩 2px，不撑破侧栏的窄栏宽度。 */
+.trigger:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary, currentColor);
+  outline-offset: -2px;
+}
+
+/*
+ * 折叠栏（56px 轨道）：座位容器宽度收缩成 auto 且只剩图标，文案 span 缺席即是判据
+ * —— 退化成 28×28 的方形图标按钮，居中由座位容器负责。
+ */
+.trigger:not(:has(.triggerLabel)) {
+  flex: none;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+}
+
+/* 文案是唯一的弹性部分：宽栏太窄时省略号截断，不把侧栏撑出横向滚动。 */
+.triggerLabel {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* —— 工具栏：工作区选择器一行，三个 tab 占满下一行（浮层宽度有限，横排会挤） —— */
+.toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 12px;
+}
+
+/* 工作区选择器的触发按钮：幽灵按钮形态，边框只用一级描边。 */
+.workspaceButton {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 4px;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--dsw-alias-border-l3, gray);
+  border-radius: var(--dsw-radius-sm, 6px);
+  background: none;
+  color: var(--dsw-alias-label-primary, currentColor);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspaceButton:hover,
+.workspaceButton[aria-expanded='true'] {
+  background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentColor 8%, transparent));
+}
+
+.workspaceButton:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary, currentColor);
+  outline-offset: -2px;
+}
+
+/* 工作区名过长时省略，而不是把工具栏撑出卡片宽度。 */
+.workspaceName {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* SegmentedTabs 的放置类：三段等分，与工具栏同宽。 */
+.tabsRow {
+  width: 100%;
+  min-width: 0;
+}
+
+/* —— tab 2 的处置方式单选：复用既有处置方式文案键，但结构在本模块内自绘 —— */
+/* fieldset 自带边框与内边距，这里全部抹平只留分组间距。 */
+.modes {
+  margin: 0 0 10px;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+
+/* legend 是原生语义元素、没有 className，只能在后代里对齐分区标题的字级。 */
+.modes legend {
+  display: block;
+  margin: 0 0 4px;
+  padding: 0;
+  color: var(--dsw-alias-label-secondary, currentColor);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+/* 选项行：整行是 label，点文字等于点 radio。 */
+.modeRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 2px 0;
+  cursor: pointer;
+}
+
+/* 原生 radio 只改强调色，尺寸与命中区保持系统默认。 */
+.modeRow input {
+  flex: none;
+  margin: 3px 0 0;
+  accent-color: var(--dsw-alias-state-business-primary, currentColor);
+}
+
+.modeText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--dsw-alias-label-primary, currentColor);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* 执行中（fieldset disabled）：整组降级到弱化色，行也不再显示可点手势。 */
+.modes:disabled .modeRow {
+  cursor: default;
+}
+
+.modes:disabled .modeText {
+  color: var(--dsw-alias-label-tertiary, currentColor);
+}
+
+/* —— 选择条：全选 / 已选计数 / 清空，与列表之间用一条细线分隔 —— */
+.selectionBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--dsw-alias-border-l1, gray);
+  border-bottom: 1px solid var(--dsw-alias-border-l1, gray);
+  color: var(--dsw-alias-label-secondary, currentColor);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* 计数靠右，「清空」紧随其后；选择条只有一个 span，不会误伤按钮。 */
+.selectionBar > span {
+  min-width: 0;
+  margin-left: auto;
+}
+
+/* —— 列表与行：行内是 Checkbox（标题即 label）+ 元信息 + 徽标 —— */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  /* 条数上限由 model 截断，这里只兜住视口高度：列表自己滚动，Modal 不整体长高。 */
+  max-height: min(46vh, 420px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--dsw-radius-sm, 6px);
+}
+
+.row:hover {
+  background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentColor 6%, transparent));
+}
+
+/* 首列是 Checkbox：吃掉剩余宽度，元信息与徽标按自身最大宽度靠右排布。 */
+.row > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 已选行：品牌色的浅层底，勾选态与整行底色互不抢注意力。 */
+.rowSelected,
+.rowSelected:hover {
+  background: var(--dsw-alias-state-business-tertiary, color-mix(in srgb, currentColor 10%, transparent));
+}
+
+/* 运行中的行不可勾选：取消悬停反馈，勾选框自身的禁用降级由 Checkbox 负责。 */
+.rowDisabled,
+.rowDisabled:hover {
+  background: none;
+  cursor: default;
+}
+
+/* 行内元信息（时间 / 体积）：等宽数字对齐，弱化到辅助层级。 */
+.rowMeta {
+  flex: none;
+  align-self: center;
+  color: var(--dsw-alias-label-tertiary, currentColor);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 徽标：行内状态胶囊，底与描边都取层叠色，不引入第三种强调色。 */
+.badge {
+  flex: none;
+  align-self: center;
+  padding: 0 6px;
+  border: 0.5px solid var(--dsw-alias-border-l2, gray);
+  border-radius: var(--dsw-radius-sm, 6px);
+  background: var(--dsw-alias-bg-layer-3, color-mix(in srgb, currentColor 8%, transparent));
+  color: var(--dsw-alias-label-secondary, currentColor);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+/* 「运行中」是行不可勾选的唯一原因，用状态色而不是普通弱化色。 */
+.badgeRunning {
+  color: var(--dsw-alias-state-success-primary, currentColor);
+}
+
+/* 「空白」只是没有内容，不是异常：保持弱化，不报警。 */
+.badgeBlank {
+  color: var(--dsw-alias-label-tertiary, currentColor);
+}
+
+/* —— 空态 / 截断 / 过程文案 —— */
+.empty {
+  margin: 0;
+  padding: 20px 0;
+  color: var(--dsw-alias-label-tertiary, currentColor);
+  font-size: 13px;
+  line-height: 20px;
+  text-align: center;
+}
+
+/* 列表截断提示：这是需要用户动手的事实，用警告色而不是灰字。 */
+.truncated {
+  margin: 8px 0 0;
+  color: var(--dsw-alias-state-warn-label, currentColor);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* 进行中等过程文案：低调，不与操作对象抢注意力。 */
+.muted {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary, currentColor);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* —— 确认阶段：摘要（目标数 / 级联数 / 体积 / 归档根）与被拒清单 —— */
+.summary {
+  margin: 0 0 12px;
+  color: var(--dsw-alias-label-secondary, currentColor);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.summary p {
+  margin: 0 0 4px;
+}
+
+.summary ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.summary li + li {
+  margin-top: 2px;
+}
+
+/* 被拒清单：宿主回绝的条目，执行按钮会把这些排除在本批之外。 */
+.rejected {
+  margin: 0 0 12px;
+  color: var(--dsw-alias-state-warn-label, currentColor);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.rejected ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.rejected li {
+  word-break: break-word;
+}
+
+/* —— 结果区：成功计数 + 逐项失败 + 半失败 warnings —— */
+.result {
+  margin: 0;
+  color: var(--dsw-alias-label-primary, currentColor);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.result p {
+  margin: 0 0 6px;
+}
+
+.result ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.result li {
+  word-break: break-word;
+}
+
+/* warnings 是宿主给的「路径: 原因」机器可读串，等宽字体原样列出。 */
+.warnings {
+  margin: 12px 0 0;
+  color: var(--dsw-alias-label-secondary, currentColor);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.warnings p {
+  margin: 0 0 4px;
+}
+
+.warnings ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.warnings code {
+  font-family: var(--ds-font-family-code, monospace);
+  word-break: break-all;
+}
+
+/* 整单失败：错误色只给真正失败的那一句。 */
+.failure {
+  margin: 0;
+  color: var(--dsw-alias-state-error-primary, crimson);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+/* 宿主兜底说明（未本地化）：比失败原因低一层。 */
+.detail {
+  margin: 6px 0 0;
+  color: var(--dsw-alias-label-tertiary, currentColor);
+  font-size: 12px;
+  line-height: 18px;
+  word-break: break-word;
+}
+
+/* —— 危险按钮：Button 没有 danger variant，tab 3 的「永久删除所选」用它上色 —— */
+.danger {
+  color: var(--dsw-alias-label-primary-foreground, white);
+  background: var(--dsw-alias-state-error-primary, crimson);
+}
+
+.danger:hover:not(:disabled) {
+  background: var(--dsw-alias-state-error-secondary, indianred);
+}

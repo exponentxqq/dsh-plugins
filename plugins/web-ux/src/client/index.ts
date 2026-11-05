@@ -1,7 +1,7 @@
 /**
  * Browser half of dsh-plugin-web-ux.
  *
- * Three features share one entry:
+ * Four features share one entry:
  *
  * - The provider badge (unchanged) appends one static capsule to the
  *   `conversation.composer.dock` list slot, the ambient row below the composer
@@ -19,15 +19,22 @@
  *   nowhere to render (empty-session welcome view). The card reads the
  *   main-view retain count per session (`sessions.retainInfo`) and hides
  *   itself the moment the session view (transcript) is open.
+ * - The session-manager feature contributes two more soft entries bridged by
+ *   one in-plugin request store (the same pattern as the delete pair): a
+ *   footer action in the sidebar (`sidebar.footer.action`, order 100) and its
+ *   dialog on `shell.overlay` (order 520, behind the delete dialog's 500 so
+ *   the two never show together).
  *
  * Everything touching an upstream surface is soft: all entries register
  * through `slots.inject` (a shell without the declaration simply never mounts
  * them), the event bridge and `sessions` are read defensively (a shell without
  * either degrades to "no notice card" / "no auto-hide"), and `connection` /
- * `workspaces` are read with `ctx.get` **inside the inject faces** — never at
- * apply time, because the web shell provides `workspaces` after its remote
- * gateway is ready. A shell missing either service hides the delete entry only
- * and leaves the badge and the notice card untouched.
+ * `workspaces` / `sessions` are read with `ctx.get` **inside the inject
+ * faces** — never at apply time, because the web shell provides `workspaces`
+ * only after its remote gateway is ready. A shell missing one of them hides the
+ * affected entry only — the manager trigger without `connection`, the manager
+ * dialog's list without `workspaces` / `sessions` — and leaves the badge and
+ * every other entry untouched.
  *
  * @module dsh-plugin-web-ux/client
  */
@@ -39,6 +46,9 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+// Type-only: ui-sidebar's SlotMap merge — the `sidebar.footer.action` seat this
+// module registers into (the entry's own props ride SessionManagerTrigger.tsx).
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 // Type-only: the sidebar row-menu slot contract, plus the CLIENT faces that
 // publish `ctx.locale` / `ctx.connection` / `ctx.workspaces` on the browser
 // context. `shell.overlay`'s SlotMap merge rides DeleteSessionDialog.tsx.
@@ -55,8 +65,15 @@ import { DeleteSessionDialog, type DeleteDialogInjected } from './DeleteSessionD
 import { CommandNoticeCard, type CommandNoticeInjected } from './CommandNoticeCard.tsx'
 import { createNoticeStore } from './notice-store.ts'
 import { projectCountSource } from './notice-visibility.ts'
-import { createDeleteClient } from './delete-client.ts'
+import { createDeleteClient, createSessionManagerClient } from './delete-client.ts'
 import { createDeleteRequestStore } from './delete-store.ts'
+import { SessionManagerTrigger, type SessionManagerTriggerInjected } from './SessionManagerTrigger.tsx'
+import {
+  SessionManagerDialog,
+  type SessionManagerDialogInjected,
+  type SessionsSource,
+} from './SessionManagerDialog.tsx'
+import { createManagerRequestStore } from './session-manager-store.ts'
 import { NS, en, zh } from './locales.ts'
 
 /** Required services: the slot registry, the dictionaries, the model directory. */
@@ -82,6 +99,20 @@ export const DELETE_DIALOG_ORDER = 500
  */
 export const NOTICE_ID = 'web-ux-command-notice'
 export const NOTICE_ORDER = 10
+
+/**
+ * The session-manager trigger's seat in the sidebar footer: after the shipped
+ * foot controls (the sidebar sorts a list slot by `order`).
+ */
+export const MANAGER_TRIGGER_ID = 'web-ux-session-manager-trigger'
+export const MANAGER_TRIGGER_ORDER = 100
+
+/**
+ * The session-manager dialog's overlay id and order: behind the delete dialog
+ * (`order: 500`) so the two never show together.
+ */
+export const MANAGER_OVERLAY_ID = 'web-ux-session-manager'
+export const MANAGER_OVERLAY_ORDER = 520
 
 /** 按任意键名软读一个服务（形状由调用方防御式对待；同 multi-root 的 readService）。 */
 function readService(ctx: ClientContext, name: string): unknown {
@@ -217,6 +248,64 @@ export function apply(ctx: ClientContext): void {
           },
         },
         DeleteSessionDialog,
+      )
+    } catch {
+      // A shell without the overlay seat keeps every other overlay untouched.
+      return () => {}
+    }
+  })
+
+  // 会话管理面与删除面同构：入口（侧栏底部）与浮层（shell 层）是两个独立 entry，
+  // 通过一个请求 store 桥接——slot 的 inject.hooks 只能由声明方提供，第三方无法新增
+  // （D7）。三个服务一律在注入面（渲染期）解析，理由同上方删除面：web 壳的工作区 /
+  // 会话服务晚于本插件 `apply` 就绪，apply 期读取会把入口永久弄丢（D18）。连接通道
+  // 缺席只藏入口、浮层静默；工作区或会话快照缺席时浮层保留「服务未就绪」空态，让
+  // 用户看到解释而不是什么都没有。
+  const managerRequests = createManagerRequestStore()
+
+  ctx.slots.inject('sidebar.footer.action', () => {
+    try {
+      return ctx.slots.register(
+        {
+          name: 'sidebar.footer.action',
+          id: MANAGER_TRIGGER_ID,
+          order: MANAGER_TRIGGER_ORDER,
+          locale: NS,
+          inject: (): SessionManagerTriggerInjected => ({
+            requests: managerRequests,
+            // 渲染期解析：connection 可能晚于 apply 就绪；缺席时入口整颗不渲染。
+            ready: ctx.get('connection') !== undefined,
+          }),
+        },
+        SessionManagerTrigger,
+      )
+    } catch {
+      // A shell without the footer-action seat simply shows no manager entry.
+      return () => {}
+    }
+  })
+
+  ctx.slots.inject('shell.overlay', () => {
+    try {
+      return ctx.slots.register(
+        {
+          name: 'shell.overlay',
+          id: MANAGER_OVERLAY_ID,
+          order: MANAGER_OVERLAY_ORDER,
+          locale: NS,
+          inject: (): SessionManagerDialogInjected => {
+            const connection = ctx.get('connection')
+            return {
+              requests: managerRequests,
+              client: connection === undefined ? undefined : createSessionManagerClient(connection),
+              workspaces: ctx.get('workspaces'),
+              // sessions 在客户端 Context 的服务类型表里没有声明（只经 ui-session
+              // 传递可达），与通知卡同款 unknown 软读后按浮层的结构式声明收敛。
+              sessions: readService(ctx, 'sessions') as SessionsSource | undefined,
+            }
+          },
+        },
+        SessionManagerDialog,
       )
     } catch {
       // A shell without the overlay seat keeps every other overlay untouched.

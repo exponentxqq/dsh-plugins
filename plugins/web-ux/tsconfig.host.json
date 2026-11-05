@@ -6,10 +6,14 @@
     "src/contract.ts",
     "src/delete-session.ts",
     "src/index.ts",
+    "src/migrated.ts",
+    "src/project-key.ts",
     "test/bundle.test.ts",
     "test/config.test.ts",
     "test/contract.test.ts",
     "test/delete-session.test.ts",
-    "test/index.test.ts"
+    "test/index.test.ts",
+    "test/migrated.test.ts",
+    "test/project-key.test.ts"
   ]
 }

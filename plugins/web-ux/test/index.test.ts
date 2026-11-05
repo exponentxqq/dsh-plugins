@@ -1,7 +1,8 @@
 /**
  * 宿主实载体的单测：channel 的软挂载（connection 缺失只告警）、CHANNEL 注册与
  * disposer 释放，以及 dispatcher 在真实临时目录上的预览 / 删除 / 归档迁移 / 拒绝 /
- * 失败映射。
+ * 失败映射；迁移域的 7 端点分派、归档根枚举、物理删除与恢复（含 `api-session/added`
+ * 广播载荷）同样跑在真实临时 `$DSH_HOME` 上。
  *
  * cordis Context 用一个最小 fake 代替：注入回调、服务查找、logger 与 emit 全部
  * 可控，断言的是本插件的行为而不是 cordis 的调度。文件操作则跑在真实临时目录上，
@@ -10,15 +11,32 @@
  */
 
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ConnectionRpcResult } from '@deepseek-ai/dsh-client-connection'
 import { afterEach, describe, expect, it } from 'vitest'
-import { CHANNEL, DELETE_ENDPOINT, PREVIEW_ENDPOINT, parseOutcome, parsePreview } from '../src/contract.ts'
+import {
+  CHANNEL,
+  DELETE_BATCH_ENDPOINT,
+  DELETE_ENDPOINT,
+  DELETE_MIGRATED_ENDPOINT,
+  LIST_MIGRATED_ENDPOINT,
+  MAX_LISTED_MIGRATED,
+  PREVIEW_BATCH_ENDPOINT,
+  PREVIEW_ENDPOINT,
+  RESTORE_MIGRATED_ENDPOINT,
+  parseBatchPreview,
+  parseMigratedListing,
+  parseOutcome,
+  parsePreview,
+  parseRestoreOutcome,
+  type Parsed,
+} from '../src/contract.ts'
 import { SESSION_REMOVED_EVENT, type StoredSessionHeader } from '../src/delete-session.ts'
 import { apply, Config, createDispatcher, inject, name } from '../src/index.ts'
+import { SESSION_ADDED_EVENT } from '../src/migrated.ts'
 
 /** 请求用的一次性 abort signal（本流程不消费取消，仅满足 channel 形状）。 */
 const SIGNAL = new AbortController().signal
@@ -422,5 +440,575 @@ describe('createDispatcher', () => {
       error: { code: 'internal', message: 'storage exploded', details: {} },
     })
     expect(host.warnings).toHaveLength(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 迁移域接线：7 端点分派、真实归档根上的枚举 / 删除 / 恢复，以及
+// `api-session/added` 的广播载荷。文件系统与归档根解析走真实实现，只有 cordis
+// 上下文与工作区注册表是 fake。
+// ---------------------------------------------------------------------------
+
+/** `session-<uuid>` 形态的会话目录名（当前部署主流形态，D12 要求原样保留）。 */
+const PREFIXED_ID = 'session-0a7083fd-0a7e-4c5f-9d38-6c0f3f7f2a11'
+
+/** 裸 UUID 形态的会话目录名。 */
+const BARE_ID = '0a7083fd-0a7e-4c5f-9d38-6c0f3f7f2a11'
+
+/** 无 cwd 归档条目的归组目录名。 */
+const NO_CWD = '_no-cwd'
+
+/** 缺省归档根的绝对路径（`$DSH_HOME/archive/sessions`）。 */
+function archiveRootOf(home: string): string {
+  return join(home, 'archive', 'sessions')
+}
+
+/** 归档条目的绝对路径：`<archiveRoot>/<projectDir>/<dirName>`。 */
+function archivedPathOf(home: string, projectDir: string, dirName: string): string {
+  return join(archiveRootOf(home), projectDir, dirName)
+}
+
+/**
+ * 建一个空的临时 DSH_HOME（不预置任何会话），用于不需要 `sessions/` 的迁移域用例。
+ * @returns 临时 home 的绝对路径（已登记进 afterEach 清理表）。
+ */
+async function createEmptyHome(): Promise<string> {
+  const home = await mkdtemp(join(tmpdir(), 'web-ux-host-'))
+  homes.push(home)
+  return home
+}
+
+/**
+ * 在 `sessions/` 下建一个会话目录与投影缓存（布局与 {@link createHome} 一致）。
+ * @param home - 临时 DSH_HOME。
+ * @param sessionId - 会话 id（同时作为目录名）。
+ * @param bytes - 日志文件体积。
+ * @returns 会话目录的绝对路径。
+ */
+async function createStoredSession(home: string, sessionId: string, bytes = 10): Promise<string> {
+  const sessionDir = sessionDirOf(home, sessionId)
+  await mkdir(sessionDir, { recursive: true })
+  await writeFile(join(sessionDir, 'session.v4.jsonl.zstd'), 'x'.repeat(bytes))
+  await mkdir(join(home, 'storages', 'session_projcache', 'sessions'), { recursive: true })
+  await writeFile(cachePathOf(home, sessionId), 'cache')
+  return sessionDir
+}
+
+/**
+ * 在缺省归档根下建一条已迁移会话（含一个日志文件）。
+ * @param home - 临时 DSH_HOME。
+ * @param projectDir - 归档根下的一级项目目录名。
+ * @param dirName - 会话目录名。
+ * @param bytes - 日志文件体积。
+ * @returns 归档条目目录的绝对路径。
+ */
+async function createArchived(home: string, projectDir: string, dirName: string, bytes = 10): Promise<string> {
+  const dir = archivedPathOf(home, projectDir, dirName)
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, 'session.v4.jsonl.zstd'), 'x'.repeat(bytes))
+  return dir
+}
+
+/**
+ * `ctx.sessionPersistence.list()` 的替身：把会话头列表包成上游的 snapshot 形状。
+ * @param headers - 持久化里的会话头。
+ * @returns 只有 `list()` 的 persistence 替身。
+ */
+function storedHeaders(...headers: readonly StoredSessionHeader[]): {
+  list(): Promise<readonly { readonly header: StoredSessionHeader }[]>
+} {
+  return { list: async () => headers.map((header) => ({ header })) }
+}
+
+/** 工作区注册表替身里一个工作区的形状。 */
+interface RegistryWorkspace {
+  /** 工作区 id。 */
+  readonly id: string
+  /** 工作区项目目录（`projectKey` 匹配用）。 */
+  readonly path: string
+  /** 初始会话成员。 */
+  readonly sessionIds?: readonly string[]
+}
+
+/** 工作区注册表替身的可调行为。 */
+interface RegistryOptions {
+  /** 初始归档集合。 */
+  readonly archived?: readonly string[]
+  /** 工作区列表（`list()` 与 `get()` 的数据源）。 */
+  readonly workspaces?: readonly RegistryWorkspace[]
+  /** 给定时 `attachSession` 抛错，用于覆盖上游拒绝挂回的降级路径。 */
+  readonly attachFailure?: string
+  /** 给定时 `archiveSession` 抛错，用于覆盖归档集合写失败的降级路径。 */
+  readonly archiveFailure?: string
+}
+
+/** 工作区注册表与它记录下来的调用序列。 */
+interface FakeWorkspaceRegistry {
+  /** 交给 `createFakeHost` 的注册表替身。 */
+  readonly registry: unknown
+  /** 每次操作的记录，形如 `attach:<workspaceId>:<sessionId>`。 */
+  readonly calls: string[]
+}
+
+/**
+ * 组装一个覆盖迁移域端口的工作区注册表替身：归档集合读写、工作区列表、`get(id)`
+ * 与 `attachSession` / `archiveSession` 全部可观察；attach / archive 可注入失败。
+ * @param options - 初始状态与失败注入。
+ * @returns 注册表替身与调用记录。
+ */
+function createWorkspaceRegistry(options: RegistryOptions = {}): FakeWorkspaceRegistry {
+  const archived = new Set(options.archived ?? [])
+  const workspaces = (options.workspaces ?? []).map((workspace) => ({
+    id: workspace.id,
+    path: workspace.path,
+    sessionIds: [...(workspace.sessionIds ?? [])],
+  }))
+  const calls: string[] = []
+  const registry = {
+    get archivedSessionIds(): readonly string[] { return [...archived] },
+    unarchiveSession: async (sessionId: string): Promise<void> => {
+      calls.push(`unarchive:${sessionId}`)
+      archived.delete(sessionId)
+    },
+    unpinSession: async (sessionId: string): Promise<void> => {
+      calls.push(`unpin:${sessionId}`)
+    },
+    archiveSession: async (sessionId: string): Promise<void> => {
+      calls.push(`archive:${sessionId}`)
+      if (options.archiveFailure !== undefined) throw new Error(options.archiveFailure)
+      archived.add(sessionId)
+    },
+    list: (): readonly {
+      readonly id: string
+      readonly path: string
+      readonly sessionIds: readonly string[]
+      detachSession(id: string): Promise<void>
+    }[] => workspaces.map((workspace) => ({
+      id: workspace.id,
+      path: workspace.path,
+      sessionIds: workspace.sessionIds,
+      detachSession: async (sessionId: string): Promise<void> => {
+        calls.push(`detach:${workspace.id}:${sessionId}`)
+      },
+    })),
+    get: (workspaceId: string): {
+      readonly id: string
+      readonly path: string
+      readonly sessionIds: readonly string[]
+      attachSession(id: string): Promise<void>
+    } | undefined => {
+      const workspace = workspaces.find((candidate) => candidate.id === workspaceId)
+      if (workspace === undefined) return undefined
+      return {
+        id: workspace.id,
+        path: workspace.path,
+        sessionIds: workspace.sessionIds,
+        attachSession: async (sessionId: string): Promise<void> => {
+          calls.push(`attach:${workspace.id}:${sessionId}`)
+          if (options.attachFailure !== undefined) throw new Error(options.attachFailure)
+          workspace.sessionIds.push(sessionId)
+        },
+      }
+    },
+  }
+  return { registry, calls }
+}
+
+/**
+ * 解出成功信封里的值；失败时抛出带稳定码与文案的错误，让测试在误报处直接报因。
+ * @param result - dispatcher 的结果信封。
+ * @returns 成功值（unknown，交给 contract 的 parser 收窄）。
+ */
+function valueOf(result: ConnectionRpcResult<unknown>): unknown {
+  if (!result.ok) throw new Error(`expected a success envelope, got ${result.error.code}: ${result.error.message}`)
+  return result.value
+}
+
+/**
+ * 用 contract 的 parser 校验并解出响应值；形状不符同样直接抛错。
+ * @param result - dispatcher 的结果信封。
+ * @param parse - 该端点对应的响应校验函数。
+ * @returns 解析后的响应。
+ */
+function parsedOf<T>(result: ConnectionRpcResult<unknown>, parse: (value: unknown) => Parsed<T>): T {
+  const parsed = parse(valueOf(result))
+  if (!parsed.ok) throw new Error(parsed.message)
+  return parsed.value
+}
+
+/**
+ * 迁移域失败响应信封（`details` 恒为空对象，与既有业务码一致）。
+ * @param code - 期望的稳定失败码。
+ * @param message - 期望的文案，或 vitest 的 asymmetric matcher（如 `expect.stringContaining`）。
+ * @returns 与 dispatcher 失败信封同形的对象。
+ */
+function failureOf(code: string, message: unknown): {
+  readonly ok: false
+  readonly error: { readonly code: string; readonly message: unknown; readonly details: object }
+} {
+  return { ok: false, error: { code, message, details: {} } }
+}
+
+describe('createDispatcher：7 端点分派', () => {
+  it('七个端点各走一次分派，批量端点按 mode 分流到删除与归档', async () => {
+    const home = await createHome(TARGET)
+    await createStoredSession(home, 'session-b')
+    await createStoredSession(home, 'session-c')
+    await createStoredSession(home, 'session-d')
+    const ids = [TARGET, 'session-b', 'session-c', 'session-d']
+    const headers: StoredSessionHeader[] = ids.map((id) => ({ id, cwd: '/home/docker' }))
+    const fakeRegistry = createWorkspaceRegistry({
+      archived: ids,
+      workspaces: [{ id: 'ws-1', path: '/home/docker', sessionIds: ids }],
+    })
+    const host = createFakeHost({
+      homePath: home,
+      persistence: storedHeaders(...headers),
+      registry: fakeRegistry.registry,
+    })
+    const dispatch = createDispatcher(host.ctx)
+    const archiveRoot = archiveRootOf(home)
+
+    // 1) preview-delete：单会话预览回声真实归档根。
+    const preview = parsedOf(
+      await dispatch(PREVIEW_ENDPOINT, { sessionId: TARGET, mode: 'archive' }, SIGNAL),
+      parsePreview,
+    )
+    expect(preview).toMatchObject({ sessionCount: 1, descendantCount: 0, archiveRoot })
+    expect(preview.logBytes).toBeGreaterThan(0)
+
+    // 2) delete-session（mode=archive）：真实日志目录搬进归档根。
+    const single = parsedOf(
+      await dispatch(DELETE_ENDPOINT, { sessionId: TARGET, mode: 'archive' }, SIGNAL),
+      parseOutcome,
+    )
+    expect(single).toEqual({ removed: [TARGET], warnings: [] })
+    expect(existsSync(join(archiveRoot, PROJECT_DIR, TARGET, 'session.v4.jsonl.zstd'))).toBe(true)
+    expect(existsSync(sessionDirOf(home, TARGET))).toBe(false)
+
+    // 3) preview-delete-batch：批量预览按并集统计、软失败清单为空。
+    const batchPreview = parsedOf(
+      await dispatch(PREVIEW_BATCH_ENDPOINT, { sessionIds: ['session-b', 'session-c'], mode: 'delete' }, SIGNAL),
+      parseBatchPreview,
+    )
+    expect(batchPreview).toMatchObject({ targetCount: 2, sessionCount: 2, descendantCount: 0, archiveRoot, rejected: [] })
+
+    // 4) delete-session-batch（mode=delete）：批量物理删除。
+    const batchDelete = parsedOf(
+      await dispatch(DELETE_BATCH_ENDPOINT, { sessionIds: ['session-b', 'session-c'], mode: 'delete' }, SIGNAL),
+      parseOutcome,
+    )
+    expect(batchDelete).toEqual({ removed: ['session-b', 'session-c'], warnings: [] })
+    expect(existsSync(sessionDirOf(home, 'session-b'))).toBe(false)
+    expect(existsSync(sessionDirOf(home, 'session-c'))).toBe(false)
+
+    // 5) delete-session-batch（mode=archive）：同一端点的另一分支。
+    const batchArchive = parsedOf(
+      await dispatch(DELETE_BATCH_ENDPOINT, { sessionIds: ['session-d'], mode: 'archive' }, SIGNAL),
+      parseOutcome,
+    )
+    expect(batchArchive).toEqual({ removed: ['session-d'], warnings: [] })
+    expect(existsSync(join(archiveRoot, PROJECT_DIR, 'session-d', 'session.v4.jsonl.zstd'))).toBe(true)
+
+    // 6) list-migrated：枚举归档根下的两条条目。
+    const listing = parsedOf(await dispatch(LIST_MIGRATED_ENDPOINT, {}, SIGNAL), parseMigratedListing)
+    expect(listing.archiveRoot).toBe(archiveRoot)
+    expect(listing.truncated).toBe(false)
+    expect(listing.entries.map((entry) => entry.sessionId).sort()).toEqual([TARGET, 'session-d'].sort())
+
+    // 7) restore-migrated：搬回 sessions/、挂回工作区并广播 added。
+    const restore = parsedOf(
+      await dispatch(RESTORE_MIGRATED_ENDPOINT, {
+        entries: [{ projectDir: PROJECT_DIR, dirName: TARGET }],
+      }, SIGNAL),
+      parseRestoreOutcome,
+    )
+    expect(restore).toEqual({ restored: [{ sessionId: TARGET, workspaceId: 'ws-1' }], warnings: [] })
+    expect(existsSync(join(sessionDirOf(home, TARGET), 'session.v4.jsonl.zstd'))).toBe(true)
+    expect(existsSync(join(archiveRoot, PROJECT_DIR, TARGET))).toBe(false)
+
+    // 8) delete-migrated：物理删除归档根里剩下的另一条条目。
+    const migratedDelete = parsedOf(
+      await dispatch(DELETE_MIGRATED_ENDPOINT, {
+        entries: [{ projectDir: PROJECT_DIR, dirName: 'session-d' }],
+      }, SIGNAL),
+      parseOutcome,
+    )
+    expect(migratedDelete).toEqual({ removed: ['session-d'], warnings: [] })
+    expect(existsSync(join(archiveRoot, PROJECT_DIR, 'session-d'))).toBe(false)
+
+    // 广播顺序：归档 a、删 b/c、归档 d 各一条 removed，恢复 a 一条 added。
+    expect(host.emitted.map(([event]) => event)).toEqual([
+      SESSION_REMOVED_EVENT,
+      SESSION_REMOVED_EVENT,
+      SESSION_REMOVED_EVENT,
+      SESSION_REMOVED_EVENT,
+      SESSION_ADDED_EVENT,
+    ])
+    expect(host.emitted.at(-1)?.[1]).toMatchObject({ sessionId: TARGET, cwd: '/home/docker' })
+  })
+})
+
+describe('createDispatcher：list-migrated', () => {
+  it('真实归档根两层枚举：`session-` 前缀原样、非目录跳过并逐条告警', async () => {
+    const home = await createEmptyHome()
+    const archiveRoot = archiveRootOf(home)
+    await createArchived(home, PROJECT_DIR, PREFIXED_ID, 37)
+    await createArchived(home, PROJECT_DIR, BARE_ID, 4)
+    await createArchived(home, NO_CWD, 'session-orphan', 9)
+    await writeFile(join(archiveRoot, 'README.txt'), 'not a project directory')
+    await writeFile(join(archiveRoot, PROJECT_DIR, 'notes.txt'), 'not a session directory')
+
+    const host = createFakeHost({ homePath: home })
+    const listing = parsedOf(await createDispatcher(host.ctx)(LIST_MIGRATED_ENDPOINT, {}, SIGNAL), parseMigratedListing)
+
+    expect(listing.archiveRoot).toBe(archiveRoot)
+    expect(listing.truncated).toBe(false)
+    const byId = new Map(listing.entries.map((entry) => [entry.sessionId, entry]))
+    expect([...byId.keys()].sort()).toEqual([BARE_ID, PREFIXED_ID, 'session-orphan'].sort())
+    // 两代目录名都原样当身份：`session-` 前缀绝不剥掉（D12）。
+    expect(byId.get(PREFIXED_ID)).toMatchObject({
+      sessionId: PREFIXED_ID,
+      dirName: PREFIXED_ID,
+      projectDir: PROJECT_DIR,
+      bytes: 37,
+    })
+    expect(byId.get(BARE_ID)).toMatchObject({ dirName: BARE_ID, projectDir: PROJECT_DIR, bytes: 4 })
+    expect(byId.get('session-orphan')).toMatchObject({ projectDir: NO_CWD, bytes: 9 })
+    for (const entry of listing.entries) expect(entry.updatedAt).toBeGreaterThan(0)
+
+    const messages = host.warnings.map((args) => String(args[0]))
+    expect([...messages].sort()).toEqual([
+      `${join(archiveRoot, 'README.txt')}: not a directory; skipped`,
+      `${join(archiveRoot, PROJECT_DIR, 'notes.txt')}: not a directory; skipped`,
+    ].sort())
+  })
+
+  it(`超过 ${MAX_LISTED_MIGRATED} 条时 truncated=true 且只列出上限条数`, async () => {
+    const home = await createEmptyHome()
+    const projectDir = join(archiveRootOf(home), PROJECT_DIR)
+    await mkdir(projectDir, { recursive: true })
+    const total = MAX_LISTED_MIGRATED + 1
+    for (let index = 0; index < total; index += 1) await mkdir(join(projectDir, `session-${index}`))
+
+    const host = createFakeHost({ homePath: home })
+    const listing = parsedOf(await createDispatcher(host.ctx)(LIST_MIGRATED_ENDPOINT, {}, SIGNAL), parseMigratedListing)
+
+    expect(listing.entries).toHaveLength(MAX_LISTED_MIGRATED)
+    expect(listing.truncated).toBe(true)
+    expect(new Set(listing.entries.map((entry) => entry.sessionId)).size).toBe(MAX_LISTED_MIGRATED)
+    expect(listing.entries.every((entry) => entry.projectDir === PROJECT_DIR)).toBe(true)
+    expect(host.warnings).toEqual([])
+  })
+})
+
+describe('createDispatcher：批量删除', () => {
+  it('delete-session-batch 真实删除文件、清理 registry 并逐条广播移除', async () => {
+    const home = await createHome(TARGET)
+    await createStoredSession(home, 'session-b')
+    const fakeRegistry = createWorkspaceRegistry({
+      archived: [TARGET, 'session-b'],
+      workspaces: [{ id: 'ws-1', path: '/home/docker', sessionIds: [TARGET, 'session-b'] }],
+    })
+    const host = createFakeHost({
+      homePath: home,
+      persistence: storedHeaders({ id: TARGET, cwd: '/home/docker' }, { id: 'session-b', cwd: '/home/docker' }),
+      registry: fakeRegistry.registry,
+    })
+    const dispatch = createDispatcher(host.ctx)
+
+    const preview = parsedOf(
+      await dispatch(PREVIEW_BATCH_ENDPOINT, { sessionIds: [TARGET, 'session-b'], mode: 'delete' }, SIGNAL),
+      parseBatchPreview,
+    )
+    expect(preview).toMatchObject({ targetCount: 2, sessionCount: 2, descendantCount: 0, rejected: [] })
+
+    const outcome = parsedOf(
+      await dispatch(DELETE_BATCH_ENDPOINT, { sessionIds: [TARGET, 'session-b'], mode: 'delete' }, SIGNAL),
+      parseOutcome,
+    )
+    expect(outcome).toEqual({ removed: [TARGET, 'session-b'], warnings: [] })
+    for (const id of [TARGET, 'session-b']) {
+      expect(existsSync(sessionDirOf(home, id))).toBe(false)
+      expect(existsSync(cachePathOf(home, id))).toBe(false)
+    }
+    expect(fakeRegistry.calls).toEqual([
+      `unarchive:${TARGET}`, `unpin:${TARGET}`, `detach:ws-1:${TARGET}`,
+      'unarchive:session-b', 'unpin:session-b', 'detach:ws-1:session-b',
+    ])
+    expect(host.emitted).toEqual([
+      [SESSION_REMOVED_EVENT, TARGET],
+      [SESSION_REMOVED_EVENT, 'session-b'],
+    ])
+  })
+})
+
+describe('createDispatcher：restore-migrated', () => {
+  it('目标位已存在 ⇒ target-exists 整单拒绝，归档条目、目标位与 registry 都不动', async () => {
+    const home = await createEmptyHome()
+    await createStoredSession(home, TARGET, 5)
+    const archived = await createArchived(home, PROJECT_DIR, TARGET, 12)
+    const fakeRegistry = createWorkspaceRegistry({
+      archived: [TARGET],
+      workspaces: [{ id: 'ws-1', path: '/home/docker' }],
+    })
+    const host = createFakeHost({
+      homePath: home,
+      persistence: storedHeaders({ id: TARGET, cwd: '/home/docker' }),
+      registry: fakeRegistry.registry,
+    })
+
+    expect(await createDispatcher(host.ctx)(
+      RESTORE_MIGRATED_ENDPOINT,
+      { entries: [{ projectDir: PROJECT_DIR, dirName: TARGET }] },
+      SIGNAL,
+    )).toEqual(failureOf('target-exists', expect.stringContaining(sessionDirOf(home, TARGET))))
+
+    expect(existsSync(join(archived, 'session.v4.jsonl.zstd'))).toBe(true)
+    expect(existsSync(join(sessionDirOf(home, TARGET), 'session.v4.jsonl.zstd'))).toBe(true)
+    expect(fakeRegistry.calls).toEqual([])
+    expect(host.emitted).toEqual([])
+    expect(host.warnings).toEqual([])
+  })
+
+  it('attach 被上游拒绝 ⇒ warning 且 workspaceId:null，文件仍已搬回并广播 added', async () => {
+    const home = await createEmptyHome()
+    const archived = await createArchived(home, PROJECT_DIR, TARGET, 12)
+    const fakeRegistry = createWorkspaceRegistry({
+      archived: [TARGET],
+      workspaces: [{ id: 'ws-1', path: '/home/docker' }],
+      attachFailure: 'cwd does not match the workspace',
+    })
+    const host = createFakeHost({
+      homePath: home,
+      persistence: storedHeaders({ id: TARGET, cwd: '/home/docker' }),
+      registry: fakeRegistry.registry,
+    })
+
+    const outcome = parsedOf(await createDispatcher(host.ctx)(
+      RESTORE_MIGRATED_ENDPOINT,
+      { entries: [{ projectDir: PROJECT_DIR, dirName: TARGET }] },
+      SIGNAL,
+    ), parseRestoreOutcome)
+
+    expect(outcome).toEqual({
+      restored: [{ sessionId: TARGET, workspaceId: null }],
+      warnings: [`attach: ${TARGET}: cwd does not match the workspace`],
+    })
+    // 文件动作先于挂回：拒绝挂回不影响「已搬回」的既成事实。
+    expect(existsSync(join(sessionDirOf(home, TARGET), 'session.v4.jsonl.zstd'))).toBe(true)
+    expect(existsSync(join(archived, 'session.v4.jsonl.zstd'))).toBe(false)
+    expect(fakeRegistry.calls).toEqual([`attach:ws-1:${TARGET}`, `archive:${TARGET}`])
+    expect(host.emitted.at(-1)?.[0]).toBe(SESSION_ADDED_EVENT)
+    expect(host.emitted.at(-1)?.[1]).toMatchObject({ sessionId: TARGET })
+    expect(host.warnings.map((args) => String(args[0]))).toContain(
+      `web-ux: attaching the restored session "${TARGET}" to its workspace failed`,
+    )
+  })
+
+  it('成功后广播 api-session/added，载荷字段取自真实 header 与归档目录 mtime；未命中只 warn', async () => {
+    const home = await createEmptyHome()
+    const ghost = 'session-ghost'
+    const archived = await createArchived(home, PROJECT_DIR, PREFIXED_ID, 20)
+    await createArchived(home, NO_CWD, ghost, 3)
+    const updatedAt = (await lstat(archived)).mtimeMs
+    const fakeRegistry = createWorkspaceRegistry({
+      archived: [PREFIXED_ID, ghost],
+      workspaces: [{ id: 'ws-1', path: '/home/docker' }],
+    })
+    const host = createFakeHost({
+      homePath: home,
+      persistence: storedHeaders({
+        id: PREFIXED_ID,
+        cwd: '/home/docker',
+        parentSession: 'session-parent',
+        origin: 'subagent',
+      }),
+      registry: fakeRegistry.registry,
+    })
+
+    const outcome = parsedOf(await createDispatcher(host.ctx)(
+      RESTORE_MIGRATED_ENDPOINT,
+      { entries: [
+        { projectDir: PROJECT_DIR, dirName: PREFIXED_ID },
+        { projectDir: NO_CWD, dirName: ghost },
+      ] },
+      SIGNAL,
+    ), parseRestoreOutcome)
+
+    expect(outcome).toEqual({
+      restored: [
+        { sessionId: PREFIXED_ID, workspaceId: 'ws-1' },
+        { sessionId: ghost, workspaceId: null },
+      ],
+      warnings: [`attach: ${ghost}: no workspace matches project directory "${NO_CWD}"`],
+    })
+    // 只广播持久化里真实存在的 id；载荷字段全部取自 header 与归档目录。
+    expect(host.emitted).toEqual([[
+      SESSION_ADDED_EVENT,
+      {
+        sessionId: PREFIXED_ID,
+        updatedAt,
+        running: false,
+        blank: false,
+        agentAvailable: false,
+        cwd: '/home/docker',
+        parentSessionId: 'session-parent',
+        origin: 'subagent',
+      },
+    ]])
+    const messages = host.warnings.map((args) => String(args[0]))
+    expect(messages.some((message) => message.includes('missing from session persistence'))).toBe(true)
+    expect(messages.some((message) => message.includes('stays ungrouped'))).toBe(true)
+    expect(existsSync(join(sessionDirOf(home, PREFIXED_ID), 'session.v4.jsonl.zstd'))).toBe(true)
+    expect(existsSync(join(home, 'sessions', NO_CWD, ghost, 'session.v4.jsonl.zstd'))).toBe(true)
+  })
+})
+
+describe('createDispatcher：线上边界（迁移域）', () => {
+  it('缺 dshHomePath 时七个端点都返回 internal 并逐次告警', async () => {
+    const host = createFakeHost()
+    const dispatch = createDispatcher(host.ctx)
+    const requests: [string, unknown][] = [
+      [PREVIEW_ENDPOINT, { sessionId: TARGET, mode: 'archive' }],
+      [DELETE_ENDPOINT, { sessionId: TARGET, mode: 'delete' }],
+      [PREVIEW_BATCH_ENDPOINT, { sessionIds: [TARGET], mode: 'delete' }],
+      [DELETE_BATCH_ENDPOINT, { sessionIds: [TARGET], mode: 'archive' }],
+      [LIST_MIGRATED_ENDPOINT, {}],
+      [DELETE_MIGRATED_ENDPOINT, { entries: [{ projectDir: PROJECT_DIR, dirName: TARGET }] }],
+      [RESTORE_MIGRATED_ENDPOINT, { entries: [{ projectDir: PROJECT_DIR, dirName: TARGET }] }],
+    ]
+
+    for (const [endpoint, payload] of requests) {
+      expect(await dispatch(endpoint, payload, SIGNAL)).toEqual({
+        ok: false,
+        error: { code: 'internal', message: expect.stringContaining('harness-home'), details: {} },
+      })
+    }
+    expect(host.warnings).toHaveLength(requests.length)
+    for (const args of host.warnings) expect(String(args[0])).toContain('dshHomePath')
+  })
+
+  it('未知端点与 7 个端点上的未知字段都映射为 bad-request（含迁移条目内部字段）', async () => {
+    const host = createFakeHost()
+    const dispatch = createDispatcher(host.ctx)
+    const badRequest = failureOf('bad-request', expect.stringContaining('未知'))
+
+    expect(await dispatch('not-an-endpoint', {}, SIGNAL)).toEqual(badRequest)
+    const requests: [string, unknown][] = [
+      [PREVIEW_ENDPOINT, { sessionId: TARGET, mode: 'delete', extra: true }],
+      [DELETE_ENDPOINT, { sessionId: TARGET, mode: 'delete', extra: true }],
+      [PREVIEW_BATCH_ENDPOINT, { sessionIds: [TARGET], mode: 'delete', extra: true }],
+      [DELETE_BATCH_ENDPOINT, { sessionIds: [TARGET], mode: 'delete', extra: true }],
+      [LIST_MIGRATED_ENDPOINT, { extra: true }],
+      [DELETE_MIGRATED_ENDPOINT, { entries: [{ projectDir: PROJECT_DIR, dirName: TARGET }], extra: true }],
+      [RESTORE_MIGRATED_ENDPOINT, { entries: [{ projectDir: PROJECT_DIR, dirName: TARGET }], extra: true }],
+    ]
+    for (const [endpoint, payload] of requests) {
+      expect(await dispatch(endpoint, payload, SIGNAL)).toEqual(badRequest)
+    }
+    expect(await dispatch(DELETE_MIGRATED_ENDPOINT, {
+      entries: [{ projectDir: PROJECT_DIR, dirName: TARGET, extra: true }],
+    }, SIGNAL)).toEqual(badRequest)
   })
 })
