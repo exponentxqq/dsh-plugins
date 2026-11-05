@@ -103,4 +103,77 @@ describe('session attribution', () => {
 
     expect(await attributor.attribute('/work/a')).toBeNull()
   })
+
+  // Primary-vs-granted regressions: a home must not be absorbed by a grant,
+  // even one registered earlier (the bug this tier order fixes).
+  it('prefers a primary root over an earlier workspace that grants the same directory', async () => {
+    const attributor = new Attributor(fakeRealpath({
+      '/work/a': '/work/a',
+      '/work/b': '/work/b',
+      '/work': '/work',
+      '/': '/',
+    }))
+    await attributor.update([workspace('/work/b', ['/work/a']), workspace('/work/a')])
+
+    expect(await attributor.attribute('/work/a')).toEqual({ workspaceRoot: '/work/a', roots: ['/work/a'] })
+  })
+
+  it('keeps the primary-root preference in a subdirectory of the contested root', async () => {
+    const attributor = new Attributor(fakeRealpath({
+      '/work/a/src': '/work/a/src',
+      '/work/a': '/work/a',
+      '/work/b': '/work/b',
+      '/work': '/work',
+      '/': '/',
+    }))
+    await attributor.update([workspace('/work/b', ['/work/a']), workspace('/work/a')])
+
+    expect(await attributor.attribute('/work/a/src')).toEqual({ workspaceRoot: '/work/a', roots: ['/work/a'] })
+  })
+
+  it('attributes a nearer granted root over a farther primary root', async () => {
+    const attributor = new Attributor(fakeRealpath({
+      '/work/a/extras/pkg': '/work/a/extras/pkg',
+      '/work/a/extras': '/work/a/extras',
+      '/work/a': '/work/a',
+      '/work/b': '/work/b',
+      '/work': '/work',
+      '/': '/',
+    }))
+    await attributor.update([workspace('/work/a'), workspace('/work/b', ['/work/a/extras'])])
+
+    expect(await attributor.attribute('/work/a/extras/pkg')).toEqual({
+      workspaceRoot: '/work/b',
+      roots: ['/work/b', '/work/a/extras'],
+    })
+  })
+
+  it('arbitrates a doubly granted root by registry order', async () => {
+    const attributor = new Attributor(fakeRealpath({
+      '/shared': '/shared',
+      '/work/b1': '/work/b1',
+      '/work/b2': '/work/b2',
+      '/': '/',
+    }))
+    await attributor.update([workspace('/work/b1', ['/shared']), workspace('/work/b2', ['/shared'])])
+
+    expect(await attributor.attribute('/shared')).toEqual({
+      workspaceRoot: '/work/b1',
+      roots: ['/work/b1', '/shared'],
+    })
+  })
+
+  it('keeps a granted restatement of the primary root harmless', async () => {
+    const attributor = new Attributor(fakeRealpath({
+      '/work/a': '/work/a',
+      '/work': '/work',
+      '/': '/',
+    }))
+    await attributor.update([workspace('/work/a', ['/work/a'])])
+
+    expect(await attributor.attribute('/work/a')).toEqual({
+      workspaceRoot: '/work/a',
+      roots: ['/work/a', '/work/a'],
+    })
+  })
 })

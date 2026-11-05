@@ -82,3 +82,9 @@
 | Q4 | acp/headless（现 1.1.1）是否随轮一并升到新 tag | 一并升 | A 线任务默认 + B 线推荐 A 选项 | **✅ 仅 web 先行**——web 是 link 安装（改完重建重启即生效）承担验证；acp/headless 留 1.1.1，升级步骤写入文档并标注暂缓 |
 
 第 2 轮前沿重算：Q1 定 → 层级竞争测试断言方向定；Q2 定 → tiebreak 测试定；Q3/Q4 定 → tasks 结构定（发版后移、验证以 web link 先行）。**前沿为空，收敛结束（第 7 步）**。未被任何裁决吸收的原始决策意图（用户 Q2 原话）作为需求锚点随落档进入 proposal。
+
+## 5. 执行期留痕
+
+- **R1**（组 1，2026-11-05）：pnpm 对全 workspace 打印 `[WARN] Unsupported engine: wanted {"node":"^22.19.0 || >=24.0.0"} (current v22.18.0)` 为环境既有现象，**不影响 exit 0 验收**。依据：组 1 全部验证命令（typecheck/lint/build）exit 0 且产物与 import 冒烟正确。适用范围：本仓全部 pnpm 命令验收（typecheck/lint/build/test）。连锁面：无——验收断言不因该 WARN 判红，后续组与接续会话读到 WARN 可忽略。
+- **R2**（组 2，2026-11-05）：根仓 `pnpm test` 中 multi-root-workspace 有 **5 个既有条件性 skip**（windows-multi-root 1、parity-matrix 3 因 `requireKernelRunner` 不可用、compat 1 因 `upgradeLane`），属既有平台/环境门控，**非本变更引入、不影响 exit 0**。依据：组 2 `pnpm test` exit 0 且这些 skip 在组 1 之前的基线已存在。适用范围：后续所有以 `pnpm test` 为验收句的组（组 3、组 5 及接续会话）——看到这 5 个 skip 不判红。连锁面：无（解释性口径）。
+- **R3**（组 4 前置，2026-11-05，**验收口径修正，已呈用户**）：tasks 4.1 前置「`dsh --profile web --dump-config-schema` exit 0」在当前容器 dsh（0.2.1-rc.5）上**不可达**——该命令恒 exit 1，源于 4 条 error 全部落点为 DSH 内置 `@deepseek-ai/dsh-agent-preset` 系节点（/187 preset-standard、/188 preset-ptc、/189 preset-minimal、/190 同系），error 文案出自 DSH 自身依赖 `dsh-app-boot/lib/index.js:3306` 的 Loader 投影限制（"unrecognized Loader tree carrier"）。**与本变更零关联**（本变更不改插件注册结构/`cordis.patch.yml`；lib 产物 diff 仅 attribution 编译结果）。依据：error path 全部指向内置包 + dsh-app-boot 源码定位。适用范围：组 4 前置检查。修正口径：**schema JSON 正常产出（`patchSchema` 字段在）+ error/warning 中无 project-mcp 相关节点** = 装载性通过；exit code 不再作判定。连锁面：tasks.md 4.1 该句按 R3 口径执行（勾选核对时引用本条）。

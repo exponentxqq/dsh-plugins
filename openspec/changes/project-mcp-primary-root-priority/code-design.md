@@ -332,6 +332,11 @@ class Attributor {
   grep -n "primary.get(canonical) ?? granted.get(canonical)" plugins/project-mcp/src/host/attribution.ts        # 期望 1 行
   ```
 - **禁止**：改 `roots.ts` / `scan.ts` / `isolation.ts` / `prompt-isolation.ts` / `index.ts` / `mcp-manager.ts`；动 `package.json` 版本或 `cordis.patch.yml`。
+- **执行终形态（组 1 完成，2026-11-05）**：
+  - 实测：`typecheck`/`lint`/`build` 全 exit 0；import 冒烟出 `apply,inject,name`（`name=project-mcp`、`inject=["workspaceRegistry","tools"]`、`apply=function`）；grep 四条全过（src `this.table` 0、src `!table.has(canonical)` 1、src `primary.get(canonical) ?? granted.get(canonical)` 恰 1 行 L141、lib `table.push({ canonical` 0）；lib 自检 `!table.has(canonical)` 1（新实现已进产物）；既有 7 用例 `vitest run test/attribution.test.ts` 7/7 passed（未改测试，行为锚定）；lib 产物 313905 bytes（diff +31/-25），干净窗口确认（无 live esbuild/vitest）。
+  - 偏差裁定 1：`attribute()` 快照落为 `const { primary, granted } = this.index`（解构），替代骨架字面 `const index = this.index` —— 语义等价（仍单次快照读取、原子性不变），且满足出口 grep 子串要求；骨架字面形态不作硬要求，接受。
+  - 偏差裁定 2：模块头注释 16→51 行（L1-16 为定位锚点非硬行数），9 条设计说明全落地。
+  - 验收环境口径见 diff-matrix 执行期留痕 R1（engines WARN 既有现象，不影响 exit 0 判定）。
 
 ### G2 — 测试补充（对应 T2；文件 TS1）
 
@@ -354,6 +359,10 @@ class Attributor {
   pnpm test                                                                       # 根仓递归，无跨插件回归
   ```
   红基线：G1 未实施时用例 1 必红（②2.2(a) 的实测输出即为期望的失败形态）；实施后必绿。
+- **执行终形态（组 2 完成，2026-11-05）**：
+  - 实测：`vitest run test/attribution.test.ts` **12 passed (12)**、Test Files 1 passed、无 SKIPPED；`pnpm test`（根仓递归）exit 0，project-mcp 8 files / 139 tests passed，全插件绿；`typecheck` 仍 exit 0。
+  - diff 形态：`test/attribution.test.ts` +73/-0 纯追加（删除行集为空 = 既有 7 条一字未改，diff 实证）；5 条用例命名与断言与 G2 逐字一致，追加在既有 7 条之后同一 describe 内，fake 表含 cwd→`/` 每级与 extras/pkg 中间目录。
+  - 环境口径：根 `pnpm test` 中 multi-root-workspace 的 5 个条件性 skip（windows 1 / parity-matrix 3 / compat 1）为既有平台门控，非本改动引入——见 diff-matrix 执行期留痕 R2。
 
 ### G3 — 插件 README 归属判定段同步（对应 T3；文件 DOC1）
 
@@ -369,6 +378,10 @@ class Attributor {
   grep -c "最近命中" plugins/project-mcp/README.md         # 期望 0
   ```
 - **可选（不阻塞）**：README:115/136/149 的 `/tmp`（无归属）历史记录加注（待决 P3）。
+- **执行终形态（组 3 完成，2026-11-05）**：
+  - 实测：`grep -n "每一层分两轮"` 恰 1 行（L55）、`grep -c "最近命中"` = 0；diff 单 hunk（+3/-2）：L55 旧「最近命中」句替换为 G3 逐字文案（子串比对一致）、L56 原句句末追加「归属只决定谁赢…」句、新增 L57 列表项「与 scan 仲裁的分工」；README 209→210 行。
+  - 裁定：G3「可选加注」**未做**（P3 已裁定不改历史冒烟记录；/tmp 三行原样保留，现 L116/137/150）。
+  - 「与 scan 仲裁的分工」一句按任务原文补入（G3 蓝图未给逐字文案，执行子代理拟句已核对：口径与 D-6 一致，无歧义）。
 
 ### G4 — openspec specs delta（对应 T4；文件 SPEC1，**落档产物，不进执行批次**）
 
@@ -417,6 +430,14 @@ class Attributor {
 - **acp/headless（文档化，暂缓）**：`docker exec dsh dsh plugin --profile <p> add "github:exponentxqq/dsh-plugins#v<新tag>&path:plugins/project-mcp"`（现为 1.1.1 真实拷贝），装后同样跑 `--dump-config-schema` + 开新会话抽查；**执行时点由 Q3 之后的发版批次决定**，本批次不执行。
 - **出口（本批次）**：步骤 1/3/4 的命令输出逐条贴进变更记录；步骤 5 作为"零外溢"证据。文档化载体：落档副本 `code-design.md` 的本节 + 落档阶段的 `design.md`「发布与升级（后移）」小节。
 - **禁止**：本批次 `pnpm release` / `git tag` / `git push`（Q3）；改 acp/headless profile（Q4）。
+- **执行终形态（组 4 完成，2026-11-05 14:46 重启 + 14:53-14:54 断言；最小 GUI 口径，用户选定）**：
+  - 装载性（R3 修正口径，用户外移另会话终裁）：schema JSON 正常产出（`patchSchema` 在）+ 4 条 error 全部为内置 agent-preset 节点、无 project-mcp 相关节点 → **通过**；exit code 不作判定（R3）。
+  - 重启：用户 14:46:20+08:00 自行重启 dsh 进程（P2 兑现）；存量会话按 A9 路径跟随（ship-v2 会话重启后 5 行重算为证）。
+  - 核心断言（`docker logs -t` 实测逐字）：
+    - `06:53:43Z isolation: cwd=/home/xuqinqin/develop/dotfiles roots=2 visible=[] global=178(mcp=136) scoped=214(mcp=136)` —— 修复前 `roots=5 visible=[dbx,figma,yunxiao]`，**核心 bug 修复实机证实**；
+    - `06:54:07Z isolation: cwd=/home/xuqinqin/develop/company/opc roots=5 visible=[dbx,figma,yunxiao]` —— 零回归。
+  - 回归零外溢（重启后既有行采信 + 单测锚定）：`ship-v2 roots=1 visible=[]`（5 行）、`brains roots=1 visible=[dbx-brains]`（自家配置正常可见）、`dsh-plugins roots=2 visible=[]`（A6 同形不作修复证明）；`.cache`//tmp 归 opc 由 opc `roots=5` 覆盖（5 根含此二根）；`/etc` fail-closed 由既有单测锚定。
+  - 未执行项（最小 GUI 口径裁剪，经用户选定）：G6 步骤 6 `/mcp-reload`、步骤 7 名字面/资源面人工抽查——留待日常使用观察，不影响本批验收（U1 口径：只断言 roots/visible 行）。
 
 ---
 

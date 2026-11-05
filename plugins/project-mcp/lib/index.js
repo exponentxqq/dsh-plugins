@@ -7364,6 +7364,7 @@ var require_dist = __commonJS({
 
 // src/host/attribution.ts
 import path from "node:path";
+var EMPTY_INDEX = { primary: /* @__PURE__ */ new Map(), granted: /* @__PURE__ */ new Map() };
 var Attributor = class {
   /**
    * @param io - the canonicalization seam.
@@ -7371,28 +7372,30 @@ var Attributor = class {
   constructor(io) {
     this.io = io;
   }
-  /** Canonical root table (rebuilt on every root-set update). */
-  table = [];
-  /** The root sets themselves, in registry spelling. */
-  workspaces = [];
+  /** The committed index (rebuilt on every root-set update). */
+  index = EMPTY_INDEX;
   /**
-   * Rebuild the canonical root table from the current workspace root sets.
+   * Rebuild the tiered root index from the current workspace root sets.
    *
-   * A root that cannot be canonicalized (it does not exist right now) is left
-   * out: attributing a session to a directory nobody can enter would be a
-   * fiction, and the scan skipped that root for the same reason.
+   * Two rounds, both first-write-wins: primary roots first, then the additional
+   * roots granted to each workspace. A root that cannot be canonicalized (it
+   * does not exist right now) is left out: attributing a session to a directory
+   * nobody can enter would be a fiction, and the scan skipped that root for the
+   * same reason.
    * @param workspaces - the ordered root sets, exactly as scanned.
    */
   async update(workspaces) {
-    this.workspaces = workspaces;
-    const table = [];
-    for (const workspace of workspaces) {
-      for (const root of workspace.roots) {
-        const canonical = await this.canonical(root);
-        if (canonical !== void 0) table.push({ canonical, workspaceRoot: workspace.primaryRoot });
-      }
+    const claims = workspaces.map((workspace) => ({
+      workspace,
+      claim: { workspaceRoot: workspace.primaryRoot, roots: workspace.roots }
+    }));
+    const primary = /* @__PURE__ */ new Map();
+    const granted = /* @__PURE__ */ new Map();
+    for (const { workspace, claim } of claims) await this.claim(primary, workspace.primaryRoot, claim);
+    for (const { workspace, claim } of claims) {
+      for (const root of workspace.roots.slice(1)) await this.claim(granted, root, claim);
     }
-    this.table = table;
+    this.index = { primary, granted };
   }
   /**
    * Attribute one session directory.
@@ -7400,13 +7403,14 @@ var Attributor = class {
    * @returns the attribution, or null when nothing claims the directory.
    */
   async attribute(cwd) {
-    if (cwd === "" || this.table.length === 0) return null;
+    const { primary, granted } = this.index;
+    if (cwd === "" || primary.size === 0 && granted.size === 0) return null;
     let current = path.resolve(cwd);
     for (; ; ) {
       const canonical = await this.canonical(current);
       if (canonical !== void 0) {
-        const hit = this.table.find((root) => root.canonical === canonical);
-        if (hit !== void 0) return { workspaceRoot: hit.workspaceRoot, roots: this.rootsOf(hit.workspaceRoot) };
+        const hit = primary.get(canonical) ?? granted.get(canonical);
+        if (hit !== void 0) return hit;
       }
       const parent = path.dirname(current);
       if (parent === current) return null;
@@ -7414,12 +7418,14 @@ var Attributor = class {
     }
   }
   /**
-   * The root set of one workspace, in registry spelling.
-   * @param workspaceRoot - the workspace's primary root.
-   * @returns the workspace's roots (empty when the workspace disappeared).
+   * Record one candidate root in one tier, the first write winning.
+   * @param table - the tier's table.
+   * @param candidate - the root to canonicalize.
+   * @param claim - the attribution to record on a first claim.
    */
-  rootsOf(workspaceRoot) {
-    return this.workspaces.find((workspace) => workspace.primaryRoot === workspaceRoot)?.roots ?? [];
+  async claim(table, candidate, claim) {
+    const canonical = await this.canonical(candidate);
+    if (canonical !== void 0 && !table.has(canonical)) table.set(canonical, claim);
   }
   /**
    * Canonicalize one path, treating a failure as "not a root".
