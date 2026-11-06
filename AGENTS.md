@@ -35,8 +35,8 @@ DSH（DeepSeek Harness）自定义插件仓库：pnpm workspace 单仓多包，�
 
 ## DSH 基线
 
-- 唯一版本常量在 `scripts/dsh-baseline.mjs`（当前 `0.2.1-rc.2`，Node 工具链 `24.21.0`）。
-- 六个软插件（project-mcp / user-commands / web-ux / session-tool-toggle / zcode-plan / workspace-config）的 `engines.dsh` 与 DSH peer 由基线派生为 `>=0.2.1-rc.2 <0.3.0`。
+- 唯一版本常量在 `scripts/dsh-baseline.mjs`（当前 `0.2.2-rc.1`，Node 工具链 `24.21.0`）。
+- 六个软插件（project-mcp / user-commands / web-ux / session-tool-toggle / zcode-plan / workspace-config）的 `engines.dsh` 与 DSH peer 由基线派生为 `>=0.2.2-rc.1 <0.3.0`。
 - multi-root 保留精确 `SUPPORTED_DSH_RELEASES` 与精确 peer 枚举；提升新版本是绿灯后的人工动作（ADR-0009）。
 - `pnpm dsh:upgrade <version> [--probe]` 统一重指 devDeps / cordis / 软插件范围 / 豁免；`pnpm dsh:check` 在发布前守住这些事实，`release` 已自动调用。
 

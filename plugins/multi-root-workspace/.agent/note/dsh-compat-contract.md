@@ -13,15 +13,15 @@ src/compat/dsh-version.ts  →  SUPPORTED_DSH_RELEASES
 是**精确版本数组**，不是 semver 范围。当前：
 
 ```ts
-export const SUPPORTED_DSH_RELEASES = ['0.1.5-rc.2', '0.1.6-alpha.1', '0.1.6-alpha.2', '0.1.7-alpha.1', '0.1.7-alpha.2', '0.1.7-rc.1', '0.1.7-rc.2', '0.2.0-rc.1', '0.2.0-rc.2', '0.2.1-rc.2', '0.2.1-rc.5'] as const
+export const SUPPORTED_DSH_RELEASES = ['0.1.5-rc.2', '0.1.6-alpha.1', '0.1.6-alpha.2', '0.1.7-alpha.1', '0.1.7-alpha.2', '0.1.7-rc.1', '0.1.7-rc.2', '0.2.0-rc.1', '0.2.0-rc.2', '0.2.1-rc.2', '0.2.1-rc.5', '0.2.2-rc.1'] as const
 ```
 
 改它的时候，下面四处必须同时一致，否则 `pnpm compat:check` 失败：
 
 ```text
 src/compat/dsh-version.ts   SUPPORTED_DSH_RELEASES   allowlist
-package.json                peerDependencies         "0.1.5-rc.2 || 0.1.6-alpha.1 || 0.1.6-alpha.2 || 0.1.7-alpha.1 || 0.1.7-alpha.2 || 0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-rc.2 || 0.2.1-rc.5"
-package.json                devDependencies          allowlist 中的某一项（当前 0.2.1-rc.5）
+package.json                peerDependencies         "0.1.5-rc.2 || 0.1.6-alpha.1 || 0.1.6-alpha.2 || 0.1.7-alpha.1 || 0.1.7-alpha.2 || 0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-rc.2 || 0.2.1-rc.5 || 0.2.2-rc.1"
+package.json                devDependencies          allowlist 中的某一项（当前 0.2.2-rc.1）
 node_modules                实际解析到的版本          allowlist 中的某一项
 ```
 
@@ -88,6 +88,7 @@ await mountCompat(ctx)
 | `src/compat/llm-message.ts` | session format 3 及更早投 `{ kind: 'plugin', plugin, form: 'instructions' }`；format 4（`0.1.7` 的 `SESSION_FORMAT_VERSION`）拒绝 `kind: 'plugin'`，改投 `{ kind: 'multi-root-workspace', plugin, form: 'instructions' }`。探针是 session 包导出的格式常量，**不是** renderer 名字——0.1.6 已经改名却仍接受 `plugin`。不要用 `agent-instructions`：上游把那个 kind 的 `changes` 当自己的协调权威 |
 | `src/compat/tool-result.ts` | 失败位：0.1.5/0.1.6 在 `content[0].isError`，0.1.7 在消息自身的 `isError`。`event.data.error` 两边都还在 |
 | `src/compat/client-icons.ts` | 面板图标：0.1.5/0.1.6 是像素名（`IconFolderClose16`），0.1.7 是线宽名。上游 UI 用的是 Regular，不是 Medium。先取像素名，没有再取 Regular |
+| `src/compat/caller-connection.ts` | cordis `~4.1.0` 的 traceable shadow：属性访问携带定义点切片，`get rpc()` 的注册被绑到 connection 定义点 ctx 而不是调用方连接。`callerConnectionOf` 用 `symbols.original` 解包后以 Proxy 重定向 ctx，无版本号分支，同一份代码兼容 4.0.5 / 4.1.0 |
 | `scripts/lib/profile-boot.mjs` | `healProfilesModuleFallback` 是函数就调用它；否则 `createRuntimeResolution`，并在 `boot` 的 prepare 里 `hostCtx.plugin(PluginPackages, { resolution })`。0.1.7 不再导出 heal |
 | `scripts/lib/shell-exec.mjs` | `shell.run` 存在就用它；否则 `shell.execute(spec)` 再 `execution.result()`。0.1.7 的 `SandboxBashExecutor` 改了名从 run 到 execute |
 
@@ -124,14 +125,14 @@ await mountCompat(ctx)
 升级/探测用：
 
 ```bash
-pnpm dsh:upgrade 0.2.1-rc.5 --probe     # 重指 pin / 软插件范围 / 豁免，并写 probe overrides
+pnpm dsh:upgrade 0.2.2-rc.1 --probe     # 重指 pin / 软插件范围 / 豁免，并写 probe overrides
 pnpm dsh:upgrade --latest-prerelease --probe   # 指向最新 pre-release
 pnpm dsh:upgrade --print-latest-prerelease
 pnpm dsh:upgrade --print-installed      # 每个插件实际解析到的版本
 pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0
 # 容器内跑 warn（宿主环境变量不会自动转发进 docker）：
 docker-run node 'DSH_MULTI_ROOT_COMPAT=warn pnpm --filter dsh-plugin-multi-root-workspace verify:all'
-pnpm dsh:upgrade 0.2.1-rc.5             # 移除 overrides
+pnpm dsh:upgrade 0.2.2-rc.1             # 移除 overrides
 pnpm install --frozen-lockfile
 ```
 
@@ -179,13 +180,15 @@ pnpm verify:all   # lint → typecheck → build → test → kernel:probe → s
 
 ## 9. DSH 0.2 与新的开发基线
 
-开发 pin 是 `0.2.1-rc.5`，cordis 是 `4.0.5`；基线常量在仓库根 `scripts/dsh-baseline.mjs`。回到开发基线不再表示回到 `0.1.5-rc.2` / `4.0.2`；前文的旧版探测记录是历史事实。恢复探测时按 manifest / workspace / lockfile / `scripts/dsh-baseline.mjs` 四处分步处理，绝不把未提交的支持声明退回 HEAD。
+开发 pin 是 `0.2.2-rc.1`，cordis 是 `~4.1.0`；基线常量在仓库根 `scripts/dsh-baseline.mjs`。回到开发基线不再表示回到 `0.1.5-rc.2` / `4.0.2`；前文的旧版探测记录是历史事实。恢复探测时按 manifest / workspace / lockfile / `scripts/dsh-baseline.mjs` 四处分步处理，绝不把未提交的支持声明退回 HEAD。
 
 `0.2.0-rc.1` / `rc.2` 保留了现有适配器的接缝。0.2 的 agent-loop 异常恢复会在关闭 step 前补保守的失败 `tool/result`：`message.isError: true`、纯文本 content，并带 `data.error`。它绝不能算成功文件 touch；`tests/instructions.spec.ts` 同时钉住旧 content block、新 message 与恢复事件三种失败形状。Windows 新增 ACL diagnosis skill 由继承的上游 provider 自动软注册，本插件仍不承诺 Windows 内核多根授权。
 
 `0.2.1-rc.2` 没有引入新的适配器分支：`dsh-fs` / `dsh-sandbox` / `dsh-sandbox-local` 的类型零变化，session format 仍为 4，`HostConnectionRpc.handle` 与所用槽位 / primitives 导出保留。真正需要处理的是依赖树：内部子包全部精确 pin，`zod` 对齐 `4.4.3`，`dsh-invariants` 在该线不再发布（git-graph 插件因此整体移除）。`pnpm-workspace.yaml` 的豁免清单由 `pnpm dsh:check` 与 lockfile 精确对齐。
 
 `0.2.1-rc.5` 同样没有引入新的适配器分支（2026-11-04 实测，Linux 容器）：rc.2 → rc.5 在插件消费的全部表面上类型树零变化，session format 仍为 4，cordis 仍为 `~4.0.5`，`zod` 仍为 `4.4.3`。纳入前 warn 探测：typecheck 全绿、kernel:probe 通过、单测 405 passed / 5 skipped（32 文件）、compose 46/46、behavior 99/99、journey 60/60；纳入后 enforce `verify:all` 与 `compat:check` 同样全绿。与 `0.1.7-rc.1` 起的规则一致，`peerDependencies` 在同一次改动里带上了 `0.2.1-rc.5`，否则 smoke 的 `dsh plugin add` 过不了安装期 peer 门禁。
+
+`0.2.2-rc.1` 的形状结论（2026-11-06 实测终版）：cordis 升到 `~4.1.0`，traceable shadow 在这一版断裂——属性访问携带定义点切片，`get rpc()` 的注册被绑到 connection 定义点 ctx 而不是调用方连接，挂载须经 `callerConnectionOf` 的结构探测适配（`symbols.original` 解包 + Proxy 重定向 ctx），不含版本号分支，同一份代码兼容 `~4.0.5` 与 `~4.1.0`，实现落 `src/compat/caller-connection.ts`。`dsh-session-projection` 到 rc.1：`ProjectionDefinition<K, S>` 变双泛型，`register` 异步化返回 `Promise<ProjectionHandle<S>>`，registry 级 `stateOf(session, key)` 废弃、改用 `handle.stateOf(session)`，`SessionProjectionStateMap` 更名 `SessionProjectionMap` 并转为 client wire 表（host-only 键不再合并）。schemastery 为 `3.19.0` 单树；`zod` 保持 `4.4.3`，session format 仍为 4；上游首次声明 `engines.node >=24.9.0`，本仓 Node 工具链仍为 24.21.0。验证纪律：`tsc -b` 的增量缓存对依赖类型面变化不敏感，核对类型结论前先清 `tsconfig.*.tsbuildinfo`。
 
 根级 `scripts/check-dsh-baseline.mjs`（`pnpm dsh:check`）在发布前守住基线常量、四个插件的 dev pin、三个软插件的统一范围、multi-root 的 `compat:check`、安装树与豁免；`scripts/release.mjs` 已把它设为发布前置。候选重指脚本生成的 overrides 块仍只属于探测，重跑不带 `--probe` 即清理。
 

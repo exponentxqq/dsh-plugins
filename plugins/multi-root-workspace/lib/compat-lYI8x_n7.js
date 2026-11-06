@@ -32,17 +32,9 @@ import { Service } from "@deepseek-ai/cordis";
 * unlisted release is evidence, not authorization (ADR-0009).
 */
 const SUPPORTED_DSH_RELEASES = [
-	"0.1.5-rc.2",
-	"0.1.6-alpha.1",
-	"0.1.6-alpha.2",
-	"0.1.7-alpha.1",
-	"0.1.7-alpha.2",
-	"0.1.7-rc.1",
-	"0.1.7-rc.2",
-	"0.2.0-rc.1",
-	"0.2.0-rc.2",
 	"0.2.1-rc.2",
-	"0.2.1-rc.5"
+	"0.2.1-rc.5",
+	"0.2.2-rc.1"
 ];
 /**
 * Packages whose absence means this plugin cannot function at all: every one of

@@ -2,7 +2,7 @@
  * 根级 DSH 升级引擎：把整个 workspace 重指到一个上游精确版本。
  *
  * 升级车道只回答一个问题：如果 harness 换成版本 X，这套插件是否仍然正确？
- * 回答它需要把**整个仓库**钉到 X：四个插件的 devDependencies、`pnpm-workspace.yaml`
+ * 回答它需要把**整个仓库**钉到 X：七个插件的 devDependencies、`pnpm-workspace.yaml`
  * 的发布年龄豁免，以及随后由 pnpm 重写的 lockfile。围栏与内核沙箱的方言是针对
  * 实际安装的那份副本验证的，不是针对一个范围。
  *
@@ -10,8 +10,9 @@
  * 升级车道绿灯只是「有可能支持」的证据，提升是之后人工做的事（ADR-0009）。
  * 这条分离是契约的全部意义——自动放宽支持矩阵会重新引入它要消除的过度承诺。
  *
- * 默认模式是永久的：重写四个插件的 devDeps / cordis、三个软插件的 engines 与
- * DSH peer 范围、workspace 豁免，并同步 `scripts/dsh-baseline.mjs`。
+ * 默认模式是永久的：重写七个插件的 devDeps（dsh 系、cordis 与 schemastery）、
+ * 六个软插件的 engines 与 DSH peer 范围、workspace 豁免，并同步
+ * `scripts/dsh-baseline.mjs`。
  * `--probe` 额外追加 workspace-only 的 `overrides:` 块，避免预发布范围在探测
  * 期间解析出混装树；探测结束后用 `git checkout` 恢复，或重跑一次不带 `--probe`
  * 的升级（脚本会移除该块）。
@@ -38,6 +39,7 @@ const PLUGINS_ROOT = join(REPO_ROOT, 'plugins')
 const WORKSPACE = join(REPO_ROOT, 'pnpm-workspace.yaml')
 const BASELINE_FILE = join(REPO_ROOT, 'scripts', 'dsh-baseline.mjs')
 const CORDIS = '@deepseek-ai/cordis'
+const SCHEMASTERY = '@deepseek-ai/schemastery'
 const PROBE_BEGIN = '# BEGIN DSH probe overrides'
 const PROBE_END = '# END DSH probe overrides'
 
@@ -116,6 +118,30 @@ function cordisRequiredBy(dshVersion) {
 }
 
 /**
+ * The exact schemastery version the pinned `dsh-tools` package declares.
+ *
+ * The devDependencies pin and the release-age allowance must name the version
+ * `dsh-tools` actually asks for; a stale devDep against a moved schemastery
+ * leaves `dsh:check` reporting both stale and missing. The declared range must
+ * be a single caret or tilde of one exact version — refused otherwise, same
+ * policy as `cordisRequiredBy`.
+ * @param target - the exact `@deepseek-ai/dsh` release being pinned.
+ * @returns the exact schemastery version to pin.
+ */
+function schemasteryRequiredBy(target) {
+  const raw = npmOutput(['view', `@deepseek-ai/dsh-tools@${target}`, 'dependencies.@deepseek-ai/schemastery', '--json'])
+  const range = JSON.parse(raw)
+  const exact = typeof range === 'string' ? /^[\^~]?(\d+\.\d+\.\d+)$/u.exec(range) : null
+  if (exact === null) {
+    throw new Error(
+      `[upgrade] @deepseek-ai/dsh-tools@${target} depends on schemastery ${JSON.stringify(range)}, `
+      + 'which is not a single caret or tilde this script can pin',
+    )
+  }
+  return exact[1]
+}
+
+/**
  * Keep `scripts/dsh-baseline.mjs` equal to the target.
  * @param target - the release being pinned.
  * @returns the baseline the file declared before the rewrite.
@@ -139,10 +165,11 @@ function repointBaseline(target) {
  * @param plugin - the discovered plugin.
  * @param target - the release to pin.
  * @param cordisVersion - the exact cordis version the release requires.
+ * @param schemasteryVersion - the exact schemastery version the release requires.
  * @param softRange - the range to write into soft plugins.
  * @returns human-readable change descriptions.
  */
-function repointPlugin(plugin, target, cordisVersion, softRange) {
+function repointPlugin(plugin, target, cordisVersion, schemasteryVersion, softRange) {
   const { manifest } = plugin
   const changed = []
   const devs = manifest.devDependencies ?? {}
@@ -154,6 +181,9 @@ function repointPlugin(plugin, target, cordisVersion, softRange) {
     } else if (name === CORDIS && version !== cordisVersion) {
       changed.push(`${name}: ${version} → ${cordisVersion}`)
       devs[name] = cordisVersion
+    } else if (name === SCHEMASTERY && version !== schemasteryVersion) {
+      changed.push(`${name}: ${version} → ${schemasteryVersion}`)
+      devs[name] = schemasteryVersion
     }
   }
   if (!hasExactContract(plugin.dir)) {
@@ -190,11 +220,12 @@ function repointPlugin(plugin, target, cordisVersion, softRange) {
  * (which would also try to pin packages that no longer exist).
  * @param target - the release to pin.
  * @param cordisVersion - the exact cordis version to write.
+ * @param schemasteryVersion - the exact schemastery version to write.
  * @param probe - whether to add the workspace-only overrides block.
  * @param plugins - discovered plugins, for the direct DSH dependency set.
  * @returns `{ allowances, probeEntries }`.
  */
-function repointWorkspace(target, cordisVersion, probe, plugins) {
+function repointWorkspace(target, cordisVersion, schemasteryVersion, probe, plugins) {
   let updated = readFileSync(WORKSPACE, 'utf8')
   let allowances = 0
   updated = updated.replace(/^(\s*- '@deepseek-ai\/dsh(?:-[\w-]+)?)@[^']+'$/gmu, (line, prefix) => {
@@ -206,6 +237,12 @@ function repointWorkspace(target, cordisVersion, probe, plugins) {
     throw new Error('[upgrade] pnpm-workspace.yaml has no @deepseek-ai/cordis release-age entry to repoint')
   }
   updated = updated.replace(cordisLine, `$1${cordisVersion}'`)
+  allowances += 1
+  const schemasteryLine = /^(\s*- '@deepseek-ai\/schemastery@)[^']+'$/mu
+  if (!schemasteryLine.test(updated)) {
+    throw new Error('[upgrade] pnpm-workspace.yaml has no @deepseek-ai/schemastery release-age entry to repoint')
+  }
+  updated = updated.replace(schemasteryLine, `$1${schemasteryVersion}'`)
   allowances += 1
 
   // A rerun without --probe removes the block; a rerun with --probe replaces it.
@@ -293,19 +330,21 @@ if (!/^\d+\.\d+\.\d+(?:-[\w.]+)?$/u.test(target)) {
 
 const softRange = softDshRange(target)
 const cordisVersion = cordisRequiredBy(target)
+const schemasteryVersion = schemasteryRequiredBy(target)
 const previousBaseline = repointBaseline(target)
 const plugins = listPlugins()
 const changes = []
 for (const plugin of plugins) {
-  for (const entry of repointPlugin(plugin, target, cordisVersion, softRange)) {
+  for (const entry of repointPlugin(plugin, target, cordisVersion, schemasteryVersion, softRange)) {
     changes.push(`${plugin.manifest.name}: ${entry}`)
   }
 }
-const { allowances, probeEntries } = repointWorkspace(target, cordisVersion, probe, plugins)
+const { allowances, probeEntries } = repointWorkspace(target, cordisVersion, schemasteryVersion, probe, plugins)
 
 console.log(`[upgrade] baseline: ${previousBaseline} → ${target}`)
 console.log(`[upgrade] soft plugin range: ${softRange}`)
 console.log(`[upgrade] cordis pin: ${cordisVersion}`)
+console.log(`[upgrade] schemastery pin: ${schemasteryVersion}`)
 console.log(`[upgrade] manifest entries rewritten: ${changes.length}`)
 for (const entry of changes) console.log(`           ${entry}`)
 console.log(`[upgrade] release-age allowances rewritten: ${allowances}`)

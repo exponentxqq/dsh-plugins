@@ -29,7 +29,7 @@ pnpm dsh:upgrade <version> [--probe]   # 根级升级：重指 DSH pin / 软插�
 pnpm release <version>  # 发布：dsh:check → 同步版本 → 重建产物 → 提交 → 打 tag v<version>（详见「发布与版本」）
 ```
 
-当前 DSH 开发基线是 **`0.2.1-rc.2`**，由 `scripts/dsh-baseline.mjs` 单点声明：multi-root 保留精确 allowlist 与精确 peers，其余五个软插件的 `engines.dsh` / DSH peer 统一为 `>=0.2.1-rc.2 <0.3.0`。Node 工具链由根 `package.json#volta.node` 固定在 `24.21.0`（`engines` 仍兼容 22.19+）。升级流程见 [multi-root 开发工作流](plugins/multi-root-workspace/docs/development/plugin-development-workflow.md)。
+当前 DSH 开发基线是 **`0.2.2-rc.1`**，由 `scripts/dsh-baseline.mjs` 单点声明：multi-root 保留精确 allowlist 与精确 peers，其余六个软插件的 `engines.dsh` / DSH peer 统一为 `>=0.2.2-rc.1 <0.3.0`。Node 工具链由根 `package.json#volta.node` 固定在 `24.21.0`（`engines` 仍兼容 22.19+）。升级流程见 [multi-root 开发工作流](plugins/multi-root-workspace/docs/development/plugin-development-workflow.md)。
 
 只跑单个插件：`pnpm --filter <包名> <脚本>`，例如 `pnpm --filter dsh-plugin-multi-root-workspace verify:all`（含 lint / typecheck / build / 内核探测 / 单测 / 冒烟，需运行中的 dsh 环境）。
 

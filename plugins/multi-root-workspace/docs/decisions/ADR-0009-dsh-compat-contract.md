@@ -237,6 +237,25 @@ PR #1（head `507c954`）的 P2-3 / P2-4 / P2-5 收紧了两条规则（内容�
 
 实测（Linux 容器）：纳入前 warn 探测 typecheck 全绿、kernel:probe 通过、单测 405 passed / 5 skipped（32 文件）、compose 46/46、behavior 99/99、journey 60/60；纳入后 enforce `verify:all` 与 `compat:check` 同样全绿。
 
+## 支持矩阵裁剪与提升（2026-11-06）：裁剪为三项并纳入 `0.2.2-rc.1`
+
+按本 ADR 的人工提升流程，本次变更把裁剪与提升一次落定：`SUPPORTED_DSH_RELEASES` 从十一项收敛为三项 `0.2.1-rc.2` / `0.2.1-rc.5` / `0.2.2-rc.1`，`peerDependencies` 对应收敛为三项精确或（新增 `0.2.2-rc.1`，移除全部 `0.1.x` 与更早的 `0.2.0` 项），开发 pin 与仓库根基线常量同步收敛到 `0.2.2-rc.1`。
+
+裁剪理由（11 → 3）：`0.1.x` 系列已脱离现实运行面——运行中的宿主已经是 `0.2.2-rc.1`。支持矩阵是与 peer 枚举 join 的精确承诺，保留不可能再被安装的枚举就是过度承诺：对外声明一组既无运行证据也无安装路径的版本，与「npm 范围是对尚不存在的版本做预测」（本 ADR 起因）是同一类问题，只是方向相反。
+
+实测（Linux 容器，`0.2.2-rc.1` 依赖树，warn 模式 `verify:all`）：
+
+| 项 | 结果 |
+| --- | --- |
+| 单测 | 411 passed / 5 skipped，零失败；5 个 skipped 与上轮基线同构（parity-matrix 3、windows-multi-root 1、compat 1） |
+| kernel:probe | 沙箱探测在容器内 seatbelt / bwrap / landlock 均不可用，skip 附因，属环境事实而非回归 |
+| lint / typecheck / build | 全过 |
+| smoke:compose | 16/46 失败，结构性预期红：容器宿主已是 `0.2.2-rc.1`，本地插件的 21 项 peer 枚举尚未提升（即本节记录的提升动作），宿主安装期 peer 门禁拒装、下游级联；根因唯一，验收移至提升后的 enforce 全矩阵（本 ADR 协议：绿灯 = 代码面证据 → 人工提升 → enforce 全绿） |
+
+形状结论（对照 `0.2.1-rc.5` → `0.2.2-rc.1` 的依赖面）：cordis `4.0.5` → `4.1.0` 在 lint / typecheck（host+client）与全仓 typecheck 的静态面上零 API 差异；schemastery 全树单一 `3.19.0`（`Found 1 version`）；zod 契约面单一 `4.4.3`（宿主安装树里的 `4.6.7` 不在本仓 workspace，不构成契约面）；`SESSION_FORMAT_VERSION = 4` 未变。新包 `@deepseek-ai/dsh-client-ui-context-menu` 只记录不接入（源码 grep = 0）。
+
+零适配结论（2026-11-06 勘误）：静态面（lint/typecheck/build）确未引入 `src/compat/` 适配分支；但执行期全量验证暴露 **cordis 4.0.5→4.1.0 的 traceable shadow 断裂**——4.1.0 属性访问经 `createShadow` 携带定义点切片，`dsh-client-connection` 的 `get rpc()` 以 `this.ctx`（= connection 定义点 ctx）解析 `webServer` 失败，旧挂载写法在运行时整通道失效（journey 5/60 暴露）。三处挂载点（multi-root `src/command.ts`、web-ux、session-tool-toggle 的宿主半通道）以 `callerConnectionOf` 模式做**结构探测式适配**（cordis `symbols.original` 解包 + 只读 Proxy 重定向 ctx；无版本号分支，兼容 4.0.5/4.1.0 双形状）；session-tool-toggle 另随 `dsh-session-projection` rc.1 类型面（`ProjectionDefinition<K,S>` 双泛型、`register` 异步化、`stateOf(session,key)` 废弃）适配投影注册区。此教训：**cordis 次版本的 traceable 语义变化发生在运行时解析层，静态形状 gate 探不到——升级探测必须覆盖真实挂载路径（journey/探针），且 `tsc -b` 增量缓存对依赖类型面变化不敏感，核对前必须清 `tsconfig.*.tsbuildinfo` 强制重查。**
+
 ## Related Documents
 
 - [ADR-0002：上游耦合策略](./ADR-0002-upstream-coupling-policy.md)（本 ADR 收紧了其中第 4 条关于 `peerDependencies` 范围的部分）

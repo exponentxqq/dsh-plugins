@@ -220,6 +220,7 @@ overrides:
 - **理由**：`@deepseek-ai/dsh-tools@0.2.2-rc.1` 与 `dsh-web-app@0.2.2-rc.1` 均声明 `~3.19.0`（rc.5 上是 `~3.18.5`），树会被强制拉到 3.19.0；三个插件把 schemastery 内联进产物、`Config` 交给宿主读取，保留 3.18.5 会让树里同时存在两份且跨版本实例识别有风险。候选树声明是单一真源，推导全自动，无需人工传版本；`dsh:check` 第 6 条继续兜底对账。
 - **被否方案**：维持人工（每次升级重复同一人工步骤，用户已否）；通用 `--extra-pin <name>@<version>` 参数（仍需人工知道目标版，半自动）。
 - **反例**：只改 devDep 不改豁免 → `dsh:check` 报 `release-age allowlist has stale @deepseek-ai/schemastery@3.18.5` + `is missing @deepseek-ai/schemastery@3.19.0`；推导解析到非单一 tilde/caret 声明（如 `>=3.x`）时必须抛错拒绝而非猜测（沿用 `cordisRequiredBy` 的拒绝策略），否则脚本会在下一次上游改用宽范围时静默写出错误 pin。
+- **执行期实测（组 1 完成，2026-11-06）**：`schemasteryRequiredBy` 与 `cordisRequiredBy` 同构落地（`npmOutput(['view', '@deepseek-ai/dsh-tools@<target>', 'dependencies.@deepseek-ai/schemastery', '--json'])` + 正则 `/^[\^~]?(\d+\.\d+\.\d+)$/u`，非单一声明抛错含 `JSON.stringify` 原文）；`repointPlugin` devDep 分支与 `repointWorkspace` 豁免行分支（行缺失即抛错、allowances 计数）同步落地；主流程推导先于 repoint/probe，新增日志行 `[upgrade] schemastery pin: <版本>`；头注释计数同步（四个→七个插件、三个→六个软插件）。实测：当前基线 0.2.1-rc.5 下 `dsh-tools` 声明 `~3.18.5` → 解析 3.18.5 正确；三条验证句全过（require exit 0 幂等、`--print-installed` exit 0、grep 计数 2）。加载语义留痕见 tasks.md 附录 R1。
 
 ### D6 官方包用 `dsh plugin add --save-exact`，不手改 profile `package.json`
 
@@ -278,6 +279,8 @@ docker exec dsh sh -lc 'cd /home/xuqinqin/develop/person/dsh-plugins && DSH_MULT
 
 **失败分支**：typecheck/smoke 红 → 进组 2 找形状；**不得**在红的探测上做组 3 提升。
 
+> **执行期实测（tasks 组 2 完成，2026-11-06，口径修正见 tasks.md 附录 R4）**：升级链三行断言全中（baseline 0.2.1-rc.5 → 0.2.2-rc.1、cordis pin 4.1.0、schemastery pin 3.19.0）；probe 块=1、`0.2.1-rc.5` 串=0；版本三元组拆核通过（multi-root：dsh 0.2.2-rc.1 + cordis 4.1.0；web-ux：schemastery 3.19.0）。代码面全绿：lint/typecheck/build 过，vitest **411 passed/5 skipped 零失败**（+6 为测试定义数上行，见 R4），kernel:probe 三沙箱不可用属容器环境事实、skip 附因。compose 16/46 失败 = 宿主已 0.2.2-rc.1 × peer 枚举未提升的**结构性预期红**（dsh-runtime PATH 优先解析全局 CLI），根因唯一、零形状回归；46/46 验收后移组 6 enforce。
+
 ### 组 2 — 形状核对与必要适配
 
 **动作与断言（逐项）**
@@ -288,6 +291,8 @@ docker exec dsh sh -lc 'cd /home/xuqinqin/develop/person/dsh-plugins && DSH_MULT
 4. **session format 仍为 4**：在 `plugins/multi-root-workspace` 目录下跑 `node --input-type=module -e "const m = await import('@deepseek-ai/dsh-session'); console.log(m.SESSION_FORMAT_VERSION)"` → `4`（multi-root 的 `llm-message` 探针据此选 source kind）。
 5. **新包 `@deepseek-ai/dsh-client-ui-context-menu` 只记录不接入**：`grep -rn "dsh-client-ui-context-menu" plugins/*/src | wc -l` → `0`；它进 lockfile 与豁免仅因 `dsh-web-app` 依赖它。
 6. **零适配结论**：若以上全绿，把「0.2.2-rc.1 未引入适配分支」写进组 3 的 ADR 追加节。
+
+> **执行期实测（tasks 组 3 完成，2026-11-06，5/5 全绿零适配）**：①cordis：lint/typecheck（host+client 双 tsconfig）/`pnpm -r run typecheck`（7/7 Done）三条退出码 0，4.0.5→4.1.0 静态面零 API 差异，`src/compat/` 零改动零版本号分支。②zod：树上 `Found 1 version of zod`（4.4.3），无 4.6.7 混入；两插件运行时解析均 4.4.3，声明与解析一致——D4 达成（宿主安装树 4.6.7 在 DSH 全局目录、不属本仓 workspace，非偏差）。③schemastery：`Found 1 version of @deepseek-ai/schemastery`（3.19.0），三内联插件运行时解析一致——D5 达成（实测方式为脚本自动重写而非本组段原文的人工改法，D5 落档已改道，见 D5 执行期实测）。④session format：`SESSION_FORMAT_VERSION = 4`，未变。⑤context-menu：源码 grep = 0，lockfile 3 处（快照/peer 解析/importer 引用）；**一处如实偏差**——`pnpm-workspace.yaml` 豁免清单该包 **0 出现**（同批 0.2.2-rc.1 包有豁免、它没有），子代理推断其发布年龄已超 minimumReleaseAge 阈值故无需豁免；本组不动豁免（禁止改 workspace），**归组 5 的 `pnpm dsh:check` 对账裁决**：check 报 missing 才人工补行，报 0 冲突则维持现状。⑥零适配结论成立，已具备写入 ADR-0009 追加节的全部形状结论（cordis 4.1.0 / schemastery 3.19.0 / zod 4.4.3 / format 4 / context-menu 只记录）。
 
 ### 组 3 — 支持矩阵裁剪提升
 
@@ -318,6 +323,8 @@ pnpm --filter dsh-plugin-multi-root-workspace compat:check
 - `node -e "const m=require('./plugins/multi-root-workspace/package.json'); const p=Object.entries(m.peerDependencies).filter(([n])=>n.startsWith('@deepseek-ai/dsh')); console.log(p.length, new Set(p.map(([,v])=>v)))"` → `21 Set(1) { '0.2.1-rc.2 || 0.2.1-rc.5 || 0.2.2-rc.1' }`。
 - 此时**仍带 probe overrides**，不得提交；组 4 清掉后再全量。
 
+> **执行期实测（tasks 组 4 完成，2026-11-06，三任务并行 + 组级校验全绿）**：4.1 落定 `SUPPORTED_DSH_RELEASES = ['0.2.1-rc.2', '0.2.1-rc.5', '0.2.2-rc.1'] as const`（1 行改动，验证句双 grep 过；**L16 模块头的历史例句注释 `An npm range like '>=0.1.2-alpha.4 <0.2.0' …` 裁定保留**——它解释 allowlist 取代 npm range 的历史决策，属叙述非枚举副本，D7 精神下历史叙述归 ADR 文档面）。4.2 权威脚本逐字执行：21 项 peer 同一串、cordis peer `>=4.0.1 <5.0.0` 未动、diff 逐行分类零意外改动。4.3 ADR-0009 新节 L240-257 纯追加（五段：落点/裁剪理由/warn 探测计数含 R4 口径/形状结论/零适配），`docs:check` 10 项全 PASS。**组级 compat:check（主会话统一跑，避开并行中间态）**：退出 0，输出 `[compat] allowlist: 0.2.1-rc.2, 0.2.1-rc.5, 0.2.2-rc.1` + `allowlist, peerDependencies, development pin and installed tree agree`——D3 强绑定一次落定达成。检查器实现事实：`check-dsh-compat.mjs` 静态解析源码、刻意不 import 构建产物（须先于 build 运行），改数组无需重建 lib 即可校验。
+
 ### 组 4 — 收口对账
 
 **动作**
@@ -336,6 +343,8 @@ pnpm dsh:check
 - `pnpm dsh:check` 最终退出 0，输出含 `[dsh:check] baseline: 0.2.2-rc.1 (soft range >=0.2.2-rc.1 <0.3.0)`、`[dsh:check] release-age allowlist: N entries, lockfile M relevant packages`、末行 `[dsh:check] baseline, pins, soft ranges, allowlist, lockfile and installed tree agree`。
 - 预期新增/修改条目：`dsh-client-ui-context-menu@0.2.2-rc.1`（新增）、`schemastery@3.19.0`（替换 3.18.5）；候选树移除的包按 missing/stale 输出删。
 - `pnpm install --frozen-lockfile` 退出 0（证明 lockfile 与 manifest 自洽）。若因移除 probe overrides 触发 `ERR_PNPM_OUTDATED_LOCKFILE`，退一步跑 `pnpm install --no-frozen-lockfile`，然后确认 `git diff pnpm-lock.yaml` 无变化（overrides 与已解析版本等值时本就应无变化）。
+
+> **执行期实测（tasks 组 5 完成，2026-11-06）**：de-probe 后 `frozen-lockfile` 一次通过（无 OUTDATED 分支）；豁免人工对账实际新增 **25 条**（不止预期的 context-menu 一条——0.2.2-rc.1 上游新增 25 个传递性 DSH 包：action-cards / client-ui-action-cards / client-ui-context-menu / forge 系 / recommendations 系 / tool-executor 系 / liveshare 系 / message-quotes / official-bundles / fs-patch / deliverable-file-references 等），按 transitive 批字典序插入；`dsh:check` 333=333 全绿（末行 agree）、`compat:check` 全绿。执行过程含两次环境中断与一次主会话↔子代理并发写入冲突，处置与规则见 tasks.md 附录 R5。schemastery 3.18.5→3.19.0 由组 2 脚本完成，本组仅确认。
 
 ### 组 5 — 全量验证
 
@@ -371,6 +380,8 @@ pnpm dsh:check
 - `grep -n "2026-11-06" plugins/multi-root-workspace/docs/decisions/ADR-0009-dsh-compat-contract.md` → 命中新节标题。
 - `grep -c "24\.9\.0" plugins/multi-root-workspace/README.md plugins/multi-root-workspace/README.en.md` → 各 ≥1（dsh 0.2.2+ 的 Node 下限写进环境要求）。
 - `grep -c "20 项 DSH peer" plugins/multi-root-workspace/docs/development/plugin-development-workflow.md` → 0。
+
+> **执行期实测（tasks 组 7 完成，2026-11-06，5/5 全过 + docs:check 全绿）**：7.1 AGENTS.md H3 段单行替换（三项列表 + dev pin `0.2.2-rc.1` + 形状结论摘要句含 callerConnectionOf/projection 类型面/上下文菜单只记录/Node ≥24.9.0，指路 ADR 追加节；0.1.x 历史句全保留）。7.2 README 双语「环境要求」两处（三项列表 + dev pin + Node ≥24.9.0 句，en 自然跟随）。7.3 工作流文档 3 处版本样例 + peer 计数表述（旧基线零残留）。7.4 契约笔记双语对称同步（数组/peer 串/dev pin/命令样例/§9 终版段 + §4 适配器表补 `caller-connection.ts` 行；L141 zod 对齐记载原文在位）。7.5 根 README/AGENTS 基线行 3 行 4 事实点（0.2.2-rc.1 + 六软插件 + 派生范围，Q2 漂移修正落定）。各任务独立跑 docs:check 全绿；组 8.1 终态复验再总跑一次。
 - `pnpm docs:check` 退出 0（重复确认，因本组只改 md）。
 
 ### 组 7 — web profile 实测（含官方包升级）

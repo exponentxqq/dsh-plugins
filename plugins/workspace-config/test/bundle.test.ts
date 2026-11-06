@@ -27,6 +27,10 @@
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+// 软插件基线范围从仓库根唯一版本常量派生（`SOFT_DSH_RANGE`）：基线提升
+// （`pnpm dsh:upgrade`）重写 scripts/dsh-baseline.mjs 与各 manifest 之后，
+// 本套件的版本断言自动对齐，不再逐次手改字面量。
+import { SOFT_DSH_RANGE } from '../../../scripts/dsh-baseline.mjs'
 
 /** 本包目录（`test/` 的上一级）。 */
 const ROOT = path.resolve(import.meta.dirname, '..')
@@ -168,7 +172,7 @@ describe('包声明', () => {
   })
 
   it('engines.dsh 与 @deepseek-ai/dsh peer 都是软插件基线范围', () => {
-    expect(manifest.dsh?.engines?.dsh).toBe('>=0.2.1-rc.5 <0.3.0')
-    expect(manifest.peerDependencies?.['@deepseek-ai/dsh']).toBe('>=0.2.1-rc.5 <0.3.0')
+    expect(manifest.dsh?.engines?.dsh).toBe(SOFT_DSH_RANGE)
+    expect(manifest.peerDependencies?.['@deepseek-ai/dsh']).toBe(SOFT_DSH_RANGE)
   })
 })

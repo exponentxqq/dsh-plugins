@@ -1,7 +1,7 @@
 import { createRequire as __dshCreateRequire } from 'node:module';
 const require = __dshCreateRequire(import.meta.url);
 
-// ../../node_modules/.pnpm/@deepseek-ai+cosmokit@1.8.6/node_modules/@deepseek-ai/cosmokit/lib/index.js
+// ../../node_modules/.pnpm/@deepseek-ai+cosmokit@1.9.0/node_modules/@deepseek-ai/cosmokit/lib/index.js
 function isNullable(value) {
   return value === null || value === void 0;
 }
@@ -226,7 +226,7 @@ var Time;
   Time2.template = template;
 })(Time || (Time = {}));
 
-// ../../node_modules/.pnpm/@deepseek-ai+schemastery@3.18.5/node_modules/@deepseek-ai/schemastery/lib/index.mjs
+// ../../node_modules/.pnpm/@deepseek-ai+schemastery@3.19.0/node_modules/@deepseek-ai/schemastery/lib/index.mjs
 var kSchema = Symbol.for("schemastery");
 var kValidationError = Symbol.for("ValidationError");
 globalThis.__schemastery_index__ ??= 0;
@@ -1255,12 +1255,12 @@ function createBigmodelClient(deps) {
 // src/host/bigmodel/signer.ts
 import { createHash as createHash2, createPrivateKey as createPrivateKey2 } from "node:crypto";
 
-// ../../node_modules/.pnpm/@deepseek-ai+dsh-brand@0.2.1-rc.5_@deepseek-ai+cordis@4.0.5/node_modules/@deepseek-ai/dsh-brand/lib/index.js
+// ../../node_modules/.pnpm/@deepseek-ai+dsh-brand@0.2.2-rc.1_@deepseek-ai+cordis@4.1.0/node_modules/@deepseek-ai/dsh-brand/lib/index.js
 function brandString(value) {
   return value;
 }
 
-// ../../node_modules/.pnpm/@deepseek-ai+dsh-credentials@0.2.1-rc.5_@deepseek-ai+cordis@4.0.5/node_modules/@deepseek-ai/dsh-credentials/lib/index.js
+// ../../node_modules/.pnpm/@deepseek-ai+dsh-credentials@0.2.2-rc.1_@deepseek-ai+cordis@4.1.0/node_modules/@deepseek-ai/dsh-credentials/lib/index.js
 var REF_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 var KEY_SEGMENT_PATTERN = /^[a-z][a-z0-9-]*$/;
 function credentialRef(value) {

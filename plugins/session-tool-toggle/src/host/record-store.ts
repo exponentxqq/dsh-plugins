@@ -56,12 +56,10 @@ declare module '@deepseek-ai/dsh-session/types' {
   }
 }
 
-declare module '@deepseek-ai/dsh-session-projection/types' {
-  interface SessionProjectionStateMap {
-    /** host-only 投影：不回传客户端（无 wire）。 */
-    sessionToolToggle: SessionToolState
-  }
-}
+// 0.2.2-rc.1 起不再增强投影键表：上游 `SessionProjectionStateMap` 已更名
+// `SessionProjectionMap` 且语义变为 client wire 投影表，而 host-only 键（无 wire）必须
+// 不在该表内（注册重载要求 `Exclude<K, keyof SessionProjectionMap>`）；键类型改由
+// `ProjectionDefinition<'sessionToolToggle', SessionToolState>` 显式实参锚定。
 
 /**
  * 宿主的插件记录 type 文法，与 `dsh-session/lib/index.js` 的 `PLUGIN_RECORD_TYPE`
@@ -115,7 +113,7 @@ export function recordOf(event: SessionEventLike): HostPluginRecord | undefined 
  * 版本，改字段或改语义时必须递增，否则旧缓存行会被前向应用成垃圾。
  */
 export interface SessionToolToggleUnit {
-  /** 投影 key：`SessionProjectionStateMap` 的增强项，必须与注册处逐字一致。 */
+  /** 投影 key：与注册处 `ProjectionDefinition` 的 `key` 逐字一致（host-only，无 wire）。 */
   readonly key: 'sessionToolToggle'
   /** 持久化缓存失效版本。 */
   readonly stateVersion: 1

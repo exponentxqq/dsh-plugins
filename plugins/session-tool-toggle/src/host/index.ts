@@ -30,11 +30,14 @@
  *   D10 的读路径首选；投影单元只给 fold，`stateSchema` 按 R13 由本文件用 zod 合成）；
  * - `ctx.inject(['connection', 'webServer'])` → 挂载 Connection RPC 通道 `/session-tool-toggle`
  *   （Web 面板的数据面，D20 的五个端点）。**两条注入要求都不是风格问题**：`webServer` 必须在
- *   注入名单里（否则回调在路由表就绪前运行，注册出来的 route 没有宿主），`connection` 必须从
- *   `scope.root` 读——`connection.rpc.handle` 把 `webServer` 当成「读它的那个上下文」的属性来
- *   解析，而插件 fiber 只看得见自己 inject 的服务，直接读兄弟行的 `webServer` 会抛
- *   `cannot get property "webServer" without inject`，route 注册失败后每个请求都落到静态 SPA
- *   兜底（HTTP 405）。完整坑位说明见 `plugins/web-ux/src/index.ts:74-99`。`connection` 解析为
+ *   注入名单里（否则回调在路由表就绪前运行，注册出来的 route 没有宿主），挂载必须经
+ *   `callerConnectionOf`（`connection` 仍从 `scope.root` 读）——cordis 4.1.0 起，服务读数是
+ *   traceable 视图，其 `rpc` getter 把注册绑到 `this.ctx`，而那个 ctx 是**定义点切片**的
+ *   shadow（connection 服务创建时的 fiber），它从不注入 `webServer`，注册当场以
+ *   `cannot get property "webServer" without inject` 死掉，route 进不了路由表，之后每个请求
+ *   都落到静态 SPA 兜底（HTTP 405）。（0.2.1-rc.5 及更早的 cordis 4.0.5 下 `this.ctx` 返回
+ *   读取处的 ctx，旧写法只是恰好正确。）helper 解包原始服务实例并把 `ctx` 重定向到本行
+ *   fiber，完整的推理链见本文件 {@link callerConnectionOf}。`connection` 解析为
  *   空只 warn 不抛（headless / 非 web profile 照常加载，`/tools` 命令面不受影响）。
  * - `ctx.inject(['workingDirectory'])` / `ctx.inject(['workspaceRegistry'])` → 工作区归属的两个
  *   软依赖（**分开注入**：`workingDirectory` 在 base 层、`workspaceRegistry` 只在 web-app 层，
@@ -82,11 +85,16 @@
 
 import { realpath } from 'node:fs/promises'
 
-import type { Context } from '@deepseek-ai/cordis'
+// `symbols` 是本文件唯一的 cordis 值 import（`callerConnectionOf` 解包原始服务实例用）；
+// 构建时 esbuild 会把它连同 `@deepseek-ai/cosmokit` 一并内联进产物，产物仍自包含。
+// cordis 的 `symbols` 全部经 `Symbol.for` 全局注册表定义，内联副本与宿主那份 cordis
+// 共享同一 symbol，因此解包在宿主实例上必然命中。
+import { symbols, type Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 // 类型面：`ConnectionRpcHandler` 是通道 handler 的官方形状（挂载点的编译期断言），
+// `HostConnectionHandle` 是 `callerConnectionOf` 的参数形状，
 // 同时这条 type-only import 加载 `Context.connection` 的声明合并（`root.get('connection')` 靠它取到类型）。
-import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
+import type { ConnectionRpcHandler, HostConnectionHandle } from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-commands'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-session-projection'
@@ -717,27 +725,34 @@ export function apply(ctx: Context, config?: SessionToolToggleConfig): void {
   const commandDisposers = new Set<() => void>()
 
   // 4. host-only 投影 `sessionToolToggle`（无 wire）：读路径的首选面（D10）。
-  ctx.inject(['sessionProjections'], (scope) => {
+  ctx.inject(['sessionProjections'], async (scope) => {
     const service = scope.sessionProjections
-    projections = {
-      stateOf: (session, key) => service.stateOf(session as never, key),
-    }
-
     const unit = createSessionToolToggleUnit(log)
     try {
       // R13：单元只给 fold，`stateSchema`（zod）由装配层合成完整 ProjectionDefinition。
       // 显式标注定义形状（而不是让 register 从参数字面量反推 S）：`createSessionToolToggleUnit`
       // 返回的是 `SessionToolState`（readonly 数组），而 zod 推断出的是可变数组——两者靠
-      // 单态标注锚定到同一份 `SessionProjectionStateMap['sessionToolToggle']`。
-      const definition: Omit<ProjectionDefinition<'sessionToolToggle'>, 'wire'> = {
+      // 单态标注锚定到同一份 `SessionToolState`。
+      const definition: Omit<ProjectionDefinition<'sessionToolToggle', SessionToolState>, 'wire'> = {
         key: unit.key,
         stateVersion: unit.stateVersion,
         stateSchema: PROJECTION_STATE_SCHEMA,
         init: () => unit.init(),
         apply: (state, event) => unit.apply(state, event),
       }
-      const dispose = service.register(definition)
-      projectionDisposers.add(dispose)
+      // rc.1 起 `register` 返回 `Promise<ProjectionHandle>`（注册可能异步完成，须 await 后才能
+      // 发布消费者），读面随之从 handle 取——registry 级 `stateOf` 已废弃且返回 unknown。
+      // await 就绪前不发布读端口：读路径按 D10 自然回落日志重放，与旧时序无行为差异。
+      const handle = await service.register(definition)
+      // handle 天然只读本单元，端口签名里的 `key` 不再参与寻址。
+      projections = {
+        stateOf: (session) => handle.stateOf(session as never),
+      }
+      // 旧版 register 同步返回 disposer；handle 的 `dispose()` 是 Promise，拆卸回调里接住
+      // rejection 并沿用同一告警文案（同步路径的异常仍由统一拆卸处的 try/catch 兜底）。
+      projectionDisposers.add(() => {
+        void handle.dispose().catch((error) => log.error(`反注册投影失败（${describeError(error)}）`))
+      })
       log.info('已注册 host-only 投影 sessionToolToggle（stateVersion 1，无 wire）')
     } catch (error) {
       // 注册失败只影响「投影优先」这条读路径：`RecordStateStore` 会回落到日志重放。
@@ -806,10 +821,13 @@ export function apply(ctx: Context, config?: SessionToolToggleConfig): void {
     agents: agentsPort,
   }
 
-  // 6. Web 面板的 RPC 通道 `/session-tool-toggle`（D20 的五个端点）。两条注入要求与
-  //    `connection` 从 `scope.root` 读的理由见文件头「服务注入」段（与
-  //    `plugins/web-ux/src/index.ts:74-99` 同一份坑位说明）：`webServer` 缺席时回调不运行；
-  //    `connection` 解析为空（宿主没有 Connection）只 warn，不抛——命令面照常可用。
+  // 6. Web 面板的 RPC 通道 `/session-tool-toggle`（D20 的五个端点）。注入要求与挂载姿势的
+  //    推理链见文件头「服务注入」段（与本文件 {@link callerConnectionOf} 的注释同一份）：
+  //    `webServer` 缺席时回调不运行；挂载必须经 `callerConnectionOf`——直接在
+  //    `scope.root.get('connection')` 的读数上 `.rpc.handle`，在 cordis 4.1.0 下注册会绑到
+  //    定义点切片的 shadow ctx（不注入 `webServer`）而当场死掉，通道未挂载、请求全落 SPA
+  //    兜底（HTTP 405）。`connection` 解析为空（宿主没有 Connection）只 warn，不抛——命令面
+  //    照常可用。
   ctx.inject(['connection', 'webServer'], (scope) => {
     const connection = scope.root.get('connection')
     if (connection === undefined) {
@@ -820,7 +838,7 @@ export function apply(ctx: Context, config?: SessionToolToggleConfig): void {
     // 形状对应在这里再钉一次（`RpcDispatcher` 参数少两个、信封逐字段兼容）：
     // `test/rpc.test.ts` 有同款赋值断言，挂载点不能是唯一没有护栏的地方。
     const handler: ConnectionRpcHandler = createRpcDispatcher(rpcDeps)
-    const handle = connection.rpc.handle(CHANNEL, handler)
+    const handle = callerConnectionOf(scope, connection).rpc.handle(CHANNEL, handler)
 
     // `handle` 的 disposer 是 async，且两条路径都可能释放它（注入作用域的拆卸 + 统一拆卸）：
     // 用一个幂等包装，保证只真正释放一次。
@@ -831,7 +849,12 @@ export function apply(ctx: Context, config?: SessionToolToggleConfig): void {
       channelDisposers.delete(release)
       try {
         // 拆卸期的失败只记日志：不该变成未处理拒绝，也不该让其余资源的回收中断。
-        void handle().catch((error: unknown) => {
+        // cordis 4.1.0 的 effect disposer 在 effect 已随 fiber 拆卸后再次调用会返回
+        // `undefined`（effect wrapper 对已消费的 epoch 直接回 void）——此时通道已被
+        // cordis 自己移除，按已释放处理即可。
+        const disposer = handle()
+        if (disposer === undefined) return
+        void Promise.resolve(disposer).catch((error: unknown) => {
           log.error(`反注册 RPC 通道 ${CHANNEL} 失败（${describeError(error)}）`)
         })
       } catch (error) {
@@ -1075,5 +1098,40 @@ function describeRaw(value: unknown): string {
  */
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * 把宿主 Connection 包成「通道注册归属于调用方 fiber」的只读视图再挂载，正如
+ * `dsh-client-connection` 自己声明的契约（channel registrations belong to the caller
+ * fiber）。
+ *
+ * 为什么需要这层视图：cordis 4 的每个属性访问与 `get()` 都返回服务的 traceable 视图，
+ * 而该视图上的 `rpc` getter 把注册绑到 `this.ctx`——cordis 4.1.0 起 `this.ctx` 携带的
+ * 是**定义点切片**（connection 服务创建时的 fiber，经 `createShadow` 传入），那个 fiber
+ * 从不注入 `webServer`。直接 `connection.rpc.handle(...)` 时，`get rpc()` 里的
+ * `const owner = this.ctx` 解析 `webServer` 同步抛 `cannot get property "webServer"
+ * without inject`，通道未挂载，之后每个浏览器请求都落到静态 SPA 兜底（HTTP 405）。
+ * 0.2.1-rc.5 及更早（cordis 4.0.5）下 `this.ctx` 返回读取处的 ctx，旧写法只是恰好
+ * 正确——所以修复是结构性的，不做版本号分支。
+ *
+ * 做法：经 cordis 的 `symbols.original`（`Symbol.for('cordis.original')`，4.0.5 与
+ * 4.1.0 都有；`Symbol.for` 全局注册表保证本包内联副本与宿主那份 cordis 共享同一
+ * symbol）解包原始服务实例，再包一层只读 Proxy：仅把 `ctx` 属性重定向为**本行注入
+ * 回调的 fiber ctx**，其余属性全部原样转发。`get rpc()` 以 receiver 为 `this` 执行，
+ * 于是注册 effect 落在注入了 `webServer` 的本行 fiber 上；路由运行期的 `this.admit`
+ * 闭包仍解析到原始实例，Proxy 从不改动它。
+ * @param ctx - 挂载所在 fiber 的上下文（本行注入回调的 `scope`）。
+ * @param connection - 从任意上下文读出的 Connection 服务。
+ * @returns 只用于挂载通道的只读视图；不要长期持有。
+ */
+function callerConnectionOf(ctx: Context, connection: HostConnectionHandle): HostConnectionHandle {
+  const unwrapped = (connection as unknown as { readonly [symbols.original]?: HostConnectionHandle })[symbols.original]
+  const raw = unwrapped ?? connection
+  return new Proxy(raw, {
+    get(target, property, receiver) {
+      if (property === 'ctx') return ctx
+      return Reflect.get(target, property, receiver)
+    },
+  })
 }
 

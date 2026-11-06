@@ -29,6 +29,7 @@
  */
 
 import { Context } from '@deepseek-ai/cordis'
+import { callerConnectionOf } from './compat/caller-connection.ts'
 import type { ConnectionRpcResult } from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
@@ -186,22 +187,27 @@ export function apply(ctx: Context): void {
   // panel to serve, and the registry is unaffected.
   //
   // `webServer` MUST be in the dependency list so this callback only runs once
-  // the route table exists, and the service MUST be read off `ctx.root`:
-  // `connection.rpc.handle` resolves `webServer` as a property of the context
-  // the service was READ from, and cordis property resolution from a plugin
-  // fiber can only see that fiber's own injected services — a sibling row's
-  // `webServer` is invisible, the registration dies with `cannot get property
-  // "webServer" without inject`, and every panel request then falls through to
-  // the static SPA fallback as HTTP 405. Reading at the root (what the upstream
-  // connection tests do) resolves against the shared service store instead.
+  // the route table exists. The connection MUST be mounted through
+  // `callerConnectionOf` (`src/compat/caller-connection.ts`), not read off the cordis
+  // service view: every property access and `get()` returns a traceable whose `rpc`
+  // getter binds the registration to a shadow context carrying the connection
+  // provider's own fiber — one that never injects `webServer` — so the registration
+  // dies with `cannot get property "webServer" without inject`, the route never
+  // reaches the route table, and every panel request then falls through to the
+  // static SPA fallback as HTTP 405. The helper unwraps the raw service and rebinds
+  // `ctx` to THIS fiber, which is exactly the "registrations belong to the caller
+  // fiber" contract the upstream package declares (see that file for the full
+  // reasoning chain).
   ctx.inject(['connection', 'webServer'], (connectionCtx) => {
     const connection = connectionCtx.root.get('connection')
     if (connection === undefined) {
       ctx.logger.warn('multi-root: connection resolved without the service; the panel channel is not mounted')
       return
     }
-    const dispose = connection.rpc.handle(PANEL_CHANNEL, async (endpoint, payload, signal) =>
-      await dispatchPanelRequest(ctx, endpoint, payload, signal))
+    const dispose = callerConnectionOf(connectionCtx, connection).rpc.handle(
+      PANEL_CHANNEL,
+      async (endpoint, payload, signal) => await dispatchPanelRequest(ctx, endpoint, payload, signal),
+    )
     return () => { void dispose() }
   })
 }

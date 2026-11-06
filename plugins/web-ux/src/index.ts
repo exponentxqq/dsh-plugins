@@ -29,16 +29,22 @@
  * 而不是猜一个路径；迁移域的挂回 / 归档集合 / 广播失败只让流程记一条 warning，会话仍算
  * 已恢复。
  *
- * 运行时 import 只有 `node:*`、本包自己的模块，以及配置模块的 `Config`（原生
- * Schemastery 图，由 esbuild 内联进产物，宿主运行时不为它解析任何 `@deepseek-ai/*`）；
- * 其余 dsh import 一律 type-only，因此宿主产物保持自包含。
+ * 运行时 import 只有 `node:*`、本包自己的模块、配置模块的 `Config`（原生
+ * Schemastery 图，由 esbuild 内联进产物，宿主运行时不为它解析任何 `@deepseek-ai/*`），
+ * 以及 cordis 的 `symbols`（通道挂载的解包 helper 用，见 {@link callerConnectionOf}；
+ * 同样由 esbuild 内联，`@deepseek-ai/cosmokit` 随之进产物）；其余 dsh import 一律
+ * type-only，因此宿主产物保持自包含。
  * @module dsh-plugin-web-ux
  */
 
 import { copyFile, lstat, mkdir, readdir, rename, rm, unlink } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import type { Context } from '@deepseek-ai/cordis'
-import type { ConnectionRpcResult } from '@deepseek-ai/dsh-client-connection'
+// `symbols` 是本文件唯一的 cordis 值 import（`callerConnectionOf` 解包原始服务实例用）；
+// 构建时 esbuild 会把它连同 `@deepseek-ai/cosmokit` 一并内联进产物，产物仍自包含。
+// cordis 的 `symbols` 全部经 `Symbol.for` 全局注册表定义，内联副本与宿主那份 cordis
+// 共享同一 symbol，因此解包在宿主实例上必然命中。
+import { symbols, type Context } from '@deepseek-ai/cordis'
+import type { ConnectionRpcResult, HostConnectionHandle } from '@deepseek-ai/dsh-client-connection'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // 类型面：加载 `sessionPersistence` 的上下文服务声明合并。
 import type {} from '@deepseek-ai/dsh-session-persistence'
@@ -109,12 +115,17 @@ const NO_HOME_MESSAGE = 'the host exposes no harness-home path resolver, so stor
  * 在存在宿主 Connection 的地方注册通道。软挂载：headless / 非 web profile 根本不会执行
  * 回调，工作区注册表不受影响。
  *
- * `webServer` 必须在依赖列表里，回调才会等到路由表就绪后再跑；服务又必须从 `ctx.root`
- * 读：`connection.rpc.handle` 把 `webServer` 解析成「读出该服务的那份上下文」的属性，而
- * cordis 在插件 fiber 上做属性解析时只能看见该 fiber 自己注入的服务——兄弟行的
- * `webServer` 不可见，注册会以 `cannot get property "webServer" without inject` 死掉，
- * 之后每个请求都落到静态 SPA 兜底变成 HTTP 405。从 root 读（上游 connection 测试的
- * 做法）则解析到共享服务表。
+ * `webServer` 必须在依赖列表里，回调才会等到路由表就绪后再跑——这条不变。
+ *
+ * 挂载必须经 {@link callerConnectionOf} 而不能直接在 `ctx.root.get('connection')` 的
+ * 读数上 `.rpc.handle`：cordis 4.1.0 起，服务读数是一层 traceable 视图，其 `rpc` getter
+ * 把注册 effect 绑到 `this.ctx`——而 `this` 是**定义点切片**的 shadow ctx（connection
+ * 服务创建时的 fiber），它从不注入 `webServer`，注册当场以
+ * `cannot get property "webServer" without inject` 死掉，路由进不了路由表，之后每个请求
+ * 都落到静态 SPA 兜底变成 HTTP 405。（0.2.1-rc.5 及更早的 cordis 4.0.5 下 `this.ctx`
+ * 返回读取处的 ctx，旧写法只是恰好正确。）helper 解包原始服务实例并把 `ctx` 重定向到
+ * 本行 fiber，注册因此落在注入了 `webServer` 的本行 fiber 上——完整的推理链见
+ * {@link callerConnectionOf}。
  *
  * @param ctx - 本行挂载的宿主上下文。
  * @param config - 插件配置（可省略；缺省归档根见 `./config.ts`）。
@@ -126,8 +137,43 @@ export function apply(ctx: Context, config?: WebUxConfig): void {
       ctx.logger.warn('web-ux: connection resolved without the service; the session-management channel is not mounted')
       return
     }
-    const dispose = connection.rpc.handle(CHANNEL, createDispatcher(ctx, config))
+    const dispose = callerConnectionOf(connectionCtx, connection).rpc.handle(CHANNEL, createDispatcher(ctx, config))
     return () => { void dispose() }
+  })
+}
+
+/**
+ * 把宿主 Connection 包成「通道注册归属于调用方 fiber」的只读视图再挂载，正如
+ * `dsh-client-connection` 自己声明的契约（channel registrations belong to the caller
+ * fiber）。
+ *
+ * 为什么需要这层视图：cordis 4 的每个属性访问与 `get()` 都返回服务的 traceable 视图，
+ * 而该视图上的 `rpc` getter 把注册绑到 `this.ctx`——cordis 4.1.0 起 `this.ctx` 携带的
+ * 是**定义点切片**（connection 服务创建时的 fiber，经 `createShadow` 传入），那个 fiber
+ * 从不注入 `webServer`。直接 `connection.rpc.handle(...)` 时，`get rpc()` 里的
+ * `const owner = this.ctx` 解析 `webServer` 同步抛 `cannot get property "webServer"
+ * without inject`，通道未挂载，之后每个浏览器请求都落到静态 SPA 兜底（HTTP 405）。
+ * 0.2.1-rc.5 及更早（cordis 4.0.5）下 `this.ctx` 返回读取处的 ctx，旧写法只是恰好
+ * 正确——所以修复是结构性的，不做版本号分支。
+ *
+ * 做法：经 cordis 的 `symbols.original`（`Symbol.for('cordis.original')`，4.0.5 与
+ * 4.1.0 都有；`Symbol.for` 全局注册表保证本包内联副本与宿主那份 cordis 共享同一
+ * symbol）解包原始服务实例，再包一层只读 Proxy：仅把 `ctx` 属性重定向为**本行注入
+ * 回调的 fiber ctx**，其余属性全部原样转发。`get rpc()` 以 receiver 为 `this` 执行，
+ * 于是注册 effect 落在注入了 `webServer` 的本行 fiber 上；路由运行期的 `this.admit`
+ * 闭包仍解析到原始实例，Proxy 从不改动它。
+ * @param ctx - 挂载所在 fiber 的上下文（本行注入回调的 ctx）。
+ * @param connection - 从任意上下文读出的 Connection 服务。
+ * @returns 只用于挂载通道的只读视图；不要长期持有。
+ */
+function callerConnectionOf(ctx: Context, connection: HostConnectionHandle): HostConnectionHandle {
+  const unwrapped = (connection as unknown as { readonly [symbols.original]?: HostConnectionHandle })[symbols.original]
+  const raw = unwrapped ?? connection
+  return new Proxy(raw, {
+    get(target, property, receiver) {
+      if (property === 'ctx') return ctx
+      return Reflect.get(target, property, receiver)
+    },
   })
 }
 

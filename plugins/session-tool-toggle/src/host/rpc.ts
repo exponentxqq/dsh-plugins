@@ -5,7 +5,9 @@
  * 层句柄、默认档 IO、全局层读数、agent 表、诊断出口、工作区档端口与会话归属）都由
  * {@link RpcDeps} 注入，因此九条失败码与五条成功路径都能用假端口在单测里驱动
  * （`test/rpc.test.ts`）。通道挂载属任务 9.5
- * （`src/host/index.ts` 的 `connection.rpc.handle(CHANNEL, dispatcher)`），不在本文件里。
+ * （`src/host/index.ts` 的 `connection.rpc.handle(CHANNEL, dispatcher)`；挂载经
+ * `callerConnectionOf` 适配 cordis 4.1.0 traceable shadow——直接在定义点切片读数上挂载
+ * 会绑到 shadow ctx 而当场死掉），不在本文件里。
  *
  * 处理顺序写死（顺序就是语义）：
  *
