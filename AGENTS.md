@@ -70,8 +70,10 @@ docker exec dsh dsh plugin --profile web add \
 # pnpm 10 把 koffi（用包名）加进 onlyBuiltDependencies——详见其 docs/troubleshooting 排障文档
 # 宿主 ~/.gitconfig 的 insteadOf=ssh 改写现已无害（dsh 容器挂载了宿主 ~/.ssh）；ssh 认证不可用时再加 -e GIT_CONFIG_GLOBAL=/dev/null
 # 本地调试可 link: 安装（改源码重启 profile 即生效）：docker exec dsh dsh plugin --profile web add <本仓>/plugins/<name>
-docker exec dsh dsh --profile web --dump-config-schema   # 校验配置可加载（会 import 插件）
-docker exec dsh dsh --profile web --dump-config          # 查看合成后的配置树
+docker exec dsh dsh --profile web --dump-config          # 校验配置可加载（合成完整配置树；安装冒烟以此为准）
+docker exec dsh dsh --profile web --dump-config-schema   # 查看 schema/逐条目装配形态（会 import 插件模块）
+# 注：dsh 0.2.2-rc.1 的 --dump-config-schema 全局 exit 1 为既有豁免——官方 dsh-agent-preset 的
+# 自定义载体（EntryGroup.key 标记类）触发 4 条 unrecognized Loader tree carrier；装载门禁只认 --dump-config exit 0
 ```
 
 DSH 源码与 API 参考位于 `/usr/local/lib/node_modules/@deepseek-ai/dsh/`（各子包 `README.zh.md` 有中文文档）。

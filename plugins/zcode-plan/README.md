@@ -42,7 +42,7 @@ docker exec dsh dsh plugin --profile web add \
 校验安装：
 
 ```bash
-docker exec dsh dsh --profile web --dump-config-schema   # 校验配置可加载（会 import 插件）
+docker exec dsh dsh --profile web --dump-config          # 校验配置可加载（安装冒烟探针；schema dump 全局 exit 1 为既有 preset 豁免）
 docker exec dsh dsh --profile web --dump-config | grep -B2 -A8 'id: zcode-plan'
 ```
 

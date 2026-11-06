@@ -58,8 +58,8 @@ docker exec dsh dsh plugin --profile web add \
 校验配置可加载、查看合成后的配置树：
 
 ```bash
-docker exec dsh dsh --profile web --dump-config-schema
-docker exec dsh dsh --profile web --dump-config
+docker exec dsh dsh --profile web --dump-config          # 装载冒烟探针（exit 0 即可加载）
+docker exec dsh dsh --profile web --dump-config-schema   # 查看 schema（0.2.2-rc.1 全局 exit 1 为既有 preset 豁免，按条目核对）
 ```
 
 在 profile patch 的插件行上补必填 config（占位符替换成你自己的值，**不要抄别人的组织/项目**）：

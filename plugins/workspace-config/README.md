@@ -112,7 +112,7 @@ done
 docker exec dsh dsh plugin --profile web add \
   /home/xuqinqin/develop/person/dsh-plugins/plugins/workspace-config
 
-docker exec dsh dsh --profile web --dump-config-schema   # 校验组合可加载
+docker exec dsh dsh --profile web --dump-config          # 校验组合可加载（安装冒烟探针；schema dump 有 4 条既有 preset error，不作门禁）
 ```
 
 `dsh plugin add` 会把包追加进 profile `package.json` 的 `dsh.profile.bundles`，从而激活本包的 `cordis.patch.yml`（插入 `id: workspace-config` 的**裸包名**行——这一形态是 REQUIRED，client-module scan 只从裸包名行读取 `dsh.client` 声明）。holder 不带 `config:` 段，也没有任何可选配置键。

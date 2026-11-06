@@ -106,10 +106,11 @@ $DSH_HOME/archive/sessions/
 
 相对路径**不会**按进程 cwd 解析（daemon 的 cwd 不可预测）：插件会告警并回落到缺省根。宿主在每次处置请求里把配置归一成绝对路径（预览与执行同一套规则），确认框「归档目录：…」一行展示的就是解析结果——以它为准，不要靠猜。改完配置需重启 profile。
 
-校验配置（会 import 插件）：
+校验配置（装载冒烟以 `--dump-config` exit 0 为准）：
 
 ```bash
-docker exec dsh dsh --profile web --dump-config-schema   # 本插件条目走原生 Schemastery schema
+docker exec dsh dsh --profile web --dump-config          # 校验组合可加载（安装冒烟探针）
+docker exec dsh dsh --profile web --dump-config-schema | grep web-ux   # 本插件条目走原生 Schemastery schema（全局 exit 1 为既有 preset 豁免，勿追全局退出码）
 docker exec dsh dsh --profile web --dump-config | grep -A2 'id: web-ux'
 ```
 
@@ -399,7 +400,7 @@ docker exec dsh dsh plugin --profile web add \
 docker exec dsh dsh plugin --profile web add \
   /home/xuqinqin/develop/person/dsh-plugins/plugins/web-ux
 
-docker exec dsh dsh --profile web --dump-config-schema   # 校验组合可加载（会 import 插件；本插件条目走原生 Schemastery schema）
+docker exec dsh dsh --profile web --dump-config          # 校验组合可加载（安装冒烟探针）
 docker exec dsh dsh --profile web --dump-config | grep -A2 'id: web-ux'
 ```
 

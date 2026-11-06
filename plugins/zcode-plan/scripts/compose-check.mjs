@@ -18,8 +18,11 @@
  *   `node --experimental-strip-types` 直接 import `src/host/route-config.ts`）
  *   序列化成用户层 → dump 里 `providers.zcode-plan` 与常量深等
  *   （api / baseURL / models 两条 / retryPolicy.retryableCodes 六项）→ 再
- *   `--dump-config-schema` 退出码 0（该命令会 import 插件模块，故脚本前置
- *   要求 `pnpm --filter dsh-plugin-zcode-plan build` 的产物存在）。
+ *   `--dump-config-schema` 可加载：该命令会 import 插件模块（故脚本前置要求
+ *   `pnpm --filter dsh-plugin-zcode-plan build` 的产物存在）；判定口径为
+ *   **无指向本插件的 error**——dsh 0.2.2-rc.1 的遍历器不认官方 dsh-agent-preset
+ *   的自定义载体（EntryGroup.key 标记类），全局 exit 1 只豁免那 4 条既有
+ *   `unrecognized Loader tree carrier`，其余任何 error 一律转红。
  *
  * 临时目录在 finally 清理，不在仓内留痕。断言失败时只打印 dump 的
  * `llm-pi-ai` 片段——本脚本合成的 profile 不含任何凭据内容，安全。
@@ -288,8 +291,8 @@ async function main() {
       return null
     })
 
-    // ---- E3 用户层注入完整路由：dump 与 ZCODE_PLAN_ROUTE 深等 + --dump-config-schema 可加载 ----
-    runCase('E3 用户层注入完整路由（深等 + --dump-config-schema 退出码 0）', () => {
+    // ---- E3 用户层注入完整路由：dump 与 ZCODE_PLAN_ROUTE 深等 + --dump-config-schema 无指向本插件的 error ----
+    runCase('E3 用户层注入完整路由（深等 + --dump-config-schema 无指向本插件的 error）', () => {
       writeFileSync(
         patchPath,
         yaml.stringify([{ id: ROUTE_ENTRY_ID, config: { providers: { [ROUTE_ID]: route } } }]),
@@ -316,8 +319,30 @@ async function main() {
         return '路由与 ZCODE_PLAN_ROUTE 常量深等失败（组合过程有字段丢失/变形）：\n' + dumpLlmFragment(run.stdout)
       }
       const schema = runDsh(['--dump-config-schema'])
-      if (schema.status !== 0) {
-        return `--dump-config-schema 退出码 ${schema.status}：${(schema.stderr || '').trim().slice(0, 400)}`
+      // 判定口径「无指向本插件的 error」：schema dump 全局 exit 1 只可能来自
+      // dsh 0.2.2-rc.1 对官方 dsh-agent-preset 自定义载体的 4 条既有诊断
+      // （unrecognized Loader tree carrier），对只含 dsh-base + 本插件的合成
+      // profile 属已知豁免；任何其他 error（尤其点名本插件包名的）一律转红。
+      const schemaDoc = (() => {
+        try {
+          return JSON.parse(schema.stdout)
+        } catch {
+          return null
+        }
+      })()
+      const xc = schemaDoc && schemaDoc['x-cordis']
+      const schemaDiags = xc && Array.isArray(xc.diagnostics) ? xc.diagnostics : []
+      const schemaEntries = xc && Array.isArray(xc.entries) ? xc.entries : []
+      const mineError =
+        schemaDiags.some((d) => d && d.level === 'error' && String(d.message || '').includes(PLUGIN_PACKAGE)) ||
+        schemaEntries.some((e) => e && e.status === 'error' && String(e.name || '').includes(PLUGIN_PACKAGE))
+      if (schema.status !== 0 && (mineError || !xc)) {
+        const foreign = schemaDiags.filter((d) => d && d.level === 'error' && !/Loader tree carrier/.test(String(d.message || '')))
+        return (
+          `--dump-config-schema 退出码 ${schema.status}${mineError ? '（含指向本插件的 error）' : ''}：` +
+          `${(schema.stderr || '').trim().slice(0, 400)}` +
+          (foreign.length > 0 ? `（非豁免 error ${foreign.length} 条：${foreign.map((d) => d.message).join(' / ').slice(0, 300)}）` : '')
+        )
       }
       return null
     })

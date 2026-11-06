@@ -197,7 +197,7 @@ docker exec dsh dsh plugin --profile web add \
 docker exec dsh dsh plugin --profile web add \
   /home/xuqinqin/develop/person/dsh-plugins/plugins/user-commands
 
-docker exec dsh dsh --profile web --dump-config-schema   # 校验组合可加载（会 import 插件）
+docker exec dsh dsh --profile web --dump-config          # 校验组合可加载（安装冒烟探针；schema dump 有 4 条既有 preset error，不作门禁）
 docker exec dsh dsh --profile web --dump-config | grep -A2 'id: user-commands'
 ```
 

@@ -41,7 +41,7 @@ profile 由 dotfiles 仓库管理（`dsh/profiles/*`）。插件按 **tag 锁定
 TAG=$(git describe --tags --abbrev=0)   # 当前 tag（也可填任意历史 tag 复现旧版本）
 docker exec dsh dsh plugin --profile web add \
   "github:exponentxqq/dsh-plugins#${TAG}&path:plugins/multi-root-workspace"
-docker exec dsh dsh --profile web --dump-config-schema   # 校验组合可加载（会 import 插件）
+docker exec dsh dsh --profile web --dump-config          # 校验组合可加载（安装冒烟探针；schema dump 的 4 条既有 preset error 见 AGENTS.md）
 ```
 
 `dsh plugin add` 走 pnpm：把 git spec 写进 profile 的 `package.json` 依赖，并把声明了 `dsh.bundle` 的包追加进 `dsh.profile.bundles` 激活其 patch 层。移除用 `dsh plugin --profile web remove <包名>`。
