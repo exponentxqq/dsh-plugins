@@ -761,4 +761,24 @@ grep -c "boot: swept" plugins/project-mcp/README.md           # ≥1
   6. 仓侧 `704da37` 对 project-mcp 仅改 package.json（engines/peer/devDeps），src 未动；「cordis 4.1.0 shadow 断裂适配」只落在 multi-root 的 compat 层（`caller-connection.ts`：traceable 属性访问注册被绑到定义点 ctx，用 `symbols.original` 解包 + Proxy 重定向）。
 - **适用范围**：G5 重验口径、G6 实机验收前置（profile link 切换）、接续恢复时对本变更有效性的判定。
 - **连锁面**：tasks.md G5/G6 增补注记；design.md 决策记录「基线升级影响裁定」；G6.1/6.3 增补 cordis 4.1.0 观察点（全局守卫层落点与 fiber 卸载释放——静态不可判定，实测兜底）。
-- **worktree 处置**：基点 287a970 → main c626765，`git diff --name-only` 两侧交集为空（main 只改 project-mcp/package.json 等我们未触碰的文件），rebase 零冲突预期；rebase 后 `pnpm install` 重装配（pnpm-lock 已随基线重写）。
+- **worktree 处置**：基点 287a970 → main `2438b67`（工件提交后落点；规划时为 c626765），`git stash push -u` 中转 rebase 零冲突；rebase 后 `pnpm install` 重装配（pnpm-lock 已随基线重写；worktree 旧 node_modules 残留 4.0.5 树须先移除再装， volta 包装的 purge 交互在无 TTY 下挂起——以 `rm -rf node_modules && CI=true pnpm install` 兜底）。
+
+### R2 G5 重验完成：产物跨树字节恒定，全量回归按基线工具链全绿（2026-11-06 证实）
+
+- **规则**：lib 产物与依赖树解耦——esbuild 仅打包插件自身源码，上游引用全为 `import type`（编译期擦除），产物不含依赖代码；全量回归须在仓库基线声明的 Node 工具链（24.21.0）下取证，包装链容器默认 node 版本不作为判据。
+- **依据**（worktree @ `2438b67`，cordis 4.1.0 + dsh-agent 0.2.2-rc.1 依赖树实测）：
+  1. typecheck 网关 exit 0（cordis 4.1.0 typings 兜底通过）；build exit 0；产物四断言全绿（`boot: swept`=1 / `predate this load`=0 / `global guard denied`=1 / 动态导入键序 `apply,inject,name`）；
+  2. 产物 md5 跨树恒定：cordis 4.0.5 树与 4.1.0 树两次构建同为 `44c6d4775db61d11c49b39e07f16d3c1`，同树二次构建幂等——tasks.md 5.1 增补注记「md5 随新依赖树变化」的预判**被证伪**，不变才是正确预期（更强的确定性证明）；
+  3. 全量回归：typecheck / lint exit 0，lint 分布 project-mcp 20、user-commands 19、web-ux 14、zcode-plan 6、其余 0（全仓 0 errors）；test 仅 multi-root `tests/registry-multiprocess.e2e.ts` 3 条失败，其余全绿（project-mcp 152 passed，含 isolation 42 + boot-sweep 5）；
+  4. 该 3 条失败定性为**环境×上游交互，非实现回归**：e2e 以 `spawn(process.execPath, ['--experimental-transform-types', …])` 派生权威子进程（源码注释基准 CI Node 22.19），pnpm 包装链 volta 容器默认 node 已为 26.13.0，该 flag 于 node 26 移除（类型剥离转正）→ 子进程 `bad option` 秒退（exit 9）；主仓同款复现，multi-root 源码两侧逐字节一致，与 project-mcp 变更无关；
+  5. 按基线工具链 node 24.21.0 重跑：失败文件 3 passed；multi-root 全量 32 files / 411 passed + 5 skipped（skip 组成 parity-matrix 3 + windows-multi-root 1 + compat 1，与旧基线同构）exit 0；
+  6. 本次回归全程 engines WARN 0 行（旧口径 WARN 来自 install 期，回归阶段未出现）。
+- **遗留（不属本变更）**：multi-root e2e 对 node≥26 的兼容适配（派生前探测 flag 支持，或锁定子进程 node 版本）——归 multi-root 独立后续项（治理见其 AGENTS.md / ADR-0009）；不影响 G6 实机验收与本变更有效性。
+
+### R3 实机验收判读（2026-11-06，0.2.2-rc.1 web 进程实测）
+
+- **执行流结构性结论（面外调用的可达性）**：dsh-tools `pipeline.js:285` `resolveExecution` → `executable()`（index.js:530）对 scoped 调用走 `view.visible.get(name)`——**被遮蔽工具不在 visible 集，解析层即以 UNKNOWN_TOOL 短路，先于 `checkGuards`（:657）**；policy decision（pipeline:402）亦在守卫前。故逐字隔离文案（toolDenyReason）**为面失真窗口的安全网**（面陈旧使工具仍 executable 而隔离缺失时闸口兜底），健康会话中经模型实调结构不可达；模型发射层亦受声明工具面约束（实测三次越界发射均回落面内工具）。6.1 的「实调必拒」判据按此判读改由面级证据承担（tasks.md 6.1 注记）。
+- **fiber 替换的真实触发条件（修正规划假设）**：`plugin add` **同路径**重装为无操作（pnpm 幂等，进程零感知）；**manifest 结构变化**（卸载/换路径/安装）即时触发进程内 fiber 替换，无需重启进程（AGENTS.md「改源码重启生效」指同路径 lib 内容变更）。卸载→重装完成完整生命周期验证：teardown（globalGuard?.()）静默零错误 → 重 apply 即 `boot: swept 4 live session(s): attached 4, already tracked 0, failed 0`（原 bug 的 predate 窗口闭合）→ rescan 随 MCP 渐进重连重算四会话面。
+- **守卫注册落点（cordis 4.1.0 实测）**：重 apply 时 `tools/change received (#1..3)`（本变更 index.ts:243 节流打点）——`ctx.tools.guard` 全局层注册在 traceable-shadow 版本下实际生效；重载后连续实调流 warn 0 条（reading=tracked 路径）、无 stale 闭包报错。
+- **窗口期观察（备查）**：卸载窗口内装配的头帧（会话帧序 #10）面未扩张（仍 49 mcp 无 deny 名）——fiber 替换时 MCP 注册表同步重建归零、服务器渐进重连，窗口恰逢注册表真空，实际暴露面比理论窄；闸口+补挂使隔离不依赖此时序运气。
+- **冷启动语义确认**：dsh web 进程启动时会话代理懒物化（恢复时 agent/created），冷启动瞬间 agents.list()=0 → boot sweep live=0 静默属设计内；`boot: swept` 行仅在重载（存在活体会话）路径出现。冷启动防护 = 恢复会话的 agent/created attach（实测本会话 roots=2 visible=[] deny=119）+ 面级遮蔽（6.2 头帧）+ allow 路径（codebase-memory 正常）。
