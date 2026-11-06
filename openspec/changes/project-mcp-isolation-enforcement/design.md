@@ -39,6 +39,7 @@
 - **CD-11 `agents` 硬注入**：`inject = ['workspaceRegistry','tools','agents']`（base 层服务，不缩窄安装面；兄弟插件同款）。被否「ctx.get 判 undefined 跳过」（现状写法，静默把没补挂写成不需要）；被否「软注入」（子 fiber 重跑致两处生命周期不同步，半瘫无报错）。
 - **CD-12 文档与产物必改**：README L94-95 降级矩阵现把本 bug 写成「已知 fail-open 窗口」，不改则文档主动掩盖验收失败；`lib/` 不重建则实机断言全部看到旧行为。
 - **执行环境**：隔离。布局：dsh-plugins → `/home/xuqinqin/develop/person/dsh-plugins/.worktrees/project-mcp-isolation-enforcement` @ `feature/project-mcp-isolation-enforcement`（基点 main `287a970`）；装配：`pnpm install`（容器 volta 包装，store 共享）；环境错开：省略（纯 TS 插件仓，无端口/数据库/本地配置项）；创建于 2026-11-05。执行期代码改动落 worktree，工件（tasks/design）落根仓主工作区。
+- **基线升级影响裁定（2026-11-06，DSH 0.2.2-rc.1 + cordis 4.1.0）**：上游六项锚点复核全部存活（详见 code-design ⑦ R1），修复设计与 G1-G4 实现零改动沿用；worktree 基点过时须 rebase（两侧文件交集为空，零冲突预期）+ 重装配；G5 验证证据随依赖树换代失效，5.1/5.2 勾选回退重验（非重做实现）；G6 增 profile link 切换前置（web profile 现指向主工作区旧产物）与收尾恢复原指向（归 spec-done），并补 cordis 4.1.0 traceable shadow 的实测观察点（守卫全局层落点与 fiber 卸载释放——静态不可判定，G6.1/6.3 实测兜底，变红即回用户）。
 
 ## 触达面清单（① 浓缩，全文见 code-design.md ①）
 

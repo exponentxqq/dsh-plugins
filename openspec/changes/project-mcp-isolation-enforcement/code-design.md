@@ -746,3 +746,19 @@ grep -c "boot: swept" plugins/project-mcp/README.md           # ≥1
 ---
 
 *本文件为阶段 1.7 代码级蓝图；执行期由 spec-apply 维护各组终形态。蓝图与实测不符处（行号漂移、上游小版本差异）以实测为准，但 CD-2/3/4/7/9 的规则形状不得回退。*
+
+## ⑦ 基线升级影响复核（2026-11-06，DSH 0.2.1-rc.x → 0.2.2-rc.1，cordis 4.0.5 → 4.1.0）
+
+### R1 基线升级不影响修复设计，G5 证据失效须重验（2026-11-06 证实）
+
+- **规则**：本变更的机制前提在 0.2.2-rc.1 全部存活；已完成的 G5 验证证据（lib 产物、全量回归结论）随依赖树换代失效，须在 rebase + 重装配后重验，G1-G4 实现零改动沿用。
+- **依据**（上游实测，`/usr/local/lib/node_modules/@deepseek-ai/dsh/` = 0.2.2-rc.1 + cordis 4.1.0）：
+  1. dsh-tools `checkGuards`：`[this.guards.global, ...this.guards.chainLayers(exec.agent)]` —— 全局层先查 + `exec.agent` 归属仍在（lib/index.js:658，即 ②2.2 的 guardReason 语义同构）；
+  2. `ctx.tools.guard(guard)` → `guards.effect(this.ctx, …)` 返回 disposer（:648）—— CD-2 载体不变；
+  3. dsh-agent `agents` 服务（`super(ctx, "agents")`，index.js:450）与 `list()`（:743）—— CD-11 硬注入仍可用；
+  4. `agent/created` serial 契约：`ctx.serial(entry.carrier, "agent/created", …)` await（:710）—— 返回 promise 被注册表在首步前等待的假设不变；
+  5. dsh-agent-loop 仍给 tool 调用盖 `agent: this`（index.js:674/964/1583）—— GuardedExecution.agent 的上游来源不变；
+  6. 仓侧 `704da37` 对 project-mcp 仅改 package.json（engines/peer/devDeps），src 未动；「cordis 4.1.0 shadow 断裂适配」只落在 multi-root 的 compat 层（`caller-connection.ts`：traceable 属性访问注册被绑到定义点 ctx，用 `symbols.original` 解包 + Proxy 重定向）。
+- **适用范围**：G5 重验口径、G6 实机验收前置（profile link 切换）、接续恢复时对本变更有效性的判定。
+- **连锁面**：tasks.md G5/G6 增补注记；design.md 决策记录「基线升级影响裁定」；G6.1/6.3 增补 cordis 4.1.0 观察点（全局守卫层落点与 fiber 卸载释放——静态不可判定，实测兜底）。
+- **worktree 处置**：基点 287a970 → main c626765，`git diff --name-only` 两侧交集为空（main 只改 project-mcp/package.json 等我们未触碰的文件），rebase 零冲突预期；rebase 后 `pnpm install` 重装配（pnpm-lock 已随基线重写）。
