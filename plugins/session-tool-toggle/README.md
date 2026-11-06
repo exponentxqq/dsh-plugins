@@ -129,7 +129,7 @@ lib/client.js              浏览器产物（CJS bundle，包在 window.__Module
 
 ## 排障
 
-插件诊断统一带 `dsh-plugin-session-tool-toggle：` 前缀，并同时写 `ctx.logger` 与 console（web profile 启动后没有 logger exporter，单写 logger 在进程日志里看不见）：
+插件诊断统一带 `dsh-plugin-session-tool-toggle: ` 前缀（半角冒号 + 空格），并同时写 `ctx.logger` 与 console（web profile 启动后没有 logger exporter，单写 logger 在进程日志里看不见）：
 
 ```bash
 docker logs dsh 2>&1 | grep dsh-plugin-session-tool-toggle
@@ -162,7 +162,7 @@ docker logs dsh 2>&1 | grep dsh-plugin-session-tool-toggle
 cd plugins/session-tool-toggle   # 本包是 dsh-plugins workspace 成员
 pnpm install
 pnpm build        # esbuild → lib/index.js + lib/client.js
-pnpm typecheck    # tsc -b：host + client 双工程（solution tsconfig）
+pnpm typecheck    # tsc -p 双调用：host + client 两个工程
 pnpm test         # vitest：文法/状态/掩码/技能筹划/层与技能分面/持久化/默认档/工作区档/归属/命令/内核/面板/技能面板/工作区编辑器/RPC/client 套件
 pnpm lint         # oxlint
 pnpm verify:all   # lint + typecheck + build + test

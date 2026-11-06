@@ -247,7 +247,7 @@ export function WorkspaceDefaultsEditor({
     </>
   )
 
-  // 分节正文形态只交付正文壳：`role="dialog"` 由 holder（`dsh-plugin-workspace-config`）的
+  // 分节正文形态只交付正文壳：`role="dialog"` 由 holder 的
   // 统一弹窗壳 `Modal` 提供，本组件再带一层会构成嵌套 dialog（A11y 双根）。
   // 正文壳**不**复用 `.dialog`（760px 卡片宽度）：右栏内容列的宽度由 holder 约束，
   // 嵌套固定宽度会溢出，宽度约束归持有 `Modal` 的 holder。

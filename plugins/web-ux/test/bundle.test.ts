@@ -18,6 +18,10 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+// 产物词法器的单一实现（R9）：本套件不再持有本地副本，与仓级
+// `scripts/check-artifacts.mjs` 共用同一份正则与路径约定。声明见
+// `scripts/lib/artifacts.d.mts`（不再需要抑制「无声明文件」）。
+import { importedWords, readArtifact, requiredWords } from '../../../scripts/lib/artifacts.mjs'
 
 /** 本包目录（`test/` 的上一级）。 */
 const ROOT = path.resolve(import.meta.dirname, '..')
@@ -26,44 +30,24 @@ const PACKAGE_NAME = 'dsh-plugin-web-ux'
 /** 允许出现在浏览器 bundle 里的模块词（与 build.mjs 的 CLIENT_EXTERNALS 对应）。 */
 const CLIENT_EXTERNALS = ['@deepseek-ai/dsh-client-ui-primitives', 'react', 'react/jsx-runtime']
 
-/** 读取一个构建产物。 */
-function readArtifact(name: string): string {
-  return readFileSync(path.join(ROOT, 'lib', name), 'utf8')
-}
-
-/** 取出一段代码里全部静态 require 的模块词（去重排序）。 */
-function requiredWords(source: string): string[] {
-  return [...new Set([...source.matchAll(/require\("([^"]+)"\)/g)].map((match) => match[1] ?? ''))].sort()
-}
-
-/** 取出一段代码里全部静态 import/require 的模块词（去重排序）。 */
-function importedWords(source: string): string[] {
-  const words = [
-    ...source.matchAll(/from\s+"([^"]+)"/g),
-    ...source.matchAll(/require\("([^"]+)"\)/g),
-    ...source.matchAll(/import\("([^"]+)"\)/g),
-  ].map((match) => match[1] ?? '')
-  return [...new Set(words)].sort()
-}
-
 describe('浏览器半产物', () => {
   it('按包名注册进模块加载器，且是 factory 形态', () => {
-    const source = readArtifact('client.js')
+    const source = readArtifact(ROOT, 'client.js')
     expect(source).toContain('window.__ModuleLoader__.load({')
     expect(source).toContain(`id: ${JSON.stringify(PACKAGE_NAME)}`)
     expect(source).toContain('factory: (require) => {')
   })
 
   it('只 require 浏览器壳提供的模块词，宿主半与 node 内建都不出现', () => {
-    const source = readArtifact('client.js')
+    const source = readArtifact(ROOT, 'client.js')
     expect(requiredWords(source)).toEqual(CLIENT_EXTERNALS)
     const imports = importedWords(source)
-    expect(imports.filter((word) => word.startsWith('node:'))).toEqual([])
-    expect(imports.filter((word) => word.includes(PACKAGE_NAME))).toEqual([])
+    expect(imports.filter((word: string) => word.startsWith('node:'))).toEqual([])
+    expect(imports.filter((word: string) => word.includes(PACKAGE_NAME))).toEqual([])
   })
 
   it('内联了删除与会话管理能力的契约，而不是引用宿主半', () => {
-    const source = readArtifact('client.js')
+    const source = readArtifact(ROOT, 'client.js')
     expect(source).toContain('/web-ux')
     expect(source).toContain('preview-delete')
     expect(source).toContain('delete-session')
@@ -88,14 +72,14 @@ describe('浏览器半产物', () => {
   })
 
   it('内联了命令结果通知能力：事件名、座位与卡片身份', () => {
-    const source = readArtifact('client.js')
+    const source = readArtifact(ROOT, 'client.js')
     expect(source).toContain('command/executed')
     expect(source).toContain('conversation.input.overlay')
     expect(source).toContain('web-ux-command-notice')
   })
 
   it('每个 css 模块都注入自己的样式表（防重护栏按包+模块，而非只按包）', () => {
-    const source = readArtifact('client.js')
+    const source = readArtifact(ROOT, 'client.js')
     // 四个 css 模块（badge / delete / notice / session-manager）各自携带一个
     // data-dsh-css 注入器；只按包名防重会让第一个模块之后的样式永远被跳过
     // （v1.4.0 的 delete 样式即因此从未生效）。
@@ -108,13 +92,13 @@ describe('浏览器半产物', () => {
 
 describe('宿主半产物', () => {
   it('完全自包含：除 node 内建外没有任何模块依赖', () => {
-    const imports = importedWords(readArtifact('index.js'))
-    const foreign = imports.filter((word) => !word.startsWith('node:'))
+    const imports = importedWords(readArtifact(ROOT, 'index.js'))
+    const foreign = imports.filter((word: string) => !word.startsWith('node:'))
     expect(foreign).toEqual([])
   })
 
   it('带有 channel、七个端点与两个会话事件名', () => {
-    const source = readArtifact('index.js')
+    const source = readArtifact(ROOT, 'index.js')
     for (const marker of [
       '/web-ux',
       'preview-delete',
@@ -162,6 +146,6 @@ describe('包声明', () => {
     expect(inject).not.toContain('@deepseek-ai/dsh-client-ui-sidebar')
     const devDependencies = (manifest as { devDependencies?: Record<string, string> }).devDependencies ?? {}
     expect(devDependencies).not.toHaveProperty('@deepseek-ai/dsh-client-ui-sidebar')
-    expect(devDependencies['dsh-plugin-workspace-config']).toBe('workspace:*')
+    expect(devDependencies['@dsh-plugins/contracts']).toBe('workspace:*')
   })
 })

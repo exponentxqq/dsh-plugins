@@ -4,49 +4,30 @@
  * 直接读文件系统是本仓库既有的 host 面做法（project-mcp 同样）：
  * host 进程是可信代码，agent 沙箱约束的是 agent 的工具，不是这个插件自己的配置读取。
  *
+ * 薄适配器（G4）：canonical 化与目录监听是内核的真实 seam（与 project-mcp 共用）；
+ * `nodeCommandIo`（`withFileTypes` 目录项）、`$DSH_HOME` 解析与日志前缀是本包自己的面。
+ * 日志前缀逐字不变：`dsh-plugin-user-commands: `。
+ *
  * `$DSH_HOME` 的优先级与 `@deepseek-ai/dsh-home-paths` 的 `resolveDshHome` 一致：
  * 显式配置 > `$DSH_HOME`（空串/纯空白视为未设） > `~/.dsh`。这里自己算而不引入该依赖，
  * 因为需要的只是「一个目录」，多一个运行时依赖不值得。
  * @module dsh-plugin-user-commands/host/host-io
  */
 
-import { promises as fs, watch as watchDirectory } from 'node:fs'
+import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import type { RealpathIo } from './attribution.ts'
+import { createLog } from '@dsh-plugins/host-kit/log'
 import { USER_COMMANDS_DIR_NAME } from './discovery.ts'
 import type { CommandIo, CommandLog } from './types.ts'
-import type { WatchIo } from './watcher.ts'
+
+export { nodeRealpathIo, nodeWatchIo } from '@dsh-plugins/host-kit/host-io'
 
 /** 目录与文件读取走真实文件系统。 */
 export const nodeCommandIo: CommandIo = {
   readDir: async (dir) => await fs.readdir(dir, { withFileTypes: true }),
   readFile: async (file) => await fs.readFile(file, 'utf8'),
-}
-
-/** canonical 化走真实文件系统。 */
-export const nodeRealpathIo: RealpathIo = {
-  realpath: async (candidate) => await fs.realpath(candidate),
-}
-
-/**
- * 目录监听走真实文件系统。
- *
- * `persistent: false` 让监听器不拦着进程退出；不使用 recursive：`watcher.ts` 的阶梯本来就瞄在
- * 最深的已存在目录上。
- */
-export const nodeWatchIo: WatchIo = {
-  isDirectory: async (candidate) => {
-    try {
-      return (await fs.stat(candidate)).isDirectory()
-    } catch {
-      return false
-    }
-  },
-  watch: (dir, listener) => watchDirectory(dir, { persistent: false }, () => {
-    listener()
-  }),
 }
 
 /**
@@ -88,19 +69,5 @@ export function userCommandsDir(
  * @returns 带本插件前缀的日志 seam。
  */
 export function commandLog(ctx: Context): CommandLog {
-  const line = (message: string): string => `dsh-plugin-user-commands: ${message}`
-  return {
-    info: (message) => {
-      ctx.logger.info(line(message))
-      console.info(line(message))
-    },
-    warn: (message) => {
-      ctx.logger.warn(line(message))
-      console.warn(line(message))
-    },
-    error: (message) => {
-      ctx.logger.error(line(message))
-      console.error(line(message))
-    },
-  }
+  return createLog(ctx, 'dsh-plugin-user-commands')
 }

@@ -8,10 +8,17 @@ DSH（DeepSeek Harness）自定义插件仓库：pnpm workspace 单仓多包，�
 
 ## 目录结构
 
-- `pnpm-workspace.yaml` — workspace 定义（packages: plugins/*）+ allowBuilds 构建白名单 + minimumReleaseAgeExclude 发布年龄豁免
+- `pnpm-workspace.yaml` — workspace 定义（packages: `plugins/*` + 四个显式 tooling 包）+ allowBuilds 构建白名单 + minimumReleaseAgeExclude 发布年龄豁免
 - `package.json` — workspace 根：pnpm 版本 pin（packageManager: pnpm@11.25.0）与递归脚本
+- `tsconfig.plugin.base.json` — 六个软插件共用的根编译基准（各包 tsconfig 只 `extends` 它 + `include` 差异）
+- `tooling/build-kit` — 构建期骨架（esbuild 宿主半 / 浏览器半 / CSS modules / 产物守卫）；`tooling/host-kit` — 运行期共享内核（归属 / 监听 / 触发器 / 根枚举 / 日志，零依赖、被内联进产物）；`tooling/test-kit` — 测试夹具底座（ui-primitives 并集 / locale-parity）；`tooling/contracts` — 座位契约纯类型包
+- `tooling/template/` — `pnpm gen:plugin` 的模板素材（**不是包**：清单叫 `package.json.tmpl`）
 - `plugins/<name>/` — 一个插件一个目录（清单与结构见下文）
-- `scripts/release.mjs` — 发布：同步版本号 → 重建产物 → 发布提交 → annotated tag
+- `scripts/gen-plugin.mjs` — 新插件脚手架：从 `tooling/template/` 生成骨架（只写文件，不跑 git / pnpm）
+- `scripts/check-{dsh-baseline,architecture,artifacts}.mjs` — 三组门禁（基线 / 结构不变式 AR1–AR7 / 产物契约 B1–B5）；`scripts/dsh-check.mjs` 是它们的聚合入口
+- `scripts/release.mjs` — 发布：dsh:check → 同步版本号 → 重建产物 → 发布提交 → annotated tag
+- `docs/decisions/` — 仓级 ADR（见「仓级 ADR」）
+- `.github/workflows/ci.yml` — 最小 CI：install → lint → typecheck → build → test → docs:check → dsh:check
 - `README.md` — 仓库说明与常用命令；`openspec/` — OpenSpec 规范工作区（spec-driven，zh-CN）
 - `.dsh/skills/` — OpenSpec 安装的 DSH skill（本地生成，勿手改，不入库）
 
@@ -29,9 +36,11 @@ DSH（DeepSeek Harness）自定义插件仓库：pnpm workspace 单仓多包，�
 
 - 包名一律 `dsh-plugin-<目录名>`；`package.json` 以 `dsh.bundle.patch` 声明 `cordis.patch.yml`（insert 本包注册行）
 - 源码在 `src/`（TypeScript，入口 `src/index.ts`，导出 `name` / `inject` / `apply`），构建产物在 `lib/`（`main` 指向 `lib/index.js`，随仓库提交）
-- 构建：multi-root-workspace 用 tsc 产类型 + tsdown 打包；其余六个用 `build.mjs`（esbuild）
+- 构建：六个软插件用 `@dsh-plugins/build-kit` 的薄入口——`build.mjs` 只声明不可推导的旋钮（`hostExternals` / `cjsRequireShim` / `cssClassPrefix`），esbuild 策略在 kit 里从包事实推导；multi-root-workspace 仍走自己的 tsc + tsdown
+- 编译基准统一 `tsconfig.plugin.base.json`：各包 tsconfig 只 `extends` + `include`（不重声明编译选项、不带 `composite`），`typecheck` 用 `tsc -p` 非 emit 调用（双端包 host + client 两段）；lint 唯一基准是根 `.oxlintrc.json`
 - 测试：vitest（multi-root 在 `tests/`，其余在 `test/`）；lint 用 oxlint
 - web 侧插件（multi-root-workspace、workspace-config、web-ux、session-tool-toggle）在 `dsh.client` 声明 `platform: web` 与 `inject` 列表；四包须同装（安装矩阵见 README）
+- 新增插件用 `pnpm gen:plugin <name> --kind host-only|dual` 从 `tooling/template/` 生成骨架（开箱通过 lint / typecheck / build / test 与 `pnpm dsh:check`），不要手工复制件套
 
 ## DSH 基线
 
@@ -47,12 +56,13 @@ node 族命令走 volta/pnpm 包装脚本（见 dotfiles `CLAUDE.md`）；dsh �
 ```bash
 # 仓库根执行（递归全部插件）
 pnpm install             # 装齐依赖
+pnpm gen:plugin <name> --kind host-only|dual   # 新插件脚手架（--help 看用法；生成后按打印的 5 步执行）
 pnpm build               # 构建全部插件（产物 lib/ 随仓库提交，release 时递归重建）
 pnpm typecheck           # 递归类型检查
 pnpm test                # 递归单测
 pnpm lint                # 递归 lint（无该脚本的插件自动跳过）
 pnpm docs:check          # 递归文档检查（仅 multi-root-workspace 实现该脚本）
-pnpm dsh:check           # 仓库级 DSH 基线检查（发布前置）
+pnpm dsh:check           # 聚合门禁：DSH 基线 + 结构不变式（AR1–AR7）+ 产物契约（B1–B5）
 pnpm dsh:upgrade <version> [--probe]   # 根级 DSH 升级（重指 pin / 软插件范围 / 豁免）
 pnpm verify              # 发布前自检（递归 verify:all；multi-root 的 smoke 需运行中的 dsh）
 pnpm release <version>   # 发布（--dry-run 只打印；会先跑 dsh:check）
@@ -81,6 +91,12 @@ DSH 源码与 API 参考位于 `/usr/local/lib/node_modules/@deepseek-ai/dsh/`�
 ## 发布与版本
 
 仓库级统一版本：根 `package.json` 与各插件的 `version` 恒等于当前 tag（`v<major>.<minor>.<patch>`），tag 是 profile 侧安装的唯一锚点。`scripts/release.mjs` 拒绝脏工作区、非 main 分支与已存在的 tag；push 可直接在容器内执行（dsh 容器已挂载宿主 `~/.ssh`）：`git push origin main --tags`；tag 未推远程前 profile 无法按 `#v<version>` 解析安装。
+
+## 仓级 ADR
+
+- 结构性决策记录在 `docs/decisions/`：`ADR-0001`（共享构建与源码包 `tooling/` 四包的落地边界）与 `ADR-0002`（归属内核与 `#3` 值语义），索引见 [`docs/decisions/README.md`](docs/decisions/README.md)。
+- 仓级 ADR 与 `plugins/multi-root-workspace/docs/decisions/` 的插件级 ADR 是**两套独立编号**；引用时必须带路径——裸写「ADR-0009」有歧义（仓级没有 0009，multi-root 的 0009 是 DSH 兼容契约）。
+- 插件业务规格仍以 `openspec/specs/` 为准；ADR 只约束仓级结构与工程约定。
 
 ## Codebase Memory 索引
 

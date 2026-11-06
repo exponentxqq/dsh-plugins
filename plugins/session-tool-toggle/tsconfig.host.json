@@ -1,11 +1,9 @@
 {
-  "extends": "./tsconfig.base.json",
-  "compilerOptions": { "composite": true },
+  "extends": "../../tsconfig.plugin.base.json",
   "include": [
     "src/index.ts",
     "src/host",
     "src/contract.ts",
-    "vitest.config.ts",
     "test/address.test.ts",
     "test/bundle.test.ts",
     "test/commands.test.ts",

@@ -49,6 +49,9 @@
 
 **grill-me 追认轮（落档后，2026-11-06）**：①`#3` 裁定追认（值语义 + 诊断，实例说明后确认）；②类型检查形态追认（`tsc -b` → 双 `tsc -p --noEmit`、去 composite）；③变更名追认；④D-7 产物断言上移仓级追认（1.6 表三行 bundle.test 矛盾以 D-7 为准）；⑤stt CSS 去重潜伏 bug 顺手修复追认（产物字节变化属预期，模块词硬断言不变）；⑥CI 覆盖面边界追认（不跑需运行中 dsh 的 smoke）；⑦**contracts 包拍板**（见 D-15，构成落档后 scope 修订）。
 
+- 衔接记录（2026-11-06）：执行模式 **auto**（用户选定）、引擎 **subagent**（映射文件 `engine` 预置）、`apply` 路由 `opencode-go/deepseek-v4.1-flash`（fallback `zcode-plan/glm-5.3-flash`）、`verify` 路由 `zcode-plan/glm-5.3-flash`（spec-done 复用）；`--worktree` 未预置，执行环境经询问由用户明示。
+- 执行环境：直用主工作区。布局：dsh-plugins → `/home/xuqinqin/develop/person/dsh-plugins` @ `main`（工件仓兼主代码仓，按规则不建 worktree）；dotfiles → `/home/xuqinqin/develop/dotfiles` @ `master`；装配：主检出已就绪（`pnpm install` 已装齐，无新建 worktree 免装配）；创建于 2026-11-06。注意事项：dotfiles 存在与本变更无关的未提交改动 `dsh/profiles/web/cordis.patch.yml`（用户选定直用主工作区时已知悉）——批次提交一律精确暂存本变更文件，**不触碰该文件**；G-doc-sync 的 dotfiles 提交同理。
+
 落档分歧点裁决（用户已确认）：①stt 第三份日志适配器**纳入** G5（改调 `createLog`）；②CI **加** `pnpm docs:check`；③G4/G5 薄再导出文件**保留**（承载本包真实差异 + 测试零改动即等价证据）；④host-kit/test-kit **不补** `verify:all`（同一批命令跑两遍无增量）；⑤`@types/react` 统一较新值**并修类型**；⑥豁免清单生成化**本次不做**（另案）。
 
 阶段 1.75 界面演示 gate：**未触发**——C1 不成立（纯架构/工具链重构，client 产物逐字等价），命中排除表「纯后端/CLI/配置/脚本」行（判定记录见 code-design.md 附录）。

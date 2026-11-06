@@ -2,8 +2,63 @@
 # 下面的 allowBuilds 与 minimumReleaseAgeExclude 原样上移自
 # plugins/multi-root-workspace（该插件此前自持一份 pnpm-workspace.yaml，
 # 嵌套 workspace 会被 pnpm 拒绝，故统一收归根）。
+# tooling 包逐条显式列出而非 tooling/*：tooling/template 不是包（清单叫
+# package.json.tmpl），显式列表使「谁是包」可断言，也避免 pnpm -r 递归到模板。
 packages:
   - "plugins/*"
+  - "tooling/build-kit"
+  - "tooling/contracts"
+  - "tooling/host-kit"
+  - "tooling/test-kit"
+
+# 工具链：人工升，跨 6 个软插件共享（multi-root 不引用）。
+catalog:
+  '@types/node': '^22.20.0'
+  '@types/react': '~18.3.31'
+  '@types/react-dom': '^18.3.5'
+  '@testing-library/react': '^16.3.3'
+  esbuild: '^0.25.0'
+  jsdom: '^26.1.0'
+  oxlint: '^1.76.0'
+  react: '^18.3.1'
+  react-dom: '^18.3.1'
+  typescript: '^5.9.0'
+  vitest: '^3.2.0'
+
+# DSH 基线族：由 pnpm dsh:upgrade 单点重写，dsh:check 逐条比对。
+catalogs:
+  dsh:
+    '@deepseek-ai/cordis': '4.1.0'
+    '@deepseek-ai/schemastery': '3.19.0'
+    '@deepseek-ai/dsh': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-agent': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-api-session-controller': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-api-workspace-controller': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-atomic-write': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-authorization': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-client-connection': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-client-locale': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-client-store': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-client-ui-commands': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-client-ui-conversation': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-client-ui-layout': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-client-ui-model-selection': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-client-ui-primitives': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-client-ui-renderer': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-client-ui-session': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-client-ui-sidebar': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-client-ui-slots': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-client-ui-workspace': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-commands': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-credentials': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-home-paths': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-llm': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-mcp-client': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-session': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-session-persistence': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-session-projection': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-tools': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-workspace': '0.2.2-rc.1'
 
 # Native dependency build scripts this repository's toolchain needs to run.
 # Keep the list explicit: pnpm blocks unlisted build scripts by default.

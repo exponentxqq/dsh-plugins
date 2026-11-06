@@ -1,7 +1,4 @@
 {
-  "extends": "./tsconfig.base.json",
-  "compilerOptions": {
-    "composite": true
-  },
-  "include": ["src/index.ts", "vitest.config.ts"]
+  "extends": "../../tsconfig.plugin.base.json",
+  "include": ["src/index.ts"]
 }

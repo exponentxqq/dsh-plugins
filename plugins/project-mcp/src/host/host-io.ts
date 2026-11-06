@@ -3,48 +3,29 @@
  * for diagnostics.
  *
  * Reading the filesystem directly is the established host-face pattern in this
- * repository (the other host-only plugins do the same): the host process is trusted
- * code, and the agent sandbox governs the agent's tools, not this plugin's own
- * configuration reader.
+ * repository (the other host-only plugins do the same): the host process is
+ * trusted code, and the agent sandbox governs the agent's tools, not this
+ * plugin's own configuration reader.
+ *
+ * Thin adapter over the kernel (G4): `nodeRealpathIo` and `nodeWatchIo` are the
+ * kernel's real seams, shared with dsh-plugin-user-commands. `nodeScanIo`
+ * stays local on purpose — reading directory entries as plain name strings is
+ * this package's own port, not the kernel's shared shape. The log prefix is
+ * unchanged, byte for byte: `dsh-plugin-project-mcp: `.
  * @module dsh-plugin-project-mcp/host/host-io
  */
 
 import { promises as fs } from 'node:fs'
-import { watch as watchDirectory } from 'node:fs'
 import type { Context } from '@deepseek-ai/cordis'
-import type { RealpathIo } from './attribution.ts'
+import { createLog } from '@dsh-plugins/host-kit/log'
 import type { ScanIo, ScanLog } from './types.ts'
-import type { WatchIo } from './watcher.ts'
+
+export { nodeRealpathIo, nodeWatchIo } from '@dsh-plugins/host-kit/host-io'
 
 /** Directory and file reads against the real filesystem. */
 export const nodeScanIo: ScanIo = {
   readDir: async (dir) => await fs.readdir(dir),
   readFile: async (file) => await fs.readFile(file, 'utf8'),
-}
-
-/** Canonicalization against the real filesystem. */
-export const nodeRealpathIo: RealpathIo = {
-  realpath: async (candidate) => await fs.realpath(candidate),
-}
-
-/**
- * Directory watching against the real filesystem.
- *
- * `persistent: false` keeps the watchers from holding the process open, and no
- * recursive option is used: the ladder in `watcher.ts` already aims each watch
- * at the deepest directory that exists.
- */
-export const nodeWatchIo: WatchIo = {
-  isDirectory: async (candidate) => {
-    try {
-      return (await fs.stat(candidate)).isDirectory()
-    } catch {
-      return false
-    }
-  },
-  watch: (dir, listener) => watchDirectory(dir, { persistent: false }, () => {
-    listener()
-  }),
 }
 
 /**
@@ -61,19 +42,5 @@ export const nodeWatchIo: WatchIo = {
  * @returns the logging seam, with this plugin's name on every line.
  */
 export function scanLog(ctx: Context): ScanLog {
-  const line = (message: string): string => `dsh-plugin-project-mcp: ${message}`
-  return {
-    info: (message) => {
-      ctx.logger.info(line(message))
-      console.info(line(message))
-    },
-    warn: (message) => {
-      ctx.logger.warn(line(message))
-      console.warn(line(message))
-    },
-    error: (message) => {
-      ctx.logger.error(line(message))
-      console.error(line(message))
-    },
-  }
+  return createLog(ctx, 'dsh-plugin-project-mcp')
 }

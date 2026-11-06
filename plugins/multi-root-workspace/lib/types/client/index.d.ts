@@ -33,6 +33,7 @@
  * @module dsh-plugin-multi-root-workspace/client
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis';
+import type { WorkspaceConfigSectionSlot } from '@dsh-plugins/contracts';
 import { type PanelClient } from './panel-client.ts';
 import { type Translate } from './WorkspaceFoldersAction.tsx';
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -44,6 +45,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
                 readonly absolutePath: string;
             };
         };
+        'workspace-config.section': WorkspaceConfigSectionSlot;
     }
 }
 /** The cell this plugin owns (an id is unique per seat, so both seats reuse it). */

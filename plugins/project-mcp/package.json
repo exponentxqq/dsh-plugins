@@ -37,23 +37,24 @@
     "yaml": "^2.8.0"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "4.1.0",
-    "@deepseek-ai/dsh-agent": "0.2.2-rc.1",
-    "@deepseek-ai/dsh-commands": "0.2.2-rc.1",
-    "@deepseek-ai/dsh-mcp-client": "0.2.2-rc.1",
-    "@deepseek-ai/dsh-tools": "0.2.2-rc.1",
-    "@deepseek-ai/dsh-workspace": "0.2.2-rc.1",
-    "@types/node": "^22.20.0",
-    "esbuild": "^0.25.0",
-    "oxlint": "^1.42.0",
-    "typescript": "^5.9.0",
-    "vitest": "^3.2.0"
+    "@deepseek-ai/cordis": "catalog:dsh",
+    "@deepseek-ai/dsh-agent": "catalog:dsh",
+    "@deepseek-ai/dsh-commands": "catalog:dsh",
+    "@deepseek-ai/dsh-mcp-client": "catalog:dsh",
+    "@deepseek-ai/dsh-tools": "catalog:dsh",
+    "@deepseek-ai/dsh-workspace": "catalog:dsh",
+    "@dsh-plugins/build-kit": "workspace:*",
+    "@dsh-plugins/host-kit": "workspace:*",
+    "@types/node": "catalog:",
+    "oxlint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "scripts": {
     "build": "node build.mjs",
     "lint": "oxlint",
     "test": "vitest run",
-    "typecheck": "tsc -b --pretty false",
+    "typecheck": "tsc -p tsconfig.host.json --pretty false",
     "verify:all": "pnpm lint && pnpm typecheck && pnpm build && pnpm test",
     "prepack": "pnpm run build"
   }

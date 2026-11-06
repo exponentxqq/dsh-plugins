@@ -27,6 +27,10 @@
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+// 产物词法器的单一实现（R9）：本套件不再持有本地副本，与仓级
+// `scripts/check-artifacts.mjs` 共用同一份正则与路径约定。声明见
+// `scripts/lib/artifacts.d.mts`；本套件当前不在 tsconfig 的 include 里。
+import { importedWords, readArtifact, requiredWords } from '../../../scripts/lib/artifacts.mjs'
 // 软插件基线范围从仓库根唯一版本常量派生（`SOFT_DSH_RANGE`）：基线提升
 // （`pnpm dsh:upgrade`）重写 scripts/dsh-baseline.mjs 与各 manifest 之后，
 // 本套件的版本断言自动对齐，不再逐次手改字面量。
@@ -38,26 +42,6 @@ const ROOT = path.resolve(import.meta.dirname, '..')
 const PACKAGE_NAME = 'dsh-plugin-workspace-config'
 /** 允许出现在浏览器 bundle 里的模块词（与 build.mjs 的 CLIENT_EXTERNALS 对应）。 */
 const CLIENT_EXTERNALS = ['@deepseek-ai/dsh-client-ui-primitives', 'react', 'react/jsx-runtime']
-
-/** 读取一个构建产物。 */
-function readArtifact(name: string): string {
-  return readFileSync(path.join(ROOT, 'lib', name), 'utf8')
-}
-
-/** 取出一段代码里全部静态 require 的模块词（去重排序）。 */
-function requiredWords(source: string): string[] {
-  return [...new Set([...source.matchAll(/require\("([^"]+)"\)/g)].map((match) => match[1] ?? ''))].sort()
-}
-
-/** 取出一段代码里全部静态 import/require 的模块词（去重排序）。 */
-function importedWords(source: string): string[] {
-  const words = [
-    ...source.matchAll(/from\s+"([^"]+)"/g),
-    ...source.matchAll(/require\("([^"]+)"\)/g),
-    ...source.matchAll(/import\("([^"]+)"\)/g),
-  ].map((match) => match[1] ?? '')
-  return [...new Set(words)].sort()
-}
 
 /** 包清单的形状（只取本套件断言到的字段）。 */
 interface Manifest {
@@ -72,14 +56,14 @@ interface Manifest {
 
 describe('浏览器半产物', () => {
   it('按包名注册进模块加载器，且是 factory 形态', () => {
-    const source = readArtifact('client.js')
+    const source = readArtifact(ROOT, 'client.js')
     expect(source).toContain('window.__ModuleLoader__.load({')
     expect(source).toContain(`id: ${JSON.stringify(PACKAGE_NAME)}`)
     expect(source).toContain('factory: (require) => {')
   })
 
   it('只 require 浏览器壳提供的模块词，且不 require slots 包（D2 硬错防线）', () => {
-    const source = readArtifact('client.js')
+    const source = readArtifact(ROOT, 'client.js')
     expect(requiredWords(source)).toEqual(CLIENT_EXTERNALS)
     expect(requiredWords(source)).not.toContain('@deepseek-ai/dsh-client-ui-slots')
     const imports = importedWords(source)
@@ -89,7 +73,7 @@ describe('浏览器半产物', () => {
   })
 
   it('座位名在产物里至少出现两次：children 声明 + renderSlot 渲染', () => {
-    const source = readArtifact('client.js')
+    const source = readArtifact(ROOT, 'client.js')
     const occurrences = source.match(/workspace-config\.section/g) ?? []
     expect(occurrences.length).toBeGreaterThanOrEqual(2)
     // 声明侧与渲染侧是两处不同的语义点，都必须是可 grep 的字面量。
@@ -98,7 +82,7 @@ describe('浏览器半产物', () => {
   })
 
   it('内联了两个宿主座位名与两个 entry id（footer 入口 + 统一弹窗）', () => {
-    const source = readArtifact('client.js')
+    const source = readArtifact(ROOT, 'client.js')
 
     expect(source).toContain('sidebar.footer.action')
     expect(source).toContain('shell.overlay')
@@ -107,7 +91,7 @@ describe('浏览器半产物', () => {
   })
 
   it('不含三个贡献方包名：四包之间没有运行时反向依赖（D3）', () => {
-    const source = readArtifact('client.js')
+    const source = readArtifact(ROOT, 'client.js')
     for (const dependency of [
       'dsh-plugin-multi-root-workspace',
       'dsh-plugin-session-tool-toggle',
@@ -118,14 +102,14 @@ describe('浏览器半产物', () => {
   })
 
   it('内联了弹窗壳与入口的关键文案键（翻译键随产物，文案在 locales.ts）', () => {
-    const source = readArtifact('client.js')
+    const source = readArtifact(ROOT, 'client.js')
     for (const key of ['entry.label', 'dialog.title', 'dialog.close', 'nav.label', 'dialog.empty.title']) {
       expect(source).toContain(key)
     }
   })
 
   it('全部 CSS modules 内联为单个样式注入器（入口与弹窗共用 dialog.module.css）', () => {
-    const source = readArtifact('client.js')
+    const source = readArtifact(ROOT, 'client.js')
     const injectors = source.match(/style\.setAttribute\((["'])data-dsh-css\1/g) ?? []
     expect(injectors).toHaveLength(1)
     expect(source).toContain('data-dsh-plugin')
@@ -134,11 +118,11 @@ describe('浏览器半产物', () => {
 
 describe('宿主半产物', () => {
   it('完全自包含：零 import（no-op 锚点）', () => {
-    expect(importedWords(readArtifact('index.js'))).toEqual([])
+    expect(importedWords(readArtifact(ROOT, 'index.js'))).toEqual([])
   })
 
   it('不内联浏览器半（两端产物各自独立）', () => {
-    const source = readArtifact('index.js')
+    const source = readArtifact(ROOT, 'index.js')
     expect(source).not.toContain('WorkspaceConfigDialog')
     expect(source).not.toContain('window.__ModuleLoader__')
   })

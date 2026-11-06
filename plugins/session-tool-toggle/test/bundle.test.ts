@@ -20,9 +20,13 @@
  * @module dsh-plugin-session-tool-toggle/test/bundle
  */
 
-import { readFileSync } from 'node:fs'
+import { readdirSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+// 产物词法器的单一实现（R9）：本套件不再持有本地副本，与仓级
+// `scripts/check-artifacts.mjs` 共用同一份正则与路径约定。声明见
+// `scripts/lib/artifacts.d.mts`（不再需要抑制「无声明文件」）。
+import { importedWords, readArtifact, requiredWords } from '../../../scripts/lib/artifacts.mjs'
 import {
   CHANNEL,
   DEFAULTS_ENDPOINT,
@@ -80,60 +84,37 @@ const INLINED_MARKERS = [
 const ABSENT_MARKERS = ['sidebar.footer.action', 'dsh-plugin-workspace-config']
 
 /**
- * 读取一个构建产物。
- * @param name - `lib/` 下的文件名。
- * @returns 文件内容。
- */
-function readArtifact(name: string): string {
-  return readFileSync(path.join(ROOT, 'lib', name), 'utf8')
-}
-
-/**
- * 取出一段代码里全部**静态** `require("…")` 的模块词（去重排序）。
- * @param source - 产物文本。
- * @returns 模块词。
- */
-function requiredWords(source: string): string[] {
-  return [...new Set([...source.matchAll(/require\("([^"]+)"\)/g)].map((match) => match[1] ?? ''))].sort()
-}
-
-/**
- * 取出一段代码里全部静态 import/require 的模块词（去重排序）。
+ * 浏览器半应有的样式注入器数量 = CSS modules 数量。
  *
- * 匹配 `from "…"`（ESM）、`require("…")`（CJS）、`import("…")`（字面量动态 import）。
- * 计算式动态 import（如宿主运行时那处 `import(pathToFileURL(…).href)`）不匹配——它不是
- * 静态依赖，也不该被当成依赖。
- * @param source - 产物文本。
- * @returns 模块词。
+ * 防重护栏固定按「包 + 模块」双维度（`data-dsh-plugin` + `data-dsh-css`）：只按包名
+ * 查询会让同包第二个 module 的样式永不注入（v1.4.0 的 delete 样式即因此从未生效）。
+ * 计数直接扫源文件，stt 新增 module 时这条断言会要求注入器同步增长。
+ * @returns `src/client` 下 `*.module.css` 的个数。
  */
-function importedWords(source: string): string[] {
-  const words = [
-    ...source.matchAll(/from\s+"([^"]+)"/g),
-    ...source.matchAll(/require\("([^"]+)"\)/g),
-    ...source.matchAll(/import\("([^"]+)"\)/g),
-  ].map((match) => match[1] ?? '')
-  return [...new Set(words)].sort()
+function cssModuleCount(): number {
+  return readdirSync(path.join(ROOT, 'src', 'client'), { recursive: true, encoding: 'utf8' })
+    .filter((name) => name.endsWith('.module.css')).length
 }
 
 describe('浏览器半产物（lib/client.js）', () => {
   it('按包名注册进模块加载器，且是 factory 形态', () => {
-    const source = readArtifact('client.js')
+    const source = readArtifact(ROOT, 'client.js')
     expect(source).toContain('window.__ModuleLoader__.load({')
     expect(source).toContain(`id: ${JSON.stringify(PACKAGE_NAME)}`)
     expect(source).toContain('factory: (require) => {')
   })
 
   it('只 require 浏览器壳提供的三个模块词，没有 node 内建与自身包名', () => {
-    const source = readArtifact('client.js')
+    const source = readArtifact(ROOT, 'client.js')
     expect(requiredWords(source)).toEqual(CLIENT_REQUIRES)
 
     const imports = importedWords(source)
-    expect(imports.filter((word) => word.startsWith('node:'))).toEqual([])
-    expect(imports.filter((word) => word.includes(PACKAGE_NAME))).toEqual([])
+    expect(imports.filter((word: string) => word.startsWith('node:'))).toEqual([])
+    expect(imports.filter((word: string) => word.includes(PACKAGE_NAME))).toEqual([])
   })
 
   it('通道、五端点、座位与命名空间都是内联字面量（不靠运行时解析宿主半）', () => {
-    const source = readArtifact('client.js')
+    const source = readArtifact(ROOT, 'client.js')
     // 五个端点一个都不能少：contract.ts 的 ENDPOINTS 是唯一权威。
     expect(ENDPOINTS).toHaveLength(5)
     // 白名单里的两个字面量必须与契约常量一致（T18 的 'workspace' 是手写直写）。
@@ -144,25 +125,34 @@ describe('浏览器半产物（lib/client.js）', () => {
   })
 
   it('旧 footer 座位与 holder 包名都不在产物里（迁移红线 + D3 零运行时依赖）', () => {
-    const source = readArtifact('client.js')
+    const source = readArtifact(ROOT, 'client.js')
     for (const marker of ABSENT_MARKERS) {
       expect(source).not.toContain(marker)
     }
     // 显式再说一遍：分节类型只以 `import type` 消费，产物不得出现 holder 的模块词。
-    expect(importedWords(source).filter((word) => word.includes('dsh-plugin-workspace-config'))).toEqual([])
+    expect(importedWords(source).filter((word: string) => word.includes('dsh-plugin-workspace-config'))).toEqual([])
+  })
+
+  it('每个 css module 一个注入器（防重护栏按包+模块，而非只按包）', () => {
+    const source = readArtifact(ROOT, 'client.js')
+    // v1.4.0 的 delete 样式事故：只按包名防重会让第一个模块之后的样式永远被跳过；
+    // 这里把「模块数 = 注入器数」钉住（stt 目前只有一个 module，历史 bug 不可见，
+    // 但新增 module 时注入器必须同步增长）。
+    const injectors = source.match(/style\.setAttribute\((["'])data-dsh-css\1/g) ?? []
+    expect(injectors).toHaveLength(cssModuleCount())
   })
 })
 
 describe('宿主半产物（lib/index.js）', () => {
   it('完全自包含：除 node 内建外没有任何模块依赖', () => {
-    const imports = importedWords(readArtifact('index.js'))
-    expect(imports.filter((word) => !word.startsWith('node:'))).toEqual([])
+    const imports = importedWords(readArtifact(ROOT, 'index.js'))
+    expect(imports.filter((word: string) => !word.startsWith('node:'))).toEqual([])
     // 显式再说一遍：任何 @deepseek-ai/* 运行时 import 都是安装期的雷。
-    expect(imports.filter((word) => word.startsWith('@deepseek-ai/'))).toEqual([])
+    expect(imports.filter((word: string) => word.startsWith('@deepseek-ai/'))).toEqual([])
   })
 
   it('带有通道与五个端点（宿主是通道的挂载方）', () => {
-    const source = readArtifact('index.js')
+    const source = readArtifact(ROOT, 'index.js')
     for (const marker of [CHANNEL, ...ENDPOINTS]) {
       expect(source).toContain(JSON.stringify(marker))
     }

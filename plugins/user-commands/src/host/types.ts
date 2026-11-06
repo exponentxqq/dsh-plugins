@@ -36,57 +36,18 @@ export interface CommandIo {
   readFile(file: string): Promise<string>
 }
 
-/** 日志 seam：不硬依赖任何 logger 的宿主诊断出口。 */
-export interface CommandLog {
-  /**
-   * 记录一条值得进进程日志的状态变化。
-   * @param message - 诊断文本。
-   */
-  info(message: string): void
-  /**
-   * 记录一条降级但继续的条件（未知 frontmatter 字段、被忽略的子目录等）。
-   * @param message - 诊断文本。
-   */
-  warn(message: string): void
-  /**
-   * 记录一次跳过（非法文件、同名冲突、注册失败）。
-   * @param message - 诊断文本。
-   */
-  error(message: string): void
-}
-
-/**
- * 本插件软依赖的附加根枚举器（由 dsh-plugin-multi-root-workspace 提供）。
- * 缺席——该插件未安装或未激活——时发现范围就是各工作区主根。
- */
-export interface MultiRootGrant {
-  /**
-   * 授予某个主根的全部可用根路径。
-   * @param primaryRoot - 会话工作区主根（任意拼写）。
-   * @returns 授予的根，按登记顺序。
-   */
-  granted(primaryRoot: string): readonly string[]
-  /**
-   * 订阅登记变化。
-   * @param listener - 每次持久化变更后以主根路径调用。
-   * @returns 停止订阅的 disposer。
-   */
-  onChange(listener: (primaryRoot: string) => void): () => void
-}
-
-/** 一个工作区的有序根集合。 */
-export interface WorkspaceRoots {
-  /** 登记的主根（canonical），即 workspace 实体的路径。 */
-  readonly primaryRoot: string
-  /** 主根在前，其后是按授予顺序排列的附加根。 */
-  readonly roots: readonly string[]
-}
+// 下面三个形状是内核形状（G4）：与 dsh-plugin-project-mcp 共用一份声明，而不是各写
+// 一份结构相同的副本。`DirEntry` / `CommandIo` 留本地——`withFileTypes` 目录项是本包
+// 自己的端口。
+export type { WorkspaceRoots } from '@dsh-plugins/host-kit/attribution'
+export type { MultiRootGrant } from '@dsh-plugins/host-kit/triggers'
+export type { LogSink as CommandLog } from '@dsh-plugins/host-kit/log'
 
 /**
  * 宿主型内置命令的入参：`dsh-commands` 的 `CommandInvocation` 的最小面。
  *
  * 只声明本插件实际消费的字段。`agent` 是不透明对象（宿主把它当作用域键与 cwd 来源），
- * 因此本文件不 import 任何宿主模块——文件头的不变量（只声明类型、零 import）保持成立。
+ * 因此本文件不 import 任何宿主模块——文件头的不变量（只声明/转出类型、零宿主 import）保持成立。
  */
 export interface HostCommandInvocation {
   /** 收到命令的 agent（不透明引用：作用域键与工作目录来源）。 */

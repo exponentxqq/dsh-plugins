@@ -86,9 +86,9 @@ import {
   type SegmentedTab,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
-// 类型专用：统一「工作区配置」分节的 owner 份额（只有 `close`）。holder 不进 bundle，
-// 这里只消费类型（D3）。
-import type { WorkspaceConfigSectionOwnerProps } from 'dsh-plugin-workspace-config/client'
+// 类型专用：统一「工作区配置」分节的 owner 份额（只有 `close`）。契约包不进 bundle，
+// 这里只消费类型（D-15）。
+import type { WorkspaceConfigSectionOwnerProps } from '@dsh-plugins/contracts'
 import {
   MAX_BATCH_TARGETS,
   MAX_LISTED_MIGRATED,

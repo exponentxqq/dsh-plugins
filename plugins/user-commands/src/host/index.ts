@@ -25,7 +25,7 @@ import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-workspace'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { AgentLayers, type AgentScope } from './agent-layer.ts'
-import { Attributor } from './attribution.ts'
+import { RootAttributor } from './attribution.ts'
 import { BUILTIN_COMMANDS, globalCommands } from './builtins.ts'
 import { discoverCommands } from './discovery.ts'
 import { commandLog, nodeCommandIo, nodeRealpathIo, nodeWatchIo, userCommandsDir } from './host-io.ts'
@@ -174,7 +174,9 @@ function agentScopeOf(agent: Agent, log: CommandLog): AgentScope {
 export function apply(ctx: Context): void {
   const log = commandLog(ctx)
   const userDir = userCommandsDir()
-  const attributor = new Attributor(nodeRealpathIo)
+  // registry 异常（#3：`roots[0] !== primaryRoot`、重复主根）上报而不静默吞掉；
+  // 归属本身仍是 fail-closed（见 `attribution.ts`）。
+  const attributor = new RootAttributor(nodeRealpathIo, { onAnomaly: log.warn })
   const globalLayer = new CommandLayer(log, '全局命令层')
   /** 最近一次扫描出的项目级命令（会话层同步要用同一份事实）。 */
   let projects: readonly WorkspaceCommands[] = []

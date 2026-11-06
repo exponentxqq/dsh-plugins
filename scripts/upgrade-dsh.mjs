@@ -10,9 +10,11 @@
  * 升级车道绿灯只是「有可能支持」的证据，提升是之后人工做的事（ADR-0009）。
  * 这条分离是契约的全部意义——自动放宽支持矩阵会重新引入它要消除的过度承诺。
  *
- * 默认模式是永久的：重写七个插件的 devDeps（dsh 系、cordis 与 schemastery）、
- * 六个软插件的 engines 与 DSH peer 范围、workspace 豁免，并同步
- * `scripts/dsh-baseline.mjs`。
+ * 默认模式是永久的：重写 `catalogs.dsh` 基线册（六个软插件的 `catalog:dsh`
+ * 引用因而随单点移动）、精确契约插件的字面量 devDeps、六个软插件的 engines 与
+ * DSH peer 范围、workspace 豁免，并同步 `scripts/dsh-baseline.mjs`。值为
+ * `catalog:`/`catalog:dsh` 的 manifest 条目一律跳过，重写结束后断言六个软插件的
+ * devDependencies 不残留 DSH 家族、cordis 与 schemastery 的字面量版本。
  * `--probe` 额外追加 workspace-only 的 `overrides:` 块，避免预发布范围在探测
  * 期间解析出混装树；探测结束后用 `git checkout` 恢复，或重跑一次不带 `--probe`
  * 的升级（脚本会移除该块）。
@@ -157,11 +159,64 @@ function repointBaseline(target) {
 }
 
 /**
+ * Rewrite the `catalogs.dsh` shelf, leaving the default toolchain shelf alone.
+ *
+ * The six soft plugins reference `catalog:dsh`, so this block — not their
+ * manifests — is what an upgrade has to move. It is rewritten line by line
+ * because the file's comments explain the two-shelf split; a parse-and-dump
+ * round trip would drop them. The default `catalog:` (toolchain) shelf is
+ * deliberately out of scope: those versions are raised by hand.
+ * @param source - the workspace file's text.
+ * @param target - the release to pin into the DSH family.
+ * @param cordisVersion - the exact cordis version to write.
+ * @param schemasteryVersion - the exact schemastery version to write.
+ * @returns `{ source, changes }`.
+ */
+function repointCatalog(source, target, cordisVersion, schemasteryVersion) {
+  const lines = source.split('\n')
+  const start = lines.indexOf('catalogs:')
+  if (start === -1) throw new Error('[upgrade] pnpm-workspace.yaml has no catalogs: block')
+  const changes = []
+  let inDsh = false
+  let found = false
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const line = lines[index]
+    if (/^\S/u.test(line)) break
+    if (/^  dsh:$/u.test(line)) {
+      inDsh = true
+      found = true
+      continue
+    }
+    if (!inDsh) continue
+    if (/^  [\w-]+:$/u.test(line)) {
+      inDsh = false
+      continue
+    }
+    const match = /^    '?((?:@[^/']+\/)?[^':]+)'?: '?([^'\s]+)'?$/u.exec(line)
+    if (match === null) continue
+    const [, name, version] = match
+    let next = null
+    if (isDshPackage(name)) next = target
+    else if (name === CORDIS) next = cordisVersion
+    else if (name === SCHEMASTERY) next = schemasteryVersion
+    if (next === null || next === version) continue
+    const suffix = new RegExp(`(['"]?)${version.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}\\1$`, 'u')
+    lines[index] = line.replace(suffix, (_whole, quote) => `${quote}${next}${quote}`)
+    changes.push(`catalogs.dsh["${name}"]: ${version} → ${next}`)
+  }
+  if (!found) throw new Error('[upgrade] pnpm-workspace.yaml has no catalogs.dsh block')
+  return { source: lines.join('\n'), changes }
+}
+
+/**
  * Repoint one plugin's devDependencies, and — for soft plugins only — its
  * declared install contract.
  *
  * The exact-contract plugin keeps its peer enum and allowlist: those are edited
  * by a human after a green probe (ADR-0009). Only its development pin moves.
+ * Values that reference a catalog are left untouched: the catalog shelf is the
+ * single point the upgrade rewrites, so materializing a literal here would both
+ * drift on the next upgrade and trip the post-rewrite assertion.
  * @param plugin - the discovered plugin.
  * @param target - the release to pin.
  * @param cordisVersion - the exact cordis version the release requires.
@@ -174,6 +229,7 @@ function repointPlugin(plugin, target, cordisVersion, schemasteryVersion, softRa
   const changed = []
   const devs = manifest.devDependencies ?? {}
   for (const [name, version] of Object.entries(devs)) {
+    if (version.startsWith('catalog:')) continue
     if (isDshPackage(name)) {
       if (version === target) continue
       changed.push(`${name}: ${version} → ${target}`)
@@ -205,6 +261,30 @@ function repointPlugin(plugin, target, cordisVersion, schemasteryVersion, softRa
 }
 
 /**
+ * List the soft plugins that still declare a literal DSH/cordis/schemastery pin.
+ *
+ * Catalog references are the invariant that lets `catalogs.dsh` describe the
+ * whole tree; a literal in a soft plugin silently drifts on the next upgrade.
+ * The exact-contract plugin is exempt on purpose — its exact devDeps are part of
+ * its supported-release matrix, which upgrades by hand (ADR-0009).
+ * @param plugins - discovered plugins after the rewrite.
+ * @returns one description per residual literal, empty when the invariant holds.
+ */
+function residualLiterals(plugins) {
+  const residual = []
+  for (const plugin of plugins) {
+    if (hasExactContract(plugin.dir)) continue
+    const devs = plugin.manifest.devDependencies ?? {}
+    for (const [name, version] of Object.entries(devs)) {
+      if (!isDshPackage(name) && name !== CORDIS && name !== SCHEMASTERY) continue
+      if (version === 'catalog:dsh') continue
+      residual.push(`${plugin.manifest.name}: devDependencies["${name}"] = ${version}`)
+    }
+  }
+  return residual
+}
+
+/**
  * Repoint the release-age allowances and, in probe mode, pin the known tree.
  *
  * Every upstream release is published minutes before this repository uses it, so
@@ -218,6 +298,7 @@ function repointPlugin(plugin, target, cordisVersion, schemasteryVersion, softRa
  * The target's internal subpackages are exact-pinned by `dsh` itself, so this is
  * enough to keep a probe tree coherent without inventing a second inventory
  * (which would also try to pin packages that no longer exist).
+ * @param source - the workspace text, already carrying the catalog rewrite.
  * @param target - the release to pin.
  * @param cordisVersion - the exact cordis version to write.
  * @param schemasteryVersion - the exact schemastery version to write.
@@ -225,8 +306,8 @@ function repointPlugin(plugin, target, cordisVersion, schemasteryVersion, softRa
  * @param plugins - discovered plugins, for the direct DSH dependency set.
  * @returns `{ allowances, probeEntries }`.
  */
-function repointWorkspace(target, cordisVersion, schemasteryVersion, probe, plugins) {
-  let updated = readFileSync(WORKSPACE, 'utf8')
+function repointWorkspace(source, target, cordisVersion, schemasteryVersion, probe, plugins) {
+  let updated = source
   let allowances = 0
   updated = updated.replace(/^(\s*- '@deepseek-ai\/dsh(?:-[\w-]+)?)@[^']+'$/gmu, (line, prefix) => {
     allowances += 1
@@ -339,7 +420,15 @@ for (const plugin of plugins) {
     changes.push(`${plugin.manifest.name}: ${entry}`)
   }
 }
-const { allowances, probeEntries } = repointWorkspace(target, cordisVersion, schemasteryVersion, probe, plugins)
+const catalogRewrite = repointCatalog(readFileSync(WORKSPACE, 'utf8'), target, cordisVersion, schemasteryVersion)
+const { allowances, probeEntries } = repointWorkspace(
+  catalogRewrite.source,
+  target,
+  cordisVersion,
+  schemasteryVersion,
+  probe,
+  plugins,
+)
 
 console.log(`[upgrade] baseline: ${previousBaseline} → ${target}`)
 console.log(`[upgrade] soft plugin range: ${softRange}`)
@@ -347,7 +436,17 @@ console.log(`[upgrade] cordis pin: ${cordisVersion}`)
 console.log(`[upgrade] schemastery pin: ${schemasteryVersion}`)
 console.log(`[upgrade] manifest entries rewritten: ${changes.length}`)
 for (const entry of changes) console.log(`           ${entry}`)
+console.log(`[upgrade] catalogs.dsh entries rewritten: ${catalogRewrite.changes.length}`)
+for (const entry of catalogRewrite.changes) console.log(`           ${entry}`)
 console.log(`[upgrade] release-age allowances rewritten: ${allowances}`)
+
+const residual = residualLiterals(plugins)
+if (residual.length > 0) {
+  console.error('\n[upgrade] soft plugins must reference "catalog:dsh", not literal versions:\n')
+  for (const entry of residual) console.error(`  - ${entry}`)
+  console.error('\nReplace those devDependencies with "catalog:dsh" and rerun.\n')
+  process.exit(1)
+}
 if (probe) {
   console.log(`[upgrade] probe overrides written: ${probeEntries.length} entries`)
 } else {

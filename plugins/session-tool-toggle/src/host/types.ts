@@ -4,14 +4,16 @@
  * 所有副作用件（装配层、每 agent 层、状态存储、默认档、命令面、RPC 内核）都只依赖
  * 这里声明的窄接口，因此每条规则都能用假端口在单测里驱动，不需要拉起宿主。
  *
- * 本文件**只声明类型与文档**：不含任何运行时代码。唯一的 import 是 `contract.ts` 的
- * **纯类型**（`import type`，编译期擦除）：`ControlDeps.workspaceChoices` 的返回形状就是
- * 线上契约里的 `WorkspaceChoice`，两处共用一份声明而不是各写一份结构相同的副本。
+ * 本文件**只声明类型与文档**：不含任何运行时代码，import 全部是 `import type`（编译期擦除）。
+ * `ControlDeps.workspaceChoices` 的返回形状就是线上契约（`contract.ts`）里的
+ * `WorkspaceChoice`，两处共用一份声明而不是各写一份结构相同的副本；诊断端口则是
+ * `@dsh-plugins/host-kit/log` 的 `LogSink`（G4 起三份同形适配器只有一份声明）。
  *
  * @module dsh-plugin-session-tool-toggle/host/types
  */
 
 import type { WorkspaceChoice } from '../contract.ts'
+import type { LogSink } from '@dsh-plugins/host-kit/log'
 
 /** 一条已提交事件的最小面（真实类型是宿主的 `SessionEvent`）。 */
 export interface SessionEventLike {
@@ -64,15 +66,15 @@ export interface AgentLike {
   readonly options?: { readonly provider?: string; readonly model?: string }
 }
 
-/** 诊断端口（与 project-mcp 的 `ScanLog` 同形，便于单测收集日志）。 */
-export interface SpecLog {
-  /** 记录一条值得进进程日志的状态变化。 */
-  info(message: string): void
-  /** 记录一条「已降级但继续运行」的情况。 */
-  warn(message: string): void
-  /** 记录一次失败。 */
-  error(message: string): void
-}
+/**
+ * 诊断端口：`@dsh-plugins/host-kit/log` 的 `LogSink` 别名（G4）。
+ *
+ * 三份同形日志适配器（project-mcp / user-commands / 本包）只保留一个声明；本包的
+ * logger 由 `@dsh-plugins/host-kit/log` 的 `createLog(ctx, prefix)` 承载——前缀在
+ * `src/host/index.ts` 的调用点以字面量（`'dsh-plugin-session-tool-toggle'`）指定，
+ * 形状由内核钉住。
+ */
+export type SpecLog = LogSink
 
 /**
  * 整值会话状态：一条记录永远写全量（whole-value event rule）。

@@ -2308,17 +2308,17 @@ Schema.prototype.volatile = function volatile() {
 };
 var resolvers = {};
 var checkedVolatile = Symbol("checked-volatile-schema");
-function validateVolatileSchema(schema, path = [], blocked = false, seen = /* @__PURE__ */ new Map()) {
+function validateVolatileSchema(schema, path2 = [], blocked = false, seen = /* @__PURE__ */ new Map()) {
   const states = seen.get(schema) ?? /* @__PURE__ */ new Set();
   if (states.has(blocked)) return;
   states.add(blocked);
   seen.set(schema, states);
-  if (schema.meta?.volatile && blocked) throw new ValidationError2("volatile fields require a fixed object path without an enclosing volatile field", { path });
+  if (schema.meta?.volatile && blocked) throw new ValidationError2("volatile fields require a fixed object path without an enclosing volatile field", { path: path2 });
   const nested = blocked || !!schema.meta?.volatile;
-  if (schema.dict) for (const [key, child] of Object.entries(schema.dict)) validateVolatileSchema(child, [...path, key], nested, seen);
-  if (schema.sKey) validateVolatileSchema(schema.sKey, [...path, "<key>"], true, seen);
-  if (schema.inner && (schema.type !== "lazy" || schema.inner[kSchema])) validateVolatileSchema(schema.inner, [...path, "*"], true, seen);
-  if (schema.list) for (let index = 0; index < schema.list.length; index++) validateVolatileSchema(schema.list[index], [...path, String(index)], true, seen);
+  if (schema.dict) for (const [key, child] of Object.entries(schema.dict)) validateVolatileSchema(child, [...path2, key], nested, seen);
+  if (schema.sKey) validateVolatileSchema(schema.sKey, [...path2, "<key>"], true, seen);
+  if (schema.inner && (schema.type !== "lazy" || schema.inner[kSchema])) validateVolatileSchema(schema.inner, [...path2, "*"], true, seen);
+  if (schema.list) for (let index = 0; index < schema.list.length; index++) validateVolatileSchema(schema.list[index], [...path2, String(index)], true, seen);
 }
 Schema.extend = function extend(type, resolve5) {
   resolvers[type] = resolve5;
@@ -2707,6 +2707,25 @@ defineMethod("transform", [
   "callback",
   "preserve"
 ], ({ inner }, isInner) => inner.toString(isInner));
+
+// ../../tooling/host-kit/src/log.ts
+function createLog(ctx, prefix) {
+  const line = (message) => `${prefix}: ${message}`;
+  return {
+    info: (message) => {
+      ctx.logger.info(line(message));
+      console.info(line(message));
+    },
+    warn: (message) => {
+      ctx.logger.warn(line(message));
+      console.warn(line(message));
+    },
+    error: (message) => {
+      ctx.logger.error(line(message));
+      console.error(line(message));
+    }
+  };
+}
 
 // ../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/external.js
 var external_exports = {};
@@ -3474,10 +3493,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path) {
-  if (!path)
+function getElementAtPath(obj, path2) {
+  if (!path2)
     return obj;
-  return path.reduce((acc, key) => acc?.[key], obj);
+  return path2.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -3886,11 +3905,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path, issues) {
+function prefixIssues(path2, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path);
+    iss.path.unshift(path2);
     return iss;
   });
 }
@@ -4037,16 +4056,16 @@ function flattenError(error51, mapper = (issue2) => issue2.message) {
 }
 function formatError(error51, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error52, path = []) => {
+  const processError = (error52, path2 = []) => {
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path2, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path2, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path2, ...issue2.path]);
       } else {
-        const fullpath = [...path, ...issue2.path];
+        const fullpath = [...path2, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -4073,17 +4092,17 @@ function formatError(error51, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error51, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error52, path = []) => {
+  const processError = (error52, path2 = []) => {
     var _a3, _b;
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path2, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path2, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path2, ...issue2.path]);
       } else {
-        const fullpath = [...path, ...issue2.path];
+        const fullpath = [...path2, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -4115,8 +4134,8 @@ function treeifyError(error51, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path) {
+  const path2 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path2) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -16808,13 +16827,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path = ref.slice(1).split("/").filter(Boolean);
-  if (path.length === 0) {
+  const path2 = ref.slice(1).split("/").filter(Boolean);
+  if (path2.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path[0] === defsKey) {
-    const key = path[1];
+  if (path2[0] === defsKey) {
+    const key = path2[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -17663,8 +17682,8 @@ function readDefaultsView(value, subject) {
   }
   const disabled = readStringArrayField(record2, "disabled", subject);
   if (!disabled.ok) return disabled;
-  const path = readStringField(record2, "path", subject, { minLength: 1 });
-  if (!path.ok) return path;
+  const path2 = readStringField(record2, "path", subject, { minLength: 1 });
+  if (!path2.ok) return path2;
   const readable = readBooleanField(record2, "readable", subject);
   if (!readable.ok) return readable;
   const corrupt = readBooleanField(record2, "corrupt", subject);
@@ -17674,7 +17693,7 @@ function readDefaultsView(value, subject) {
     value: {
       version: version2.value,
       disabled: disabled.value,
-      path: path.value,
+      path: path2.value,
       readable: readable.value,
       corrupt: corrupt.value
     }
@@ -17742,8 +17761,8 @@ function readWorkspaceView(value, subject) {
   if (!registered.ok) return registered;
   const disabled = readStringArrayField(record2, "disabled", subject);
   if (!disabled.ok) return disabled;
-  const path = readStringField(record2, "path", subject, { minLength: 1 });
-  if (!path.ok) return path;
+  const path2 = readStringField(record2, "path", subject, { minLength: 1 });
+  if (!path2.ok) return path2;
   const readable = readBooleanField(record2, "readable", subject);
   if (!readable.ok) return readable;
   const corrupt = readBooleanField(record2, "corrupt", subject);
@@ -17755,7 +17774,7 @@ function readWorkspaceView(value, subject) {
       ...title.value === void 0 ? {} : { title: title.value },
       registered: registered.value,
       disabled: disabled.value,
-      path: path.value,
+      path: path2.value,
       readable: readable.value,
       corrupt: corrupt.value
     }
@@ -18127,38 +18146,60 @@ function mcpIdentityOf(toolName) {
 }
 
 // src/host/attribution.ts
-import { dirname, resolve as resolve2 } from "node:path";
-async function resolveWorkspaceAttribution(cwd, ports) {
-  if (cwd === void 0 || cwd === "") return void 0;
-  const start = resolve2(cwd);
-  const roots = ports.roots.registered();
-  let current = start;
-  let canonicalCwd;
-  for (; ; ) {
-    const canonical = await tryRealpath(ports.realpath, current);
-    if (canonical !== void 0) {
-      if (current === start) canonicalCwd = canonical;
-      const hit = roots.find((workspace) => workspace.path === canonical);
-      if (hit !== void 0) return { key: hit.path, registered: true, title: hit.title };
-    }
-    const parent = dirname(current);
-    if (parent === current) break;
-    current = parent;
-  }
-  if (canonicalCwd === void 0) {
-    ports.log.warn(
-      `\u4F1A\u8BDD cwd\u300C${start}\u300D\u65E0\u6CD5\u5F52\u5C5E\u5DE5\u4F5C\u533A\uFF1Arealpath \u5931\u8D25\uFF08\u76EE\u5F55\u53EF\u80FD\u5DF2\u88AB\u5220\u9664\uFF09\uFF0C\u672C\u6B21\u53EA\u7528\u7528\u6237\u7EA7\u9ED8\u8BA4\u6863`
-    );
-    return void 0;
-  }
-  return { key: canonicalCwd, registered: false };
-}
-async function tryRealpath(port, candidate) {
+import { resolve as resolve2 } from "node:path";
+
+// ../../tooling/host-kit/src/attribution.ts
+import path from "node:path";
+async function canonicalOf(io, candidate) {
   try {
-    return await port.realpath(candidate);
+    return await io.realpath(candidate);
   } catch {
     return void 0;
   }
+}
+async function walkUp(cwd, lookup, io) {
+  if (cwd === void 0 || cwd === "") return {};
+  const start = path.resolve(cwd);
+  let current = start;
+  let canonicalCwd;
+  for (; ; ) {
+    const canonical = await canonicalOf(io, current);
+    if (current === start) canonicalCwd = canonical;
+    if (canonical !== void 0) {
+      const hit = lookup(canonical);
+      if (hit !== void 0) {
+        return canonicalCwd === void 0 ? { hit } : { hit, canonicalCwd };
+      }
+    }
+    const parent = path.dirname(current);
+    if (parent === current) return canonicalCwd === void 0 ? {} : { canonicalCwd };
+    current = parent;
+  }
+}
+
+// src/host/attribution.ts
+async function resolveWorkspaceAttribution(cwd, ports) {
+  if (cwd === void 0 || cwd === "") return void 0;
+  const byPath = /* @__PURE__ */ new Map();
+  for (const workspace of ports.roots.registered()) {
+    if (!byPath.has(workspace.path)) byPath.set(workspace.path, workspace);
+  }
+  const lookup = (canonical) => {
+    const workspace = byPath.get(canonical);
+    return workspace === void 0 ? void 0 : { workspaceRoot: workspace.path, roots: [workspace.path] };
+  };
+  const { hit, canonicalCwd } = await walkUp(cwd, lookup, ports.realpath);
+  if (hit !== void 0) {
+    const workspace = byPath.get(hit.workspaceRoot);
+    if (workspace !== void 0) {
+      return { key: workspace.path, registered: true, title: workspace.title };
+    }
+  }
+  if (canonicalCwd !== void 0) return { key: canonicalCwd, registered: false };
+  ports.log.warn(
+    `\u4F1A\u8BDD cwd\u300C${resolve2(cwd)}\u300D\u65E0\u6CD5\u5F52\u5C5E\u5DE5\u4F5C\u533A\uFF1Arealpath \u5931\u8D25\uFF08\u76EE\u5F55\u53EF\u80FD\u5DF2\u88AB\u5220\u9664\uFF09\uFF0C\u672C\u6B21\u53EA\u7528\u7528\u6237\u7EA7\u9ED8\u8BA4\u6863`
+  );
+  return void 0;
 }
 
 // src/host/control.ts
@@ -18170,7 +18211,7 @@ import { readFile as readFile2 } from "node:fs/promises";
 // ../../node_modules/.pnpm/@deepseek-ai+dsh-atomic-write@0.2.2-rc.1_@deepseek-ai+cordis@4.1.0/node_modules/@deepseek-ai/dsh-atomic-write/lib/index.js
 import { createHash, randomBytes } from "node:crypto";
 import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname as dirname2 } from "node:path";
+import { dirname } from "node:path";
 import { setTimeout as setTimeout$1 } from "node:timers/promises";
 var WINDOWS_TRANSIENT_RENAME_ERRORS = /* @__PURE__ */ new Set([
   "EACCES",
@@ -18199,7 +18240,7 @@ async function renameAtomicTemp(temp, filename) {
   }
 }
 async function writeFileAtomic(filename, content, options) {
-  await mkdir(dirname2(filename), {
+  await mkdir(dirname(filename), {
     recursive: true,
     ...options.dirMode === void 0 ? {} : { mode: options.dirMode }
   });
@@ -18219,7 +18260,7 @@ async function writeFileAtomic(filename, content, options) {
 // ../../node_modules/.pnpm/@deepseek-ai+dsh-home-paths@0.2.2-rc.1_@deepseek-ai+cordis@4.1.0/node_modules/@deepseek-ai/dsh-home-paths/lib/index.js
 import { opendir, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname as dirname3, join, resolve as resolve3 } from "node:path";
+import { basename, dirname as dirname2, join, resolve as resolve3 } from "node:path";
 var DSH_HOME_DIR_NAME = ".dsh";
 var DEFAULT_DSH_HOME_DISPLAY = `~/${DSH_HOME_DIR_NAME}`;
 var DSH_HOME_ENV = "DSH_HOME";
@@ -18228,10 +18269,10 @@ var DEFAULT_AGENTS_HOME_DISPLAY = `~/${AGENTS_HOME_DIR_NAME}`;
 function defaultDshHome() {
   return join(homedir(), DSH_HOME_DIR_NAME);
 }
-function expandHomePath(path) {
-  if (path === "~") return homedir();
-  if (path.startsWith("~/") || path.startsWith("~\\")) return join(homedir(), path.slice(2));
-  return path;
+function expandHomePath(path2) {
+  if (path2 === "~") return homedir();
+  if (path2.startsWith("~/") || path2.startsWith("~\\")) return join(homedir(), path2.slice(2));
+  return path2;
 }
 function resolveRoot(configured, env, envName, fallback) {
   const fromEnv = env[envName];
@@ -18257,30 +18298,30 @@ function defaultsPath(configured) {
   if (override !== void 0 && override !== "") return override;
   return dshHomePath(DEFAULTS_DIR_NAME, DEFAULTS_FILE_NAME);
 }
-async function readDefaults(path, io, log) {
+async function readDefaults(path2, io, log) {
   let text;
   try {
-    text = await io.readFile(path);
+    text = await io.readFile(path2);
   } catch (error51) {
-    log.warn(`\u9ED8\u8BA4\u6863\u4E0D\u53EF\u8BFB\uFF08${path}\uFF0C${describeError(error51)}\uFF09\uFF0C\u5DF2\u6309\u7A7A\u6863\u5904\u7406`);
+    log.warn(`\u9ED8\u8BA4\u6863\u4E0D\u53EF\u8BFB\uFF08${path2}\uFF0C${describeError(error51)}\uFF09\uFF0C\u5DF2\u6309\u7A7A\u6863\u5904\u7406`);
     return EMPTY_DEFAULTS;
   }
   let raw;
   try {
     raw = JSON.parse(text);
   } catch (error51) {
-    log.warn(`\u9ED8\u8BA4\u6863\u4E0D\u662F\u5408\u6CD5 JSON\uFF08${path}\uFF0C${messageOf(error51)}\uFF09\uFF0C\u5DF2\u6309\u7A7A\u6863\u5904\u7406`);
+    log.warn(`\u9ED8\u8BA4\u6863\u4E0D\u662F\u5408\u6CD5 JSON\uFF08${path2}\uFF0C${messageOf(error51)}\uFF09\uFF0C\u5DF2\u6309\u7A7A\u6863\u5904\u7406`);
     return EMPTY_DEFAULTS;
   }
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
-    return degraded(log, path, `\u9876\u5C42\u4E0D\u662F\u5BF9\u8C61\uFF08\u6536\u5230 ${describeRaw(raw)}\uFF09`);
+    return degraded(log, path2, `\u9876\u5C42\u4E0D\u662F\u5BF9\u8C61\uFF08\u6536\u5230 ${describeRaw(raw)}\uFF09`);
   }
   const record2 = raw;
   if (record2.version !== 1) {
-    return degraded(log, path, `version \u4E0D\u662F 1\uFF08\u6536\u5230 ${describeRaw(record2.version)}\uFF09`);
+    return degraded(log, path2, `version \u4E0D\u662F 1\uFF08\u6536\u5230 ${describeRaw(record2.version)}\uFF09`);
   }
   if (!Array.isArray(record2.disabled)) {
-    return degraded(log, path, `disabled \u4E0D\u662F\u6570\u7EC4\uFF08\u6536\u5230 ${describeRaw(record2.disabled)}\uFF09`);
+    return degraded(log, path2, `disabled \u4E0D\u662F\u6570\u7EC4\uFF08\u6536\u5230 ${describeRaw(record2.disabled)}\uFF09`);
   }
   const kept = [];
   const dropped = [];
@@ -18297,32 +18338,32 @@ async function readDefaults(path, io, log) {
     kept.push(parsed2.text);
   }
   if (dropped.length > 0) {
-    log.warn(`\u9ED8\u8BA4\u6863\u91CC\u6709 ${dropped.length} \u6761\u6761\u76EE\u4E0D\u5408\u6CD5\uFF0C\u5DF2\u4E22\u5F03\uFF1A${sampleOf(dropped)}\uFF08${path}\uFF09`);
+    log.warn(`\u9ED8\u8BA4\u6863\u91CC\u6709 ${dropped.length} \u6761\u6761\u76EE\u4E0D\u5408\u6CD5\uFF0C\u5DF2\u4E22\u5F03\uFF1A${sampleOf(dropped)}\uFF08${path2}\uFF09`);
   }
   return { version: 1, disabled: sortUnique(kept) };
 }
-async function writeDefaults(path, file2, io) {
+async function writeDefaults(path2, file2, io) {
   const disabled = sortUnique(file2.disabled);
-  await io.writeFile(path, serialize(disabled));
+  await io.writeFile(path2, serialize(disabled));
 }
 function withSnapshot(state, snapshot2) {
   return { ...state, snapshot: sortUnique(snapshot2) };
 }
 function createNodeDefaultsIo(deps = {}) {
-  const readText = deps.readFile ?? (async (path) => await readFile2(path, "utf8"));
+  const readText = deps.readFile ?? (async (path2) => await readFile2(path2, "utf8"));
   const writeAtomic = deps.writeAtomic ?? writeFileAtomic;
   return {
-    readFile: async (path) => await readText(path),
-    writeFile: async (path, data) => {
-      await writeAtomic(path, data, {
+    readFile: async (path2) => await readText(path2),
+    writeFile: async (path2, data) => {
+      await writeAtomic(path2, data, {
         mode: DEFAULTS_FILE_MODE,
         dirMode: DEFAULTS_DIR_MODE
       });
     }
   };
 }
-function degraded(log, path, reason) {
-  log.warn(`\u9ED8\u8BA4\u6863 schema \u4E0D\u7B26\uFF08${path}\uFF0C${reason}\uFF09\uFF0C\u5DF2\u6309\u7A7A\u6863\u5904\u7406`);
+function degraded(log, path2, reason) {
+  log.warn(`\u9ED8\u8BA4\u6863 schema \u4E0D\u7B26\uFF08${path2}\uFF0C${reason}\uFF09\uFF0C\u5DF2\u6309\u7A7A\u6863\u5904\u7406`);
   return EMPTY_DEFAULTS;
 }
 function serialize(disabled) {
@@ -18552,13 +18593,13 @@ function workspacesPath(configured) {
   if (override !== void 0 && override !== "") return override;
   return dshHomePath(DEFAULTS_DIR_NAME, WORKSPACES_FILE_NAME);
 }
-async function readWorkspaces(path, io, log) {
+async function readWorkspaces(path2, io, log) {
   let text;
   try {
-    text = await io.readFile(path);
+    text = await io.readFile(path2);
   } catch (error51) {
     if (errorCodeOf2(error51) !== "ENOENT") {
-      log.warn(`\u5DE5\u4F5C\u533A\u6863\u4E0D\u53EF\u8BFB\uFF08${path}\uFF0C${describeError2(error51)}\uFF09\uFF0C\u5DF2\u6309\u7A7A\u6863\u5904\u7406`);
+      log.warn(`\u5DE5\u4F5C\u533A\u6863\u4E0D\u53EF\u8BFB\uFF08${path2}\uFF0C${describeError2(error51)}\uFF09\uFF0C\u5DF2\u6309\u7A7A\u6863\u5904\u7406`);
     }
     return EMPTY_WORKSPACES;
   }
@@ -18566,21 +18607,21 @@ async function readWorkspaces(path, io, log) {
   try {
     raw = JSON.parse(text);
   } catch (error51) {
-    log.warn(`\u5DE5\u4F5C\u533A\u6863\u4E0D\u662F\u5408\u6CD5 JSON\uFF08${path}\uFF0C${messageOf2(error51)}\uFF09\uFF0C\u5DF2\u6309\u7A7A\u6863\u5904\u7406`);
+    log.warn(`\u5DE5\u4F5C\u533A\u6863\u4E0D\u662F\u5408\u6CD5 JSON\uFF08${path2}\uFF0C${messageOf2(error51)}\uFF09\uFF0C\u5DF2\u6309\u7A7A\u6863\u5904\u7406`);
     return EMPTY_WORKSPACES;
   }
   if (!isRecord(raw)) {
-    return degraded2(log, path, `\u9876\u5C42\u4E0D\u662F\u5BF9\u8C61\uFF08\u6536\u5230 ${describeRaw3(raw)}\uFF09`);
+    return degraded2(log, path2, `\u9876\u5C42\u4E0D\u662F\u5BF9\u8C61\uFF08\u6536\u5230 ${describeRaw3(raw)}\uFF09`);
   }
   if (raw.version !== WORKSPACES_VERSION) {
     return degraded2(
       log,
-      path,
+      path2,
       `version \u4E0D\u662F ${WORKSPACES_VERSION}\uFF08\u6536\u5230 ${describeRaw3(raw.version)}\uFF09`
     );
   }
   if (!isRecord(raw.workspaces)) {
-    return degraded2(log, path, `workspaces \u4E0D\u662F\u5BF9\u8C61\uFF08\u6536\u5230 ${describeRaw3(raw.workspaces)}\uFF09`);
+    return degraded2(log, path2, `workspaces \u4E0D\u662F\u5BF9\u8C61\uFF08\u6536\u5230 ${describeRaw3(raw.workspaces)}\uFF09`);
   }
   const problems = [];
   const entries = [];
@@ -18626,7 +18667,7 @@ async function readWorkspaces(path, io, log) {
     entries.length = MAX_WORKSPACE_ENTRIES;
   }
   if (problems.length > 0) {
-    log.warn(`\u5DE5\u4F5C\u533A\u6863\u6709\u4E0D\u53EF\u7528\u6761\u76EE\uFF0C\u5DF2\u4E22\u5F03\u6216\u5F52\u4E00\uFF08${path}\uFF09\uFF1A${problems.join("\uFF1B")}`);
+    log.warn(`\u5DE5\u4F5C\u533A\u6863\u6709\u4E0D\u53EF\u7528\u6761\u76EE\uFF0C\u5DF2\u4E22\u5F03\u6216\u5F52\u4E00\uFF08${path2}\uFF09\uFF1A${problems.join("\uFF1B")}`);
   }
   return {
     version: WORKSPACES_VERSION,
@@ -18635,8 +18676,8 @@ async function readWorkspaces(path, io, log) {
     )
   };
 }
-async function writeWorkspaces(path, file2, io) {
-  await io.writeFile(path, serialize2(file2));
+async function writeWorkspaces(path2, file2, io) {
+  await io.writeFile(path2, serialize2(file2));
 }
 function disabledOf(file2, key) {
   if (!Object.hasOwn(file2.workspaces, key)) return NO_TEXTS3;
@@ -18672,8 +18713,8 @@ function withEntry(file2, key, disabled, log) {
     )
   };
 }
-function degraded2(log, path, reason) {
-  log.warn(`\u5DE5\u4F5C\u533A\u6863 schema \u4E0D\u7B26\uFF08${path}\uFF0C${reason}\uFF09\uFF0C\u5DF2\u6309\u7A7A\u6863\u5904\u7406`);
+function degraded2(log, path2, reason) {
+  log.warn(`\u5DE5\u4F5C\u533A\u6863 schema \u4E0D\u7B26\uFF08${path2}\uFF0C${reason}\uFF09\uFF0C\u5DF2\u6309\u7A7A\u6863\u5904\u7406`);
   return EMPTY_WORKSPACES;
 }
 function serialize2(file2) {
@@ -19057,9 +19098,9 @@ async function resolveWorkspaceTarget(deps, target) {
     }
     return { ok: true, key: attribution.key };
   }
-  const path = target.path;
-  if (!isAbsolute2(path)) {
-    return unresolvedWorkspace(path, `\u8DEF\u5F84\u300C${path}\u300D\u4E0D\u662F\u7EDD\u5BF9\u8DEF\u5F84`);
+  const path2 = target.path;
+  if (!isAbsolute2(path2)) {
+    return unresolvedWorkspace(path2, `\u8DEF\u5F84\u300C${path2}\u300D\u4E0D\u662F\u7EDD\u5BF9\u8DEF\u5F84`);
   }
   let choices;
   try {
@@ -19068,13 +19109,13 @@ async function resolveWorkspaceTarget(deps, target) {
     deps.log.warn(`\u65E0\u6CD5\u8BFB\u53D6\u5DF2\u767B\u8BB0\u5DE5\u4F5C\u533A\u5217\u8868\uFF1A${messageOf3(error51)}`);
     choices = [];
   }
-  if (!choices.some((choice) => choice.key === path)) {
+  if (!choices.some((choice) => choice.key === path2)) {
     return unresolvedWorkspace(
-      path,
-      `\u8DEF\u5F84\u300C${path}\u300D\u4E0D\u5728\u5DF2\u767B\u8BB0\u5DE5\u4F5C\u533A\u5217\u8868\u91CC\uFF08\u8981\u6C42\u7EDD\u5BF9\u8DEF\u5F84 + realpath \u6210\u529F + \u5DF2\u767B\u8BB0\uFF09`
+      path2,
+      `\u8DEF\u5F84\u300C${path2}\u300D\u4E0D\u5728\u5DF2\u767B\u8BB0\u5DE5\u4F5C\u533A\u5217\u8868\u91CC\uFF08\u8981\u6C42\u7EDD\u5BF9\u8DEF\u5F84 + realpath \u6210\u529F + \u5DF2\u767B\u8BB0\uFF09`
     );
   }
-  return { ok: true, key: path };
+  return { ok: true, key: path2 };
 }
 function unresolvedWorkspace(subject, reason) {
   return {
@@ -19570,7 +19611,7 @@ function messageOf4(error51) {
 // src/host/host-runtime.ts
 import { readFile as readFile3, realpath as realpath2, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { dirname as dirname4, join as join2, resolve as resolve4 } from "node:path";
+import { dirname as dirname3, join as join2, resolve as resolve4 } from "node:path";
 import { pathToFileURL } from "node:url";
 var DSH_PACKAGE = "@deepseek-ai/dsh";
 var SESSION_PACKAGE = "@deepseek-ai/dsh-session";
@@ -19638,9 +19679,9 @@ async function importFromModulePath(modulePath, session, log) {
   }
   return importHostModule(target, session, log);
 }
-async function isDirectory(path) {
+async function isDirectory(path2) {
   try {
-    return (await stat(path)).isDirectory();
+    return (await stat(path2)).isDirectory();
   } catch {
     return false;
   }
@@ -19668,7 +19709,7 @@ async function resolveFromProcessArgv(log) {
     log.warn(`realpath(process.argv[1]) \u5931\u8D25\uFF08${describeError3(error51)}\uFF09`);
     return void 0;
   }
-  const packageDir = await findDshPackageDir(dirname4(realEntry));
+  const packageDir = await findDshPackageDir(dirname3(realEntry));
   if (packageDir === void 0) {
     log.warn(`process.argv[1] \u7684\u7956\u5148\u76EE\u5F55\u91CC\u6CA1\u6709 name \u4E3A ${DSH_PACKAGE} \u7684 package.json`);
     return void 0;
@@ -19686,7 +19727,7 @@ async function findDshPackageDir(startDir) {
   for (; ; ) {
     const name2 = await readPackageName(join2(dir, "package.json"));
     if (name2 === DSH_PACKAGE) return dir;
-    const parent = dirname4(dir);
+    const parent = dirname3(dir);
     if (parent === dir) return void 0;
     dir = parent;
   }
@@ -20363,13 +20404,13 @@ async function resolveWorkspace(deps, request) {
       }
     };
   }
-  const path = request.workspacePath ?? "";
-  const choice = choicesOf(deps).find((item) => item.key === path);
+  const path2 = request.workspacePath ?? "";
+  const choice = choicesOf(deps).find((item) => item.key === path2);
   if (choice === void 0) {
     return {
       ok: false,
-      failure: failure("workspace-unresolved", `\u8DEF\u5F84\u300C${path}\u300D\u4E0D\u662F\u5DF2\u767B\u8BB0\u7684\u5DE5\u4F5C\u533A\uFF08\u53EA\u63A5\u53D7\u5DE5\u4F5C\u533A\u8DEF\u5F84\u4E0B\u62C9\u91CC\u7684\u89C4\u8303\u8DEF\u5F84\uFF09`, {
-        subject: path
+      failure: failure("workspace-unresolved", `\u8DEF\u5F84\u300C${path2}\u300D\u4E0D\u662F\u5DF2\u767B\u8BB0\u7684\u5DE5\u4F5C\u533A\uFF08\u53EA\u63A5\u53D7\u5DE5\u4F5C\u533A\u8DEF\u5F84\u4E0B\u62C9\u91CC\u7684\u89C4\u8303\u8DEF\u5F84\uFF09`, {
+        subject: path2
       })
     };
   }
@@ -20621,9 +20662,9 @@ async function defaultsStateOf(deps, defaults) {
   const readable = await canReadFile(deps.defaultsIo, deps.defaultsPath);
   return { readable, corrupt: readable };
 }
-async function canReadFile(io, path) {
+async function canReadFile(io, path2) {
   try {
-    await io.readFile(path);
+    await io.readFile(path2);
     return true;
   } catch {
     return false;
@@ -21668,7 +21709,6 @@ var Config = Schema.object({
   workspacesFile: Schema.string().description("\u8986\u76D6\u5DE5\u4F5C\u533A\u6863\u8DEF\u5F84\uFF08\u7EDD\u5BF9\u8DEF\u5F84\uFF09\uFF1B\u7701\u7565\u65F6\u4E3A $DSH_HOME/session-tool-toggle/workspaces.json"),
   hostModuleBase: Schema.string().description("\u8986\u76D6\u5BBF\u4E3B @deepseek-ai/dsh-session \u7684\u89E3\u6790\u951A\u70B9\uFF08\u7EDD\u5BF9\u8DEF\u5F84\uFF0C\u6392\u969C / \u5355\u6D4B\u7528\uFF09")
 }).description("\u4F1A\u8BDD\u7EA7\u5DE5\u5177\u9762\u5F00\u5173\uFF1A/tools \u547D\u4EE4\u9762\u4E0E Web \u9762\u677F\u5171\u7528\u7684\u63D2\u4EF6\u914D\u7F6E");
-var LOG_PREFIX = "dsh-plugin-session-tool-toggle\uFF1A";
 var TEARDOWN_LABEL = "dsh-plugin-session-tool-toggle: \u7EDF\u4E00\u62C6\u5378";
 var AGENT_LAYER_LABEL = "dsh-plugin-session-tool-toggle: \u6BCF agent \u5C42";
 var REPORTED_TOOL_CHANGES = 3;
@@ -21681,7 +21721,7 @@ var PROJECTION_STATE_SCHEMA = external_exports.object({
   updatedAt: external_exports.number()
 });
 function apply(ctx, config2) {
-  const log = createLog(ctx);
+  const log = createLog(ctx, "dsh-plugin-session-tool-toggle");
   const settings = readSettings(config2, log);
   const protectedNames = /* @__PURE__ */ new Set([
     ...PROTECTED_BASELINE,
@@ -21812,7 +21852,7 @@ function apply(ctx, config2) {
         }))
       },
       // 端口形状见 `attribution.ts` 的 `RealpathPort`：方法对象而不是裸函数。
-      realpath: { realpath: (path) => realpath3(path) },
+      realpath: { realpath: (path2) => realpath3(path2) },
       log
     });
   }
@@ -22033,23 +22073,6 @@ function apply(ctx, config2) {
   log.info(
     `\u5DF2\u88C5\u914D\uFF1Ainject=[${inject.join(", ")}]\uFF0C\u9ED8\u8BA4\u6863 ${defaultsFile}\uFF0C\u5DE5\u4F5C\u533A\u6863 ${workspacesFile}\uFF0C\u4FDD\u62A4\u540D\u5355 ${protectedNames.size} \u9879\uFF0C\u6301\u4E45\u5316 ${settings.storage === "memory" ? "memory\uFF08\u914D\u7F6E\u6307\u5B9A\uFF09" : "auto\uFF08\u5F85\u9996\u4E2A\u4F1A\u8BDD\u89E3\u6790\uFF09"}`
   );
-}
-function createLog(ctx) {
-  const line = (message) => `${LOG_PREFIX}${message}`;
-  return {
-    info: (message) => {
-      ctx.logger.info(line(message));
-      console.info(line(message));
-    },
-    warn: (message) => {
-      ctx.logger.warn(line(message));
-      console.warn(line(message));
-    },
-    error: (message) => {
-      ctx.logger.error(line(message));
-      console.error(line(message));
-    }
-  };
 }
 function readSettings(raw, log) {
   if (raw === void 0 || raw === null) {

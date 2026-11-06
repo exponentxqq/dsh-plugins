@@ -18,9 +18,8 @@
  * 未声明，软注册永远可能不触发。等上游定名后由后续变更在本文件加常量 + `declare module`
  * 增补 + `ctx.slots.inject` 软注册；**本文件因此没有任何 `declare module` 增补**。
  *
- * **类型权威（D3/D4）**：`workspace-config.section` 的座位契约由 holder 包
- * `dsh-plugin-workspace-config` 的 `./client` 类型入口提供。本文件只以 `import type`
- * 消费——`verbatimModuleSyntax` 下零产物，贡献方 bundle 不含 holder 包名；座位字面量
+ * **类型权威（D-15）**：`workspace-config.section` 的座位契约由 `@dsh-plugins/contracts`
+ * 提供。本文件只以 `import type` 消费——`verbatimModuleSyntax` 下零产物；座位字面量
  * 由本文件各持一份，靠 `WorkspaceConfigSectionSeat` 字面量类型断言而不是共享运行时常量
  * 保证一致（写错字面量即 typecheck 失败）。
  *
@@ -32,10 +31,16 @@
  */
 
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-// ① 取得 `workspace-config.section` 的 SlotMap 增补（holder 的 `declare module` 在此解析）。
-import type {} from 'dsh-plugin-workspace-config/client'
-// ② 取得座位名的字面量类型：本地常量赋给它是「各包各持一份字面量」的类型守护。
-import type { WorkspaceConfigSectionSeat } from 'dsh-plugin-workspace-config/client'
+// ① 取得座位名的字面量类型与 SlotMap 条目形状（D-15：权威在 @dsh-plugins/contracts）。
+import type { WorkspaceConfigSectionSeat, WorkspaceConfigSectionSlot } from '@dsh-plugins/contracts'
+
+// 本座位的 SlotMap 增补：形状取自契约包（唯一权威），增补动作留在消费方自己的
+// client 程序——纯类型包没有 DSH 依赖，无法从它的位置解析 `@deepseek-ai/dsh-client-ui-slots`。
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface SlotMap {
+    'workspace-config.section': WorkspaceConfigSectionSlot
+  }
+}
 
 /**
  * 会话头部工具区座位：`list` / scope `session`，右对齐、按 order 升序。
@@ -58,9 +63,9 @@ export const PANEL_ORDER = 20
 /**
  * 统一「工作区配置」弹窗的分节座位：`list` / scope `root`，owner 只有 `{ close }`。
  *
- * 座位名与形状的唯一权威在 holder（`dsh-plugin-workspace-config/client` 的
- * `WorkspaceConfigSectionSeat` / `WorkspaceConfigSectionOwnerProps`）。holder 以
- * `children` 声明本座位（Declaring is claiming），本插件用 `ctx.slots.inject` 软注册：
+ * 座位名与形状的唯一权威在 `@dsh-plugins/contracts`（`WorkspaceConfigSectionSeat` /
+ * `WorkspaceConfigSectionSlot`）。holder 以 `children` 声明本座位（Declaring is claiming），
+ * 本插件用 `ctx.slots.inject` 软注册：
  * holder 缺席时回调永不触发，也不报错、不残留 UI（组合矩阵「只贡献方」格）。
  */
 export const SECTION_SEAT: WorkspaceConfigSectionSeat = 'workspace-config.section'

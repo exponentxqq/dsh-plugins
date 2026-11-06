@@ -6913,14 +6913,14 @@ var require_parser = __commonJS({
             case "scalar":
             case "single-quoted-scalar":
             case "double-quoted-scalar": {
-              const fs2 = this.flowScalar(this.type);
+              const fs3 = this.flowScalar(this.type);
               if (atNextItem || it.value) {
-                map.items.push({ start, key: fs2, sep: [] });
+                map.items.push({ start, key: fs3, sep: [] });
                 this.onKeyLine = true;
               } else if (it.sep) {
-                this.stack.push(fs2);
+                this.stack.push(fs3);
               } else {
-                Object.assign(it, { key: fs2, sep: [] });
+                Object.assign(it, { key: fs3, sep: [] });
                 this.onKeyLine = true;
               }
               return;
@@ -7048,13 +7048,13 @@ var require_parser = __commonJS({
             case "scalar":
             case "single-quoted-scalar":
             case "double-quoted-scalar": {
-              const fs2 = this.flowScalar(this.type);
+              const fs3 = this.flowScalar(this.type);
               if (!it || it.value)
-                fc.items.push({ start: [], key: fs2, sep: [] });
+                fc.items.push({ start: [], key: fs3, sep: [] });
               else if (it.sep)
-                this.stack.push(fs2);
+                this.stack.push(fs3);
               else
-                Object.assign(it, { key: fs2, sep: [] });
+                Object.assign(it, { key: fs3, sep: [] });
               return;
             }
             case "flow-map-end":
@@ -7565,84 +7565,109 @@ var AgentLayers = class {
   }
 };
 
-// src/host/attribution.ts
+// ../../tooling/host-kit/src/attribution.ts
 import path from "node:path";
-var Attributor = class {
-  /**
-   * @param io - canonical 化 seam。
-   */
-  constructor(io) {
-    this.io = io;
+var EMPTY_INDEX = { primary: /* @__PURE__ */ new Map(), granted: /* @__PURE__ */ new Map() };
+async function canonicalOf(io, candidate) {
+  try {
+    return await io.realpath(candidate);
+  } catch {
+    return void 0;
   }
-  /** canonical 根 → 拥有它的工作区主根。 */
-  owners = /* @__PURE__ */ new Map();
-  /** 工作区主根 → 它的根集合（登记拼写）。 */
-  rootSets = /* @__PURE__ */ new Map();
-  /**
-   * 按当前工作区根集合重建索引。
-   *
-   * 分两遍认领：先各自的主根（谁的「家」谁做主，多工作区认领同一个主根时按登记顺序先到先得），
-   * 再补各附加根（只认领还没有主的根，彼此仍按登记顺序先到先得）。
-   *
-   * 此刻 canonical 化失败（路径不存在）的根被略过：把会话归属到一个谁都进不去的目录是虚构，
-   * 扫描层也因为同一个原因跳过了它。
-   * @param workspaces - 按登记顺序排列的根集合。
-   */
-  async update(workspaces) {
-    this.owners.clear();
-    this.rootSets.clear();
-    const granted = [];
-    for (const workspace of workspaces) {
-      this.rootSets.set(workspace.primaryRoot, workspace.roots);
-      for (const root of workspace.roots) {
-        if (root === workspace.primaryRoot) continue;
-        granted.push({ root, owner: workspace.primaryRoot });
+}
+async function buildRootIndex(workspaces, io, options = {}) {
+  const primary = /* @__PURE__ */ new Map();
+  const granted = /* @__PURE__ */ new Map();
+  for (const workspace of workspaces) {
+    const claim = { workspaceRoot: workspace.primaryRoot, roots: workspace.roots };
+    const canonical = await canonicalOf(io, workspace.primaryRoot);
+    if (canonical === void 0) continue;
+    const existing = primary.get(canonical);
+    if (existing !== void 0) {
+      options.onAnomaly?.(
+        `duplicate primary root ${canonical}: ${workspace.primaryRoot} loses to ${existing.workspaceRoot} (first write wins)`
+      );
+      continue;
+    }
+    primary.set(canonical, claim);
+  }
+  for (const workspace of workspaces) {
+    const claim = { workspaceRoot: workspace.primaryRoot, roots: workspace.roots };
+    if (workspace.roots[0] !== workspace.primaryRoot) {
+      options.onAnomaly?.(
+        `primary root ${workspace.primaryRoot} is not roots[0] (${JSON.stringify(workspace.roots[0])}); claiming it in the primary tier and the remaining roots in the granted tier, without dropping any root`
+      );
+    }
+    for (const root of workspace.roots) {
+      if (root === workspace.primaryRoot) continue;
+      const canonical = await canonicalOf(io, root);
+      if (canonical !== void 0 && !granted.has(canonical)) granted.set(canonical, claim);
+    }
+  }
+  return { primary, granted };
+}
+function lookupIn(index) {
+  return (canonical) => index.primary.get(canonical) ?? index.granted.get(canonical);
+}
+async function walkUp(cwd, lookup, io) {
+  if (cwd === void 0 || cwd === "") return {};
+  const start = path.resolve(cwd);
+  let current = start;
+  let canonicalCwd;
+  for (; ; ) {
+    const canonical = await canonicalOf(io, current);
+    if (current === start) canonicalCwd = canonical;
+    if (canonical !== void 0) {
+      const hit = lookup(canonical);
+      if (hit !== void 0) {
+        return canonicalCwd === void 0 ? { hit } : { hit, canonicalCwd };
       }
     }
-    for (const workspace of workspaces) {
-      await this.claim(workspace.primaryRoot, workspace.primaryRoot);
-    }
-    for (const entry of granted) {
-      await this.claim(entry.root, entry.owner);
-    }
+    const parent = path.dirname(current);
+    if (parent === current) return canonicalCwd === void 0 ? {} : { canonicalCwd };
+    current = parent;
   }
+}
+var RootAttributor = class {
   /**
-   * 认领一个根：已经是别人的就不动。
-   * @param root - 待认领的根（任意拼写）。
-   * @param owner - 认领它的工作区主根。
+   * @param io - the canonicalization seam.
+   * @param options - anomaly sink forwarded to every rebuild.
    */
-  async claim(root, owner) {
-    const canonical = await this.canonical(root);
-    if (canonical !== void 0 && !this.owners.has(canonical)) this.owners.set(canonical, owner);
+  constructor(io, options = {}) {
+    this.io = io;
+    this.options = options;
+  }
+  /** The committed index (rebuilt on every root-set update, replaced atomically). */
+  committed = EMPTY_INDEX;
+  /**
+   * Rebuild the index from scratch and commit it with one assignment.
+   * @param workspaces - the ordered root sets, exactly as scanned.
+   */
+  async update(workspaces) {
+    const next = await buildRootIndex(workspaces, this.io, this.options);
+    this.committed = next;
   }
   /**
-   * 归属一个会话目录。
-   * @param cwd - 会话创建目录（绝对路径）。
-   * @returns 归属结果；没有任何工作区认领时为 null。
+   * The currently committed index (a stable snapshot between updates).
+   * @returns the committed index.
+   */
+  index() {
+    return this.committed;
+  }
+  /**
+   * Attribute one session directory with fail-closed miss semantics.
+   *
+   * The snapshot is captured once, before any await: a concurrent `update()`
+   * commits a whole new index but never changes the tables this call reads.
+   * @param cwd - the session's creation directory (an absolute path).
+   * @returns the attribution, or null when nothing claims the directory.
    */
   async attribute(cwd) {
-    if (cwd === "" || this.owners.size === 0) return null;
-    let current = path.resolve(cwd);
-    for (; ; ) {
-      const canonical = await this.canonical(current);
-      const owner = canonical === void 0 ? void 0 : this.owners.get(canonical);
-      if (owner !== void 0) return { workspaceRoot: owner, roots: this.rootSets.get(owner) ?? [] };
-      const parent = path.dirname(current);
-      if (parent === current) return null;
-      current = parent;
-    }
-  }
-  /**
-   * canonical 化一个路径，失败即「不是根」。
-   * @param candidate - 待尝试的路径。
-   * @returns canonical 路径，或 undefined。
-   */
-  async canonical(candidate) {
-    try {
-      return await this.io.realpath(candidate);
-    } catch {
-      return void 0;
-    }
+    const snapshot = this.committed;
+    if (cwd === void 0 || cwd === "") return null;
+    if (snapshot.primary.size === 0 && snapshot.granted.size === 0) return null;
+    const { hit } = await walkUp(cwd, lookupIn(snapshot), this.io);
+    return hit ?? null;
   }
 };
 
@@ -7848,13 +7873,32 @@ async function discoverCommands(request, io, log) {
 }
 
 // src/host/host-io.ts
-import { promises as fs, watch as watchDirectory } from "node:fs";
+import { promises as fs2 } from "node:fs";
 import os from "node:os";
 import path3 from "node:path";
-var nodeCommandIo = {
-  readDir: async (dir) => await fs.readdir(dir, { withFileTypes: true }),
-  readFile: async (file) => await fs.readFile(file, "utf8")
-};
+
+// ../../tooling/host-kit/src/log.ts
+function createLog(ctx, prefix) {
+  const line = (message) => `${prefix}: ${message}`;
+  return {
+    info: (message) => {
+      ctx.logger.info(line(message));
+      console.info(line(message));
+    },
+    warn: (message) => {
+      ctx.logger.warn(line(message));
+      console.warn(line(message));
+    },
+    error: (message) => {
+      ctx.logger.error(line(message));
+      console.error(line(message));
+    }
+  };
+}
+
+// ../../tooling/host-kit/src/host-io.ts
+import { promises as fs } from "node:fs";
+import { watch as watchDirectory } from "node:fs";
 var nodeRealpathIo = {
   realpath: async (candidate) => await fs.realpath(candidate)
 };
@@ -7870,6 +7914,12 @@ var nodeWatchIo = {
     listener();
   })
 };
+
+// src/host/host-io.ts
+var nodeCommandIo = {
+  readDir: async (dir) => await fs2.readdir(dir, { withFileTypes: true }),
+  readFile: async (file) => await fs2.readFile(file, "utf8")
+};
 function harnessHome(env = process.env, home = os.homedir()) {
   const configured = env.DSH_HOME?.trim();
   if (configured !== void 0 && configured !== "") return path3.resolve(configured);
@@ -7879,21 +7929,7 @@ function userCommandsDir(env = process.env, home = os.homedir()) {
   return path3.join(harnessHome(env, home), USER_COMMANDS_DIR_NAME);
 }
 function commandLog(ctx) {
-  const line = (message) => `dsh-plugin-user-commands: ${message}`;
-  return {
-    info: (message) => {
-      ctx.logger.info(line(message));
-      console.info(line(message));
-    },
-    warn: (message) => {
-      ctx.logger.warn(line(message));
-      console.warn(line(message));
-    },
-    error: (message) => {
-      ctx.logger.error(line(message));
-      console.error(line(message));
-    }
-  };
+  return createLog(ctx, "dsh-plugin-user-commands");
 }
 
 // src/host/inventory.ts
@@ -8112,7 +8148,7 @@ async function invokeCommand(command, rawInput, deps) {
   return { kind: "success", text: `\u5DF2\u63D0\u4EA4 /${command.name}` };
 }
 
-// src/host/roots.ts
+// ../../tooling/host-kit/src/roots.ts
 function workspaceRoots(ctx) {
   const registry = ctx.get("workspaceRegistry");
   if (registry === void 0) return [];
@@ -8127,22 +8163,18 @@ function workspaceRoots(ctx) {
   });
 }
 
-// src/host/triggers.ts
+// ../../tooling/host-kit/src/triggers.ts
 function installTriggers(ctx, rescan) {
   const disposers = [];
   const grant = ctx.get("multiRootRegistry");
   if (grant !== void 0) {
     try {
-      disposers.push(grant.onChange(() => {
-        rescan();
-      }));
+      disposers.push(grant.onChange(() => rescan()));
     } catch {
     }
   }
   try {
-    disposers.push(ctx.on("domain/changed", () => {
-      rescan();
-    }));
+    disposers.push(ctx.on("domain/changed", () => rescan()));
   } catch {
   }
   return disposers;
@@ -8150,31 +8182,29 @@ function installTriggers(ctx, rescan) {
 
 // src/host/watcher.ts
 import path4 from "node:path";
+
+// ../../tooling/host-kit/src/watcher.ts
 var DEFAULT_DEBOUNCE_MS = 250;
-function projectLadder(root) {
-  return [path4.join(root, COMMANDS_DIR), path4.join(root, ".dsh"), root];
-}
-function userLadder(userDir) {
-  return [userDir, path4.dirname(userDir)];
-}
-async function watchTargets(io, userDir, roots) {
-  const targets = /* @__PURE__ */ new Set();
-  for (const ladder of [userLadder(userDir), ...roots.map(projectLadder)]) {
-    for (const step of ladder) {
-      if (await io.isDirectory(step)) {
-        targets.add(step);
-        break;
-      }
-    }
+async function deepestExisting(io, ladder, options = {}) {
+  for (const candidate of ladder) {
+    if (await io.isDirectory(candidate)) return candidate;
   }
-  return [...targets];
+  return options.fallbackToLast === true ? ladder[ladder.length - 1] : void 0;
+}
+async function ladderTargets(io, ladders, options = {}) {
+  const targets = [];
+  for (const ladder of ladders) {
+    const target = await deepestExisting(io, ladder, options);
+    if (target !== void 0 && !targets.includes(target)) targets.push(target);
+  }
+  return targets;
 }
 var DirectoryWatcher = class {
   /**
-   * @param io - 监听 seam。
-   * @param onChange - 要安排的重扫。
-   * @param log - 不可监听目录的警告出口。
-   * @param debounceMs - 文件系统事件的合并窗口。
+   * @param io - the watch seam.
+   * @param onChange - the rescan to schedule.
+   * @param log - sink for unwatchable-directory warnings.
+   * @param debounceMs - how long to coalesce filesystem events.
    */
   constructor(io, onChange, log, debounceMs = DEFAULT_DEBOUNCE_MS) {
     this.io = io;
@@ -8182,15 +8212,16 @@ var DirectoryWatcher = class {
     this.log = log;
     this.debounceMs = debounceMs;
   }
-  /** 按目录索引的存活监听器。 */
+  /** Live watchers by directory. */
   watchers = /* @__PURE__ */ new Map();
-  /** 已挂起的防抖定时器。 */
+  /** The pending debounce timer, if one is armed. */
   timer;
   /**
-   * 让监听集合恰好等于这批目录。
+   * Watch exactly this directory set.
    *
-   * 离场的目录被释放、新来的被监听；某个目录监不起来只报一条警告，不影响其余目录。
-   * @param dirs - 要监听的目录。
+   * Directories that left the set are released and new ones are watched; a
+   * directory that cannot be watched is reported without failing the rest.
+   * @param dirs - the directories to watch.
    */
   arm(dirs) {
     const wanted = new Set(dirs);
@@ -8205,19 +8236,17 @@ var DirectoryWatcher = class {
     for (const dir of wanted) {
       if (this.watchers.has(dir)) continue;
       try {
-        this.watchers.set(dir, this.io.watch(dir, () => {
-          this.schedule();
-        }));
+        this.watchers.set(dir, this.io.watch(dir, () => this.schedule()));
       } catch (error) {
-        this.log.warn(`\u65E0\u6CD5\u76D1\u542C ${dir}\uFF1A${String(error)}\uFF1B\u53EF\u6267\u884C /commands-reload \u624B\u52A8\u5237\u65B0`);
+        this.log.warn(`cannot watch ${dir}: ${String(error)}; use /mcp-reload to pick up changes there`);
       }
     }
   }
-  /** 当前正在监听的目录。 */
+  /** The directories currently watched. */
   watched() {
     return [...this.watchers.keys()];
   }
-  /** 停止一切监听并丢弃挂起的重扫。 */
+  /** Stop watching everything and drop a pending rescan. */
   dispose() {
     if (this.timer !== void 0) {
       clearTimeout(this.timer);
@@ -8231,7 +8260,7 @@ var DirectoryWatcher = class {
     }
     this.watchers.clear();
   }
-  /** 把一次文件系统事件合并成一次重扫。 */
+  /** Coalesce one filesystem event into a single rescan. */
   schedule() {
     if (this.timer !== void 0) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
@@ -8240,6 +8269,17 @@ var DirectoryWatcher = class {
     }, this.debounceMs);
   }
 };
+
+// src/host/watcher.ts
+function projectLadder(root) {
+  return [path4.join(root, COMMANDS_DIR), path4.join(root, ".dsh"), root];
+}
+function userLadder(userDir) {
+  return [userDir, path4.dirname(userDir)];
+}
+async function watchTargets(io, userDir, roots) {
+  return await ladderTargets(io, [userLadder(userDir), ...roots.map(projectLadder)]);
+}
 
 // src/host/index.ts
 var name = "user-commands";
@@ -8280,7 +8320,7 @@ function agentScopeOf(agent, log) {
 function apply(ctx) {
   const log = commandLog(ctx);
   const userDir = userCommandsDir();
-  const attributor = new Attributor(nodeRealpathIo);
+  const attributor = new RootAttributor(nodeRealpathIo, { onAnomaly: log.warn });
   const globalLayer = new CommandLayer(log, "\u5168\u5C40\u547D\u4EE4\u5C42");
   let projects = [];
   const agents = new AgentLayers({

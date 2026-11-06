@@ -365,25 +365,25 @@ test/                                 单测：宿主 *.test.ts（node 环境）
 - `lib/client.js` — `src/client/index.ts` 打成单个 CJS bundle 并包进 `window.__ModuleLoader__.load({ id, factory })` 外壳（`react` / `react-dom` / `react/jsx-runtime` / `@deepseek-ai/dsh-client-ui-primitives` 由浏览器壳经 loader `require` 提供），CSS modules 编译为运行时 `<style>` 注入，因此**没有独立样式文件**，也不依赖本包 `dependencies`；bundle 里含徽章、单会话删除入口 / 确认框、会话管理分节与命令通知卡。
 - `lib/index.js` — 宿主半的单个 self-contained ESM 产物，承载 `/web-ux` Connection RPC 通道的 7 个端点与恢复后的 `api-session/added` 广播，同时是客户端模块扫描的 bare 包名锚点；Schemastery 已由 esbuild 内联，外置项仍只有 `node:*`。
 
-类型工程是一个 solution（`tsconfig.json` 只汇总 references）+ 两个 composite 子工程，共享 `tsconfig.base.json` 的编译选项；两个子工程都是 `noEmit` 纯检查（不产 d.ts，只留 `.tsbuildinfo`，已被 `.gitignore` 忽略）：
+类型工程是一个 solution（`tsconfig.json` 只汇总 references）+ 两个只 `extends` 根基准 `../../tsconfig.plugin.base.json` 的子工程（`include` 是唯一差异面：不重声明编译选项、不带 `composite`）；两个子工程都是 `noEmit` 纯检查（不产 d.ts，只留 `.tsbuildinfo`，已被 `.gitignore` 忽略）：
 
 - `tsconfig.host.json` — 宿主面（node 环境）：`src/index.ts`、`src/config.ts`、`src/contract.ts`、`src/delete-session.ts`、`src/migrated.ts`、`src/project-key.ts` 与宿主测试 `test/{bundle,config,contract,delete-session,index,migrated,project-key}.test.ts`。
 - `tsconfig.client.json` — 浏览器面（jsdom 环境的用例自带 `// @vitest-environment jsdom`）：`src/client/**`、`src/contract.ts`（两端共享的边界 parser）、`src/project-key.ts`（两端共享的匹配纯函数）、`test/**/*.test.tsx` 与 `test/{client-apply,delete-client,delete-store,locale-parity,notice-store,notice-visibility,session-manager-model}.test.ts`、`test/stubs/ui-primitives.tsx`（vitest alias 的 primitives 替身）。
 
-两个工程都显式列出被 import 的测试文件：composite 工程要求程序里的每个文件都在自己的 `include` 内（`test/**/*.test.ts` 会把客户端 `.ts` 用例拉进宿主工程而报 TS6307），所以按宿主/浏览器归属逐条列名，而不是用宽通配。
+两个工程都按宿主 / 浏览器归属逐条列出测试文件：同一份用例只进一个程序（宿主工程要 node 面，浏览器工程要 DOM / JSX），因此不用 `test/**/*.ts` 宽通配把两端混进同一个 program。
 
 ```bash
 cd /home/xuqinqin/develop/person/dsh-plugins/plugins/web-ux   # 本包是 dsh-plugins workspace 成员
 pnpm install
-pnpm typecheck     # tsc -b：host + client 双工程
+pnpm typecheck     # tsc -p 双调用：host + client 两个工程
 pnpm test          # vitest：徽章 + 删除/迁移 + 会话管理流程与界面用例
 pnpm lint          # oxlint
 pnpm build         # esbuild → lib/index.js（宿主 RPC 载体，Schemastery 内联）、lib/client.js（徽章 + 删除 / 会话管理分节）
 pnpm verify:all    # lint + typecheck + build + test
 
-# 只查单侧类型（等价于 tsc -b 的对应子工程）
-pnpm exec tsc -p tsconfig.host.json --noEmit
-pnpm exec tsc -p tsconfig.client.json --noEmit
+# 只查单侧类型（对应 `typecheck` 的两段调用）
+pnpm exec tsc -p tsconfig.host.json --pretty false
+pnpm exec tsc -p tsconfig.client.json --pretty false
 ```
 
 `lib/` 随仓库提交（release 时递归重建保证新鲜），`node_modules/` 不入库（见 `.gitignore`）。依赖由 workspace 统一安装：仓库根 `pnpm install` 一次装齐。

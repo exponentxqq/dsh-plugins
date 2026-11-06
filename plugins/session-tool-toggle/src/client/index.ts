@@ -4,7 +4,7 @@
  * **双端职责**：宿主半（`src/host/index.ts`）承载 `/tools` 命令面与 Connection RPC 通道
  * `/session-tool-toggle`——工具面的状态、校验、落盘全在那边；本文件只把**同一份状态**
  * 接到 Web：会话头部工具区放一个入口按钮，点开就是 `/tools` 的可视面；统一「工作区配置」
- * 弹窗（holder `dsh-plugin-workspace-config`）里再放一个**工作区默认档分节**。两半共用
+ * 弹窗（holder）里再放一个**工作区默认档分节**。两半共用
  * `src/contract.ts` 的通道/端点常量，client 侧的 `panel-client.ts` 直接内联同一组字面量
  * （D16：两端各持一份手写 parser），因此浏览器 bundle 不依赖宿主产物、也不需要运行时解析
  * 彼此的模块。
@@ -72,9 +72,6 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-commands/client'
-// 类型专用 import：只取 holder 的 `workspace-config.section` 座位契约（SlotMap 增补）。
-// `verbatimModuleSyntax` 下零产物，浏览器 bundle 不含 holder 包名（D3 类型纪律）。
-import type {} from 'dsh-plugin-workspace-config/client'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type { CommandExecutedHandler } from './panel-controller.ts'
 import type { PanelClient } from './panel-client.ts'
@@ -83,6 +80,8 @@ import type { ToolPanelActionInjected } from './ToolPanelAction.tsx'
 import { ToolPanelAction } from './ToolPanelAction.tsx'
 import { WorkspaceDefaultsSection } from './WorkspaceEntry.tsx'
 import { currentSessionIdOf } from './current-session.ts'
+// 类型专用 import：座位契约的 SlotMap 增补随 `./seats.ts` 进入本程序（D-15 之后权威在
+// `@dsh-plugins/contracts`）；`verbatimModuleSyntax` 下零产物，浏览器 bundle 不含契约包名。
 import { HEADER_SEAT, PANEL_ID, PANEL_ORDER, SECTION_ID, SECTION_ORDER, SECTION_SEAT } from './seats.ts'
 import { NS, en, zh } from './locales.ts'
 import { createPanelClient } from './panel-client.ts'

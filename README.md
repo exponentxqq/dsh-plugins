@@ -5,13 +5,24 @@
 ## 目录结构
 
 ```
-pnpm-workspace.yaml   # workspace 定义（packages: plugins/*）、依赖构建白名单与发布年龄豁免
+pnpm-workspace.yaml   # workspace 定义（packages: plugins/* + 四个显式 tooling 包）、构建白名单与发布年龄豁免
 package.json          # workspace 根：pnpm 版本 pin（packageManager / volta）与递归脚本
+tsconfig.plugin.base.json  # 六个软插件共用的根编译基准（各包 tsconfig 只 extends 它）
+tooling/build-kit/    # 构建期骨架：esbuild 宿主半 / 浏览器半 / CSS modules / 产物守卫（薄 build.mjs 的唯一实现）
+tooling/host-kit/     # 运行期共享内核：归属判定 / 目录监听 / 触发器 / 根枚举 / 日志（被 esbuild 内联进各包产物）
+tooling/test-kit/     # 测试夹具底座：ui-primitives 并集替身 / locale-parity 纯函数
+tooling/contracts/    # 座位契约纯类型包（workspace-config.section 的 Seat / SlotMap 条目形状 / order 权威值，仅编译期消费）
+tooling/template/     # gen:plugin 模板素材（不是包：清单叫 package.json.tmpl）
 plugins/<name>/       # 一个插件一个目录（结构见 AGENTS.md）
 scripts/dsh-baseline.mjs          # 唯一 DSH 基线常量（软插件范围由它派生）
 scripts/upgrade-dsh.mjs           # 根级 DSH 升级：重指 pin / 软插件范围 / 豁免（--probe 加临时 overrides）
-scripts/check-dsh-baseline.mjs    # 根级 dsh:check：基线 / 范围 / 安装树 / 豁免 / 已移除插件
+scripts/gen-plugin.mjs            # 新插件脚手架：从 tooling/template 生成 plugins/<name>/
+scripts/check-dsh-baseline.mjs    # 检查 1/3：DSH 基线 / 范围 / 安装树 / 豁免 / 已移除插件
+scripts/check-architecture.mjs    # 检查 2/3：结构不变式 AR1–AR7（薄入口 / tsconfig / lint 唯一基准 / workspace 清单）
+scripts/check-artifacts.mjs       # 检查 3/3：产物契约 B1–B5（入口存在 / 自包含 / ModuleLoader 壳）
+scripts/dsh-check.mjs             # dsh:check 聚合入口：顺序跑上面三个检查脚本
 scripts/release.mjs   # 发布：dsh:check → 同步版本号 → 重建产物 → 发布提交 → annotated tag
+.github/workflows/ci.yml  # 最小 CI：install → lint → typecheck → build → test → docs:check → dsh:check
 openspec/             # 规范工作区（spec-driven schema，zh-CN）
 ```
 
@@ -19,15 +30,18 @@ openspec/             # 规范工作区（spec-driven schema，zh-CN）
 
 ```bash
 pnpm install          # 装齐全部插件依赖（workspace 统一安装）
+pnpm gen:plugin <name> --kind host-only|dual   # 新插件脚手架（--help 看用法；只写文件，不跑 install/git）
 pnpm build            # 全部插件构建（产物 lib/ 随仓库提交；release 时递归重建保证新鲜）
 pnpm typecheck        # 全部插件类型检查
 pnpm test             # 全部插件单测
 pnpm lint             # 全部插件 lint（无 lint 脚本的插件自动跳过）
 pnpm docs:check       # 文档检查（仅 multi-root-workspace 实现该脚本）
-pnpm dsh:check        # 仓库级 DSH 基线检查（发布前置，release 会自动执行）
+pnpm dsh:check        # 聚合门禁：DSH 基线 + 结构不变式（AR1–AR7）+ 产物契约（B1–B5）；release 会自动执行
 pnpm dsh:upgrade <version> [--probe]   # 根级升级：重指 DSH pin / 软插件范围 / 豁免并同步基线常量
 pnpm release <version>  # 发布：dsh:check → 同步版本 → 重建产物 → 提交 → 打 tag v<version>（详见「发布与版本」）
 ```
+
+新增插件 = `pnpm gen:plugin <name> --kind host-only|dual` 从 `tooling/template/` 生成骨架（薄 `build.mjs`、extends 根基准的 tsconfig、`catalog:` 依赖、冒烟测试与 bundle patch），再按生成器打印的 5 步命令安装与验证；生成物开箱通过 lint / typecheck / build / test 与 `pnpm dsh:check`，模板素材本身不是包（见 [`tooling/template/README.md`](tooling/template/README.md)）。
 
 当前 DSH 开发基线是 **`0.2.2-rc.1`**，由 `scripts/dsh-baseline.mjs` 单点声明：multi-root 保留精确 allowlist 与精确 peers，其余六个软插件的 `engines.dsh` / DSH peer 统一为 `>=0.2.2-rc.1 <0.3.0`。Node 工具链由根 `package.json#volta.node` 固定在 `24.21.0`（`engines` 仍兼容 22.19+）。升级流程见 [multi-root 开发工作流](plugins/multi-root-workspace/docs/development/plugin-development-workflow.md)。
 
@@ -62,7 +76,7 @@ docker exec dsh dsh --profile web --dump-config          # 校验组合可加载
 仓库采用**仓库级统一版本**：根 `package.json` 与每个插件包的 `version` 始终等于当前 tag（风格 `v<major>.<minor>.<patch>`），tag 是 profile 侧安装的唯一锚点，`package.json#version` 与之对齐便于把 DSH 的 `package@version` 版本豁免和排障输出直接对上发布点。
 
 ```bash
-pnpm dsh:check             # 0. 发布前置检查（release 会自动执行，也可单独跑）
+pnpm dsh:check             # 0. 聚合门禁（DSH 基线 + 结构不变式 + 产物契约；release 会自动执行，也可单独跑）
 pnpm verify                # 1. 发布前自检（递归 verify:all；多根插件的 smoke 需运行中的 dsh）
 pnpm release <version>     # 2. dsh:check → 同步版本 → 重建产物 → 提交 chore(release): v<version> → 打 annotated tag
 git push origin main --tags   # 3. push（容器已挂载宿主 ~/.ssh，可直接执行）

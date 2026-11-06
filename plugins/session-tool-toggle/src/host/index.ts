@@ -101,6 +101,7 @@ import type {} from '@deepseek-ai/dsh-session-projection'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-tools'
 import Schema from '@deepseek-ai/schemastery'
+import { createLog } from '@dsh-plugins/host-kit/log'
 import { z } from 'zod'
 
 import { CHANNEL, ENDPOINTS } from '../contract.ts'
@@ -171,9 +172,6 @@ export const Config = Schema.object({
   hostModuleBase: Schema.string()
     .description('覆盖宿主 @deepseek-ai/dsh-session 的解析锚点（绝对路径，排障 / 单测用）'),
 }).description('会话级工具面开关：/tools 命令面与 Web 面板共用的插件配置')
-
-/** 诊断前缀：进程日志里能一眼分辨是本插件（与 `project-mcp` 的 `line()` 同形）。 */
-const LOG_PREFIX = 'dsh-plugin-session-tool-toggle：'
 
 /** 装配层标签（`ctx.effect` / `agent.ctx.effect` 的诊断名）。 */
 const TEARDOWN_LABEL = 'dsh-plugin-session-tool-toggle: 统一拆卸'
@@ -258,7 +256,7 @@ interface WorkspaceRegistryLike {
  * @param config - 插件配置；全部键可选，省略即零配置运行。
  */
 export function apply(ctx: Context, config?: SessionToolToggleConfig): void {
-  const log = createLog(ctx)
+  const log = createLog(ctx, 'dsh-plugin-session-tool-toggle')
   const settings = readSettings(config, log)
   /** 生效保护名单：基线 ∪ config 追加项（只增不减，D5）。 */
   const protectedNames: ReadonlySet<string> = new Set([
@@ -937,34 +935,7 @@ export function apply(ctx: Context, config?: SessionToolToggleConfig): void {
 // 宿主面适配：日志、配置读取
 // ---------------------------------------------------------------------------
 
-/**
- * 把宿主日志适配成诊断端口。
- *
- * 每一行都同时写 `ctx.logger` 与 console（照抄 `project-mcp/src/host/host-io.ts` 的
- * `scanLog`）：web profile 在 boot 之后不注册 logger exporter，单写 `ctx.logger` 在
- * `docker logs dsh` 里是看不见的——而「某个工具的 schema 为什么消失了」正是要在那里排查的
- * 问题。console 那份是进程日志面，logger 那份留在应用内缓冲里。
- *
- * @param ctx - 宿主上下文（提供 `logger`）。
- * @returns 只做三件事的 {@link SpecLog}。
- */
-function createLog(ctx: Context): SpecLog {
-  const line = (message: string): string => `${LOG_PREFIX}${message}`
-  return {
-    info: (message) => {
-      ctx.logger.info(line(message))
-      console.info(line(message))
-    },
-    warn: (message) => {
-      ctx.logger.warn(line(message))
-      console.warn(line(message))
-    },
-    error: (message) => {
-      ctx.logger.error(line(message))
-      console.error(line(message))
-    },
-  }
-}
+// 日志适配与双通道纪律已迁至 `@dsh-plugins/host-kit/log` 的 `createLog(ctx, prefix)`（G5）。
 
 /**
  * 读取并归一插件配置。

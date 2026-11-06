@@ -283,7 +283,7 @@ pnpm discount:verify   # 交错双对 + 平台期轮询 + 本底窗对拍（~16 
 ```bash
 cd /home/xuqinqin/develop/person/dsh-plugins/plugins/zcode-plan   # dsh-plugins workspace 成员
 pnpm install
-pnpm typecheck     # tsc -b：host 单工程
+pnpm typecheck     # tsc -p tsconfig.host.json：host 单工程
 pnpm test          # vitest
 pnpm lint          # oxlint
 pnpm build         # esbuild → lib/index.js

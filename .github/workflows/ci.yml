@@ -1,0 +1,53 @@
+# 最小 CI（R5）：push / PR 上跑「安装 → lint → typecheck → build → test → docs:check → dsh:check」七步链。
+#
+# 刻意不跑 `pnpm verify`：它递归 `verify:all`，其中 multi-root 的 smoke 需要运行中的 dsh 实例，
+# 在 CI 里必然失败；结构与产物门禁统一由 `pnpm dsh:check`（三脚本聚合）承担。
+#
+# docs:check 是决策 #6 六步之外的分歧点②裁决（tasks.md 待决 Q2 → 选 a）：
+# 它只跑 multi-root 的双语文档一致性检查，不需要 dsh，是唯一能自动守住该门的位置。
+name: CI
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: 验证（七步链）
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 pnpm（对齐根 package.json 的 packageManager）
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+
+      - name: 安装 Node.js（对齐 dsh 基线工具链）
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+          cache: pnpm
+
+      - name: 安装依赖（锁定件）
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: 类型检查
+        run: pnpm typecheck
+
+      - name: 构建
+        run: pnpm build
+
+      - name: 单元测试
+        run: pnpm test
+
+      - name: 文档检查
+        run: pnpm docs:check
+
+      - name: DSH 门禁（基线 / 结构 / 产物）
+        run: pnpm dsh:check

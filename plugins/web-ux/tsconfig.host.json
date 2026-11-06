@@ -1,6 +1,5 @@
 {
-  "extends": "./tsconfig.base.json",
-  "compilerOptions": { "composite": true },
+  "extends": "../../tsconfig.plugin.base.json",
   "include": [
     "src/config.ts",
     "src/contract.ts",

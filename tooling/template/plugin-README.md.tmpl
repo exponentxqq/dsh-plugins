@@ -1,0 +1,42 @@
+# {{PACKAGE_NAME}}
+
+{{DESCRIPTION}}
+
+本目录由 `pnpm gen:plugin {{NAME}} --kind {{KIND}}` 生成（模板素材见
+[`tooling/template/`](../../tooling/template/README.md)），形态对齐六个软插件的终态：
+
+- 薄 `build.mjs`：构建策略全部在 `@dsh-plugins/build-kit`，本包只声明不可推导的旋钮；
+- `tsconfig.host.json`{{CLIENT_TSCONFIG_NOTE}}：只 `extends` 根基准 `../../tsconfig.plugin.base.json`，
+  `include` 声明差异；
+- devDependencies 全部 `catalog:` / `catalog:dsh` / `workspace:*`，DSH 基线由
+  `scripts/dsh-baseline.mjs` 派生；
+- `cordis.patch.yml`：裸包名 insert 行（bundle 注册锚点）。
+
+## 结构
+
+```text
+{{STRUCTURE_TREE}}
+```
+
+## 开发
+
+```bash
+pnpm install          # 仓库根一次装齐 workspace 依赖
+pnpm lint             # oxlint（唯一基准在仓库根 .oxlintrc.json）
+pnpm typecheck        # tsc -p tsconfig.host.json --pretty false{{TYPECHECK_CLIENT}}
+pnpm build            # node build.mjs → lib/index.js{{BUILD_CLIENT}}
+pnpm test             # vitest run（产物断言需先 build）
+pnpm verify:all       # lint + typecheck + build + test
+pnpm dsh:check        # 仓库级聚合门禁（基线 / 结构不变式 / 产物契约）
+```
+
+`lib/` 随仓库提交（release 时递归重建保证新鲜），`node_modules/` 不入库。
+
+## 安装到 profile
+
+```bash
+TAG=$(git describe --tags --abbrev=0)
+docker exec dsh dsh plugin --profile web add \
+  "github:exponentxqq/dsh-plugins#${TAG}&path:plugins/{{NAME}}"
+docker exec dsh dsh --profile web --dump-config   # 装载冒烟以 exit 0 为准
+```

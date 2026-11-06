@@ -1,0 +1,29 @@
+{
+  "name": "@dsh-plugins/host-kit",
+  "version": "0.0.0",
+  "private": true,
+  "description": "DSH host 半共享内核（归属判定 / 目录监听 / 触发器 / 根枚举 / 日志适配 / 真实 seam）；以 TS 源供各插件内联，零运行时依赖",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "types": "./src/*.ts",
+      "default": "./src/*.ts"
+    }
+  },
+  "scripts": {
+    "lint": "oxlint",
+    "typecheck": "tsc -p tsconfig.json --pretty false",
+    "test": "vitest run"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "oxlint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

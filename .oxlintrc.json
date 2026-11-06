@@ -1,12 +1,11 @@
 {
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": [],
   "env": {
     "builtin": true
   },
   "ignorePatterns": [
-    "lib/**",
-    "node_modules/**",
+    "**/lib/**",
+    "**/node_modules/**",
     "**/*.config.ts"
   ]
 }

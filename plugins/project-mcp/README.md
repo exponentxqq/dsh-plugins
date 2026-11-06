@@ -165,7 +165,7 @@ env:
 ```bash
 cd /home/xuqinqin/develop/person/dsh-plugins/plugins/project-mcp   # 本包是 dsh-plugins workspace 成员
 pnpm install
-pnpm typecheck     # tsc -b：host 单工程
+pnpm typecheck     # tsc -p tsconfig.host.json：host 单工程
 pnpm test          # vitest：扫描/仲裁/env 展开/归属/隔离/加载管理/热重载
 pnpm lint          # oxlint
 pnpm build         # esbuild → lib/index.js

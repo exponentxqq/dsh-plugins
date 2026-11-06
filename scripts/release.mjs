@@ -95,10 +95,11 @@ try {
   if (error.status !== 1) throw error
 }
 
-// 发布前置：仓库级 DSH 基线检查。放在写版本之前，失败时工作区仍保持原样。
-process.stdout.write('release: 运行 dsh:check（DSH 基线 / 软插件范围 / multi-root 契约 / 豁免）…\n')
+// 发布前置：仓库级门禁聚合入口（DSH 基线 + 结构不变式 + 产物契约）。
+// 放在写版本之前，失败时工作区仍保持原样。
+process.stdout.write('release: 运行 dsh:check（DSH 基线 / 结构不变式 / 产物契约）…\n')
 try {
-  execFileSync(process.execPath, [join(REPO_ROOT, 'scripts', 'check-dsh-baseline.mjs')], {
+  execFileSync(process.execPath, [join(REPO_ROOT, 'scripts', 'dsh-check.mjs')], {
     cwd: REPO_ROOT,
     stdio: 'inherit',
   })
@@ -106,7 +107,8 @@ try {
   fail('dsh:check 未通过，拒绝发布；按上面的失败项修复后重试')
 }
 
-// 目标清单：workspace 根 + 每个插件目录。
+// 目标清单：workspace 根 + 每个插件目录。tooling 包（`0.0.0`）不在版本契约内：
+// 它们不随 tag 发布、版本恒为 0.0.0，因此这里只遍历 plugins/*（不把 tooling 纳入同步）。
 const pluginDirs = readdirSync(join(REPO_ROOT, 'plugins'), { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
   .map((entry) => entry.name)

@@ -6913,14 +6913,14 @@ var require_parser = __commonJS({
             case "scalar":
             case "single-quoted-scalar":
             case "double-quoted-scalar": {
-              const fs2 = this.flowScalar(this.type);
+              const fs3 = this.flowScalar(this.type);
               if (atNextItem || it.value) {
-                map.items.push({ start, key: fs2, sep: [] });
+                map.items.push({ start, key: fs3, sep: [] });
                 this.onKeyLine = true;
               } else if (it.sep) {
-                this.stack.push(fs2);
+                this.stack.push(fs3);
               } else {
-                Object.assign(it, { key: fs2, sep: [] });
+                Object.assign(it, { key: fs3, sep: [] });
                 this.onKeyLine = true;
               }
               return;
@@ -7048,13 +7048,13 @@ var require_parser = __commonJS({
             case "scalar":
             case "single-quoted-scalar":
             case "double-quoted-scalar": {
-              const fs2 = this.flowScalar(this.type);
+              const fs3 = this.flowScalar(this.type);
               if (!it || it.value)
-                fc.items.push({ start: [], key: fs2, sep: [] });
+                fc.items.push({ start: [], key: fs3, sep: [] });
               else if (it.sep)
-                this.stack.push(fs2);
+                this.stack.push(fs3);
               else
-                Object.assign(it, { key: fs2, sep: [] });
+                Object.assign(it, { key: fs3, sep: [] });
               return;
             }
             case "flow-map-end":
@@ -7362,82 +7362,109 @@ var require_dist = __commonJS({
   }
 });
 
-// src/host/attribution.ts
+// ../../tooling/host-kit/src/attribution.ts
 import path from "node:path";
 var EMPTY_INDEX = { primary: /* @__PURE__ */ new Map(), granted: /* @__PURE__ */ new Map() };
-var Attributor = class {
+async function canonicalOf(io, candidate) {
+  try {
+    return await io.realpath(candidate);
+  } catch {
+    return void 0;
+  }
+}
+async function buildRootIndex(workspaces, io, options = {}) {
+  const primary = /* @__PURE__ */ new Map();
+  const granted = /* @__PURE__ */ new Map();
+  for (const workspace of workspaces) {
+    const claim = { workspaceRoot: workspace.primaryRoot, roots: workspace.roots };
+    const canonical = await canonicalOf(io, workspace.primaryRoot);
+    if (canonical === void 0) continue;
+    const existing = primary.get(canonical);
+    if (existing !== void 0) {
+      options.onAnomaly?.(
+        `duplicate primary root ${canonical}: ${workspace.primaryRoot} loses to ${existing.workspaceRoot} (first write wins)`
+      );
+      continue;
+    }
+    primary.set(canonical, claim);
+  }
+  for (const workspace of workspaces) {
+    const claim = { workspaceRoot: workspace.primaryRoot, roots: workspace.roots };
+    if (workspace.roots[0] !== workspace.primaryRoot) {
+      options.onAnomaly?.(
+        `primary root ${workspace.primaryRoot} is not roots[0] (${JSON.stringify(workspace.roots[0])}); claiming it in the primary tier and the remaining roots in the granted tier, without dropping any root`
+      );
+    }
+    for (const root of workspace.roots) {
+      if (root === workspace.primaryRoot) continue;
+      const canonical = await canonicalOf(io, root);
+      if (canonical !== void 0 && !granted.has(canonical)) granted.set(canonical, claim);
+    }
+  }
+  return { primary, granted };
+}
+function lookupIn(index) {
+  return (canonical) => index.primary.get(canonical) ?? index.granted.get(canonical);
+}
+async function walkUp(cwd, lookup, io) {
+  if (cwd === void 0 || cwd === "") return {};
+  const start = path.resolve(cwd);
+  let current = start;
+  let canonicalCwd;
+  for (; ; ) {
+    const canonical = await canonicalOf(io, current);
+    if (current === start) canonicalCwd = canonical;
+    if (canonical !== void 0) {
+      const hit = lookup(canonical);
+      if (hit !== void 0) {
+        return canonicalCwd === void 0 ? { hit } : { hit, canonicalCwd };
+      }
+    }
+    const parent = path.dirname(current);
+    if (parent === current) return canonicalCwd === void 0 ? {} : { canonicalCwd };
+    current = parent;
+  }
+}
+var RootAttributor = class {
   /**
    * @param io - the canonicalization seam.
+   * @param options - anomaly sink forwarded to every rebuild.
    */
-  constructor(io) {
+  constructor(io, options = {}) {
     this.io = io;
+    this.options = options;
   }
-  /** The committed index (rebuilt on every root-set update). */
-  index = EMPTY_INDEX;
+  /** The committed index (rebuilt on every root-set update, replaced atomically). */
+  committed = EMPTY_INDEX;
   /**
-   * Rebuild the tiered root index from the current workspace root sets.
-   *
-   * Two rounds, both first-write-wins: primary roots first, then the additional
-   * roots granted to each workspace. A root that cannot be canonicalized (it
-   * does not exist right now) is left out: attributing a session to a directory
-   * nobody can enter would be a fiction, and the scan skipped that root for the
-   * same reason.
+   * Rebuild the index from scratch and commit it with one assignment.
    * @param workspaces - the ordered root sets, exactly as scanned.
    */
   async update(workspaces) {
-    const claims = workspaces.map((workspace) => ({
-      workspace,
-      claim: { workspaceRoot: workspace.primaryRoot, roots: workspace.roots }
-    }));
-    const primary = /* @__PURE__ */ new Map();
-    const granted = /* @__PURE__ */ new Map();
-    for (const { workspace, claim } of claims) await this.claim(primary, workspace.primaryRoot, claim);
-    for (const { workspace, claim } of claims) {
-      for (const root of workspace.roots.slice(1)) await this.claim(granted, root, claim);
-    }
-    this.index = { primary, granted };
+    const next = await buildRootIndex(workspaces, this.io, this.options);
+    this.committed = next;
   }
   /**
-   * Attribute one session directory.
+   * The currently committed index (a stable snapshot between updates).
+   * @returns the committed index.
+   */
+  index() {
+    return this.committed;
+  }
+  /**
+   * Attribute one session directory with fail-closed miss semantics.
+   *
+   * The snapshot is captured once, before any await: a concurrent `update()`
+   * commits a whole new index but never changes the tables this call reads.
    * @param cwd - the session's creation directory (an absolute path).
    * @returns the attribution, or null when nothing claims the directory.
    */
   async attribute(cwd) {
-    const { primary, granted } = this.index;
-    if (cwd === "" || primary.size === 0 && granted.size === 0) return null;
-    let current = path.resolve(cwd);
-    for (; ; ) {
-      const canonical = await this.canonical(current);
-      if (canonical !== void 0) {
-        const hit = primary.get(canonical) ?? granted.get(canonical);
-        if (hit !== void 0) return hit;
-      }
-      const parent = path.dirname(current);
-      if (parent === current) return null;
-      current = parent;
-    }
-  }
-  /**
-   * Record one candidate root in one tier, the first write winning.
-   * @param table - the tier's table.
-   * @param candidate - the root to canonicalize.
-   * @param claim - the attribution to record on a first claim.
-   */
-  async claim(table, candidate, claim) {
-    const canonical = await this.canonical(candidate);
-    if (canonical !== void 0 && !table.has(canonical)) table.set(canonical, claim);
-  }
-  /**
-   * Canonicalize one path, treating a failure as "not a root".
-   * @param candidate - the path to try.
-   * @returns the canonical path, or undefined.
-   */
-  async canonical(candidate) {
-    try {
-      return await this.io.realpath(candidate);
-    } catch {
-      return void 0;
-    }
+    const snapshot = this.committed;
+    if (cwd === void 0 || cwd === "") return null;
+    if (snapshot.primary.size === 0 && snapshot.granted.size === 0) return null;
+    const { hit } = await walkUp(cwd, lookupIn(snapshot), this.io);
+    return hit ?? null;
   }
 };
 
@@ -7471,12 +7498,30 @@ async function sweepLiveSessions(candidates, ports) {
 }
 
 // src/host/host-io.ts
+import { promises as fs2 } from "node:fs";
+
+// ../../tooling/host-kit/src/log.ts
+function createLog(ctx, prefix) {
+  const line = (message) => `${prefix}: ${message}`;
+  return {
+    info: (message) => {
+      ctx.logger.info(line(message));
+      console.info(line(message));
+    },
+    warn: (message) => {
+      ctx.logger.warn(line(message));
+      console.warn(line(message));
+    },
+    error: (message) => {
+      ctx.logger.error(line(message));
+      console.error(line(message));
+    }
+  };
+}
+
+// ../../tooling/host-kit/src/host-io.ts
 import { promises as fs } from "node:fs";
 import { watch as watchDirectory } from "node:fs";
-var nodeScanIo = {
-  readDir: async (dir) => await fs.readdir(dir),
-  readFile: async (file) => await fs.readFile(file, "utf8")
-};
 var nodeRealpathIo = {
   realpath: async (candidate) => await fs.realpath(candidate)
 };
@@ -7492,22 +7537,14 @@ var nodeWatchIo = {
     listener();
   })
 };
+
+// src/host/host-io.ts
+var nodeScanIo = {
+  readDir: async (dir) => await fs2.readdir(dir),
+  readFile: async (file) => await fs2.readFile(file, "utf8")
+};
 function scanLog(ctx) {
-  const line = (message) => `dsh-plugin-project-mcp: ${message}`;
-  return {
-    info: (message) => {
-      ctx.logger.info(line(message));
-      console.info(line(message));
-    },
-    warn: (message) => {
-      ctx.logger.warn(line(message));
-      console.warn(line(message));
-    },
-    error: (message) => {
-      ctx.logger.error(line(message));
-      console.error(line(message));
-    }
-  };
+  return createLog(ctx, "dsh-plugin-project-mcp");
 }
 
 // src/host/isolation.ts
@@ -8341,7 +8378,7 @@ function createAssembleListener(ports) {
   };
 }
 
-// src/host/roots.ts
+// ../../tooling/host-kit/src/roots.ts
 function workspaceRoots(ctx) {
   const registry = ctx.get("workspaceRegistry");
   if (registry === void 0) return [];
@@ -8463,7 +8500,7 @@ async function scanServers(workspaces, io, env, log) {
   return servers;
 }
 
-// src/host/triggers.ts
+// ../../tooling/host-kit/src/triggers.ts
 function installTriggers(ctx, rescan) {
   const disposers = [];
   const grant = ctx.get("multiRootRegistry");
@@ -8482,22 +8519,20 @@ function installTriggers(ctx, rescan) {
 
 // src/host/watcher.ts
 import path3 from "node:path";
+
+// ../../tooling/host-kit/src/watcher.ts
 var DEFAULT_DEBOUNCE_MS = 250;
-var LADDER = [MCP_DIR, ".dsh", "."];
-async function watchTargets(io, roots) {
+async function deepestExisting(io, ladder, options = {}) {
+  for (const candidate of ladder) {
+    if (await io.isDirectory(candidate)) return candidate;
+  }
+  return options.fallbackToLast === true ? ladder[ladder.length - 1] : void 0;
+}
+async function ladderTargets(io, ladders, options = {}) {
   const targets = [];
-  for (const root of roots) {
-    for (const step of LADDER) {
-      if (step === ".") {
-        targets.push(root);
-        break;
-      }
-      const candidate = path3.join(root, step);
-      if (await io.isDirectory(candidate)) {
-        targets.push(candidate);
-        break;
-      }
-    }
+  for (const ladder of ladders) {
+    const target = await deepestExisting(io, ladder, options);
+    if (target !== void 0 && !targets.includes(target)) targets.push(target);
   }
   return targets;
 }
@@ -8572,6 +8607,15 @@ var DirectoryWatcher = class {
   }
 };
 
+// src/host/watcher.ts
+async function watchTargets(io, roots) {
+  return await ladderTargets(
+    io,
+    roots.map((root) => [path3.join(root, MCP_DIR), path3.join(root, ".dsh"), root]),
+    { fallbackToLast: true }
+  );
+}
+
 // src/host/index.ts
 var name = "project-mcp";
 var inject = ["workspaceRegistry", "tools", "agents"];
@@ -8586,7 +8630,7 @@ function scopedTools(scope, key) {
 function apply(ctx) {
   const log = scanLog(ctx);
   const manager = new McpManager(createServerLoader(ctx), log);
-  const attributor = new Attributor(nodeRealpathIo);
+  const attributor = new RootAttributor(nodeRealpathIo, { onAnomaly: log.warn });
   const isolation = new IsolationLayer({
     // The plugin's own context sees the unrestricted registry: deriving a deny
     // list from an agent's restricted view would oscillate (see isolation.ts).

@@ -1,0 +1,13 @@
+# {{PACKAGE_NAME}} 的 bundle patch：把本插件的注册行插进 profile 名单。
+# 应用方式：作为 profile 的 bundle 层（package.json 的 `dsh.bundle.patch` 字段）叠加在
+# dsh-base 之上；`dsh plugin --profile web add <本目录>` 即可激活。
+#
+# 该行以「裸包名」（不给路径、不给 config）插入，这一形态是 REQUIRED：**声明了**
+# `dsh.client` 的双端包靠这一行被 Web 侧的 client-module scan 发现（浏览器半因此进入
+# 启动图）；宿主侧的插件 id 同样来自这一行。
+#
+# profile 级不带 `config:` 段：模板没有配置键。需要配置时给本行补 `config:`，
+# 并在 `src/index.ts` 导出 schemastery 的 `Config`。
+- insert:
+    - id: {{NAME}}
+      name: '{{PACKAGE_NAME}}'

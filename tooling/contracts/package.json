@@ -1,0 +1,22 @@
+{
+  "name": "@dsh-plugins/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "description": "跨包契约类型权威（workspace-config.section 的 Seat 字面量、owner 份额、SlotMap 条目形状与 order 权威值）；纯类型包，仅编译期消费",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "lint": "oxlint",
+    "typecheck": "tsc -p tsconfig.json --pretty false"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "oxlint": "catalog:",
+    "typescript": "catalog:"
+  }
+}

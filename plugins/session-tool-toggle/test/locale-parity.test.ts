@@ -4,7 +4,9 @@
  * 类型层的 `satisfies Record<Key, string>` 已经挡住编译期的缺键/多键，这条套件再在运行时
  * 兜四层：
  *
- * 1. **zh/en 键集合双向相等**——有人把 `en` 的类型断言改宽也逃不过；
+ * 1. **zh/en 键集合双向相等**、**没有空文案**、**必读键都在**、**`{param}` 占位符一致**
+ *    ——这四段通用检查改调 `@dsh-plugins/test-kit/locale-parity` 的纯函数（三个双端
+ *    插件不再各抄一份逻辑）；
  * 2. **稳定码全覆盖**——`contract.ts` 的 9 个宿主失败码 + 2 个传输码必须有 `error.<code>`，
  *    `NOTICE_CODES` 五个必须有 `notice.<code>`，`STORE_KINDS` / `TOOL_GROUP_KINDS` 的取值
  *    也必须各有键（否则面板只能写死中文，R6 破防）；
@@ -13,12 +15,13 @@
  * 4. **没有隐式覆盖**——对象字面量里重复的键在运行时会被后者盖掉，键集合检查看不出来，
  *    所以直接读源文件按 zh/en 两个区段各数一遍。
  *
- * 另加一条约束：同一条文案的 zh/en `{param}` 占位符集合必须相同（en 漏一个 `{path}` 就是
- * 渲染出字面花括号的 bug）。
+ * 「必读键的字面量数组」与 `expect(NS).toBe('<字面量>')` 都留在本包：前者是「界面真正会
+ * 读哪些键」的包内事实，后者是命名空间的单点事实。共享函数只做无分支的夹具计算。
  */
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { localeParityIssues } from '@dsh-plugins/test-kit/locale-parity'
 import {
   FAILURE_CODES,
   NOTICE_CODES,
@@ -36,11 +39,6 @@ const SOURCE = readFileSync(path.join(ROOT, 'src', 'client', 'locales.ts'), 'utf
 /** 取一段文本里的字面量键（`'区.键':` 形式的属性名；键里允许驼峰，如 `state.storeKind.record`）。 */
 function literalKeys(region: string): string[] {
   return [...region.matchAll(/^\s*'([a-z][A-Za-z0-9.-]*)':/gm)].map((match) => match[1] as string)
-}
-
-/** 取一条文案里的 `{param}` 占位符名（排序去重，便于直接比较）。 */
-function placeholders(text: string): string[] {
-  return [...new Set([...text.matchAll(/\{(\w+)\}/g)].map((match) => match[1] as string))].sort()
 }
 
 /** 设计附录 §3.5 的「失败码 → 文案键」表，zh 文案逐字照抄（含反引号与全角标点）。 */
@@ -156,27 +154,36 @@ const REQUIRED_KEYS: readonly Key[] = [
   'state.createdAt',
 ]
 
+/**
+ * 取共享检查里某一类问题（`localeParityIssues` 给每条 issue 打了稳定的 `[kind]` 前缀）。
+ *
+ * 每个 `it` 只断言自己那一类：键集合 / 空文案 / 必读键 / 占位符漂移的失败不会互相污染，
+ * 但检查逻辑只有 test-kit 里的一份。命名空间同时由本地字面量断言与共享检查守住。
+ * @param kind - 问题类别。
+ * @returns 该类问题（空数组 = 该类无问题）。
+ */
+function issuesOfKind(kind: 'namespace' | 'keys' | 'empty' | 'required' | 'placeholders'): string[] {
+  return localeParityIssues({
+    ns: NS,
+    zh,
+    en,
+    required: REQUIRED_KEYS,
+    expectedNs: 'sessionToolToggle',
+  }).filter((issue) => issue.startsWith(`[${kind}] `))
+}
+
 describe('sessionToolToggle 文案', () => {
   it('命名空间固定为 sessionToolToggle', () => {
     expect(NS).toBe('sessionToolToggle')
+    expect(issuesOfKind('namespace')).toEqual([])
   })
 
   it('zh 与 en 的键集合双向相等（两个方向的差集都为空）', () => {
-    const zhKeys = Object.keys(zh)
-    const enKeys = Object.keys(en)
-    expect(zhKeys.filter((key) => !(key in en))).toEqual([])
-    expect(enKeys.filter((key) => !(key in zh))).toEqual([])
+    expect(issuesOfKind('keys')).toEqual([])
   })
 
   it('没有空文案，且值都是字符串', () => {
-    for (const [key, value] of Object.entries(zh)) {
-      expect(typeof value, `zh.${key}`).toBe('string')
-      expect(value.trim(), `zh.${key}`).not.toBe('')
-    }
-    for (const [key, value] of Object.entries(en)) {
-      expect(typeof value, `en.${key}`).toBe('string')
-      expect(value.trim(), `en.${key}`).not.toBe('')
-    }
+    expect(issuesOfKind('empty')).toEqual([])
   })
 
   it('源文件里每个键在 zh / en 两个区段各出现恰好一次（没有隐式覆盖）', () => {
@@ -199,16 +206,11 @@ describe('sessionToolToggle 文案', () => {
   })
 
   it('同一条文案的 zh / en 占位符集合一致', () => {
-    for (const key of Object.keys(zh) as Key[]) {
-      expect(placeholders(en[key]), `en.${key} 的占位符`).toEqual(placeholders(zh[key]))
-    }
+    expect(issuesOfKind('placeholders')).toEqual([])
   })
 
   it('面板会读到的键都在', () => {
-    for (const key of REQUIRED_KEYS) {
-      expect(zh, `zh.${key}`).toHaveProperty(key)
-      expect(en, `en.${key}`).toHaveProperty(key)
-    }
+    expect(issuesOfKind('required')).toEqual([])
   })
 
   it('9 个宿主失败码 + 2 个传输码都有 error.<code> 键', () => {

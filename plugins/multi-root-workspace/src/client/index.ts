@@ -41,11 +41,11 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
-// Type-only: the holder's seat contract. `import type {}` pulls the `SlotMap`
-// augmentation (`workspace-config.section`) into this program; the named import
-// pins the local literal below. Neither reaches the bundle (D3).
-import type {} from 'dsh-plugin-workspace-config/client'
-import type { WorkspaceConfigSectionSeat } from 'dsh-plugin-workspace-config/client'
+// Type-only: the seat contract (D-15 — the type authority now lives in
+// `@dsh-plugins/contracts`). The named imports pin the local literal below and
+// give the local `declare module` block its entry shape; neither reaches the
+// bundle (D3).
+import type { WorkspaceConfigSectionSeat, WorkspaceConfigSectionSlot } from '@dsh-plugins/contracts'
 import { createElement } from 'react'
 import { currentSessionIdOf } from '../compat/client-session.ts'
 import { createPanelClient, type PanelClient } from './panel-client.ts'
@@ -65,6 +65,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       scope: 'session'
       owner: { readonly absolutePath: string }
     }
+    // The unified workspace-config dialog's section seat. The entry shape is the
+    // single authority in `@dsh-plugins/contracts`; this one line is the local
+    // augmentation (a dep-free type package cannot resolve the slots module).
+    'workspace-config.section': WorkspaceConfigSectionSlot
   }
 }
 

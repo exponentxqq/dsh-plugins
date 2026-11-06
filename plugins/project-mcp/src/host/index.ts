@@ -37,7 +37,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-workspace'
-import { Attributor } from './attribution.ts'
+import { RootAttributor } from './attribution.ts'
 import { sweepLiveSessions } from './boot-sweep.ts'
 import { nodeRealpathIo, nodeScanIo, nodeWatchIo, scanLog } from './host-io.ts'
 import { globalGuardDecision, IsolationLayer, type ScopedTools } from './isolation.ts'
@@ -97,7 +97,10 @@ function scopedTools(scope: Context, key: object): ScopedTools {
 export function apply(ctx: Context): void {
   const log = scanLog(ctx)
   const manager = new McpManager(createServerLoader(ctx), log)
-  const attributor = new Attributor(nodeRealpathIo)
+  // Registry anomalies (#3: `roots[0] !== primaryRoot`, duplicate primary
+  // roots) are reported instead of silently absorbed; attribution itself stays
+  // fail-closed (see `attribution.ts`).
+  const attributor = new RootAttributor(nodeRealpathIo, { onAnomaly: log.warn })
 
   const isolation = new IsolationLayer({
     // The plugin's own context sees the unrestricted registry: deriving a deny

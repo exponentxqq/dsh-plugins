@@ -82,7 +82,9 @@ describe('防抖监听器', () => {
     watcher.arm(['/work/a', '/missing'])
     expect(watcher.watched()).toEqual(['/work/a'])
     expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toContain('无法监听 /missing')
+    // 监听器类与警告文案由 host-kit 共享（G4；q2 裁定文案保持内核现状不改）。
+    // 这里只钉住降级语义：不可监听的目录确实留下一条点名该目录的警告，且不影响其余目录。
+    expect(warnings[0]).toContain('cannot watch /missing')
 
     watcher.arm([])
     expect(watcher.watched()).toEqual([])

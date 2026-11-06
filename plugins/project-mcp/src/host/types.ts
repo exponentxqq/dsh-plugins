@@ -25,52 +25,12 @@ export interface ScanIo {
   readFile(file: string): Promise<string>
 }
 
-/** Logging seam: host diagnostics without a hard dependency on any logger. */
-export interface ScanLog {
-  /**
-   * Record a state change worth seeing in the process log.
-   * @param message - the diagnostic text.
-   */
-  info(message: string): void
-  /**
-   * Record a degraded-but-continuing condition.
-   * @param message - the diagnostic text.
-   */
-  warn(message: string): void
-  /**
-   * Record a skipped configuration or a failed server.
-   * @param message - the diagnostic text.
-   */
-  error(message: string): void
-}
-
-/**
- * The additional-root enumerator this plugin soft-depends on (provided by
- * dsh-plugin-multi-root-workspace). Absent — that plugin is not installed or
- * not active — the scan simply sees each workspace's primary root alone.
- */
-export interface MultiRootGrant {
-  /**
-   * The canonical paths of every usable root granted to one primary root.
-   * @param primaryRoot - the session workspace root (any spelling).
-   * @returns the granted roots, in registry order.
-   */
-  granted(primaryRoot: string): readonly string[]
-  /**
-   * Observe registry changes.
-   * @param listener - called with the canonical primary root after each durable change.
-   * @returns the disposer that stops observing.
-   */
-  onChange(listener: (primaryRoot: string) => void): () => void
-}
-
-/** One workspace's ordered root set. */
-export interface WorkspaceRoots {
-  /** The registered primary root (canonical), i.e. the workspace entity's path. */
-  readonly primaryRoot: string
-  /** The primary root first, then the roots granted to it, in grant order. */
-  readonly roots: readonly string[]
-}
+// The three shapes below are kernel shapes (G4): one declaration shared with
+// dsh-plugin-user-commands instead of a structural copy per package. `ScanIo`
+// stays local — plain directory-entry names are this package's own port.
+export type { WorkspaceRoots } from '@dsh-plugins/host-kit/attribution'
+export type { MultiRootGrant } from '@dsh-plugins/host-kit/triggers'
+export type { LogSink as ScanLog } from '@dsh-plugins/host-kit/log'
 
 /** Where one discovered server configuration came from. */
 export interface ServerSource {

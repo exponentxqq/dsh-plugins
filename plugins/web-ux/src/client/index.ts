@@ -22,9 +22,9 @@
  *
  * 分节注册采用「贡献方统一形状」（code-design ③3.2）：
  * `slots.inject(SECTION_SEAT, () => register({ name, id, order, label thunk, locale, inject }))`，
- * 失败只 warn、不影响其它注册。`dsh-plugin-workspace-config` 只以 `import type` 消费
- * （devDependency + 类型断言），**不**写进 `dsh.client.inject`：四包之间只有编译期类型依赖，
- * 没有运行时加载边（D3）。
+ * 失败只 warn、不影响其它注册。座位契约只从 `@dsh-plugins/contracts` 以 `import type` 消费
+ * （devDependency + 类型断言），**不**写进 `dsh.client.inject`：契约包只有编译期类型依赖，
+ * 没有运行时加载边（D3/D-15）。
  *
  * @module dsh-plugin-web-ux/client
  */
@@ -45,9 +45,8 @@ import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 // 类型专用：`command/executed` 事件名在 cordis Events 上的增补。
 import type {} from '@deepseek-ai/dsh-client-ui-commands/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-// 类型专用：统一「工作区配置」分节的座位增补与 owner 份额类型（仅编译期，运行时零产物）。
-import type {} from 'dsh-plugin-workspace-config/client'
-import type { WorkspaceConfigSectionSeat } from 'dsh-plugin-workspace-config/client'
+// 类型专用：统一「工作区配置」分节的座位类型与 SlotMap 条目形状（仅编译期，运行时零产物）。
+import type { WorkspaceConfigSectionSeat, WorkspaceConfigSectionSlot } from '@dsh-plugins/contracts'
 import { ProviderBadge, type ProviderBadgeInjected } from './ProviderBadge.tsx'
 import { DeleteSessionMenuItem, type DeleteMenuItemInjected } from './DeleteSessionMenuItem.tsx'
 import { DeleteSessionDialog, type DeleteDialogInjected } from './DeleteSessionDialog.tsx'
@@ -62,6 +61,14 @@ import {
   type SessionsSource,
 } from './SessionManagerDialog.tsx'
 import { NS, en, zh } from './locales.ts'
+
+// 本座位的 SlotMap 增补：形状取自契约包（唯一权威），增补动作留在消费方自己的 client
+// 程序——纯类型包没有 DSH 依赖，无法从它的位置解析 `@deepseek-ai/dsh-client-ui-slots`。
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface SlotMap {
+    'workspace-config.section': WorkspaceConfigSectionSlot
+  }
+}
 
 /** 必需的客户端服务：座位注册表、字典与模型目录。 */
 export const inject = ['slots', 'locale', 'modelDirectories']
@@ -89,8 +96,8 @@ export const NOTICE_ORDER = 10
 /**
  * 会话管理分节的座位名。
  *
- * 贡献方各持一份字面量、由 `WorkspaceConfigSectionSeat` 做类型断言（D3）；
- * `dsh-plugin-workspace-config` 只出现在编译期，不进 bundle。
+ * 贡献方各持一份字面量、由 `@dsh-plugins/contracts` 的 `WorkspaceConfigSectionSeat` 做类型
+ * 断言（D-15）；契约包只出现在编译期，不进 bundle。
  */
 export const SECTION_SEAT: WorkspaceConfigSectionSeat = 'workspace-config.section'
 

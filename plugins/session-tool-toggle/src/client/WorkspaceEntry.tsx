@@ -3,7 +3,7 @@
  * （code-design §3.4 / ① 触达面 #37，原 footer 入口与自绘对话框在本次变更中拆除）。
  *
  * **挂载面迁移**：旧实现是 `sidebar.footer.*` 座位上的「触发按钮 + 自绘 `Modal` 对话框」；
- * 现在弹窗壳（header / nav / 内容列 / 关闭）属于 holder `dsh-plugin-workspace-config`，
+ * 现在弹窗壳（header / nav / 内容列 / 关闭）属于 holder workspace-config，
  * 本文件只交付分节正文 `WorkspaceDefaultsSection`——holder 以 `children` 声明
  * `workspace-config.section`，本插件用 `ctx.slots.inject` 软注册（`src/client/index.ts`
  * 的 `register` 包 try/catch，失败只 warn）。旧触发按钮、footer 动作条（刷新/关闭）与

@@ -7,62 +7,15 @@
  *   registry), and
  * - a workspace is registered, moved, or removed (a durable domain change).
  *
- * Both are treated as pure triggers. The handler never reads the event payload
- * — the payload's exact shape is a private detail of whichever subsystem
- * emitted it, and everything the rescan needs it re-reads from the registry
- * itself. That is also why a `domain/changed` for an unrelated domain is
- * harmless: the rescan is declarative and idempotent.
+ * Both are treated as pure triggers: the handler never reads the event payload,
+ * and everything the rescan needs it re-reads from the registry itself.
+ *
+ * Thin re-export (G4): the installation logic (a trigger that cannot be
+ * installed is skipped, never fatal) is the kernel's `installTriggers`; only
+ * the context slice is kept as the kernel's structural `TriggerContext`, so no
+ * upstream DSH type enters this package's trigger path.
  * @module dsh-plugin-project-mcp/host/triggers
  */
 
-import type { MultiRootGrant } from './types.ts'
-
-/** The context slice trigger installation touches. */
-export interface TriggerContext {
-  /**
-   * Read one service from the context.
-   * @param name - the service name.
-   * @returns the service, or undefined when absent.
-   */
-  get(name: string): unknown
-  /**
-   * Subscribe to a host event.
-   * @param event - the event name.
-   * @param listener - the trigger.
-   * @returns the disposer that stops listening.
-   */
-  on(event: 'domain/changed', listener: () => void): () => void
-}
-
-/**
- * Install the rescan triggers.
- *
- * A trigger that cannot be installed (its service is absent, or its
- * subscription fails) is simply skipped: the remaining triggers and the manual
- * command still work, so losing one signal degrades freshness rather than the
- * feature.
- * @param ctx - the context slice to subscribe on.
- * @param rescan - the rescan to run.
- * @returns one disposer per installed trigger.
- */
-export function installTriggers(ctx: TriggerContext, rescan: () => void): readonly (() => void)[] {
-  const disposers: (() => void)[] = []
-
-  const grant = ctx.get('multiRootRegistry') as MultiRootGrant | undefined
-  if (grant !== undefined) {
-    try {
-      disposers.push(grant.onChange(() => rescan()))
-    } catch {
-      // The registry is present but not subscribable in this build; the
-      // domain trigger below still covers durable changes.
-    }
-  }
-
-  try {
-    disposers.push(ctx.on('domain/changed', () => rescan()))
-  } catch {
-    // No event bus for this event: `/mcp-reload` remains the fallback.
-  }
-
-  return disposers
-}
+export { installTriggers } from '@dsh-plugins/host-kit/triggers'
+export type { TriggerContext } from '@dsh-plugins/host-kit/triggers'

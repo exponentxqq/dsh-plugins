@@ -164,7 +164,8 @@
 | `tsconfig.base.json` | **删除** | 属 4 份同 md5 组 |
 | `tsconfig.host.json` / `tsconfig.client.json` | 改 | extends 根基准 + 去 composite + include 去 `vitest.config.ts` |
 | `src/host/attribution.ts` | **重写为策略适配器（~45 行）** | 保留 `WorkspaceAttribution` 形状与 `resolveWorkspaceAttribution(cwd, ports)` 签名；内部：`const hit = new Map(registry.map(w=>[w.path, …]))` → `walkUp(cwd, lookup, realpath)` → 命中返回 `{key,registered:true,title}`、`canonicalCwd` 存在时返回 `{key:canonicalCwd,registered:false}`、否则 warn + `undefined`。**不 realpath registry 路径**（保持零额外 syscall 与现有语义） |
-| `src/host/types.ts` | 类型收敛 | `SpecLog` → `LogSink` 别名（待决 Q1 定夺是否把 `createLog` 也迁走） |
+| `src/host/types.ts` | 类型收敛 | `SpecLog` → `LogSink` 别名（Q1 已裁定纳入 G5：`createLog` 一并迁内核） |
+| `src/host/index.ts` | 日志适配器（6.3 补遗，分歧点①） | 删本地 `LOG_PREFIX`（全角冒号）与本地 `createLog`，改调 `createLog(ctx, 'dsh-plugin-session-tool-toggle')`（半角冒号+空格，与 pm/uc 一致，R16④） |
 | `test/workspace-attribution.test.ts` | 不动（oracle） | 5 组必测用例一条不改 |
 | `test/bundle.test.ts` | 改 | 删本地 `readArtifact/requiredWords/importedWords`，改 import `scripts/lib/artifacts.mjs`；**新增**「每个 css module 一个注入器」断言（`data-dsh-css` 出现次数 = 模块数），把 v1.4.0 修复的知识钉进 stt |
 | `test/stubs/ui-primitives.tsx` | 改薄 | `export * from '@dsh-plugins/test-kit/ui-primitives'`（本包无独有组件时一行收口） |
@@ -334,7 +335,7 @@ export function assertNoInternalWord(code)                  // 抛错或静默
 | 事实来源 | 推导结果 |
 | --- | --- |
 | `manifest.name` | `packageName`（同时是 ModuleLoader 的 `id` 与 esbuild 的诊断名） |
-| `manifest.dsh.client?.platform === 'web'` **且** `existsSync(<root>/src/client/index.ts)` | `kind = 'dual'`，否则 `'host'` |
+| `manifest.dsh.client?.platform === 'web'` | `kind = 'dual'`；入口 `src/client/index.ts` 缺失即抛错（fail-fast，不降级——迁移期裁定，与旧版各双端 `build.mjs` 的守卫等价） |
 | `existsSync(<root>/src/index.ts)` | 宿主入口路径（缺则抛错） |
 | `Object.values(manifest.exports ?? {}).some(e => e.types)` | `dtsOwned = true` → `clean = 'js-only'`（只删 `lib/index.js`、`lib/client.js`），否则 `'full'`（整目录重建） |
 | 常量（可覆盖） | 默认 `clientExternals = ['react','react-dom','react-dom/client','react/jsx-runtime','react/jsx-dev-runtime','@deepseek-ai/dsh-client-ui-primitives']` |
@@ -774,6 +775,8 @@ type MissPolicy =
 - `node scripts/check-artifacts.mjs`（门禁模式）→ 在**未改动**的树上必须 exit 0；若红，说明基线断言过严，先修断言再开工（不许放宽到「跳过」）。
 - 快照目录内容：7 个 `<包名>.json`，每个含 `host.words`（排序后的模块词）与 `sha256`。
 
+**终形态记录（G0 完成，2026-11-06）**：工具已落地——`scripts/lib/artifacts.mjs`（五导出：`readArtifact`/`requiredWords`/`importedWords`/`moduleWords`/`sha256`，语义按三份既有 bundle.test 副本差分测试 33 项 identical 提炼）+ `scripts/check-artifacts.mjs`（三模式：门禁 B1–B5 / `--write-baseline DIR` / `--baseline DIR` 的 B6；退出码 0/1/2；失败一次列全；快照模式先跑门禁防契约已破时误报等价）。实测事实：六软插件用例数基线 **project-mcp 152 / user-commands 127 / web-ux 579 / session-tool-toggle 1085 / zcode-plan 294 / workspace-config 55**（`pnpm --filter <包> test` 逐包 exit 0 无 failed/skipped）；`pnpm -r typecheck` 7 包全绿（P11 基线）；门禁模式未改动树 exit 0（7 包 B1–B5 过）；基线重复冻结字节级稳定。断言修正两处（执行期 R2 留痕于 tasks.md 附录）：B1 `files` 改语义覆盖检查（multi-root `files: lib/*.js` 全平铺，字面断言误红）、B2 补 `isBuiltin` 裸词与包内相对块两类合法词。已知词法器 locale 误报一项（web-ux `client.words` 含 locale 文案片段，执行期 R1，保持现状）。红队 fixture 验证：B1/B2(lodash)/B3/B4/B5/B6 均可红、修复后绿。
+
 ### G1 build-kit 收敛（构建期「死的重复」）
 
 顺序：建包 → 三个 host-only 先迁（风险最小）→ 三个双端。
@@ -787,6 +790,8 @@ type MissPolicy =
 - `pnpm --filter @dsh-plugins/build-kit test` → css 双模块、壳形状、四格守卫全绿。
 - 红队：把 `plugins/workspace-config/build.mjs` 改成 `cjsRequireShim: true` → `plugins/workspace-config/test/bundle.test.ts:130-131`（宿主半零 import）必红；恢复后绿。**注意**：web-ux/stt 的宿主断言只禁止非 `node:` 词（`web-ux/test/bundle.test.ts:111-113`、`session-tool-toggle/test/bundle.test.ts:158-163`），所以 banner 对它们「无害但多余」——`cjsRequireShim` 的正确性只能由包自己的零 import 断言与 `assertNoDynamicRequire` 双向夹住。
 - `git diff --stat plugins/*/lib` 只应出现 6 个包（multi-root 的 `lib/` **必须零 diff**）。
+
+**终形态记录（G1 完成，2026-11-06）**：`tooling/build-kit/` 已落地（10 文件：编排器 `buildPlugin(options) → { packageName, kind, dtsOwned, artifacts }` + deriveStrategy、host/client/css/guards 四模块、test 三件 32 用例、README 旋钮表）。实测事实：六包迁移后产物**字节级等价**（host 半 6/6 逐字节相等；client 半 web-ux/wsc 逐字节相等、stt 仅 D-3 双维度护栏既定两行差——模块词不变）；基线比对 7 包逐字相等；`pnpm --filter @dsh-plugins/build-kit test` 32 绿；GATE 六链 exit 0 且 multi-root `lib/` 零 diff。执行期裁定五项（R4–R8 详录于 tasks.md 附录）：build-kit 依赖字面量（3.2 转 catalog）、store-dir 纪律、assertSelfContained 不进 build 期、组内 2.2/2.3 串行（共享 lockfile/验证窗口）、kit 补 fail-fast 守卫（声明 web 缺入口即抛错，与旧 build.mjs 等价）+ volta 环境修复（用户授权：pnpm node platform 26.13.0→24.21.0，multi-root e2e 旗标兼容）。被否方案：词法器复用进 kit（破坏自包含）；静默降级为 host-only（与旧 fail-fast 不等价，属静默失败）。
 
 ### G2 构建配置与依赖收敛（tsconfig / catalog / scripts / oxlint / vitest）
 
@@ -812,6 +817,8 @@ type MissPolicy =
 - `pnpm dsh:upgrade 0.2.2-rc.1` 重跑幂等：`git diff` 为空（`--probe` 亦可）。
 - 红队：把某包 `devDependencies["@deepseek-ai/dsh"]` 从 `catalog:dsh` 改回 `0.2.2-rc.1` → `pnpm dsh:check` 必红（AR3 与 pin 归一化断言）。
 
+**终形态记录（G2 完成，2026-11-06）**：①tsconfig 收敛——根 `tsconfig.plugin.base.json`（= 4 份同 md5 基准逐键一致 + 3 条 paths，无 composite）、六包删 base、host/client 只剩 extends+include（wsc client 例外：declaration emit 六键保留，R10① 白名单）、删 pm/uc/zcode `vitest.config.ts`（用例数零变化证明收集面等价）；typecheck 脚本双 `-p` 形态，`tsc -b` 全仓退役（实测仍可跑但无脚本调用）。②catalog 同批——默认册 11 条工具链 + `catalogs.dsh` 31 条（29 dsh-* + cordis 4.1.0 + schemastery 3.19.0）；六包 devDeps `catalog:dsh` 61 条 + `catalog:` 42 条；lockfile `packages:` 键集合零差异（1001 行 diff 为空）；`dsh:upgrade 0.2.2-rc.1` 幂等（status 逐字相同）+ 真实目标 0.2.1-rc.5 演练（31 条改写、0 字面量残留）。③oxlint——根 `.oxlintrc.json`（57 rules 基准上移）+ 删 stt/wsc 本地；红队探针被正确忽略（阳性对照证明 ignore 生效）。④门禁骨架——`dsh-check.mjs` 三脚本聚合 + `check-architecture.mjs`（AR2/3/5/7，wsc 白名单、contracts 前瞻纳管）+ `release.mjs` 改调聚合。⑤**形态断言补齐**（3.5 红队暴露）：归一化值断言之外新增 catalog 形态断言（字面量即红，R12④），两层并存。实测：GATE 六链 exit 0，用例数逐包=基线（152/127/579/1085/294/55）。执行期裁定 R9（3.1/3.2 时序合并）、R10（三项）、R11（三项）、R12（五项）、R13（checkout 事故恢复 + 红队独占纪律）详录 tasks.md 附录。
+
 ### G3 测试资产收敛（stubs 底座 / 词法器 / 文案）
 
 1. T1–T5（`tooling/test-kit/`）。
@@ -823,6 +830,8 @@ type MissPolicy =
 - `pnpm -r test` 逐包用例数 ≥ G0 记录值（只许相等或增加）；三个双端包的组件套件（jsdom）全绿 = stub 并集实现的行为等价证据。
 - 审计断言：`grep -c "expect(" plugins/*/test/bundle.test.ts` 与 G0 记录值**逐个相等**（共享化后字面量断言数不减少，O9）。
 - `pnpm --filter dsh-plugin-session-tool-toggle test` 必须仍包含「每个 css module 一个注入器」断言（新增，见 ⑤ G1 的 stt bundle 测试改动）。
+
+**终形态记录（G3 完成，2026-11-06）**：`tooling/test-kit/` 落地（5 文件：ui-primitives 底座 456 行 = 三份 stub 严格超集——Button/Input/Switch/Modal 双版特性并集/Checkbox/SegmentedTabs 键盘版/Menu 全并集/17 图标带 onClick；locale-parity 纯函数 105 行不 import vitest、issue 串带稳定类别前缀）；三双端包 stubs **一行 re-export 收口、零本地覆盖**（设计预留的覆盖未触发：底座逐字段兼容，170→16 / 334→15 / 386→17）；三份 bundle.test 词法器改 import `scripts/lib/artifacts.mjs`（相对路径，`@ts-expect-error` 单行压制——d.mts 归 G8 9.2，R14④）；stt 新增「每 css module 一注入器」断言；locale-parity ×2 改调（REQUIRED_KEYS/NS 字面量留包，it 粒度保持）；build-kit devDeps catalog 化落地（R10②）。实测：用例数 stt 1086（+1）/wux 579/wsc 55（≥G0）；expect( 15/30/32；GATE 六链 exit 0；AR2 纳管 2 个 tooling 包。裁定 R14 四项（expect 基线 HEAD 现算、零覆盖、前缀扩展、类型面/文档漂移归 G8）详录 tasks.md 附录。
 
 ### G4 host-kit 骨架 + attribution 内核三包接管
 
@@ -841,6 +850,8 @@ type MissPolicy =
 
 ### G5 host-kit 其余语义合并（triggers / watcher / host-io / roots ×2）
 
+> **G4 终形态记录（执行留痕，主会话核对）**：两波执行。波 1（5.1/5.5）：host-kit 11 文件 47 用例（attribution 21 含 #3 与并发原子快照场景、watcher 12、triggers 6、roots 6、log 2）；contracts 三文件纯类型权威（D-15 按 R15① 形态：条目形状 `WorkspaceConfigSectionSlot` + holder 与三贡献方各一行本地 `declare module`，order 字面量类型，R15③）；H2 extends 路径实际 `../../`（R15⑤）。波 2（5.2/5.3/5.4，同一子代理按序）：pm 10 文件 / uc 12 文件 / stt 5 文件；oracle 三件零改动（`git diff --stat` 空）；用例数基线 152→157（pm +5 anomaly）、127→133（uc +2 concurrency +4 anomaly）、1086 持平；uc `watcher.test.ts:82` 一行断言随内核文案适配（R16②）；stt devDep 加 host-kit（R16①）；内核内联证据 `walkUp`/`createLog` 各 1 份、uc 产物 `owners.clear` 0 命中。5.6 GATE exit 0；产物纯净：`@dsh-plugins/` 七包 `lib/index.js` 全 0、基线词集合逐字相等（sha256 变化仅提示）。6.1/6.2 随波 2 触达面完成标勾（R16③，前缀 grep pm/uc 各 3 ≥1）。四项裁定见附录 R16。
+
 1. pm/uc 的 `roots.ts` / `triggers.ts` 改薄再导出；`watcher.ts` 按 3.2 的「保留签名 + 内部走 kit」改造；`host-io.ts` 减半（read 端口各留本地）。
 2. 日志适配器：pm/uc 的 `scanLog`/`commandLog` 改 `createLog(ctx, prefix)`（**前缀字符串逐字不变**）；stt 视 Q1 决定。
 3. `watchTargets` 的两处语义差由 `fallbackToLast` 参数承载（pm=true，uc=false）。
@@ -851,6 +862,8 @@ type MissPolicy =
 - `node scripts/check-artifacts.mjs --baseline /tmp/arch-baseline` 模块词集合相等。
 
 ### G6 规范增量与回归证据（Q5 修复 + #3 裁定 + spec delta）
+
+> **G5 终形态记录（执行留痕，主会话核对）**：6.1/6.2 随 G4 波 2 完成（R16③）；6.3 独立子代理完成——stt `src/host/index.ts` 删本地 `LOG_PREFIX`（全角）与本地 `createLog`（+3/−32），改调 `createLog(ctx, 'dsh-plugin-session-tool-toggle')`（半角，R16④），产物内联 host-kit log、运行时全角前缀绝迹；1086 用例持平全绿、oracle 零改动、基线词集合逐字相等、半角 grep = 2（≥1）。1.6 表 stt 行补遗由 lead 落 code-design（R16⑤）。6.4 GATE exit 0。回执核验纠正一处假绿：子代理以 `\uFF1A` 转义 grep 全角前缀（grep 不解释转义 → 恒 0），lead 以字面全角复核得 1 命中——经查为 HEAD 既有 JSDoc 注释（`@returns` 文案描述），非日志前缀、非本次引入，行为面零变化。后续派发提示统一加「grep 断言一律字面字符，禁 \uXXXX 转义」。
 
 1. `test/attribution-concurrency.test.ts`（uc）与 `test/attribution-anomaly.test.ts`（pm/uc 各一）落盘；**先在旧实现上复现红**（用 `git stash` 或临时 import 旧实现的方式取证一次，把「红→绿」写进变更记录）。
 2. R19/R20 的 spec delta（走 `openspec-propose` 的新变更，`openspec validate --all` 必须绿）：
@@ -882,6 +895,8 @@ type MissPolicy =
 
 ### G7 守护与 CI（dsh:check 聚合 + 产物契约 + GitHub Actions）
 
+> **G6 终形态记录（执行留痕，主会话核对）**：7.1/7.2/7.3 同一子代理按序完成，红队窗口独占。**红→绿取证**（两案均采「临时 import 旧实现」：`git show HEAD:` 落 `test/_legacy-attribution.ts` + import 临时改指，未覆盖 src；cp 备份恢复 + rm legacy + cmp 证实零残留，全包复绿）：7.1 pm 红用例 `reports roots[0] !== primaryRoot without dropping any root (#3)`（`expected [] to have a length of 1 but got +0`，旧实现 `slice(1)` 使 `/shared` 不入附加根层且无诊断）；7.2 uc 红用例「update 尚未兑现时 attribute 仍返回旧索引的完整结果」（`expected null to deeply equal { workspaceRoot: '/work/a', … }`，旧实现 `owners.clear` 形态窗口内返回 null）。基座测试经审视零改动（波 2 已完整覆盖任务断言，`grep primaryRoot` = 8、`grep "await pending"` = 4）。**7.3** 三文件全新落盘 `docs/decisions/{README,ADR-0001,ADR-0002}`：README 两套编号带路径说明（multi-root 命中 4）；ADR-0001 被否方案八条 + D-15 对归档 D4（2026-11-05-unify-workspace-config-entry 的 D4「holder 是类型权威」）修订记录 + 推翻 2026-10-11-split-project-mcp-plugin D4「归属判定不跨插件共享」（contracts 命中 13；两处 D4 已在文中区分）；ADR-0002 含 #3 裁定、原子索引纪律、stt 未命中策略保留依据、两包 spec delta 指针；三文档相对链接逐一 `test -e` 过。**7.4**：`openspec validate optimize-architecture --strict` 过、`git diff --stat openspec/specs` 零输出、GATE exit 0。
+
 1. R6/R7/R8 三脚本 + R5 workflow；AR1–AR7、B1–B6 全开。
 2. R12 release 已改（G2 完成）；`AGENTS.md`/`README.md` 的 dsh:check 描述同步（G8 收口）。
 
@@ -894,6 +909,8 @@ type MissPolicy =
 - workflow 语法：`node -e "require('yaml').parse(require('fs').readFileSync('.github/workflows/ci.yml','utf8'))"`（仓库已有 `yaml` 依赖，可用任一包的 `node_modules` 解析）→ 无异常。
 
 ### G8 脚手架生成 + 文档/ADR
+
+> **G7 终形态记录（执行留痕，主会话核对）**：8.1/8.2 同一子代理完成。**AR1/AR4/AR6 实装**（AR1 内部包禁入 dependencies；AR4 薄入口 = 唯一 build-kit import + 单次 `buildPlugin` + 无 esbuild 字样 + 去注释有效代码 ≤12 行，R17④；AR6 六包无本地 .oxlintrc + 根配置四特征）；**AR7 收紧恰五条**（plugins/* + build-kit/contracts/host-kit/test-kit，声明即必须存在且带 manifest）；check-architecture 七条全绿。**红队三连**（`pnpm dsh:check` 聚合口径，逐窗口独占，cp 恢复 + sha256/git-diff 哈希双证实零残留）：AR1 红（project-mcp dependencies 出现 host-kit）、AR4 红（旧骨架 4 条失败）、B2 红（双引号 `require("lodash")`，R17①；RT1 加 `--config.verify-deps-before-run=false`，R17②）。**8.2** ci.yml 七步链（Node 24.21.0 / pnpm 11.25.0，docs:check 分歧点②注记，不跑 verify）：yaml parse 过（恰 7 步序合 R5）、本地逐链全 exit 0、build 后 85 产物 sha256 与链前一致（构建可复现）。**根 package.json `dsh:check` 补指聚合入口**（3.4 遗漏，R17③，lead 落地复跑三组全绿）。8.3 GATE exit 0。
 
 1. R13 `scripts/gen-plugin.mjs` + P1–P3 模板。
 2. R14/R15 文档；R16 索引（ADR 正文属 G6，索引属本组）。
@@ -913,6 +930,8 @@ type MissPolicy =
 
 ### G-doc-sync（跨仓：dotfiles 仓 `agent/skills/dsh-plugin-writer/`，单独 commit）
 
+> **G8 终形态记录（执行留痕，主会话核对）**：9.1/9.2 同一子代理完成。**9.1**：`scripts/gen-plugin.mjs`（CLI `--help`/`--dry-run`/退出码 0=成功 1=名字非法|目录已存在|未知 kind 2=缺参|未知参数；只写文件不跑 git/pnpm）+ `tooling/template/` 十一件（P1 `package.json.tmpl` 非包命名、P2 件套、P3 目录说明；生成物 README 模板为 `plugin-README.md.tmpl`，R18②）；根 `package.json` 仅增 `gen:plugin` 一行。演练：host-only 全链绿（9 文件 / 4 用例）+ dual 全链绿（11 文件 / ModuleLoader 壳 + B4/B5 覆盖）；快照比对 105=105 / 96=96 且 lockfile 字节一致（R18①④）；模板字面量 grep 0 命中；`--help` 契约与非法输入退出码逐项取证；demo 目录零残留。**9.2**：README/AGENTS 主体（目录树 tooling 五目录 + template、`gen:plugin` 命令、dsh:check 聚合语义、仓级 ADR 段含两套编号说明）；漂移清单六项全落（`scripts/lib/artifacts.d.mts` 新建删三处 `@ts-expect-error` 含 wsc、六包 README `tsc -b`/composite 旧口径清零（web-ux 保留 1 处否定契约句中的「不带 composite」描述性用词）、build-kit README catalog 终态、stt `types.ts` docblock + README 半角前缀）；四条 grep 3/3/3/8；`pnpm -r typecheck` 11 projects 绿；wsc README D-15 权威口径四处由 lead 补落（R18⑤）；模板 README 的 tasks.md 引用补全路径（lead）。**9.3 GATE exit 0**。
+
 > **执行时须加载 `writing-skills` 技能**（写技能文档的规范），并按该技能的检查清单（frontmatter 只留 `name`/`description`、路径可解析、命令可执行、无失效行号）自检。本次设计阶段按用户豁免不加载任何 writer skill（④ D-13），豁免**不延伸到本任务组**。
 
 1. `SKILL.md`：§2 决策树补一句「三种形态都由 `pnpm gen:plugin` 生成，模板差异只剩 `--kind`」；§3 模板对照表「构建入口」列改「`build-kit` 薄入口」；§4 必改清单（7 项）重排为「生成器已代劳 vs 仍需手工」两栏；§5 生命周期第 2 步改 `pnpm gen:plugin <name> --kind …`；§6 真源表加 `tooling/build-kit/README.md`、`tooling/host-kit/README.md`、`docs/decisions/`。
@@ -922,6 +941,8 @@ type MissPolicy =
 5. `references/verify-install.md`：`pnpm dsh:check` 段改成聚合三脚本的描述；补 `pnpm gen:plugin` 的验证入口与「生成后先 `pnpm dsh:check`」。
 
 **验证（可执行断言）**
+
+> **G-doc-sync 终形态记录（执行留痕，主会话核对）**：10.1 完成，执行前已加载 `writing-skills`（frontmatter 仅 `name`/`description`，322 字符 <1024）。SKILL.md §1–§7 定向改版（§2 按根仓现状修正设计原句：生成器 `KINDS` 仅 `host-only|dual`，multi-root 为既有特例不走生成器——知识语义等价不误导）；references 四文件全改版：`build.md` 15 处 `build.mjs:<行号>` 清零改指 build-kit 策略文件（host/client/css/guards + banner），`dual-client.md` 3 处改指 `src/client.mjs`/`src/css.mjs` + 补「CSS 防重按包+模块双维度」，`structure.md` 件套清单重写（tsconfig.base.json 退出）+ catalog 字面量反例，`verify-install.md` 改聚合三脚本 + `gen:plugin` 验证入口。四条可执行断言全过：行号 grep = 0、路径抽取 `test -e` 全可解析（路径约定处定义 `$REPO` 变量，规避朴素抽取把 `@dsh-plugins/build-kit` 误抽为 `plugins/build-kit` 的假 MISSING）、`pnpm <script>` 逐个核对在根 package.json、单独 commit `cd926ce6`（恰 5 文件 174+/139−，dotfiles 工作区 clean）。附加清理：触及段落内指向 README/AGENTS/pnpm-workspace 的其他旧行号一并校准（写面内）。「5 行薄入口」按实际表述为「有效代码 2–3 行」（与 R17④ 口径一致）。
 - 失效行号清零：`cd ~/develop/dotfiles && grep -rn "build\.mjs:[0-9]" agent/skills/dsh-plugin-writer/ | wc -l` → **0**。
 - 引用路径存在性：把 skill 里出现的每个 `仓库相对路径`（`plugins/…`、`tooling/…`、`scripts/…`、`docs/…`）抽出来逐个 `test -e`：
   ```bash

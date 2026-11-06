@@ -8,21 +8,20 @@ DSH Web GUI 的**统一「工作区配置」入口**（holder，**零业务逻�
 
 - **入口唯一**：`sidebar.footer.action` 只剩这一枚入口（旧的三颗 footer 入口由贡献方在本次变更里硬移除，不做共存探测，也没有配置开关）。入口**恒在**——即使一个分节都没有，footer 也仍然显示它，空态在弹窗内解释（D5）。
 - **分节可扩展**：新增分节只需要贡献方在自己的包里注册一次（`slots.inject` 软注册），holder 不与任何贡献方建立运行时依赖。
-- **类型权威**：`workspace-config.section` 的座位名、owner 份额与 order 常量只在 `src/client/contract.ts` 定义一次；贡献方通过 `exports["./client"].types`（`lib/types/client/index.d.ts`）取类型。
+- **类型权威**：`workspace-config.section` 的座位条目形状（座位名、owner 份额、order 类型）由 `@dsh-plugins/contracts` 统一定义（`WorkspaceConfigSectionSlot`，D-15 权威转移）；本包 `src/client/contract.ts` 退化为文档指针与过渡 re-export，各消费包仍各持一份本地 `declare module` 增补；贡献方通过 `exports["./client"].types`（`lib/types/client/index.d.ts`）取兼容类型。
 - **四包同装**：profile 侧推荐同时安装 `dsh-plugin-workspace-config` 与三个贡献方（`multi-root-workspace` / `session-tool-toggle` / `web-ux`）。未装 holder 时贡献方不会残留 footer 入口（`slots.inject` 静默不触发），但它们的 GUI 分节也不可达；未装某个贡献方时 holder 的弹窗里少一节并显示/保留空态，不报错。
 
 ## 双端结构
 
 ```text
 src/index.ts                    宿主半：no-op 锚点（inject: [] + 空 apply），只为让 client-module scan 读到 dsh.client
-src/client/contract.ts          座位契约唯一权威：座位名 / owner 份额 / SlotMap 增补 / order 常量（零 React、零运行时上游 import）
+src/client/contract.ts          座位契约文档指针 + 过渡 re-export（条目形状权威在 @dsh-plugins/contracts，D-15）
 src/client/locales.ts           双语文案：NS workspaceConfig，7 键（zh canonical / en 镜像）
 src/css-modules.d.ts            *.module.css 的类型（构建期由 esbuild 内联为运行时 <style>）
-build.mjs                       双端构建：宿主 ESM（仅 node:* 外置）+ 浏览器 CJS（ModuleLoader 壳）
-tsconfig{,.base,.client,.host}  solution + base + 两个 composite 子工程；client 发射 d.ts 到 lib/types/
-test/stubs/ui-primitives.tsx    primitives 测试替身（Modal headless / Button / 两个图标）
+build.mjs                       薄构建入口：宿主 ESM + 浏览器 CJS（ModuleLoader 壳）由 @dsh-plugins/build-kit 产出
+tsconfig{,.host,.client}        solution + 两个子工程（只 extends 根基准）；client 发射 d.ts 到 lib/types/
+test/stubs/ui-primitives.tsx    primitives 测试替身（一行 re-export @dsh-plugins/test-kit/ui-primitives 的并集底座）
 vitest.config.ts                测试配置（primitives 替身经 alias 注入；jsdom 按用例文件头开启）
-.oxlintrc.json                  lint 配置
 
 # 以下文件属本包的客户端装配与组件（已实现并随仓库提交）：
 src/client/index.ts             客户端装配：locale 注册 + 打开桥 + 两个座位注册（trigger 50 / dialog 530 + children 声明）
@@ -122,7 +121,7 @@ docker exec dsh dsh --profile web --dump-config          # 校验组合可加载
 ```bash
 pnpm install       # 仓库根一次装齐 workspace 依赖
 pnpm build         # = build:types（tsc 发 d.ts）→ node build.mjs（esbuild 双端）
-pnpm typecheck     # tsc -b：host + client 双工程
+pnpm typecheck     # tsc -p 双调用：host + client 两个工程
 pnpm test          # vitest
 pnpm lint          # oxlint
 pnpm verify:all    # lint + typecheck + build + test
@@ -132,17 +131,17 @@ pnpm verify:all    # lint + typecheck + build + test
 
 - `lib/index.js` —— 宿主半 ESM，自包含、只把 `node:*` 外置（本包宿主半是 no-op 锚点）。
 - `lib/client.js` —— 浏览器半 CJS bundle，包进 `window.__ModuleLoader__.load({ id: 'dsh-plugin-workspace-config', factory })` 壳；`react` / `react-dom` / `react/jsx-runtime` / `@deepseek-ai/dsh-client-ui-primitives` 由浏览器壳经 loader `require` 提供，CSS modules 内联为运行时 `<style>` 注入，因此没有独立样式文件。
-- `lib/types/**/*.d.ts` —— **本包必须发射 d.ts**：它是三个贡献方的座位契约类型权威（`exports["./client"].types` → `lib/types/client/index.d.ts`）。纯 esbuild 不产声明，所以 `build:types` 由 `tsc` 单独完成（D4）。
+- `lib/types/**/*.d.ts` —— **本包必须发射 d.ts**：它是 `exports["./client"].types` 的类型出口（D-15 后座位条目形状权威已迁 `@dsh-plugins/contracts`，此出口为过渡兼容层）。纯 esbuild 不产声明，所以 `build:types` 由 `tsc` 单独完成（D4）。
 
-因此 `build.mjs` **不会**整目录清 `lib/`：`lib/types/` 是 `build:types` 先写好的，整目录删除会把声明一起删掉；脚本只覆盖自己产出的两个 JS 文件。
+因此 `build-kit` 从 `exports[*].types` 推出 `dtsOwned`，清理策略取 `js-only`：只覆盖自己产出的两个 JS 文件，不会整目录清 `lib/`（`lib/types/` 是 `build:types` 先写好的，整目录删除会把声明一起删掉）。
 
-`tsconfig.client.json` 是唯一发射产物的子工程（`declaration` + `emitDeclarationOnly` + `rootDir: src` + `outDir: lib/types`）；`tsconfig.host.json` 与 base 一样是 `noEmit` 纯检查。测试目录不进 emit 工程（`rootDir: src` 与测试文件位置冲突），由 vitest 的 esbuild 转译执行——与 multi-root-workspace 的既有取舍一致。
+`tsconfig.client.json` 是唯一发射产物的子工程（`declaration` + `emitDeclarationOnly` + `rootDir: src` + `outDir: lib/types`）；`tsconfig.host.json` 与根基准一样是 `noEmit` 纯检查。测试目录不进 emit 工程（`rootDir: src` 与测试文件位置冲突），由 vitest 的 esbuild 转译执行——与 multi-root-workspace 的既有取舍一致。
 
 `lib/` 随仓库提交（release 时递归重建保证新鲜）；`node_modules/`、`*.tsbuildinfo` 由仓库根 `.gitignore` 忽略，各插件不再单列 `.gitignore`。
 
 ## 当前状态
 
-本包已实现完毕并随仓库提交：宿主 no-op 锚点、座位契约与类型权威、双语文案、客户端装配（打开桥 + `sidebar.footer.action` 唯一入口 + `shell.overlay` 统一弹窗壳 + nav 投影 + 样式）与测试全部就位，构建产物 `lib/index.js` / `lib/client.js` / `lib/types/**` 随仓库提交。三个贡献方（multi-root-workspace / session-tool-toggle / web-ux）已按上文「只允许 `import type`」的约定接入各自分节，holder 侧不保留任何分节业务逻辑，也不维护贡献方清单。测试共 **55 例**（6 个测试文件；其中真 `@deepseek-ai/dsh-client-ui-renderer` 产物的座位 PoC 5 例：children 声明 / only 过滤 / label 双态 / 后装补跑 / 分节崩溃边界），四包同装的真机冒烟走查记录见 `artifacts/workspace-config-smoke.md`。
+本包已实现完毕并随仓库提交：宿主 no-op 锚点、座位契约接线（类型权威在 `@dsh-plugins/contracts`）、双语文案、客户端装配（打开桥 + `sidebar.footer.action` 唯一入口 + `shell.overlay` 统一弹窗壳 + nav 投影 + 样式）与测试全部就位，构建产物 `lib/index.js` / `lib/client.js` / `lib/types/**` 随仓库提交。三个贡献方（multi-root-workspace / session-tool-toggle / web-ux）已按上文「只允许 `import type`」的约定接入各自分节，holder 侧不保留任何分节业务逻辑，也不维护贡献方清单。测试共 **55 例**（6 个测试文件；其中真 `@deepseek-ai/dsh-client-ui-renderer` 产物的座位 PoC 5 例：children 声明 / only 过滤 / label 双态 / 后装补跑 / 分节崩溃边界），四包同装的真机冒烟走查记录见 `artifacts/workspace-config-smoke.md`。
 
 ## 非目标
 

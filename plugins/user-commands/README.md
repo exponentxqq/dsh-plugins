@@ -137,7 +137,7 @@ Skill（24 个）
 ```bash
 cd /home/xuqinqin/develop/person/dsh-plugins/plugins/user-commands   # 本包是 dsh-plugins workspace 成员
 pnpm install
-pnpm typecheck     # tsc -b：host 单工程
+pnpm typecheck     # tsc -p tsconfig.host.json：host 单工程
 pnpm test          # vitest：发现/仲裁/frontmatter/归属/分层注册/调用/清单（归组·渲染·降级）/监听/重载计数
 pnpm lint          # oxlint
 pnpm build         # esbuild → lib/index.js
