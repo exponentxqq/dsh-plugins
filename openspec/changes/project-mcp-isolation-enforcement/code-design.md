@@ -509,6 +509,14 @@ grep -n "private readonly attaching" plugins/project-mcp/src/host/isolation.ts  
 
 **禁止**：改 `deriveDeny` / `guardReason` 的判定条件 / `resourceGuardReason` / `reconcile` / `report`；改 `IsolationPorts`。
 
+**执行留痕（终形态，G1 完成 2026-11-05）**
+- 验收实测：typecheck exit 0（`tsc -b`）、lint exit 0（20 warnings 与改动前基线逐字一致）、四条 grep 全中；子代理补跑全量 `pnpm --filter dsh-plugin-project-mcp test` → 8 files / 139 passed（isolation.test.ts 34 条一字未改）。
+- 实现语义留痕（与 ③3.3 的两处细化，T1 用例将锁定）：
+  1. `attach` 对「已 tracked 且首次 `start` 已 settle」的重复调用**直接返回**（无 promise 可 join）——契约 2「不新建 Tracked、不装第二份」在 settle 后的必要延伸，否则第二次调用会装第二份 guard；
+  2. 若 `detach` 落在首次 `start` 仍 in-flight 的窗口内，随后同 key 的 `attach` 会 join 那次仍在飞的 start（`detach` 按设计未动）；正常时序 detach→attach 走新生（已脚本验证 2 guards / 2 restrictions）。
+- 判定表实现形态：行 5–8 合写为一段——单次 `blocked()` live 读共享给 `guardReason`/`resourceGuardReason`，`visible ?? NO_SERVERS` 代入，`reading` 由 `visibleFor(agent)===undefined` 区分 untracked/tracked；行 1–4 不调 `blocked()` 也不调 `visibleFor`（脚本实测行 1–4 blocked 读 0 次、行 5–8 各 1 次）。
+- `attach` 内原 `tools.guard(...)` 参数改为 `tracked.tools.guard(...)`（`start` 拆出所需，行为不变）。
+
 ### G2 — 补挂模块（文件 H2；对应 T2）
 
 **要点**
@@ -522,6 +530,11 @@ pnpm --filter dsh-plugin-project-mcp typecheck
 grep -n "boot: swept" plugins/project-mcp/src/host/boot-sweep.ts       # 1 行
 grep -c "from '@deepseek-ai" plugins/project-mcp/src/host/boot-sweep.ts # 0（不引上游包）
 ```
+
+**执行留痕（终形态，G2 完成 2026-11-05）**
+- 验收实测：typecheck exit 0；`grep -n "boot: swept"` 恰 1 行（L86 模板串逐字）；`grep -c "from '@deepseek-ai"` = 0。
+- 已修正偏差：初版模块头注释含字面串 `boot: swept …`，使该 grep 命中 2 行；已把注释改写为 "one summary line accounts for the whole pass"（代码与文案零改动）。启示：**注释措辞须避开验证句 grep 字面串**（后续 G6 实机 grep 口径同理）。
+- 行为冒烟（子代理临时脚本，脚本易失、结论留痕）：全量 `{3,3,0,0}` 且 info 恰 1 行逐字、跳过 `{3,1,2,0}`、中间单条失败 `{3,2,0,1}` 且 error 含 session id 末条仍挂上、空列表全 0 且静默、attach 串行序与输入序一致。
 
 ### G3 — 装配（文件 H3；对应 T3）
 
@@ -539,6 +552,12 @@ grep -c "isolation.attach(" plugins/project-mcp/src/host/index.ts              #
 ```
 
 **禁止**：改 `performRescan` 的步骤顺序；改 `agent/created` 的返回值形态；把 `boot()` await 进 `apply`。
+
+**执行留痕（终形态，G3 完成 2026-11-05）**
+- 验收实测：typecheck exit 0；七条 grep 全中（inject L60 含 `'agents'`、`ctx.tools.guard` 恰 1 行 L124、`predate this load` = 0、`await sweepLiveSessions` 恰 1 行 L322、`globalGuard?.()` 恰 1 行 L290、`isolation.attach(` 恰 1 行 L219）；子代理补跑全量 test 139 passed、lint 0 错误。
+- 实现留痕：原 predate 块尾部的 `background()` 调用一并删除——首扫改由 `boot()` 末尾 `await rescan()` 承担（与蓝图一致，走同一序列化 rescan 队列）；`background()` **函数保留**（watcher 与 triggers 仍用）。原 predate 块内的 `ctx.get('agents')` 局部读取随块删除，现在 `ctx.agents.list()` 直取（inject 硬注入保证存在，CD-11）。
+- 名字对应对：蓝图 `manager`/`attributor`/`workspaceRoots`/`rescan`/`reportFailure`/`scopedTools`/`log` 与现文件全部同名，无映射改动；`inject` JSDoc 折两行（<120 列）。
+- 文件头注释第 2/5 条改写 + 新增第 7 条（英文，措辞避开全部验证 grep 字面串）。
 
 ### G4 — 测试（文件 T1/T2；对应 T4）
 
@@ -561,6 +580,10 @@ pnpm --filter dsh-plugin-project-mcp test          # 全量
 ```
 红基线：G1/G2 未实施时新用例必红（`globalGuardDecision` / `sweepLiveSessions` 不存在即 import 失败）。
 
+**执行留痕（终形态，G4 完成 2026-11-05）**
+- 验收实测：`vitest run test/isolation.test.ts` → 42 passed（34 既有 + 8 新增，numstat +148/−0 零删改零重排）；`vitest run test/boot-sweep.test.ts` → 5 passed；双文件合跑 47 passed；全量 `pnpm --filter dsh-plugin-project-mcp test` → 9 files / **152 passed** exit 0（139 基线 + 8 + 5，计数自洽）。干净窗口核对：两子代理均收尾后主会话统一重跑，无 SKIPPED。
+- 用例锚定细节：用例 2/5 的 reason 用 `guardReason(name, blocked, new Set())` 同文锚定（模型不可探测语义的测试化）；用例 3 遍历 `RESOURCE_TOOLS` 常量而非硬编码三名字；用例 5 串行序用 attach 起始快照 `[[],['a'],['a','b']]` 证明非 `Promise.all`。
+
 ### G5 — 产物重建 + 全量回归（文件 H4；对应 T5）
 
 **出口**
@@ -573,6 +596,11 @@ node --input-type=module -e 'const m = await import("./plugins/project-mcp/lib/i
 pnpm typecheck && pnpm lint && pnpm test                        # 根仓递归；engines WARN 忽略、multi-root 5 个既有 skip
 ```
 `TMPDIR=/tmp` 口径（归档变更 R1-R3 的执行环境注意点）。
+
+**执行留痕（终形态，G5 完成 2026-11-05）**
+- 5.1 实测：build exit 0；四条断言全绿（`boot: swept`=1、`predate this load`=0、`global guard denied`=1、导出 `apply,inject,name`）；连续两次构建 md5 一致（`44c6d477…`）幂等；lib 唯一变化 +148/−22；主工作区 lib 未被触碰。
+- 5.2 实测：typecheck / lint / test 三命令 exit 0，两轮复跑计数一致（干净窗口）。全量 114 文件 / 2620 passed + 5 skipped；multi-root 5 skip 与归档 R2/R8 逐项一致；lint 合计 53w/0e，其中 project-mcp 20 = **19 条 lib/index.js + 1 条 test/plugin-loader.test.ts**（HEAD 基线同为 19，重建零新增）——修正任务口径「20 条全在 lib」；test 增量恰为本变更 +1 文件 +13 用例（139→152），无既有用例丢失、无新增 skip。
+- 环境既有现象（非本变更引入，沿用忽略约定）：pnpm engines WARN（v22.18.0 vs wanted ^22.19.0||>=24）。
 
 ### G6 — 实机验收（对应 T6；本批必做，**含重载复现**）
 
