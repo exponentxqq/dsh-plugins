@@ -2,17 +2,16 @@
  * 命令面测试（规范：dsh-session-tool-toggle —— `/tools` 单一命令的子文法与回执）。
  *
  * 全部用例都在**假 `ControlDeps`** 上驱动，不拉起宿主、不读写真实 `$DSH_HOME`：
- * 状态端口（`StateStore`）、层句柄（`LayerHandle`）、默认档 IO（`DefaultsIo`）与全局层
- * 读数（`catalog`）都是内存替身，因此「写了几次状态、掩码怎么变、文件里落了什么」都能
- * 直接计数断言。
+ * 状态端口（`StateStore`）、层句柄（`LayerHandle`）与默认档 IO（`DefaultsIo`）都是内存
+ * 替身，因此「写了几次状态、掩码怎么变、文件里落了什么」都能直接计数断言。
  *
  * 覆盖三条主验证句（任务 7.1）：
  *
  * 1. **文法错误文案**：未知子命令、缺地址、多余参数、非法通配、`tool:mcp__…` 用错前缀，
  *    一律 `{kind:'error'}` 且文案带一行文法；
  * 2. **`/tools off tool:bash` 的保护拒绝**：列出保护名单、不写状态、不动掩码；
- * 3. **status 两态**：「全局层有、本会话关」→ `已关闭`；「从未注册」→ `已记录（当前无注册
- *    工具匹配；服务器上线后自动生效）`，两段文案不同。
+ * 3. **status 两态**：「本会话有、已关」→ `已关闭`；「本会话当前无匹配」→ `已记录（本会话
+ *    当前没有匹配的工具定义；它出现在本会话后自动生效）`，两段文案不同。
  *
  * 另按 code-design ③.7 覆盖：`off`/`on` **逐字对称**的 KV 缓存重建提示、整组 off 的
  * `+ 1 段服务器指令`、单工具关闭不产生指令段、`reset` 回创建时快照、`default` 四种写
@@ -28,6 +27,14 @@
  * - `closedStateText` 的 `skill` 分支（`/name 手动调用保留`）与技能翻转的目录消息成本提示；
  * - 技能收敛的 `await skillsSettled()`（D4：回执在收敛结算之后才返回）；
  * - `TOOLS_GRAMMAR` 的 workspace 子句（H11）。
+ *
+ * 会话层口径（H2 / T4.4）改写：
+ *
+ * - 工具读数只有会话两读（`scoped ∪ carried`）：harness 的 `catalog` 形参整条删除，
+ *   「可关对象」与命中计数不再参考全局层注册名；
+ * - 「被其他作用域隐藏」整段（读数与断言）随全局层口径移除；
+ * - `closedStateText` 的 0 命中文案改为会话口径，层未就绪的可关对象降级行改为
+ *   `【可关对象】会话层未就绪：无法读取本会话的工具清单`。
  */
 import { describe, expect, it } from 'vitest'
 import { PROTECTED_BASELINE } from '../src/host/address.ts'
@@ -57,6 +64,7 @@ import type {
   SpecLog,
   StateStore,
   StoreKind,
+  VisibleToolSchema,
   WorkspaceAttribution,
 } from '../src/host/types.ts'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
@@ -159,7 +167,8 @@ class FakeStore implements StateStore {
 }
 
 /**
- * 假层句柄：按 `planMask` 的三读并集重算掩码，并让名字从 `visibleNames()` 消失。
+ * 假层句柄：按 `planMask` 的两读并集（`scoped ∪ carried`）重算掩码，并让名字从
+ * `visibleNames()` 消失。
  *
  * 刻意模拟真实的三个行为：
  *
@@ -194,14 +203,12 @@ class FakeLayer implements LayerHandle {
   settledCalls = 0
 
   /**
-   * @param catalog - 全局层注册名。
-   * @param scope - 该 agent **未**被本插件掩码时的视角名字。
+   * @param scope - 该 agent **未**被本插件掩码时的视角名字（唯一的工具读数来源）。
    * @param initial - 初始整值状态（构造即应用一次，模拟 `attach`）。
    * @param skillsAvailable - `skills` 服务是否可用。
    * @param installedSkills - 已安装技能名（模型可调用；影子生效后从 `visible` 消失）。
    */
   constructor(
-    private readonly catalog: readonly string[],
     private readonly scope: readonly string[],
     initial: SessionToolState,
     private readonly skillsAvailable: boolean = true,
@@ -239,6 +246,14 @@ class FakeLayer implements LayerHandle {
    */
   visibleNames(): readonly string[] {
     return this.scope.filter((name) => !this.masked.includes(name))
+  }
+
+  /**
+   * 读本会话当前可见工具的名字 + 描述投影（本假层只记名字，描述按缺省）。
+   * @returns 可见名字的轻量投影。
+   */
+  visibleSchemas(): readonly VisibleToolSchema[] {
+    return this.visibleNames().map((name) => ({ name }))
   }
 
   /**
@@ -300,7 +315,6 @@ class FakeLayer implements LayerHandle {
   /** 一轮重算：scoped 读「上一轮掩码之后」的视角，carried 读上一轮 deny。 */
   private reconcile(): void {
     const plan = planMask({
-      catalog: this.catalog,
       scoped: this.visibleNames(),
       carried: this.masked,
       disabled: this.state.disabled,
@@ -350,9 +364,7 @@ class FakeDefaultsIo implements DefaultsIo {
 
 /** 假端口的构造参数（只写用例关心的部分）。 */
 interface HarnessOptions {
-  /** 全局层注册名。 */
-  readonly catalog?: readonly string[]
-  /** 该 agent 未被掩码时的视角名字（默认与 `catalog` 相同）。 */
+  /** 该 agent 未被掩码时的视角名字（唯一的工具读数来源；默认空）。 */
   readonly scope?: readonly string[]
   /** 本会话关闭集。 */
   readonly disabled?: readonly string[]
@@ -403,8 +415,7 @@ interface Harness {
  */
 function harness(options: HarnessOptions = {}): Harness {
   const session = fakeSession()
-  const catalog = options.catalog ?? []
-  const scope = options.scope ?? catalog
+  const scope = options.scope ?? []
   const initial: SessionToolState = {
     version: 1,
     disabled: options.disabled ?? [],
@@ -418,7 +429,6 @@ function harness(options: HarnessOptions = {}): Harness {
     options.withLayer === false
       ? undefined
       : new FakeLayer(
-          catalog,
           scope,
           initial,
           options.skillsAvailable ?? true,
@@ -456,7 +466,6 @@ function harness(options: HarnessOptions = {}): Harness {
     defaultsIo,
     protectedNames: new Set(PROTECTED_BASELINE),
     log: recorded.log,
-    catalog: () => catalog,
     workspacesPath: WORKSPACES_PATH,
     workspacesIo,
     workspaceOf: async (target): Promise<WorkspaceAttribution | undefined> => {
@@ -530,7 +539,7 @@ describe('命令定义与输入切分', () => {
   })
 
   it('handler 直接吃 rawInput（含分隔空白），不经过任何解析包装', async () => {
-    const h = harness({ catalog: ['mcp__a__x'], scope: ['mcp__a__x'] })
+    const h = harness({ scope: ['mcp__a__x'] })
     const definition = toolsCommand(h.deps)
     const invocation = {
       rawInput: '  status',
@@ -548,7 +557,7 @@ describe('命令定义与输入切分', () => {
   })
 
   it('子命令动词大小写不敏感（地址仍大小写敏感）', async () => {
-    const h = harness({ catalog: ['mcp__a__x'], scope: ['mcp__a__x'] })
+    const h = harness({ scope: ['mcp__a__x'] })
     const result = await run('/tools OFF mcp:a', h)
     expect(result.kind).toBe('success')
     expect(h.store.current.disabled).toEqual(['mcp:a'])
@@ -633,7 +642,7 @@ describe('文法错误文案（任务 7.1 验证①）', () => {
   })
 
   it('全有或全无：一个地址非法就整单拒绝，合法地址也不落状态、不动掩码', async () => {
-    const h = harness({ catalog: ['mcp__a__x'], scope: ['mcp__a__x'] })
+    const h = harness({ scope: ['mcp__a__x'] })
     const text = await expectError('/tools off mcp:a nope:x', h)
     expect(text).toContain('地址不合法，未做任何改动')
     expect(text).toContain('文法：')
@@ -657,7 +666,7 @@ describe('保护名单拒绝（任务 7.1 验证②）', () => {
   })
 
   it('混合地址里有一个受保护工具：整单拒绝（不部分生效）', async () => {
-    const h = harness({ catalog: ['mcp__a__x'], scope: ['mcp__a__x'] })
+    const h = harness({ scope: ['mcp__a__x'] })
     const text = await expectError('/tools off mcp:a tool:bash', h)
     expect(text).toContain('「bash」在保护名单内')
     expect(h.store.current.disabled).toEqual([])
@@ -682,7 +691,6 @@ describe('保护名单拒绝（任务 7.1 验证②）', () => {
 describe('status 两态与四段（任务 7.1 验证③）', () => {
   it('status 四段齐全：本会话开关 / 默认档（路径 + 快照来源）/ 可关对象 / 保护名单', async () => {
     const h = harness({
-      catalog: ['mcp__a__x', 'mcp__b__y', 'bash'],
       scope: ['mcp__b__y', 'bash'],
       disabled: ['mcp:a'],
     })
@@ -695,10 +703,9 @@ describe('status 两态与四段（任务 7.1 验证③）', () => {
     expect(text).toContain('快照来源=创建时默认档快照（0 项关闭）')
   })
 
-  it('两态区分：全局层有且本会话关 → 已关闭；从未注册 → 已记录（无匹配）', async () => {
+  it('两态区分：本会话有且已关 → 已关闭；本会话当前无匹配 → 已记录（会话口径）', async () => {
     const h = harness({
-      catalog: ['mcp__a__x', 'mcp__b__y', 'bash'],
-      scope: ['mcp__b__y', 'bash'],
+      scope: ['mcp__a__x', 'mcp__b__y', 'bash'],
       disabled: ['mcp:a', 'mcp:zzz'],
     })
     const text = textOf(await run('/tools status', h))
@@ -706,46 +713,53 @@ describe('status 两态与四段（任务 7.1 验证③）', () => {
     const closedLine = lineWith(text, 'mcp:a 1 个工具定义')
     const intentLine = lineWith(text, 'mcp:zzz 0 个工具定义')
     expect(closedLine).toContain('已关闭')
-    expect(intentLine).toContain('已记录：当前无注册工具匹配；服务器上线后自动生效')
+    expect(intentLine).toContain('已记录：本会话当前没有匹配的工具定义；它出现在本会话后自动生效')
     // 两段文案必须不同（这就是「两态」在输出上的唯一区别）。
     expect(closedLine).not.toBe(intentLine)
   })
 
-  it('可关对象按 server 分组计数，并统计「被其他作用域隐藏」（排除本插件已生效掩码）', async () => {
-    // mcp:a 是本插件关掉的：掩码生效后 x 从 scoped 消失，但它同时进了 carried，
-    // 因此不再算「被其他作用域隐藏」（R18）——否则面板会禁用该行、用户打不开自己关掉的工具。
-    const h = harness({
-      catalog: ['mcp__a__x', 'mcp__b__y', 'bash'],
-      scope: ['mcp__b__y', 'bash'],
-      disabled: ['mcp:a'],
-    })
+  it('关闭会话外工具：命中 0、意图保留，status 用会话口径的「已记录」', async () => {
+    // scope 里没有 mcp:zzz 组的任何名字（本会话看不到它）→ 关闭是纯意图。
+    const h = harness({ scope: ['mcp__b__y', 'bash'] })
+    const offText = textOf(await run('/tools off mcp:zzz', h))
+    expect(offText).toContain('已记录：mcp:zzz（当前无注册工具匹配；服务器上线后自动生效）')
+    expect(offText).toContain('本次没有工具定义进出模型请求：前缀缓存不重建')
+    expect(h.store.current.disabled).toEqual(['mcp:zzz'])
+
+    const text = textOf(await run('/tools status', h))
+    expect(lineWith(text, 'mcp:zzz 0 个工具定义')).toContain(
+      '已记录：本会话当前没有匹配的工具定义；它出现在本会话后自动生效',
+    )
+  })
+
+  it('可关对象只由 scoped ∪ carried 推出：scope 里没有的组不出现在计数', async () => {
+    // 会话视角里只有 a / b 两组：分组计数只由会话读数推出，不含全局层名单。
+    const h = harness({ scope: ['mcp__a__x', 'mcp__b__y', 'bash'] })
     const text = textOf(await run('/tools status', h))
     expect(text).toContain('MCP 服务器 2 台（mcp:a 1、mcp:b 1）')
     expect(text).toContain('内置工具 1 个（其中 1 个受保护）')
-    expect(text).toContain('被其他作用域隐藏 0 个工具定义（全局层有、本会话不可见）')
+    expect(text).not.toContain('被其他作用域隐藏')
 
-    // 真·被别的作用域掩掉的名字（在全局层注册、本视角看不到，且不在本插件掩码里）仍计数。
-    const others = harness({
-      catalog: ['mcp__a__x', 'mcp__b__y', 'mcp__c__z', 'bash'],
-      scope: ['mcp__a__x', 'mcp__b__y', 'bash'],
-    })
-    const othersText = textOf(await run('/tools status', others))
-    expect(othersText).toContain('被其他作用域隐藏 1 个工具定义（全局层有、本会话不可见）')
+    // 关了会话外组 mcp:a（scope 里没有 a 组名字、carried 也为空）：不产生 a 分组。
+    const outside = harness({ scope: ['mcp__b__y', 'bash'], disabled: ['mcp:a'] })
+    const outsideText = textOf(await run('/tools status', outside))
+    expect(outsideText).toContain('MCP 服务器 1 台（mcp:b 1）')
+    expect(outsideText).not.toContain('mcp:a 1')
   })
 
   it('空关闭集：报「已关 0 项（全部可见）」且没有关闭条目', async () => {
-    const text = textOf(await run('/tools status', harness({ catalog: ['bash'], scope: ['bash'] })))
+    const text = textOf(await run('/tools status', harness({ scope: ['bash'] })))
     expect(text).toContain('【本会话开关】已关 0 项（全部可见）')
-    expect(text).not.toContain('已记录：当前无注册工具匹配')
+    expect(text).not.toContain('已记录：本会话当前没有匹配的工具定义')
   })
 
-  it('层未就绪：可见数与隐藏计数都降级为「不可用」，命令仍成功', async () => {
-    const h = harness({ catalog: ['mcp__a__x'], withLayer: false })
+  it('层未就绪：可见数与可关对象都降级为「不可用」，命令仍成功', async () => {
+    const h = harness({ withLayer: false })
     const result = await run('/tools status', h)
     expect(result.kind).toBe('success')
     const text = textOf(result)
     expect(text).toContain('本会话可见工具 数不可用（会话层未就绪）')
-    expect(text).toContain('会话层未就绪：无法读取「被其他作用域隐藏」的计数')
+    expect(text).toContain('【可关对象】会话层未就绪：无法读取本会话的工具清单')
   })
 
   it('持久化降级到内存态时 status 明说通道', async () => {
@@ -757,10 +771,7 @@ describe('status 两态与四段（任务 7.1 验证③）', () => {
 
 describe('off / on 回执：计数、整组指令段与缓存提示', () => {
   it('/tools off mcp:a：隐藏计数 + 1 段服务器指令 + 可见数 + 缓存重建提示', async () => {
-    const h = harness({
-      catalog: ['mcp__a__x', 'mcp__a__y', 'bash'],
-      scope: ['mcp__a__x', 'mcp__a__y', 'bash'],
-    })
+    const h = harness({ scope: ['mcp__a__x', 'mcp__a__y', 'bash'] })
     const text = textOf(await run('/tools off mcp:a', h))
     expect(text).toContain('已关闭：mcp:a（隐藏 2 个工具定义 + 1 段服务器指令）')
     expect(text).toContain('本会话可见工具 3 → 1')
@@ -770,7 +781,6 @@ describe('off / on 回执：计数、整组指令段与缓存提示', () => {
 
   it('/tools on mcp:a 对称：恢复计数 + 1 段服务器指令 + 同样的缓存提示', async () => {
     const h = harness({
-      catalog: ['mcp__a__x', 'mcp__a__y', 'bash'],
       scope: ['mcp__a__x', 'mcp__a__y', 'bash'],
       disabled: ['mcp:a'],
     })
@@ -782,15 +792,15 @@ describe('off / on 回执：计数、整组指令段与缓存提示', () => {
   })
 
   it('缓存重建提示开/关逐字相同（S5 的对称性）', async () => {
-    const offHarness = harness({ catalog: ['mcp__a__x'], scope: ['mcp__a__x'] })
+    const offHarness = harness({ scope: ['mcp__a__x'] })
     const offText = textOf(await run('/tools off mcp:a', offHarness))
-    const onHarness = harness({ catalog: ['mcp__a__x'], scope: ['mcp__a__x'], disabled: ['mcp:a'] })
+    const onHarness = harness({ scope: ['mcp__a__x'], disabled: ['mcp:a'] })
     const onText = textOf(await run('/tools on mcp:a', onHarness))
     expect(lineWith(offText, '前缀缓存')).toBe(lineWith(onText, '前缀缓存'))
   })
 
   it('单工具关闭不产生「服务器指令段」（只有整组才遮蔽）', async () => {
-    const h = harness({ catalog: ['mcp__a__x', 'mcp__a__y'], scope: ['mcp__a__x', 'mcp__a__y'] })
+    const h = harness({ scope: ['mcp__a__x', 'mcp__a__y'] })
     const text = textOf(await run('/tools off mcp:a::x', h))
     expect(text).toContain('已关闭：mcp:a::x（隐藏 1 个工具定义）')
     expect(text).not.toContain('段服务器指令')
@@ -798,7 +808,7 @@ describe('off / on 回执：计数、整组指令段与缓存提示', () => {
   })
 
   it('未知 server：宽容记录（不报错），并说明服务器上线后自动生效', async () => {
-    const h = harness({ catalog: ['bash'], scope: ['bash'] })
+    const h = harness({ scope: ['bash'] })
     const result = await run('/tools off mcp:zzz', h)
     expect(result.kind).toBe('success')
     const text = textOf(result)
@@ -810,10 +820,7 @@ describe('off / on 回执：计数、整组指令段与缓存提示', () => {
   })
 
   it('多地址一次处理：逐条回执 + 只写一次状态', async () => {
-    const h = harness({
-      catalog: ['mcp__a__x', 'mcp__b__y', 'workflow'],
-      scope: ['mcp__a__x', 'mcp__b__y', 'workflow'],
-    })
+    const h = harness({ scope: ['mcp__a__x', 'mcp__b__y', 'workflow'] })
     const text = textOf(await run('/tools off mcp:a mcp:b tool:workflow', h))
     expect(text).toContain('已关闭：mcp:a（隐藏 1 个工具定义 + 1 段服务器指令）')
     expect(text).toContain('已关闭：mcp:b（隐藏 1 个工具定义 + 1 段服务器指令）')
@@ -824,7 +831,7 @@ describe('off / on 回执：计数、整组指令段与缓存提示', () => {
   })
 
   it('重复关闭同一地址：无变化、不重复写状态', async () => {
-    const h = harness({ catalog: ['mcp__a__x'], scope: ['mcp__a__x'], disabled: ['mcp:a'] })
+    const h = harness({ scope: ['mcp__a__x'], disabled: ['mcp:a'] })
     const text = textOf(await run('/tools off mcp:a', h))
     expect(text).toContain('已关闭：mcp:a（此前已关闭，无变化）')
     expect(text).toContain('本次没有工具定义进出模型请求：前缀缓存不重建')
@@ -832,14 +839,14 @@ describe('off / on 回执：计数、整组指令段与缓存提示', () => {
   })
 
   it('开启一个本来就没关的地址：说明此前已是开启状态', async () => {
-    const h = harness({ catalog: ['mcp__a__x'], scope: ['mcp__a__x'] })
+    const h = harness({ scope: ['mcp__a__x'] })
     const text = textOf(await run('/tools on mcp:a', h))
     expect(text).toContain('已开启：mcp:a（此前已是开启状态，无变化）')
     expect(h.store.writes).toHaveLength(0)
   })
 
   it('skill 翻转额外提示技能目录替换成本（S13）', async () => {
-    const h = harness({ catalog: ['skill', 'bash'], scope: ['skill', 'bash'] })
+    const h = harness({ scope: ['skill', 'bash'] })
     const text = textOf(await run('/tools off skill', h))
     expect(text).toContain('已关闭：tool:skill（隐藏 1 个工具定义）')
     expect(text).toContain('技能目录替换消息')
@@ -848,7 +855,6 @@ describe('off / on 回执：计数、整组指令段与缓存提示', () => {
 
   it('状态写入失败：命令仍成功，回执补一句降级提示', async () => {
     const h = harness({
-      catalog: ['mcp__a__x'],
       scope: ['mcp__a__x'],
       storeWriteError: new Error('模拟的记录通道故障'),
     })
@@ -859,9 +865,10 @@ describe('off / on 回执：计数、整组指令段与缓存提示', () => {
   })
 
   it('层未就绪时开关仍记录意图，回执说明可见数不可用', async () => {
-    const h = harness({ catalog: ['mcp__a__x'], withLayer: false })
+    const h = harness({ withLayer: false })
     const text = textOf(await run('/tools off mcp:a', h))
-    expect(text).toContain('已关闭：mcp:a（隐藏 1 个工具定义 + 1 段服务器指令）')
+    // 没有层就没有会话读数：命中 0、纯意图（与「关闭会话外工具」同一条路径）。
+    expect(text).toContain('已记录：mcp:a（当前无注册工具匹配；服务器上线后自动生效）')
     expect(text).toContain('本会话层未就绪：可见工具数不可用')
     expect(h.store.current.disabled).toEqual(['mcp:a'])
   })
@@ -870,7 +877,6 @@ describe('off / on 回执：计数、整组指令段与缓存提示', () => {
 describe('/tools reset：回到创建时快照', () => {
   it('重置到快照：变化项数、快照关闭数、可见工具恢复', async () => {
     const h = harness({
-      catalog: ['mcp__a__x', 'mcp__b__y'],
       scope: ['mcp__a__x', 'mcp__b__y'],
       disabled: ['mcp:a', 'mcp:b'],
       snapshot: ['mcp:a'],
@@ -883,7 +889,6 @@ describe('/tools reset：回到创建时快照', () => {
 
   it('快照为空 = 全部打开（重置后无关闭项）', async () => {
     const h = harness({
-      catalog: ['mcp__a__x'],
       scope: ['mcp__a__x'],
       disabled: ['mcp:a'],
       snapshot: [],
@@ -895,7 +900,6 @@ describe('/tools reset：回到创建时快照', () => {
 
   it('已与快照一致：无变化、不写状态、缓存不重建', async () => {
     const h = harness({
-      catalog: ['mcp__a__x'],
       scope: ['mcp__a__x'],
       disabled: ['mcp:a'],
       snapshot: ['mcp:a'],
@@ -973,7 +977,6 @@ describe('/tools default：读写默认档（只影响之后新建的会话）',
 describe('技能翻转：结算等待与目录消息成本（D4 / S13）', () => {
   it('/tools off skill:<name>：等技能收敛后再回执，并提示目录替换成本', async () => {
     const h = harness({
-      catalog: ['skill', 'bash'],
       scope: ['skill', 'bash'],
       skills: ['openspec-propose'],
     })
@@ -991,7 +994,7 @@ describe('技能翻转：结算等待与目录消息成本（D4 / S13）', () =>
   })
 
   it('回执被 skillsSettled 挡住：收敛未结算前命令不返回（D4）', async () => {
-    const h = harness({ catalog: ['skill'], scope: ['skill'], skills: ['openspec-propose'] })
+    const h = harness({ scope: ['skill'], skills: ['openspec-propose'] })
     const release = h.layer?.holdSkills()
     let returned = false
     const pending = run('/tools off skill:openspec-propose', h).then((result) => {
@@ -1013,7 +1016,6 @@ describe('技能翻转：结算等待与目录消息成本（D4 / S13）', () =>
 
   it('/tools on skill:<name>：恢复可见并给出同样的目录成本提示', async () => {
     const h = harness({
-      catalog: ['skill', 'bash'],
       scope: ['skill', 'bash'],
       disabled: ['skill:openspec-propose'],
       snapshot: ['skill:openspec-propose'],
@@ -1028,7 +1030,7 @@ describe('技能翻转：结算等待与目录消息成本（D4 / S13）', () =>
   })
 
   it('未安装的技能：宽容记录意图，不谎报目录消息成本', async () => {
-    const h = harness({ catalog: ['skill'], scope: ['skill'] })
+    const h = harness({ scope: ['skill'] })
     const text = textOf(await run('/tools off skill:ghost', h))
 
     expect(text).toContain('已记录：skill:ghost（当前没有这个技能；安装后自动生效）')
@@ -1041,7 +1043,6 @@ describe('技能翻转：结算等待与目录消息成本（D4 / S13）', () =>
 describe('/tools status：技能段与工作区默认档段（H11）', () => {
   it('两段齐全：技能计数行 + 工作区键/登记态/文件路径', async () => {
     const h = harness({
-      catalog: ['skill', 'bash'],
       scope: ['skill', 'bash'],
       // 一个已安装且影子生效 + 一个未安装的意图，覆盖「生效 1，意图 1」两态。
       disabled: ['skill:openspec-propose', 'skill:ghost'],
@@ -1063,7 +1064,7 @@ describe('/tools status：技能段与工作区默认档段（H11）', () => {
   })
 
   it('技能服务不可用：技能段降级一行，不谎报数字', async () => {
-    const h = harness({ catalog: ['bash'], scope: ['bash'], skillsAvailable: false })
+    const h = harness({ scope: ['bash'], skillsAvailable: false })
     const text = textOf(await run('/tools status', h))
 
     expect(text).toContain('技能：不可用（skills 服务未就绪：技能地址只记意图，模型目录不会屏蔽）')
@@ -1080,7 +1081,6 @@ describe('/tools status：技能段与工作区默认档段（H11）', () => {
 
   it('整档 tool:skill 关闭：技能段补一行「目录停发」说明', async () => {
     const h = harness({
-      catalog: ['skill'],
       scope: ['skill'],
       disabled: ['tool:skill'],
       skills: ['openspec-propose'],
@@ -1290,7 +1290,7 @@ describe('/tools workspace：off/on/set/reset 写读链路（T9）', () => {
 
 describe('控制内核可直接驱动（任务 9.1 的接缝）', () => {
   it('toggleSession：不经文本前端也能拿到完整回执事实', () => {
-    const h = harness({ catalog: ['mcp__a__x'], scope: ['mcp__a__x'] })
+    const h = harness({ scope: ['mcp__a__x'] })
     const outcome = toggleSession(h.deps, h.session, ['mcp:a'], false)
     expect(outcome.ok).toBe(true)
     if (!outcome.ok) return
@@ -1304,7 +1304,7 @@ describe('控制内核可直接驱动（任务 9.1 的接缝）', () => {
   })
 
   it('toggleSession：校验失败返回 ok:false，且状态与掩码都没动', () => {
-    const h = harness({ catalog: ['mcp__a__x'], scope: ['mcp__a__x'] })
+    const h = harness({ scope: ['mcp__a__x'] })
     const outcome = toggleSession(h.deps, h.session, ['tool:bash'], false)
     expect(outcome.ok).toBe(false)
     if (outcome.ok) return
@@ -1315,7 +1315,6 @@ describe('控制内核可直接驱动（任务 9.1 的接缝）', () => {
 
   it('resetSession：变化项数按对称差算', () => {
     const h = harness({
-      catalog: ['mcp__a__x'],
       scope: ['mcp__a__x'],
       disabled: ['mcp:a'],
       snapshot: [],
@@ -1326,16 +1325,18 @@ describe('控制内核可直接驱动（任务 9.1 的接缝）', () => {
     expect(report.state.disabled).toEqual([])
   })
 
-  it('readPanel：三读并集与命中计数一致（catalog / scoped / carried）', async () => {
+  it('readPanel：两读并集（scoped ∪ carried）与命中计数一致', async () => {
     const h = harness({
-      catalog: ['mcp__a__x', 'mcp__b__y', 'bash'],
-      scope: ['mcp__b__y', 'bash'],
+      scope: ['mcp__a__x', 'mcp__b__y', 'bash'],
       disabled: ['mcp:a'],
     })
     const reading = await readPanel(h.deps, h.session)
     expect(reading.layerReady).toBe(true)
-    expect(reading.catalog).toEqual(['mcp__a__x', 'mcp__b__y', 'bash'])
+    // 会话层口径：`catalog` / `hiddenByOthers` 两个字段整条删除（不是恒空数组）。
+    expect(reading).not.toHaveProperty('catalog')
+    expect(reading).not.toHaveProperty('hiddenByOthers')
     expect(reading.scoped).toEqual(['mcp__b__y', 'bash'])
+    // mcp__a__x 已被本插件掩掉（从 scoped 消失），但 carried 让它仍算命中 1。
     expect(reading.matched.get('mcp:a')).toBe(1)
     expect(reading.closed).toEqual([
       { text: 'mcp:a', kind: 'mcp-group', matched: 1, shadowed: true },
@@ -1345,8 +1346,6 @@ describe('控制内核可直接驱动（任务 9.1 的接缝）', () => {
       { server: 'b', address: 'mcp:b', count: 1 },
     ])
     expect(reading.builtinNames).toEqual(['bash'])
-    // mcp__a__x 是本插件关掉且掩码已生效的名字（carried）→ 不算「被其他作用域隐藏」（R18）。
-    expect(reading.hiddenByOthers).toEqual([])
     expect(reading.defaults).toEqual({ version: 1, disabled: [] })
   })
 

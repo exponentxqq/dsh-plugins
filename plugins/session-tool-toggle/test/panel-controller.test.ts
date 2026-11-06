@@ -65,9 +65,8 @@ function snapshot(overrides: Partial<PanelSnapshot> = {}): PanelSnapshot {
     groups: [],
     protectedNames: ['bash'],
     defaults: defaultsView(),
-    hiddenByOthers: [],
     intentOnly: [],
-    stats: { visible: 4, catalog: 4, denied: 0, shadowed: 0 },
+    stats: { visible: 4, denied: 0 },
     notices: [],
     skills: [],
     workspace: workspaceView(),
@@ -106,6 +105,8 @@ function workspaceValue(overrides: Partial<WorkspaceValue> = {}): WorkspaceValue
       { key: OTHER_WORKSPACE_PATH, title: '工作区二' },
     ],
     changed: [],
+    // 键必填：控制器不消费宇宙（面板快照派生），夹具给合法最小值即可。
+    universe: null,
     ...overrides,
   }
 }
@@ -449,7 +450,7 @@ describe('panel controller：打开与拉取', () => {
     expect(controller.getSnapshot().phase).toBe('loading')
     expect(controller.getSnapshot().snapshot).toBe(first)
 
-    const next = snapshot({ stats: { visible: 1, catalog: 4, denied: 3, shadowed: 0 } })
+    const next = snapshot({ stats: { visible: 1, denied: 3 } })
     gate.resolve(next)
     await refreshing
 
@@ -935,7 +936,7 @@ describe('panel controller：command/executed 订阅', () => {
     client.panelImpl = async () => first
     await controller.open()
 
-    const second = snapshot({ stats: { visible: 1, catalog: 4, denied: 3, shadowed: 0 } })
+    const second = snapshot({ stats: { visible: 1, denied: 3 } })
     client.panelImpl = async () => second
     commands.emit(SESSION_ID, 'tools')
     await flush()

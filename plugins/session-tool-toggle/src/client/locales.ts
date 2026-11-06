@@ -84,13 +84,11 @@ export const zh = {
   'entry.disabled': '已关闭',
   'entry.protected': '保护',
   'entry.reserved': '不可关闭',
-  'entry.shadowed': '被隐藏',
   'entry.intentOnly': '暂无匹配',
 
   // —— 徽标与禁用理由：禁用开关的 `title` 必须给同一句解释（设计 §3.3） ——
   'badge.protected': '在保护名单内，不能关闭。',
   'badge.reserved': '保留工具，不能关闭。',
-  'badge.shadowed': '已被其它作用域隐藏，本面板无法把它打开。',
   'badge.intent': '意图',
 
   // —— 开关的可访问名（`Switch` 的 `label` 是必填 a11y 名称，设计 §3.3） ——
@@ -115,12 +113,24 @@ export const zh = {
   'defaults.note': '只影响之后新建的会话。',
   'defaults.scope': '影响范围：只影响之后新建的会话，本会话不变。',
   'defaults.snapshot': '本会话创建于 {time}，快照 {count} 项。',
-  'defaults.add': '添加',
+  // —— B 的分组开关界面（code-design ③3.20）：自由文本添加链已死（D8），这里只剩清单读数与
+  //     分组开关点的文案；跨清单的新关一律走 `/tools default off <地址>` ——
+  'defaults.counts': '清单 {listed} · 默认关 {inDefaults} · 残留 {residual}',
+  'defaults.summary': '默认关 {inDefaults} · 残留 {residual}',
+  'defaults.residualTitle': '残留地址（不在本会话清单里，只能移除）',
+  'defaults.universeUnavailable': '本会话的工具清单暂不可用：只能查看与移除档内已有条目。',
+  // 分组标题行：条目数 / 档内计数 / 合成 title（读屏与悬浮共用 groupSummary）。
+  'defaults.groupCount': '{count} 项',
+  'defaults.groupInDefaults': '默认关 {count} 项',
+  'defaults.groupSummary': '{count} 项，默认关 {inDefaults} 项',
+  // 行开关与组开关的可访问名；整组在档时组内行不可切换，改标 `整组默认关`。
+  'defaults.groupOff': '整组默认关',
+  'defaults.switchLabel': '{name} 的默认档开关',
+  'defaults.groupSwitchLabel': '{name} 的整组默认档开关',
+  // D8 兜底说明：本页只列本会话可见的工具，跨清单的新关走命令。
+  'defaults.cliHint': '本页只列本会话可见的工具；跨清单的新关用命令 `/tools default off <地址>`。',
   'defaults.remove': '移除',
-  'defaults.placeholder': 'mcp:<server>、mcp:<server>::<工具>、tool:<名字>、skill',
-  'defaults.addPlaceholder': '要加入默认档的地址，多个用空格或逗号分隔',
   'defaults.saved': '已保存（本会话不变）。',
-  'defaults.empty': '默认档里没有关闭项。',
   'defaults.clear': '清空默认档',
   'defaults.clearConfirm': '再点一次确认清空',
 
@@ -135,11 +145,9 @@ export const zh = {
   'workspace.corrupt': '工作区档文件损坏或半写，已按空档处理。',
   'workspace.scope': '影响范围：只影响在这个工作区之后新建的会话，本会话不变。',
   'workspace.union': '新会话初始关闭 = 用户级默认档 ∪ 本工作区默认档',
-  'workspace.empty': '这个工作区档里没有关闭项。',
-  // 与用户级默认档的「添加」区分开：同一个面板里两枚同名按钮会让读屏与测试都分不清。
-  'workspace.add': '加入工作区档',
-  'workspace.addPlaceholder': '要加入本工作区默认档的地址，多个用空格或逗号分隔',
-  'workspace.placeholder': 'mcp:<server>、mcp:<server>::<工具>、tool:<名字>、skill',
+  // B 的分组开关界面：分组/计数/开关点文案与用户级共用 `defaults.*` 一组键，本区只补命令兜底
+  // 说明（D8 + U1：命令只作用本会话所属工作区）。
+  'workspace.cliHint': '本页只列本会话可见的工具；跨清单的新关用命令 `/tools workspace off <地址>`（只作用本会话所属工作区）。',
   'workspace.remove': '移除',
   'workspace.removeAria': '移除 {address}',
   'workspace.saved': '已保存（本会话不变）。',
@@ -151,11 +159,9 @@ export const zh = {
   'workspace.loading': '正在读取工作区默认档…',
   'workspace.unavailable': '暂时无法读取工作区默认档。',
 
-  // —— 状态摘要（四计数 + 创建时快照 + 持久化通道，设计 §3.2 第一段） ——
+  // —— 状态摘要（两计数 + 创建时快照 + 持久化通道，设计 §3.2 第一段） ——
   'state.visible': '本会话可见 {visible}',
-  'state.catalog': '全局 {catalog}',
   'state.denied': '已关 {denied}',
-  'state.shadowed': '被其它作用域隐藏 {shadowed}',
   'state.storeKind.record': '持久化：会话记录',
   'state.storeKind.memory': '持久化：内存（重启后丢失）',
   'state.snapshot': '创建时快照 {count} 项',
@@ -242,13 +248,11 @@ export const en = {
   'entry.disabled': 'Off',
   'entry.protected': 'Protected',
   'entry.reserved': 'Locked',
-  'entry.shadowed': 'Hidden',
   'entry.intentOnly': 'No match yet',
 
   // —— 徽标与禁用理由 ——
   'badge.protected': 'On the protected list; cannot be turned off.',
   'badge.reserved': 'A reserved tool; cannot be turned off.',
-  'badge.shadowed': 'Hidden by another scope; this panel cannot turn it back on.',
   'badge.intent': 'Intent',
 
   // —— 开关的可访问名 ——
@@ -273,12 +277,28 @@ export const en = {
   'defaults.note': 'Only affects sessions created afterwards.',
   'defaults.scope': 'Scope: only sessions created afterwards; this session stays as it is.',
   'defaults.snapshot': 'This session was created at {time}, with a snapshot of {count} entries.',
-  'defaults.add': 'Add',
+  // —— B's group-switch UI (code-design ③3.20): the free-text add chain is gone (D8), so only the
+  //     list readings and the group-switch labels live here; new entries go through the CLI ——
+  'defaults.counts': '{listed} listed · {inDefaults} off by default · {residual} residual',
+  'defaults.summary': '{inDefaults} off by default · {residual} residual',
+  'defaults.residualTitle': 'Residual addresses (not in this session\'s list; removal only)',
+  'defaults.universeUnavailable':
+    'This session\'s tool list is unavailable right now: you can only view and remove entries already in the tier.',
+  // Group header row: entry count / in-tier count / combined title (screen readers and hover).
+  'defaults.groupCount': '{count} items',
+  'defaults.groupInDefaults': '{count} off by default',
+  'defaults.groupSummary': '{count} items, {inDefaults} off by default',
+  // Accessible names for the row and group switches; a group in the tier disables its rows and
+  // labels them `whole group off by default`.
+  'defaults.groupOff': 'Whole group off by default',
+  'defaults.switchLabel': 'Defaults switch for {name}',
+  'defaults.groupSwitchLabel': 'Whole-group defaults switch for {name}',
+  // The D8 fallback line: this page lists only tools visible in this session, so new entries go
+  // through the command.
+  'defaults.cliHint':
+    'This page lists only tools visible in this session; to turn off a new one across lists use the `/tools default off <address>` command.',
   'defaults.remove': 'Remove',
-  'defaults.placeholder': 'mcp:<server>, mcp:<server>::<tool>, tool:<name>, skill',
-  'defaults.addPlaceholder': 'Addresses to add to the defaults, separated by spaces or commas',
   'defaults.saved': 'Saved (this session is unchanged).',
-  'defaults.empty': 'The defaults turn nothing off.',
   'defaults.clear': 'Clear defaults',
   'defaults.clearConfirm': 'Click again to clear',
 
@@ -293,10 +313,10 @@ export const en = {
   'workspace.corrupt': 'The workspace file is corrupt or half-written; it was treated as empty.',
   'workspace.scope': 'Scope: only sessions created in this workspace afterwards; this session stays as it is.',
   'workspace.union': 'A new session starts off with the user defaults ∪ this workspace\'s defaults',
-  'workspace.empty': 'This workspace turns nothing off.',
-  'workspace.add': 'Add to workspace',
-  'workspace.addPlaceholder': 'Addresses to add to this workspace defaults, separated by spaces or commas',
-  'workspace.placeholder': 'mcp:<server>, mcp:<server>::<tool>, tool:<name>, skill',
+  // B's group-switch UI reuses the `defaults.*` group/count/switch labels; only this CLI hint is
+  // workspace-specific (D8 + U1: the command applies to this session's workspace only).
+  'workspace.cliHint':
+    'This page lists only tools visible in this session; to turn off a new one across lists use the `/tools workspace off <address>` command (applies to the workspace of this session only).',
   'workspace.remove': 'Remove',
   'workspace.removeAria': 'Remove {address}',
   'workspace.saved': 'Saved (this session is unchanged).',
@@ -308,11 +328,9 @@ export const en = {
   'workspace.loading': 'Reading the workspace defaults…',
   'workspace.unavailable': 'The workspace defaults are not available right now.',
 
-  // —— 状态摘要 ——
+  // —— 状态摘要（两计数 + 创建时快照 + 持久化通道） ——
   'state.visible': '{visible} visible here',
-  'state.catalog': '{catalog} in the catalog',
   'state.denied': '{denied} off',
-  'state.shadowed': '{shadowed} hidden by other scopes',
   'state.storeKind.record': 'Persistence: session record',
   'state.storeKind.memory': 'Persistence: memory (lost on restart)',
   'state.snapshot': 'Snapshot at creation: {count} entries',

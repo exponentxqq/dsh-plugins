@@ -10,7 +10,7 @@
  *   同名遮蔽只在 agent 作用域安全（D4）：全局层注册同名段会把该指令段对所有会话吞掉，
  *   同一层里重复注册还会抛错。
  *
- * 掩码的来源是本插件自己的 `planMask(...)`（三读并集：catalog / scoped / carried，见
+ * 掩码的来源是本插件自己的 `planMask(...)`（两读并集：scoped ∪ carried，见
  * `mask.ts`），因此这里与 `project-mcp` 的隔离层结构同构，差别只有 deny 的推导来源：
  * 那边是「工作区归属」，这边是「会话开关状态」。先例：`plugins/project-mcp/src/host/
  * isolation.ts` 的 attach / detach / refresh 生命周期、diff 守卫、restrict 抛错重试一次、
@@ -78,6 +78,7 @@ import type {
   SkillServiceLike,
   SkillSummaryLike,
   SpecLog,
+  VisibleToolSchema,
 } from './types.ts'
 
 /** 遮蔽段的段名前缀：必须与 `dsh-mcp-client` 的全局段同名，遮蔽才成立（D4）。 */
@@ -124,17 +125,10 @@ export type SurfaceOpener = (
   use: (surface: ScopedSurface) => void,
 ) => Promise<void>
 
-/** 层的外部依赖：诊断出口、全局读数、取工具面的方式。 */
+/** 层的外部依赖：诊断出口与取工具面的方式。 */
 export interface SessionLayerPorts {
   /** 诊断出口（生产是 `scanLog` 同形的进程日志，单测收集）。 */
   readonly log: SpecLog
-  /**
-   * 宿主**全局层**的工具注册名（插件自身 ctx 读，**不受**任何 agent 限制）。
-   *
-   * 这必须是**未掩码**的注册集：从 agent 已被本插件掩过的视图推导 deny 会算出越来越小的
-   * 集合，于是「掩上 → 抬掉 → 再掩上」地振荡（`mask.ts` 的 carried 正是为此存在）。
-   */
-  readonly catalog: () => readonly string[]
   /** 取工具面的方式；缺省是 {@link agentSurface}（生产唯一实现）。 */
   readonly openSurface?: SurfaceOpener
 }
@@ -188,8 +182,12 @@ interface AgentServiceScope {
     restrict(filter: { readonly deny: readonly string[] }): () => void
     /** 装一个执行期守卫，返回卸载它的 disposer。 */
     guard(guard: (execution: { readonly name: string }) => string | undefined): () => void
-    /** 某个作用域视角下的工具 schema（本层只取名字）。 */
-    schemas(scope?: object): readonly { readonly name: string }[]
+    /** 某个作用域视角下的工具 schema（本层取名字与描述，**不带** parameters）。 */
+    schemas(scope?: object): readonly {
+      readonly name: string
+      /** 描述原文（可缺省：上游 schema 未必声明描述）。 */
+      readonly description?: string
+    }[]
   }
   /** 系统提示注册表（`@deepseek-ai/dsh-system-prompt` 的 `SystemPrompt`）。 */
   readonly systemPrompt: {
@@ -257,14 +255,16 @@ function surfaceOf(scope: AgentServiceScope, agent: AgentLike): ScopedSurface {
     guard: (guard) => scope.tools.guard(guard),
     section: (section) => scope.systemPrompt.section(section),
     visibleNames: () => scope.tools.schemas(agent).map((schema) => schema.name),
+    visibleSchemas: () =>
+      scope.tools.schemas(agent).map(({ name, description }) => ({ name, description })),
     sectionOrder: (name) => scope.systemPrompt.getSectionOrder(name),
   }
 }
 
 /**
  * 一个会话（一个 agent）的层。一个实例只服务一个 agent：`attach` 绑定 agent，`detach`
- * 解绑；`LayerHandle` 的 `setState` / `snapshot` / `visibleNames` 是命令面与 Web 面板的
- * 唯一读写路径（`types.ts` 的 `LayerHandle`）。
+ * 解绑；`LayerHandle` 的 `setState` / `snapshot` / `visibleNames` / `visibleSchemas` 是命令面
+ * 与 Web 面板的唯一读写路径（`types.ts` 的 `LayerHandle`）。
  *
  * 生命周期（由装配层驱动，见任务 8.1）：
  *
@@ -277,9 +277,6 @@ function surfaceOf(scope: AgentServiceScope, agent: AgentLike): ScopedSurface {
 export class SessionLayer implements LayerHandle {
   /** 诊断出口。 */
   private readonly log: SpecLog
-
-  /** 全局层读数（未掩码的注册集）。 */
-  private readonly catalog: () => readonly string[]
 
   /** 取工具面的方式。 */
   private readonly openSurface: SurfaceOpener
@@ -373,11 +370,10 @@ export class SessionLayer implements LayerHandle {
   private skillListenerDispose: (() => void) | undefined
 
   /**
-   * @param ports - 诊断出口、全局读数与取工具面的方式。
+   * @param ports - 诊断出口与取工具面的方式。
    */
   constructor(ports: SessionLayerPorts) {
     this.log = ports.log
-    this.catalog = ports.catalog
     this.openSurface = ports.openSurface ?? agentSurface
   }
 
@@ -443,7 +439,8 @@ export class SessionLayer implements LayerHandle {
   }
 
   /**
-   * `tools/change` 全量重算：三读并集重新取一遍，结果与当前掩码相同则什么都不做。
+   * `tools/change` 全量重算：两读并集（scoped ∪ carried）重新取一遍，结果与当前掩码相同则
+   * 什么都不做。
    *
    * 幂等是硬要求：`restrict` 自己会触发 `tools/change`，一次不幂等的重算会喂自己。
    *
@@ -519,6 +516,25 @@ export class SessionLayer implements LayerHandle {
       return surface.visibleNames()
     } catch (error) {
       this.absorbFailure(error, `${this.label()}：读本会话的工具视图失败`)
+      return []
+    }
+  }
+
+  /**
+   * 该 agent 视角下当前可见工具的名字 + 描述（面板描述来源，`VisibleToolSchema` 投影）。
+   *
+   * 与 {@link visibleNames} 同一读数面、同一降级纪律：只取 `name` 与可选的 `description`，
+   * **不带** `parameters`（契约见 `types.ts`）。读失败降级成空数组——描述是展示用的增强
+   * 信息，一次只读请求不该因为它失败而失败。
+   * @returns 可见工具的轻量投影；未挂载 / 已退场 / 读失败时为空。
+   */
+  visibleSchemas(): readonly VisibleToolSchema[] {
+    const surface = this.surface
+    if (surface === undefined || this.retreat) return []
+    try {
+      return surface.visibleSchemas()
+    } catch (error) {
+      this.absorbFailure(error, `${this.label()}：读本会话的工具描述失败`)
       return []
     }
   }
@@ -1040,7 +1056,12 @@ export class SessionLayer implements LayerHandle {
   }
 
   /**
-   * 算一轮掩码计划（三读并集 + 本会话关闭集）。
+   * 算一轮掩码计划（本会话可见读数 + 本会话关闭集）。
+   *
+   * 候选集只剩两读：`scoped`（本会话视角）与 `carried`（上一轮仍受管的名字）。**没有**全局
+   * 层读数：会话外的工具不该因为「全局注册过」就进 deny（那会为一组本会话根本看不见的名字
+   * 白装掩码，且掩码口径与本会话视图脱节）。代价是「关闭本会话暂不可见的工具」只记意图
+   * （`matched: 0`），等它出现后由 `tools/change → refresh()` 补上。
    *
    * `carried` 由调用方给：常规重算传已生效的 deny（防第二读缩小导致振荡），I3 的重推
    * 传空数组（刚刚失败的那一组名字不能再被带回来）。
@@ -1049,16 +1070,6 @@ export class SessionLayer implements LayerHandle {
    * @returns 计划；读数失败且无法继续时 undefined。
    */
   private plan(surface: ScopedSurface, carried: readonly string[]): MaskPlan | undefined {
-    let catalog: readonly string[]
-    try {
-      catalog = this.catalog()
-    } catch (error) {
-      // 插件自身 ctx 读不到服务 = 本进程正在卸载：这是退场，不是失败。
-      this.absorbFailure(error, `${this.label()}：读宿主全局工具注册表失败`)
-      return undefined
-    }
-    if (this.retreat) return undefined
-
     let scoped: readonly string[]
     try {
       scoped = surface.visibleNames()
@@ -1070,7 +1081,7 @@ export class SessionLayer implements LayerHandle {
     }
     if (this.retreat) return undefined
 
-    return planMask({ catalog, scoped, carried, disabled: this.state.disabled })
+    return planMask({ scoped, carried, disabled: this.state.disabled })
   }
 
   /**

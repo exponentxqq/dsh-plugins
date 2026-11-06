@@ -1,15 +1,19 @@
 /**
  * 掩码计划：把「本会话关了什么」翻译成一次 `restrict` 需要的三样事实。
  *
- * 三读并集（照抄 `plugins/project-mcp/src/host/isolation.ts` 的原始实现，D10）是本模块的
- * 核心，三份读数各有不可替代的作用：
+ * 候选 = **两读并集 `scoped ∪ carried`**，两份读数各有不可替代的作用：
  *
- * - `catalog`：宿主全局层的注册名。插件自身 ctx 读，**不受**任何 agent 限制，因此被别的
- *   机制（如 project-mcp 的工作区隔离）掩掉的名字仍然算已知；
- * - `scoped`：该 agent 视角的名字。宿主部署里 MCP 行可能坐在 agent 平面上，全局层读不到，
- *   只看 catalog 会漏；
+ * - `scoped`：本会话（该 agent 视角）当前可见的名字，也就是「可关对象」的全部来源。掩码只
+ *   对本会话里真实存在的工具生效：被别的机制（如 project-mcp 的工作区隔离）掩掉的、或全局
+ *   层有而本会话看不到的名字**不在**候选里（本变更 H2：候选只由会话读数决定）；
  * - `carried`：上一轮 deny 里仍然受管的名字。本插件上一轮的掩码会让名字从 `scoped` 消失，
  *   只看活读数会算出越来越小的集合，于是「掩上 → 抬掉 → 再掩上」地振荡。
+ *
+ * 代价是**纯意图**（D1 刻意接受）：关闭一个本会话当前不存在的工具（会话外组、未注册名、
+ * 被其它作用域藏起来的名）时，候选里没有它 → `matched` 为 0、`deny` 为空（`shadowServers`
+ * 仍按地址产生，与命中无关）；关闭意图照旧写进状态并**保留**，等该工具真的出现在本会话后，
+ * 由既有的 `tools/change → refresh()` 幂等链自动补上掩码。代价换来的是反馈诚实：开关不再拿
+ * 全局层名字虚报「命中 N 个工具定义」，用户在本会话看不到也调不到的工具不会被当成可关对象。
  *
  * 由此得到两条硬约束：**deny 里只放读数里真实出现过的名字**（`restrict` 对未知名抛错），
  * 以及**服务器断线时只是不命中，绝不抛错**（C10 / 本变更 spec：保持意图、跳过执行）。
@@ -49,17 +53,15 @@ import {
 const PROTECTED_NAMES: ReadonlySet<string> = new Set(PROTECTED_BASELINE)
 
 /**
- * 推导 deny 用的三份读数 + 本会话关闭集。
+ * 推导 deny 用的两份读数 + 本会话关闭集。
  *
  * `disabled` 是状态里的原文（规范形），本模块对它只做**容忍解析**：不可解析的条目跳过，
  * 可解析但非规范形的先归一再用（`mcp:a::*` 等价于 `mcp:a`）。调用方不需要先清洗。
  */
 export interface MaskInputs {
-  /** 宿主全局层名字（插件自身 ctx 读，**不受**任何 agent 限制）。 */
-  readonly catalog: readonly string[]
-  /** 该 agent 视角名字（`tools.schemas(agent)`；本插件上一轮的掩码已生效 → 会缺名字）。 */
+  /** 本会话可见名字（`tools.schemas(agent)`；本插件上一轮的掩码已生效 → 会缺名字）。 */
   readonly scoped: readonly string[]
-  /** 上一轮 deny 里仍然受管的名字（否则第二读会缩小 → 掩码被抬掉，振荡）。 */
+  /** 上一轮 deny 里仍然受管的名字（否则候选只由活读数决定、逐轮缩小 → 掩码被抬掉，振荡）。 */
   readonly carried: readonly string[]
   /** 本会话关闭集（`state.disabled` 的规范形文本）。 */
   readonly disabled: readonly string[]
@@ -85,7 +87,7 @@ export interface MaskPlan {
  *
  * 推导写死（顺序即语义）：
  *
- * 1. `candidates` = 三读并集（`catalog` ∪ `scoped` ∪ `carried`，去重）；
+ * 1. `candidates` = 两读并集（`scoped` ∪ `carried`，去重）；
  * 2. 逐条解析 `disabled`：不可解析的**跳过**（状态层已过滤，这里是最后一道容忍，不抛错）；
  *    可解析的按规范形文本去重、按文本排序（`matched` 的键序因此与入参顺序无关）；
  * 3. `deny` = 被任一地址命中的候选名，排序；
@@ -93,14 +95,15 @@ export interface MaskPlan {
  * 5. `matched[规范形文本]` = 该地址命中的候选名数（**0 也保留键**）。
  *
  * 三条刻意的不变量：`deny` 绝不包含读数里没出现过的名字（`restrict` 会因此抛错）；未知
- * serverName / 工具名只是不命中（C10）；`disabled` 里出现保护基线或保留名时静默跳过，
+ * serverName / 工具名只是不命中（C10），关闭本会话外的工具因此是**纯意图**——`matched` 为
+ * 0、`deny` 为空、意图留在状态里等它出现；`disabled` 里出现保护基线或保留名时静默跳过，
  * 拒绝发生在解析期（用户边界），不在这里。
  *
- * @param inputs - 三份读数 + 本会话关闭集。
+ * @param inputs - 两份读数 + 本会话关闭集。
  * @returns 排序后的 deny / shadowServers 与每地址命中数。
  */
 export function planMask(inputs: MaskInputs): MaskPlan {
-  const candidates = unionNames(inputs)
+  const candidates = unionNames(inputs.scoped, inputs.carried)
   const addresses = resolveAddresses(inputs.disabled)
 
   const matched = new Map<string, number>()
@@ -159,15 +162,16 @@ interface ResolvedAddress {
 }
 
 /**
- * 三读并集：同一名字无论在几份读数里出现都只算一次。
+ * 两读并集：同一名字无论在两份读数里出现都只算一次。
  *
- * 用 `Set` 而不是「先判 includes 再 push」：三份读数可能有几十上百个 MCP 名字，去重是
+ * 用 `Set` 而不是「先判 includes 再 push」：两份读数可能有几十上百个 MCP 名字，去重是
  * 本函数唯一要做的事，集合语义比手写循环更难写错。
- * @param inputs - 三份读数。
- * @returns 去重后的候选名（顺序为 catalog → scoped → carried 的首次出现序，仅供遍历）。
+ * @param scoped - 本会话可见名字。
+ * @param carried - 上一轮 deny 里仍然受管的名字。
+ * @returns 去重后的候选名（顺序为 scoped → carried 的首次出现序，仅供遍历）。
  */
-function unionNames(inputs: MaskInputs): readonly string[] {
-  return Array.from(new Set([...inputs.catalog, ...inputs.scoped, ...inputs.carried]))
+function unionNames(scoped: readonly string[], carried: readonly string[]): readonly string[] {
+  return Array.from(new Set([...scoped, ...carried]))
 }
 
 /**

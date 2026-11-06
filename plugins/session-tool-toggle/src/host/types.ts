@@ -119,6 +119,14 @@ export interface StateStore {
   write(session: SessionLike, state: SessionToolState): void
 }
 
+/** 工具 schema 的轻量投影（面板描述来源；刻意不带 parameters）。 */
+export interface VisibleToolSchema {
+  /** 工具注册名（`mcp__<server>__<suffix>` / 内置工具名，与地址的 `<name>` 段同一文法）。 */
+  readonly name: string
+  /** 工具描述原文（可缺省：上游 schema 未必声明描述）。 */
+  readonly description?: string
+}
+
 /**
  * 一个 agent 作用域的可写面（由 `agent.ctx.inject(['tools','systemPrompt'])` 交付）。
  *
@@ -151,6 +159,8 @@ export interface ScopedSurface {
   }): () => void
   /** 该 agent 视角下的工具注册名（上一轮掩码已生效，因此可能缺名字）。 */
   visibleNames(): readonly string[]
+  /** 该 agent 视角下**当前可见**工具的名字 + 描述投影（与 {@link visibleNames} 同一读数面）。 */
+  visibleSchemas(): readonly VisibleToolSchema[]
   /** systemPrompt 里某个已知段的顺序（`mcp:<server>` 段必须与官方同序）。 */
   sectionOrder(name: 'MCP_SERVERS'): number
 }
@@ -346,6 +356,12 @@ export interface LayerHandle {
   /** 读该 agent 视角的可见工具名（面板 `scoped` 读数的来源）。 */
   visibleNames(): readonly string[]
   /**
+   * 读本会话当前可见工具的名字 + 描述（面板描述来源）。
+   *
+   * 未挂载 / 已退场 / 读数失败 → 空数组（不抛错）：面板与默认档界面按「无描述」降级。
+   */
+  visibleSchemas(): readonly VisibleToolSchema[]
+  /**
    * 读本会话的技能分面（影子 stub 与模型可调用技能清单）。
    *
    * `available: false` 表示 `skills` 服务不可用：技能地址只记意图，面板据此补
@@ -406,16 +422,6 @@ export interface ControlDeps {
   readonly workspaceChoices: () => readonly WorkspaceChoice[]
   /** 生效保护名单（基线 ∪ config 追加），装配期算好，只读。 */
   readonly protectedNames: ReadonlySet<string>
-  /**
-   * 宿主**全局层**的工具注册名（未掩码，不受任何 agent 限制）。
-   *
-   * 取法（装配层）：`ctx.tools.schemas().map((schema) => schema.name)`——**插件自身 ctx**
-   * 读，与 `project-mcp` 的 `catalogOf` 同一表达式。`/tools status` 的「可关对象分组计数」、
-   * 「全局层有 vs 未注册」两态区分、以及「被其他作用域隐藏」的计数都必须读未掩码的全局层；
-   * {@link LayerHandle} 只给该 agent 视角（`visibleNames`），推不出全局层（R15 ①，任务 9.1
-   * 由 `ToolsCommandDeps` 并入本接口，命令面与 RPC 因此共用同一份内核依赖）。
-   */
-  readonly catalog: () => readonly string[]
   /** 诊断出口。 */
   readonly log: SpecLog
 }
@@ -454,7 +460,7 @@ export interface WorkspacePanelInputs {
 /**
  * 面板快照构建器（`panel.ts`）的输入：全部是宿主侧已经读到的事实。
  *
- * 构建器是纯函数——不碰服务、不做 IO；三读并集（catalog / scoped / carried）由调用方
+ * 构建器是纯函数——不碰服务、不做 IO；两读并集（scoped / carried）由调用方
  * 按掩码引擎的同一语义准备好，保证「面板清单」与「实际掩码」同源。
  */
 export interface PanelInputs {
@@ -466,8 +472,6 @@ export interface PanelInputs {
   readonly state: SessionToolState
   /** 状态实际生效的持久化通道。 */
   readonly storeKind: StoreKind
-  /** 全局层名字（插件根 ctx 的 `tools.schemas()`，不受任何 agent 限制）。 */
-  readonly catalog: readonly string[]
   /** 该 agent 视角名字（`layer.visibleNames()`）。 */
   readonly scoped: readonly string[]
   /** 上一轮仍受管的名字（`layer.snapshot().deny`，防第二读缩小导致掩码被抬掉）。 */

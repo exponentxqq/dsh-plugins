@@ -10,21 +10,28 @@
  *
  * 1. **入口按钮带 `aria-label`**：`aria-label` / `title` / `aria-expanded` / `aria-haspopup`
  *    齐备，点击后 `aria-expanded` 翻转且面板标题来自本插件 locale；
- * 2. **保护行 `disabled` 且点击后 `client.toggle` 调用数 0**：`protected` / `reserved` /
- *    `shadowed` 三态各一条，`title` 给理由，程序化点击也不发请求；
+ * 2. **保护行 `disabled` 且点击后 `client.toggle` 调用数 0**：`protected` / `reserved`
+ *    两态各一条，`title` 给理由，程序化点击也不发请求；
  * 3. **切组开关发出的地址是 `mcp:<server>`**：点整组开关 → `client.toggle(sessionId, false,
  *    ['mcp:yunxiao'])`，且不会顺带折叠分组；
  * 4. **`unavailable` 时渲染降级文案且无 `Switch`**：入口仍在、正文只有 `error.unavailable`
  *    的主文案，整块没有任何 `role="switch"`，也不发 `panel` 请求。
  *
- * 另按任务清单覆盖：reserved/shadowed 禁用、`intent` 徽标、默认档添加/删除（客户端不做文法
- * 校验）、分组折叠、内置工具过滤、失败码文案（`error.<code>` + 二级灰字）、`pending` 禁用、
- * 关闭集空态与「开启」、刷新按钮、`session-not-live` 降级、默认档写失败。
+ * 会话级目录改造后（任务 5.3 / TS8）：工具行锁定只有**保护 / 保留两态**，状态摘要只渲染
+ * **两计数**（本会话可见 / 已关）。
  *
- * 任务 7.7 追加的六段布局与两个新分区：技能分区（逐行开关、`unavailable` 降级、`blocked`
- * 置灰）与工作区默认档分区（`variant='section'`：条目、添加、写入失败、无法归属）。
+ * 另按任务清单覆盖：`intent` 徽标、分组折叠、内置工具过滤、失败码文案（`error.<code>` +
+ * 二级灰字）、`pending` 禁用、关闭集空态与「开启」、刷新按钮、`session-not-live` 降级。
+ *
+ * 任务 7.7 追加的六段布局与技能分区（逐行开关、`unavailable` 降级、`blocked` 置灰）。
+ *
+ * 任务 9.1 / 9.2 / 9.4 把两个默认档分区改成**默认收起**的 `DefaultsSectionFrame`：标题行
+ * 带「默认关 M · 残留 K」摘要，展开后是 `DefaultsGroupList` 的分组开关清单（没有自由文本
+ * 添加——跨清单的新关走 `/tools default off` / `/tools workspace off` 命令）。本套件的默认档
+ * 用例按这条新形状重写：两分区默认收起 → 点标题展开 → 清单里的行/组开关分别打到
+ * `updateDefaults` 与 `workspace` 端点，`workspace === null` 仍只读降级。
  */
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import type {
   DefaultsAction,
@@ -60,8 +67,15 @@ const WORKSPACE_KEY = '/fake/workspaces/project'
 const WORKSPACE_PATH = '/fake/dsh-home/session-tool-toggle/workspaces.json'
 
 /**
- * 工作区档视图（`disabled` 默认空：避免与关闭集/默认档的 chip 文案撞车，
- * 工作区专项用例再按需覆盖）。
+ * 工作区档关闭集的夹具：一条在宇宙里（`tool:read_file` → 计入「默认关」）+ 两条残留
+ * （`skill:ghost*` → 只出现在残留区）。条数刻意与用户级不同（1/2 对 1/1）：两个分区读错
+ * 目标档时摘要与三计数会立刻对不上。
+ */
+const WORKSPACE_DISABLED = ['skill:ghost', 'skill:ghost-2', 'tool:read_file'] as const
+
+/**
+ * 工作区档视图（默认带 {@link WORKSPACE_DISABLED}：分区标题的「默认关 M · 残留 K」摘要、
+ * 三计数行与残留区都按它算，工作区专项用例再按需覆盖）。
  * @param overrides - 需要改写的字段。
  * @returns 工作区视图。
  */
@@ -70,7 +84,7 @@ function workspaceView(overrides: Partial<WorkspaceView> = {}): WorkspaceView {
     key: WORKSPACE_KEY,
     title: 'project',
     registered: true,
-    disabled: [],
+    disabled: WORKSPACE_DISABLED,
     path: WORKSPACE_PATH,
     readable: true,
     corrupt: false,
@@ -97,7 +111,6 @@ function tool(overrides: Partial<ToolGroup['tools'][number]> & Pick<ToolGroup['t
     disabled: false,
     protected: false,
     reserved: false,
-    shadowed: false,
     ...overrides,
   }
 }
@@ -127,7 +140,7 @@ const SKILL_GROUP: ToolGroup = {
   tools: [tool({ name: 'skill', shortName: 'skill', address: 'tool:skill' })],
 }
 
-/** 内置工具分区：保护 / 保留 / 被隐藏 / 普通各一条；该分区不可整组关。 */
+/** 内置工具分区：保护 / 保留各一条，其余是普通行；该分区不可整组关。 */
 const BUILTIN_GROUP: ToolGroup = {
   kind: 'builtin',
   key: 'builtin',
@@ -138,10 +151,16 @@ const BUILTIN_GROUP: ToolGroup = {
   tools: [
     tool({ name: 'bash', shortName: 'bash', address: 'tool:bash', protected: true, description: '执行 shell 命令' }),
     tool({ name: 'run_code', shortName: 'run_code', address: 'tool:run_code', reserved: true }),
-    tool({ name: 'web_search', shortName: 'web_search', address: 'tool:web_search', shadowed: true }),
+    tool({ name: 'web_search', shortName: 'web_search', address: 'tool:web_search' }),
     tool({ name: 'read_file', shortName: 'read_file', address: 'tool:read_file' }),
   ],
 }
+
+/**
+ * 用户级默认档关闭集的夹具：一条在宇宙里（`tool:read_file` → 计入「默认关」）+ 一条残留
+ * （`mcp:figma` 不在本会话清单里 → 只出现在残留区）。
+ */
+const DEFAULTS_DISABLED = ['mcp:figma', 'tool:read_file'] as const
 
 /**
  * 默认档视图。
@@ -161,8 +180,8 @@ function defaultsView(disabled: readonly string[] = [], overrides: Partial<Defau
 }
 
 /**
- * 一份最小的合法面板快照；默认带三种分组、两条技能行、工作区视图、一个关闭项（同时是
- * `intentOnly`）与一条子代理提示。
+ * 一份最小的合法面板快照；默认带三种分组、两条技能行、两个默认档视图（各自带在宇宙里的
+ * 关闭项与残留地址）与会话级关闭集里的一个关闭项（同时是 `intentOnly`）。
  * @param overrides - 需要改写的顶层字段。
  * @returns 面板快照。
  */
@@ -179,10 +198,9 @@ function snapshot(overrides: Partial<PanelSnapshot> = {}): PanelSnapshot {
     },
     groups: [MCP_GROUP, SKILL_GROUP, BUILTIN_GROUP],
     protectedNames: ['bash'],
-    defaults: defaultsView(['mcp:figma']),
-    hiddenByOthers: ['web_search'],
+    defaults: defaultsView(DEFAULTS_DISABLED),
     intentOnly: ['mcp:figma'],
-    stats: { visible: 7, catalog: 8, denied: 1, shadowed: 1 },
+    stats: { visible: 7, denied: 1 },
     notices: [],
     skills: SKILLS,
     workspace: workspaceView(),
@@ -240,6 +258,8 @@ class FakePanelClient implements PanelClient {
     workspace: workspaceView(),
     choices: [{ key: WORKSPACE_KEY, title: 'project' }],
     changed: [],
+    // 键必填（`null` 合法）：本文件不消费宇宙，夹具给最小值。
+    universe: null,
   })
 
   panel(sessionId: string): Promise<PanelSnapshot> {
@@ -358,6 +378,68 @@ function switchOfSkill(name: string): HTMLButtonElement | null {
   }) as HTMLButtonElement | null
 }
 
+/**
+ * 分区标题行的折叠按钮（`section.defaults` / `workspace.title` 的文案作前缀）。
+ *
+ * 折叠壳（`DefaultsSectionFrame`）的按钮可访问名 = 标题 + 计数摘要（`默认关 M · 残留 K`），
+ * 摘要会随快照变化，所以按「标题前缀」取而不是整串比较。
+ * @param title - 分区标题（`zh['section.defaults']` / `zh['workspace.title']`）。
+ * @returns 折叠按钮。
+ */
+function frameToggleOf(title: string): HTMLButtonElement {
+  return screen.getByRole('button', { name: new RegExp(`^${title}`) }) as HTMLButtonElement
+}
+
+/**
+ * 取一个默认档分区的 `<section>`（折叠壳自带的壳；分区里的查询都在它内部做）。
+ * @param title - 分区标题。
+ * @returns 分区根元素。
+ */
+function defaultsSectionOf(title: string): HTMLElement {
+  const section = frameToggleOf(title).closest('section')
+  if (section === null) throw new Error(`没有找到默认档分区：${title}`)
+  return section
+}
+
+/**
+ * 分区标题行的摘要文案（`defaults.summary` 的插值结果）。
+ * @param inDefaults - 摘要里的「默认关」数。
+ * @param residual - 摘要里的「残留」数。
+ * @returns 完整摘要串。
+ */
+function summaryOf(inDefaults: number, residual: number): string {
+  return zh['defaults.summary']
+    .replace('{inDefaults}', String(inDefaults))
+    .replace('{residual}', String(residual))
+}
+
+/**
+ * 分区正文的三计数行文案（`defaults.counts` 的插值结果）。
+ * @param listed - 可切换条目数（组开关 + 行开关）。
+ * @param inDefaults - 「默认关」数。
+ * @param residual - 「残留」数。
+ * @returns 完整计数行串。
+ */
+function countsLineOf(listed: number, inDefaults: number, residual: number): string {
+  return zh['defaults.counts']
+    .replace('{listed}', String(listed))
+    .replace('{inDefaults}', String(inDefaults))
+    .replace('{residual}', String(residual))
+}
+
+/**
+ * 按短名取一个默认档清单里的行开关（`DefaultsGroupList` 的行用 `defaults.switchLabel`，
+ * 与面板第二段的会话开关分开）。
+ * @param section - 该行所属的默认档分区。
+ * @param name - 行短名（如 `list_projects`）。
+ * @returns 开关元素。
+ */
+function defaultsSwitchOf(section: HTMLElement, name: string): HTMLButtonElement {
+  return within(section).getByRole('switch', {
+    name: zh['defaults.switchLabel'].replace('{name}', name),
+  }) as HTMLButtonElement
+}
+
 describe('会话工具面入口按钮（设计 §3.1）', () => {
   it('入口是带 aria-label / title / aria-expanded 的图标按钮，点击后展开面板', async () => {
     renderPanel()
@@ -431,7 +513,7 @@ describe('不可用降级（spec「RPC 不可用时的降级表现」）', () =>
   })
 })
 
-describe('三态禁用（设计 §3.3）', () => {
+describe('两态禁用（设计 §3.3）', () => {
   it('保护行 disabled 且点击后 client.toggle 调用数 0', async () => {
     const { harness } = renderPanel()
     await openPanel()
@@ -458,17 +540,16 @@ describe('三态禁用（设计 §3.3）', () => {
     expect(harness.client.toggleCalls).toHaveLength(0)
   })
 
-  it('被其它作用域隐藏的行 disabled（本面板不能把它开回来）', async () => {
-    const { harness } = renderPanel()
+  it('不再有「被其它作用域隐藏」的锁定行与计数', async () => {
+    renderPanel()
     await openPanel()
 
-    const shadowed = switchOf('web_search')
-    expect(shadowed.disabled).toBe(true)
-    expect(shadowed.getAttribute('title')).toBe(zh['badge.shadowed'])
-    expect(screen.getByText(zh['entry.shadowed'])).toBeDefined()
-
-    fireEvent.click(shadowed)
-    expect(harness.client.toggleCalls).toHaveLength(0)
+    // 旧夹具里 `shadowed` 的 `web_search` 现在只是普通工具行：可点、状态由宿主快照给。
+    const webSearch = switchOf('web_search')
+    expect(webSearch.disabled).toBe(false)
+    expect(webSearch.getAttribute('aria-checked')).toBe('true')
+    // 旧摘要里的「被其它作用域隐藏 N」整条消失（口径只剩可见 / 已关）。
+    expect(screen.queryByText(/被其它作用域隐藏/)).toBeNull()
   })
 })
 
@@ -554,23 +635,36 @@ describe('分组折叠与本地过滤（设计 §3.3）', () => {
 })
 
 describe('状态摘要与关闭集（设计 §3.2）', () => {
-  it('渲染四计数、持久化通道与提示码', async () => {
+  it('渲染两计数、持久化通道与提示码', async () => {
     const client = new FakePanelClient()
     client.panelImpl = async () => snapshot({
       notices: ['persistence-degraded', 'session-subagent'],
-      hiddenByOthers: ['web_search'],
-      stats: { visible: 7, catalog: 9, denied: 1, shadowed: 2 },
+      stats: { visible: 7, denied: 1 },
     })
     renderPanel({ client })
     await openPanel()
 
     expect(screen.getByText('本会话可见 7')).toBeDefined()
-    expect(screen.getByText('全局 9')).toBeDefined()
     expect(screen.getByText('已关 1')).toBeDefined()
-    expect(screen.getByText('被其它作用域隐藏 2')).toBeDefined()
     expect(screen.getByText(zh['state.storeKind.record'])).toBeDefined()
     expect(screen.getByText(zh['notice.persistence-degraded'])).toBeDefined()
     expect(screen.getByText(zh['notice.session-subagent'])).toBeDefined()
+  })
+
+  it('状态摘要只渲染两计数（<li> 数 2）', async () => {
+    const client = new FakePanelClient()
+    client.panelImpl = async () => snapshot({ stats: { visible: 12, denied: 3 } })
+    renderPanel({ client })
+    await openPanel()
+
+    // 只数状态摘要那一个 `<ul className=counters>`：其余分区的 `<li>`（工具行等）不算。
+    const stateSection = screen.getByText(zh['section.state']).closest('section')
+    const counters = stateSection?.querySelector('ul[class*="counters"]') ?? null
+    expect(counters).not.toBeNull()
+
+    const items = counters === null ? [] : Array.from(counters.querySelectorAll('li'))
+    expect(items).toHaveLength(2)
+    expect(items.map((item) => item.textContent)).toEqual(['本会话可见 12', '已关 3'])
   })
 
   it('关闭集给 intent 徽标与「开启」入口', async () => {
@@ -595,7 +689,7 @@ describe('状态摘要与关闭集（设计 §3.2）', () => {
     client.panelImpl = async () => snapshot({
       state: { disabled: [], snapshot: [], seeded: true, updatedAt: NOW, storeKind: 'memory' },
       intentOnly: [],
-      stats: { visible: 7, catalog: 8, denied: 0, shadowed: 1 },
+      stats: { visible: 7, denied: 0 },
     })
     renderPanel({ client })
     await openPanel()
@@ -617,70 +711,174 @@ describe('状态摘要与关闭集（设计 §3.2）', () => {
   })
 })
 
-describe('默认档编辑（设计 §3.4）', () => {
-  it('自由文本添加：按空白/逗号切片后整份交给宿主，客户端不做文法校验', async () => {
-    const client = new FakePanelClient()
-    client.updateDefaultsImpl = async () => ({
-      defaults: defaultsView(['mcp:figma', 'tool:read_file', 'foo:bar']),
-      changed: ['foo:bar', 'mcp:figma', 'tool:read_file'],
-    })
-    renderPanel({ client })
+describe('默认档两分区：默认收起与标题摘要（D13 / D-24）', () => {
+  it('两个分区默认收起：标题按钮 aria-expanded=false，清单与开关都不在文档里，摘要按各自目标档计数', async () => {
+    renderPanel()
     await openPanel()
 
-    expect(screen.getByText(zh['defaults.path'])).toBeDefined()
-    expect(screen.getByText(DEFAULTS_PATH)).toBeDefined()
-    expect(screen.getByText(zh['defaults.scope'])).toBeDefined()
+    const user = defaultsSectionOf(zh['section.defaults'])
+    const workspace = defaultsSectionOf(zh['workspace.title'])
 
-    fireEvent.change(screen.getByPlaceholderText(zh['defaults.addPlaceholder']), {
-      target: { value: ' mcp:figma, tool:read_file  foo:bar ' },
-    })
+    for (const section of [user, workspace]) {
+      const toggle = within(section).getByRole('button')
+      expect(toggle.getAttribute('aria-expanded')).toBe('false')
+      // 收起态只剩标题行：没有分组清单 `<ul>`，也没有任何开关。
+      expect(section.querySelectorAll('ul')).toHaveLength(0)
+      expect(section.querySelectorAll('[role="switch"]')).toHaveLength(0)
+    }
+
+    // 标题行的计数摘要（D13）：收起时也看得出「有没有默认关的东西」。
+    // 用户级按 `defaults.disabled` 算（1 条在宇宙里 + 1 条残留），工作区按 `workspace.disabled`
+    // 算（1 条在宇宙里 + 2 条残留）——两个 M/K 不同，读错目标档会立刻对不上。
+    expect(user.textContent).toContain(summaryOf(1, 1))
+    expect(workspace.textContent).toContain(summaryOf(1, 2))
+
+    // 正文（路径行 / 三计数行 / 分组清单 / 命令提示）整块不在文档里。
+    expect(screen.queryByText(DEFAULTS_PATH)).toBeNull()
+    expect(screen.queryByText(WORKSPACE_PATH)).toBeNull()
+    expect(screen.queryAllByRole('switch', { name: /默认档开关/ })).toEqual([])
+  })
+})
+
+describe('默认档两分区的展开（D13）', () => {
+  it('点用户级默认档标题展开：出现路径行、三计数行、分组清单与残留区，再点收起', async () => {
+    renderPanel()
+    await openPanel()
+
+    const user = defaultsSectionOf(zh['section.defaults'])
+    fireEvent.click(frameToggleOf(zh['section.defaults']))
+    expect(frameToggleOf(zh['section.defaults']).getAttribute('aria-expanded')).toBe('true')
+
+    expect(within(user).getByText(zh['defaults.path'])).toBeDefined()
+    expect(within(user).getByText(DEFAULTS_PATH)).toBeDefined()
+    // 三计数行：listed 是**开关数**（MCP 组 1+2、技能组 1+2、内置工具 4 = 10），不是行数。
+    expect(within(user).getByText(countsLineOf(10, 1, 1))).toBeDefined()
+    // 分组开关清单（`DefaultsGroupList`）：MCP / 技能 / 内置三段；MCP 与技能有组开关，
+    // 内置组没有组地址（宿主口径），只有行开关。
+    expect(within(user).getByRole('button', { name: /^MCP 服务器/ })).toBeDefined()
+    expect(
+      within(user).getByRole('switch', {
+        name: zh['defaults.groupSwitchLabel'].replace('{name}', 'yunxiao'),
+      }),
+    ).toBeDefined()
+    // MCP 组在默认档清单里同样默认折叠（与面板第二段同一口径）。
+    expect(within(user).getByRole('button', { name: /^MCP 服务器/ }).getAttribute('aria-expanded')).toBe('false')
+    // 残留区只能移除，命令兜底说明（D8）由清单组件自己渲染。
+    expect(within(user).getByText(zh['defaults.residualTitle'])).toBeDefined()
+    expect(within(user).getByRole('button', { name: `${zh['defaults.remove']} mcp:figma` })).toBeDefined()
+    expect(within(user).getByText(zh['defaults.cliHint'])).toBeDefined()
+    // 不追溯的两句事实文案仍在本区（D18）。
+    expect(within(user).getByText(zh['defaults.scope'])).toBeDefined()
+
+    fireEvent.click(frameToggleOf(zh['section.defaults']))
+    expect(frameToggleOf(zh['section.defaults']).getAttribute('aria-expanded')).toBe('false')
+    expect(within(user).queryByText(DEFAULTS_PATH)).toBeNull()
+  })
+
+  it('点工作区默认档标题展开：出现工作区键、档文件路径、并集说明与分组清单，且没有下拉', async () => {
+    renderPanel()
+    await openPanel()
+
+    const workspace = defaultsSectionOf(zh['workspace.title'])
+    fireEvent.click(frameToggleOf(zh['workspace.title']))
+    expect(frameToggleOf(zh['workspace.title']).getAttribute('aria-expanded')).toBe('true')
+
+    expect(within(workspace).getByText(WORKSPACE_KEY)).toBeDefined()
+    expect(within(workspace).getByText(WORKSPACE_PATH)).toBeDefined()
+    expect(within(workspace).getByText(zh['workspace.registered'])).toBeDefined()
+    // 三计数行与用户级同一个助手，但读的是 `workspace.disabled`（1 条在档 + 2 条残留）。
+    expect(within(workspace).getByText(countsLineOf(10, 1, 2))).toBeDefined()
+    // 并集语义（DQ2=A）与「只影响之后新建」的预期管理。
+    expect(within(workspace).getByText(zh['workspace.union'])).toBeDefined()
+    expect(within(workspace).getByText(zh['workspace.scope'])).toBeDefined()
+    expect(within(workspace).getByText(zh['workspace.cliHint'])).toBeDefined()
+    expect(within(workspace).getByRole('button', { name: /^MCP 服务器/ })).toBeDefined()
+    // 分区形态没有工作区下拉（作用域恒为本会话所属工作区，code-design §3.10）。
+    expect(within(workspace).queryByRole('combobox')).toBeNull()
+  })
+})
+
+describe('用户级默认档的开关（updateDefaults 端点）', () => {
+  it('行开关发 updateDefaults("off", [行地址])，不重拉面板快照', async () => {
+    const { harness } = renderPanel()
+    await openPanel()
+
+    const user = defaultsSectionOf(zh['section.defaults'])
+    fireEvent.click(frameToggleOf(zh['section.defaults']))
+    // 行在 MCP 组里：先把该组展开（默认档清单里 MCP 组默认收起）。
+    fireEvent.click(within(user).getByRole('button', { name: /^MCP 服务器/ }))
+
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: zh['defaults.add'] }))
+      fireEvent.click(defaultsSwitchOf(user, 'list_projects'))
     })
 
-    // `foo:bar` 不是合法文法（宿主才是权威）：客户端原样上送，由宿主回 bad-address。
-    expect(client.defaultsCalls).toEqual([
-      { action: 'off', addresses: ['mcp:figma', 'tool:read_file', 'foo:bar'] },
+    expect(harness.client.defaultsCalls).toEqual([
+      { action: 'off', addresses: ['mcp:yunxiao::list_projects'] },
     ])
-    // 只刷新 defaults 视图（默认档不追溯）：面板快照没有重拉。
-    expect(client.panelCalls).toHaveLength(1)
-    expect(screen.getByText('foo:bar')).toBeDefined()
-    expect(screen.getByText(zh['defaults.saved'])).toBeDefined()
+    // 默认档不追溯当前会话：写默认档不重拉面板快照，也不打会话开关端点。
+    expect(harness.client.panelCalls).toHaveLength(1)
+    expect(harness.client.toggleCalls).toHaveLength(0)
+    // 落定后给「已保存（本会话不变）」确认。
+    expect(within(user).getByText(zh['defaults.saved'])).toBeDefined()
   })
 
-  it('移除一条默认档条目发 on + 该地址', async () => {
-    const client = new FakePanelClient()
-    client.updateDefaultsImpl = async () => ({ defaults: defaultsView([]), changed: ['mcp:figma'] })
-    renderPanel({ client })
+  it('整组开关发行地址（mcp:<server>）', async () => {
+    const { harness } = renderPanel()
     await openPanel()
 
+    const user = defaultsSectionOf(zh['section.defaults'])
+    fireEvent.click(frameToggleOf(zh['section.defaults']))
+
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: `${zh['defaults.remove']} mcp:figma` }))
+      fireEvent.click(
+        within(user).getByRole('switch', {
+          name: zh['defaults.groupSwitchLabel'].replace('{name}', 'yunxiao'),
+        }),
+      )
     })
 
-    expect(client.defaultsCalls).toEqual([{ action: 'on', addresses: ['mcp:figma'] }])
-    expect(client.panelCalls).toHaveLength(1)
+    expect(harness.client.defaultsCalls).toEqual([{ action: 'off', addresses: ['mcp:yunxiao'] }])
   })
 
-  it('默认档写失败按 error.<code> 渲染主文案（{path} 来自 details）', async () => {
+  it('残留地址只能移除：移除按钮发 updateDefaults("on", [残留地址])', async () => {
+    const { harness } = renderPanel()
+    await openPanel()
+
+    const user = defaultsSectionOf(zh['section.defaults'])
+    fireEvent.click(frameToggleOf(zh['section.defaults']))
+
+    // `mcp:figma` 不在本会话的宇宙里：只出现在残留区，操作只有一个「移除」。
+    expect(within(user).getByText(zh['defaults.residualTitle'])).toBeDefined()
+    await act(async () => {
+      fireEvent.click(within(user).getByRole('button', { name: `${zh['defaults.remove']} mcp:figma` }))
+    })
+
+    expect(harness.client.defaultsCalls).toEqual([{ action: 'on', addresses: ['mcp:figma'] }])
+    expect(harness.client.panelCalls).toHaveLength(1)
+  })
+
+  it('写失败按 error.<code> 渲染主文案（{path} 来自 details），不算保存成功', async () => {
     const client = new FakePanelClient()
     client.updateDefaultsImpl = async () => {
-      throw new PanelError('defaults-unwritable', 'EACCES: permission denied', { path: DEFAULTS_PATH, reason: 'EACCES' })
+      throw new PanelError('defaults-unwritable', 'EACCES: permission denied', {
+        path: DEFAULTS_PATH,
+        reason: 'EACCES',
+      })
     }
     renderPanel({ client })
     await openPanel()
 
-    fireEvent.change(screen.getByPlaceholderText(zh['defaults.addPlaceholder']), {
-      target: { value: 'mcp:figma' },
-    })
+    const user = defaultsSectionOf(zh['section.defaults'])
+    fireEvent.click(frameToggleOf(zh['section.defaults']))
+
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: zh['defaults.add'] }))
+      // 技能组默认展开：直接点一行技能开关，把失败留在默认档分区里。
+      fireEvent.click(defaultsSwitchOf(user, 'openspec-propose'))
     })
 
-    expect(screen.getByText(`默认档写入失败：${DEFAULTS_PATH}。`)).toBeDefined()
-    expect(screen.getByText('EACCES: permission denied')).toBeDefined()
-    // 失败不算保存成功。
-    expect(screen.queryByText(zh['defaults.saved'])).toBeNull()
+    expect(within(user).getByText(zh['error.defaults-unwritable'].replace('{path}', DEFAULTS_PATH))).toBeDefined()
+    expect(within(user).getByText('EACCES: permission denied')).toBeDefined()
+    expect(within(user).queryByText(zh['defaults.saved'])).toBeNull()
   })
 })
 
@@ -771,34 +969,28 @@ describe('技能分区（设计 §3.3 技能段 / D-7）', () => {
   })
 })
 
-describe('工作区默认档分区（C2 / 设计 §3.4）', () => {
-  it('渲染工作区键、档文件路径、并集说明与「只影响之后新建」的预期管理', async () => {
-    renderPanel()
-    await openPanel()
-
-    expect(screen.getByText(WORKSPACE_KEY)).toBeDefined()
-    expect(screen.getByText(WORKSPACE_PATH)).toBeDefined()
-    expect(screen.getByText(zh['workspace.union'])).toBeDefined()
-    expect(screen.getByText(zh['workspace.scope'])).toBeDefined()
-    expect(screen.getByText(zh['workspace.registered'])).toBeDefined()
-  })
-
-  it('添加地址发 workspace({sessionId, action:"off", addresses})，不重拉面板快照', async () => {
+describe('工作区默认档的开关（workspace 端点）', () => {
+  it('行开关发 workspace({sessionId, action:"off", addresses})，不重拉面板快照', async () => {
     const { harness } = renderPanel()
     await openPanel()
 
-    fireEvent.change(screen.getByPlaceholderText(zh['workspace.addPlaceholder']), {
-      target: { value: 'skill:openspec-propose, mcp:figma' },
-    })
+    const workspace = defaultsSectionOf(zh['workspace.title'])
+    fireEvent.click(frameToggleOf(zh['workspace.title']))
+    // 行在 MCP 组里：先把该组展开（默认档清单里 MCP 组默认收起）。
+    fireEvent.click(within(workspace).getByRole('button', { name: /^MCP 服务器/ }))
+
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: zh['workspace.add'] }))
+      fireEvent.click(defaultsSwitchOf(workspace, 'list_projects'))
     })
 
     expect(harness.client.workspaceCalls).toEqual([
-      { sessionId: SESSION_ID, action: 'off', addresses: ['skill:openspec-propose', 'mcp:figma'] },
+      { sessionId: SESSION_ID, action: 'off', addresses: ['mcp:yunxiao::list_projects'] },
     ])
-    // 工作区档不追溯当前会话：面板快照没有重拉。
+    // 工作区档同样不追溯当前会话：写它不重拉面板快照，也不打用户级默认档端点。
     expect(harness.client.panelCalls).toHaveLength(1)
+    expect(harness.client.defaultsCalls).toHaveLength(0)
+    // 宿主确认后给「已保存（本会话不变）」。
+    expect(within(workspace).getByText(zh['workspace.saved'])).toBeDefined()
   })
 
   it('写入失败按 error.workspace-unwritable 渲染主文案（{path} 来自 details）', async () => {
@@ -812,18 +1004,19 @@ describe('工作区默认档分区（C2 / 设计 §3.4）', () => {
     renderPanel({ client })
     await openPanel()
 
-    fireEvent.change(screen.getByPlaceholderText(zh['workspace.addPlaceholder']), {
-      target: { value: 'skill:openspec-propose' },
-    })
+    const workspace = defaultsSectionOf(zh['workspace.title'])
+    fireEvent.click(frameToggleOf(zh['workspace.title']))
+
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: zh['workspace.add'] }))
+      fireEvent.click(defaultsSwitchOf(workspace, 'openspec-propose'))
     })
 
-    expect(screen.getByText(`工作区默认档写入失败：${WORKSPACE_PATH}。`)).toBeDefined()
-    expect(screen.getByText('EACCES: permission denied')).toBeDefined()
+    expect(within(workspace).getByText(zh['error.workspace-unwritable'].replace('{path}', WORKSPACE_PATH))).toBeDefined()
+    expect(within(workspace).getByText('EACCES: permission denied')).toBeDefined()
+    expect(within(workspace).queryByText(zh['workspace.saved'])).toBeNull()
   })
 
-  it('刷新按钮重读工作区档，workspace-unresolved 用 {subject} 插值', async () => {
+  it('刷新按钮按 read 重读工作区档，workspace-unresolved 用 {subject} 插值', async () => {
     const client = new FakePanelClient()
     client.workspaceImpl = async () => {
       throw new PanelError('workspace-unresolved', 'cwd 已删除', { subject: SESSION_ID })
@@ -831,23 +1024,68 @@ describe('工作区默认档分区（C2 / 设计 §3.4）', () => {
     renderPanel({ client })
     await openPanel()
 
+    const workspace = defaultsSectionOf(zh['workspace.title'])
+    fireEvent.click(frameToggleOf(zh['workspace.title']))
+
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: zh['workspace.refresh'] }))
+      fireEvent.click(within(workspace).getByRole('button', { name: zh['workspace.refresh'] }))
     })
 
     expect(client.workspaceCalls).toEqual([{ sessionId: SESSION_ID, action: 'read' }])
-    expect(screen.getByText(`工作区无法归属：${SESSION_ID}。`)).toBeDefined()
-    expect(screen.getByText('cwd 已删除')).toBeDefined()
+    expect(within(workspace).getByText(zh['error.workspace-unresolved'].replace('{subject}', SESSION_ID))).toBeDefined()
+    expect(within(workspace).getByText('cwd 已删除')).toBeDefined()
+    // stale-while-revalidate：旧视图保留，失败只是多一行。
+    expect(within(workspace).getByText(WORKSPACE_KEY)).toBeDefined()
   })
 
-  it('工作区无法归属时只读降级：给解释文案，不渲染添加框', async () => {
+  it('工作区无法归属（workspace===null）时只读降级：解释文案、无清单、无三计数行、清空禁用', async () => {
     const client = new FakePanelClient()
     client.panelImpl = async () => snapshot({ workspace: null })
     renderPanel({ client })
     await openPanel()
 
-    expect(screen.getByText(zh['workspace.unresolved'])).toBeDefined()
-    expect(screen.queryByPlaceholderText(zh['workspace.addPlaceholder'])).toBeNull()
+    const workspace = defaultsSectionOf(zh['workspace.title'])
+    fireEvent.click(frameToggleOf(zh['workspace.title']))
+
+    expect(within(workspace).getByText(zh['workspace.unresolved'])).toBeDefined()
+    // 只读降级仍讲并集语义，但没有目标档就没有可数的关闭集与可点的开关。
+    expect(within(workspace).getByText(zh['workspace.union'])).toBeDefined()
+    expect(within(workspace).queryByText(/清单 \d+ · 默认关 \d+ · 残留 \d+/)).toBeNull()
+    expect(within(workspace).queryAllByRole('switch')).toEqual([])
+    expect(within(workspace).queryByRole('button', { name: /^MCP 服务器/ })).toBeNull()
+    expect(within(workspace).queryByText(zh['workspace.cliHint'])).toBeNull()
+    // 清空需要写入目标：`workspace === null` 时禁用（只读降级）。
+    expect(
+      (within(workspace).getByRole('button', { name: zh['workspace.clear'] }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+  })
+})
+
+describe('默认档清单没有添加输入（D8）', () => {
+  it('两个分区展开后文本框只剩内置工具过滤框，跨清单的新关走命令提示', async () => {
+    renderPanel()
+    await openPanel()
+
+    const user = defaultsSectionOf(zh['section.defaults'])
+    const workspace = defaultsSectionOf(zh['workspace.title'])
+    fireEvent.click(frameToggleOf(zh['section.defaults']))
+    fireEvent.click(frameToggleOf(zh['workspace.title']))
+
+    // 三个文本框：面板第二段的内置过滤 + 两个分区清单各自的内置过滤；没有自由文本添加框。
+    const boxes = screen.getAllByRole('textbox')
+    expect(boxes).toHaveLength(3)
+    expect(boxes.map((box) => box.getAttribute('placeholder'))).toEqual([
+      zh['group.filter'],
+      zh['group.filter'],
+      zh['group.filter'],
+    ])
+    expect(screen.queryByRole('button', { name: /添加/ })).toBeNull()
+
+    // 新关只能来自清单开关；跨清单地址由清单组件渲染命令兜底说明。
+    expect(within(user).getByText(zh['defaults.cliHint'])).toBeDefined()
+    expect(within(workspace).getByText(zh['workspace.cliHint'])).toBeDefined()
+    expect(screen.getByText(/\/tools default off/)).toBeDefined()
+    expect(screen.getByText(/\/tools workspace off/)).toBeDefined()
   })
 })
 

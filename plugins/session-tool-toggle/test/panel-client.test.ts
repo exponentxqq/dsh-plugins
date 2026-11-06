@@ -52,9 +52,8 @@ function snapshot(overrides: Partial<PanelSnapshot> = {}): PanelSnapshot {
     groups: [],
     protectedNames: ['bash'],
     defaults: { version: 1, disabled: [], path: DEFAULTS_PATH, readable: false, corrupt: false },
-    hiddenByOthers: [],
     intentOnly: [],
-    stats: { visible: 4, catalog: 4, denied: 0, shadowed: 0 },
+    stats: { visible: 4, denied: 0 },
     notices: [],
     skills: [],
     workspace: null,
@@ -71,7 +70,7 @@ function mutationValue(overrides: Partial<Mutation> = {}): ToggleValue {
   return {
     snapshot: snapshot({
       state: { disabled: ['mcp:a'], snapshot: [], seeded: true, updatedAt: 1, storeKind: 'record' },
-      stats: { visible: 1, catalog: 4, denied: 3, shadowed: 0 },
+      stats: { visible: 1, denied: 3 },
     }),
     mutation: {
       applied: [{ address: 'mcp:a', on: false, matched: 3 }],
@@ -114,6 +113,8 @@ function workspaceValue(overrides: Partial<WorkspaceValue> = {}): WorkspaceValue
     workspace: workspaceView(),
     choices: [{ key: WORKSPACE_PATH, title: '工作区一' }],
     changed: [],
+    // 键必填：`null` 才表示「没有会话视角宇宙」（`{workspacePath}` 寻址）。
+    universe: null,
     ...overrides,
   }
 }
@@ -480,6 +481,21 @@ describe('panel client：合法信封但响应过不了 parser', () => {
 
     expect(value.workspace).toBeNull()
     expect(value.choices).toEqual([])
+  })
+
+  it('workspace 响应缺 universe 键时拒绝（键必填，null 才合法）', async () => {
+    // 加宇宙之前的旧响应没有这个键：与 `workspace: null` 不同，缺键是契约漂移，不降级放行。
+    const { connection } = connectionReturning({
+      ok: true,
+      value: { workspace: workspaceView(), choices: [{ key: WORKSPACE_PATH, title: '工作区一' }], changed: [] },
+    })
+
+    const error = await failureOf(() =>
+      createPanelClient(connection).workspace({ sessionId: SESSION_ID, action: 'read' }),
+    )
+
+    expect(error.code).toBe('bad-response')
+    expect(error.message).toContain('workspace 响应.universe')
   })
 
   it('workspace 响应多一个未知顶层键即拒绝（strict 两端同版）', async () => {

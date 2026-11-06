@@ -1,38 +1,55 @@
 /**
- * 工作区默认档编辑器（设计附录 §3.4 / 代码设计 §3.10 的 C2）。
+ * 工作区默认档编辑器（`code-design.md` ③ 3.19 / W8；D10 / D11 / D13 / D-20）。
  *
- * 字段面与 `DefaultsEditor` 同款：工作区键/文件路径 + 关闭项清单（逐项移除）+ 自由文本添加框
- * + 清空 + 「只影响之后新建的会话」。三处差异：
+ * 字段面与用户级 `DefaultsEditor` 同构（同一个 `DefaultsGroupList`、同一套三计数口径），但有三处
+ * 差异，全部来自「目标是一份工作区档」这个事实：
  *
- * 1. **两形态**：`variant='section'` 是面板里的一个分区（`<section>`，无对话框根、无下拉），
- *    `variant='dialog'` 是统一工作区配置弹窗的分节正文（`workspace-config.section` 座位）——
- *    `role="dialog"` 根由 holder `dsh-plugin-workspace-config` 的 `Modal` 提供，本组件只交付
- *    正文壳 + 工作区下拉。
- *    下拉只在分节正文形态出现——面板分区的作用域恒为「当前会话所属工作区」（spec「工作区默认档
- *    分节」），在分区里换工作区会与「面板只改本会话工作区」的预期冲突（code-design §3.10）。
- * 2. **并集一句说明**（DQ2=A）：界面**不**标注每一项来自用户档还是工作区档，只给一句
- *    「新会话初始关闭 = 用户级默认档 ∪ 本工作区默认档」，把合并语义先说清、再让用户看到
- *    本工作区的增量。
- * 3. **工作区无法归属**（`workspace === null`）：只读降级——显示 `workspace.unresolved`，
- *    不渲染添加框/清空（写入目标不存在）；分节正文形态仍可下拉切换到已登记工作区。
+ * 1. **两形态**：
+ *    - `variant='dialog'` 是统一「工作区配置」弹窗的分节正文（`workspace-config.section` 座位）：
+ *      组件自己渲染 `<h3>` 标题 + 工作区下拉（`workspace.select`）+ 该行的刷新——holder 的
+ *      `Modal` 提供 `role="dialog"` 根，本组件只交付正文壳（再包一层会成嵌套 dialog）；
+ *    - `variant='section'` 是会话工具面板里的一个分区：外壳交给 `DefaultsSectionFrame`（D13，
+ *      **默认收起**、标题行带计数摘要），**没有下拉**——分区的作用域恒为「本会话所属工作区」，
+ *      在分区里换工作区会与「面板只改本会话工作区」的预期冲突（unify 裁定）。
+ *    `section` 形态**不再**自己包 `<section>`：折叠壳自带壳与间距。
+ * 2. **并集一句说明**（DQ2=A，沿用）：界面**不**标注每一项来自用户档还是工作区档，只给一句
+ *    「新会话初始关闭 = 用户级默认档 ∪ 本工作区默认档」（`workspace.union`），把合并语义先说清、
+ *    再让用户看到本工作区的增量。
+ * 3. **工作区无法归属**（`workspace === null`）：只读降级——显示 `workspace.unresolved`，不渲染
+ *    分组清单与三计数（没有目标档就没有可数的关闭集），清空按钮禁用；`dialog` 形态仍可下拉
+ *    切换到已登记工作区（写入目标随之改变）。
  *
- * 与 `DefaultsEditor` 同一条纪律：**不在客户端校验文法**。输入按空白/逗号切成地址就交给宿主
- * （`action:'off'`），文法、保护名单与上限的唯一权威在宿主；失败由宿主回稳定码
- * （`workspace-unresolved` / `workspace-unwritable` / …），主文案按 `error.<code>` 由持有
- * 控制器的容器渲染成 {@link PanelFailure} 传进来，本组件只渲染字符串。
+ * 与用户级编辑器的同一条纪律：**没有自由文本添加**（D8）。开关打的是宿主给的规范形地址
+ * （`group.address` / `entry.address`），文法、保护名单与上限的唯一权威在宿主；跨清单的新关
+ * 一律走命令（`/tools workspace off <地址>`，命令兜底说明由清单组件渲染）。
+ *
+ * 失败文案的唯一形状是 {@link PanelFailure}（从 `DefaultsEditor.tsx` 导入，重写不改归属）：宿主回
+ * 稳定码（`workspace-unresolved` / `workspace-unwritable` / …），主文案按 `error.<code>` 由持有
+ * 控制器的容器插值后传进来，本组件只渲染字符串。
  *
  * 每个动作都是一次**立即写入**（宿主 `workspaces.json`），没有独立的「保存」按钮：
- * 添加 = `off`（加入本工作区档）、逐项移除 = `on`（移出）、清空 = `reset`（清空本工作区条目）。
- * 写入成功的确认走 `saved`（「已保存（本会话不变）」）——工作区档与默认档一样不追溯（D18）。
+ * `off` = 加入本工作区档、`on` = 移出、`reset` = 清空本工作区条目。写入成功的确认走 `saved`
+ * （「已保存（本会话不变）」）——工作区档与默认档一样不追溯（D18）。
+ *
+ * 渲染归属（G8 handoff）：残留区与命令兜底说明都在 `DefaultsGroupList` 内部渲染，本组件
+ * **不**再单独渲染，否则同一句会出现两次。
  *
  * @module dsh-plugin-session-tool-toggle/client/WorkspaceDefaultsEditor
  */
 
-import { useState, type ReactNode } from 'react'
-import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useMemo, useState, type ReactNode } from 'react'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { WorkspaceAction, WorkspaceChoice, WorkspaceView } from '../contract.ts'
-import { splitAddresses, type PanelFailure } from './DefaultsEditor.tsx'
+import type {
+  DefaultsUniverse,
+  WorkspaceAction,
+  WorkspaceChoice,
+  WorkspaceView,
+} from '../contract.ts'
+import type { PanelFailure } from './DefaultsEditor.tsx'
+import { defaultsCountsOf } from './defaults-view.ts'
+import { DefaultsGroupList } from './DefaultsGroupList.tsx'
+import { DefaultsSectionFrame } from './DefaultsSectionFrame.tsx'
 import { NS } from './locales.ts'
 import css from './panel.module.css'
 
@@ -42,14 +59,30 @@ type Translate = TranslateNS<typeof NS>
 /** 渲染形态：面板分区，或统一工作区配置弹窗的分节正文。 */
 export type WorkspaceDefaultsVariant = 'section' | 'dialog'
 
-/** 工作区默认档编辑器的 props（code-design §3.10 冻结形状）。 */
+/**
+ * 目标档缺席（`workspace === null`）时的空关闭集。
+ *
+ * 用模块级常量而不是行内 `?? []`：行内字面量每次渲染都是新数组，会让 `useMemo` 的依赖恒变
+ * （三计数本来很便宜，但「同一份读数」的语义比省这点计算重要）。
+ */
+const EMPTY_DISABLED: readonly string[] = []
+
+/** 工作区默认档编辑器的 props（code-design ③ 3.19 冻结形状）。 */
 export interface WorkspaceDefaultsEditorProps {
   /**
    * 当前编辑目标的工作区视图（宿主返回的活视图）。
    *
-   * `null` = 当前会话 cwd 无法归属 / 目标未登记：界面按只读降级，不渲染写入入口。
+   * `null` = 当前会话 cwd 无法归属 / 目标未登记：界面按只读降级，不渲染分组清单与写入入口。
    */
   readonly workspace: WorkspaceView | null
+  /**
+   * 目标无关的工具宇宙。
+   *
+   * `dialog` 形态来自 `WorkspaceValue.universe`（容器负责跨目标缓存，切到 `{workspacePath}`
+   * 寻址后响应里的 `universe` 为 `null`），`section` 形态来自面板快照的投影
+   * （`universeOfSnapshot`）。`null` / `layerReady:false` 时清单组件只留残留区。
+   */
+  readonly universe: DefaultsUniverse | null
   /** 下拉可选项（`WorkspaceValue.choices`，已登记工作区，按标题+路径排序）。 */
   readonly choices: readonly WorkspaceChoice[]
   /** 渲染形态（见文件头注释）。 */
@@ -83,10 +116,11 @@ export interface WorkspaceDefaultsEditorProps {
 /**
  * 工作区默认档编辑器。
  * @param props - 见 {@link WorkspaceDefaultsEditorProps}。
- * @returns 面板分区或分节正文。
+ * @returns 面板分区（折叠壳）或弹窗分节正文。
  */
 export function WorkspaceDefaultsEditor({
   workspace,
+  universe,
   choices,
   variant,
   saving,
@@ -97,15 +131,19 @@ export function WorkspaceDefaultsEditor({
   onRefresh,
   t,
 }: WorkspaceDefaultsEditorProps): ReactNode {
-  const [draft, setDraft] = useState('')
   /** 清空按钮的两段式确认（不可逆性低，用文案变化代替 `RiskConfirmation`）。 */
   const [armed, setArmed] = useState(false)
 
   const dialog = variant === 'dialog'
   /** 写入目标存在才允许写（`null` = 工作区无法归属 / 未登记）。 */
   const writable = workspace !== null
-  const disabled = workspace?.disabled ?? []
+  const disabled = workspace?.disabled ?? EMPTY_DISABLED
   const selectable = workspace?.key ?? ''
+
+  // 三计数与清单共用同一份 (universe, disabled) 读数：摘要 / 计数行 / 清单不会各算一套。
+  // 目标档缺席时按空档求值（listed 仍取宇宙、inDefaults 与 residual 都是 0）：标题行的摘要
+  // 需要一个字符串，折叠态也要能看出「没有默认关的东西」。
+  const counts = useMemo(() => defaultsCountsOf(universe, disabled), [universe, disabled])
 
   // 当前工作区可能不在 choices 里（未登记工作区 / 列表过期）：补一项，避免 select 显示空白。
   const missingChoice =
@@ -113,24 +151,6 @@ export function WorkspaceDefaultsEditor({
   const options: readonly WorkspaceChoice[] = missingChoice
     ? [...choices, { key: workspace.key, title: workspace.title ?? workspace.key }]
     : choices
-
-  /** 提交添加：空输入是空操作；地址切分与默认档同一实现（不校验文法）。 */
-  const add = (): void => {
-    const addresses = splitAddresses(draft)
-    if (addresses.length === 0) return
-    setDraft('')
-    setArmed(false)
-    onUpdate('off', addresses)
-  }
-
-  /**
-   * 移除一条工作区档条目（`on` = 从关闭集移出 = 该工作区的新会话不再关它）。
-   * @param address - 条目地址。
-   */
-  const remove = (address: string): void => {
-    setArmed(false)
-    onUpdate('on', [address])
-  }
 
   /** 清空本工作区条目：第一次点击只改文案，第二次才真的发请求。 */
   const clear = (): void => {
@@ -142,46 +162,8 @@ export function WorkspaceDefaultsEditor({
     onUpdate('reset')
   }
 
-  const canAdd = writable && !saving && draft.trim() !== ''
-
   const body = (
     <>
-      <h3 className={css.sectionTitle}>{t('workspace.title')}</h3>
-
-      {dialog && (
-        <div className={css.addRow}>
-          <span className={css.meta}>{t('workspace.select')}</span>
-          <select
-            className={css.select}
-            value={selectable}
-            aria-label={t('workspace.select')}
-            disabled={saving}
-            onChange={(event) => {
-              onSelect(event.target.value)
-            }}
-          >
-            {selectable === '' && (
-              <option value="" disabled>
-                {t('workspace.select')}
-              </option>
-            )}
-            {options.map((choice) => (
-              <option key={choice.key} value={choice.key}>{choice.title}</option>
-            ))}
-          </select>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={saving}
-            onClick={() => {
-              onRefresh()
-            }}
-          >
-            {t('workspace.refresh')}
-          </Button>
-        </div>
-      )}
-
       {workspace === null
         ? <p className={css.muted}>{t('workspace.unresolved')}</p>
         : (
@@ -199,47 +181,33 @@ export function WorkspaceDefaultsEditor({
 
             {workspace.corrupt && <p className={css.warning}>{t('workspace.corrupt')}</p>}
 
-            {disabled.length === 0
-              ? <p className={css.muted}>{t('workspace.empty')}</p>
-              : (
-                <ul className={css.chips}>
-                  {disabled.map((address) => (
-                    <li key={address} className={css.chip}>
-                      <code className={css.address} title={address}>{address}</code>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        aria-label={t('workspace.removeAria', { address })}
-                        disabled={saving}
-                        onClick={() => {
-                          remove(address)
-                        }}
-                      >
-                        {t('workspace.remove')}
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+            {/* 三计数是「这份工作区档」的读数：目标档缺席时不渲染（见文件头的降级口径）。 */}
+            <p className={css.meta}>
+              {t('defaults.counts', {
+                listed: counts.listed,
+                inDefaults: counts.inDefaults,
+                residual: counts.residual,
+              })}
+            </p>
 
-            <div className={css.addRow}>
-              <Input
-                className={css.addInput}
-                value={draft}
-                placeholder={t('workspace.addPlaceholder')}
-                aria-label={t('workspace.addPlaceholder')}
-                disabled={saving}
-                onChange={(event) => {
-                  setDraft(event.target.value)
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') add()
-                }}
-              />
-              <Button variant="primary" size="sm" disabled={!canAdd} onClick={add}>{t('workspace.add')}</Button>
-            </div>
-
-            <p className={css.muted}>{t('workspace.placeholder')}</p>
+            {/* 分组清单 + 残留区 + 命令兜底说明都由清单组件渲染（G8 handoff）。 */}
+            <DefaultsGroupList
+              universe={universe}
+              disabled={workspace.disabled}
+              busy={saving}
+              onToggle={(address, on) => {
+                // 任何一次开关都撤掉「清空」的待确认态：它描述的上一次意图已经过期。
+                setArmed(false)
+                onUpdate(on ? 'on' : 'off', [address])
+              }}
+              copy={{
+                residualTitle: t('defaults.residualTitle'),
+                removeLabel: t('workspace.remove'),
+                removeAria: (a) => t('workspace.removeAria', { address: a }),
+                cliHint: t('workspace.cliHint'),
+              }}
+              t={t}
+            />
           </>
         )}
 
@@ -284,6 +252,53 @@ export function WorkspaceDefaultsEditor({
   // 正文壳**不**复用 `.dialog`（760px 卡片宽度）：右栏内容列的宽度由 holder 约束，
   // 嵌套固定宽度会溢出，宽度约束归持有 `Modal` 的 holder。
   return dialog
-    ? <div className={css.workspaceBody}>{body}</div>
-    : <section className={css.section}>{body}</section>
+    ? (
+      <div className={css.workspaceBody}>
+        <h3 className={css.sectionTitle}>{t('workspace.title')}</h3>
+
+        <div className={css.addRow}>
+          <span className={css.meta}>{t('workspace.select')}</span>
+          <select
+            className={css.select}
+            value={selectable}
+            aria-label={t('workspace.select')}
+            disabled={saving}
+            onChange={(event) => {
+              onSelect(event.target.value)
+            }}
+          >
+            {selectable === '' && (
+              <option value="" disabled>
+                {t('workspace.select')}
+              </option>
+            )}
+            {options.map((choice) => (
+              <option key={choice.key} value={choice.key}>{choice.title}</option>
+            ))}
+          </select>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={saving}
+            onClick={() => {
+              onRefresh()
+            }}
+          >
+            {t('workspace.refresh')}
+          </Button>
+        </div>
+
+        {body}
+      </div>
+    )
+    // 分区形态：折叠壳（标题 + 计数摘要 + `aria-expanded`）自带 `<section>` 与间距，
+    // 这里**不**再包一层——否则网格/外边距会叠两次（G8 handoff）。
+    : (
+      <DefaultsSectionFrame
+        title={t('workspace.title')}
+        summary={t('defaults.summary', { inDefaults: counts.inDefaults, residual: counts.residual })}
+      >
+        {body}
+      </DefaultsSectionFrame>
+    )
 }

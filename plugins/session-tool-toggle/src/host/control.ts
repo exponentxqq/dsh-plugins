@@ -204,7 +204,7 @@ export interface ClosedAddressReading {
   readonly shadowed: boolean
 }
 
-/** `/tools status` 与 `default` 共用的一份只读读数（三读并集 + 默认档 + 保护名单）。 */
+/** `/tools status` 与 `default` 共用的一份只读读数（本会话两读并集 + 默认档 + 保护名单）。 */
 export interface PanelReading {
   readonly state: SessionToolState
   readonly storeKind: StoreKind
@@ -216,8 +216,6 @@ export interface PanelReading {
   readonly appliedDeny: readonly string[]
   /** 已装上的遮蔽段服务器。 */
   readonly appliedShadowServers: readonly string[]
-  /** 全局层注册名（未掩码）。 */
-  readonly catalog: readonly string[]
   /** 该 agent 视角名字（本插件上一轮掩码已生效 → 缺名字）。 */
   readonly scoped: readonly string[]
   /** 默认档当前内容。 */
@@ -232,13 +230,6 @@ export interface PanelReading {
   readonly builtinNames: readonly string[]
   /** 内置工具里命中保护名单的名字（排序）。 */
   readonly builtinProtectedNames: readonly string[]
-  /**
-   * 全局层有、本会话不可见的名字（`catalog \ (scoped ∪ carried)`，按名排序；R18）。
-   *
-   * `carried` 是本插件已生效的掩码：它造成的「看不见」由用户自己的开关决定，不算「被其他
-   * 作用域隐藏」——否则面板会把这一行的开关禁用，用户就打不开自己关掉的工具。
-   */
-  readonly hiddenByOthers: readonly string[]
   /** 每条关闭地址命中的工具定义数（键是规范形文本；0 也保留键，两态区分据此）。 */
   readonly matched: ReadonlyMap<string, number>
   /** 每一条关闭地址的读数（按 `state.disabled` 顺序）。 */
@@ -317,7 +308,7 @@ export interface WorkspaceDefaultsReport {
  * - `store.write` 抛错 → `persistFailed`（记录通道已自行降级内存态，命令面只补一句提示）；
  * - `layer.setState` 抛错 → `layerFailed`（守卫仍在拦，下一次 `tools/change` 会收敛）。
  *
- * @param deps - 控制端口（含全局层读数 `catalog`）。
+ * @param deps - 控制端口。
  * @param session - 目标会话（命令面的 `agent.session`，RPC 侧按 sessionId 解析）。
  * @param texts - 用户地址原文（未解析）。
  * @param on - true = 开启，false = 关闭。
@@ -335,7 +326,6 @@ export function toggleSession(
 
   const stateBefore = deps.store.read(session)
   const layer = layerOf(deps, session)
-  const catalog = catalogOf(deps)
   const before = snapshotOf(layer, deps.log)
   const skillsBefore = skillsOf(layer, deps.log)
   const visibleBefore = before.visible.length
@@ -343,7 +333,6 @@ export function toggleSession(
   // 匹配计数：planMask 的 matched 只含入参 disabled 的键，因此把本次涉及的地址整份传进去，
   // 不依赖它们此刻是否真的在关闭集里（`on` 的地址通常已经不在）。
   const plan = planMask({
-    catalog,
     scoped: before.visible,
     carried: before.deny,
     disabled: parsed.entries.map((entry) => entry.text),
@@ -487,17 +476,16 @@ export function resetSession(deps: ControlDeps, session: SessionLike): ResetRepo
 /**
  * 汇总 `/tools status`（以及 `default` 只读形态）需要的全部读数。
  *
- * 三读并集照抄掩码引擎：`catalog`（全局层）+ `scoped`（本 agent 视角）+
- * `appliedDeny`（已生效的掩码，防第二读缩小）→ `planMask`。分组、命中计数、两态区分、
- * 保护名单与「被其他作用域隐藏」都由这一份读数推出，因此面板（9.3）与命令面看到的是
- * 同一组事实。
+ * 两读并集照抄掩码引擎：`scoped`（本 agent 视角，本会话里真实存在的工具）+ `appliedDeny`
+ * （已生效的掩码，同时是下一轮的 `carried`，防第二读缩小）→ `planMask`。分组、命中计数、
+ * 两态区分与保护名单都由这一份会话读数推出，因此面板（9.3）与命令面看到的是同一组事实。
  *
- * 「被其他作用域隐藏」= `catalog \ (scoped ∪ carried)`（diff-matrix R18）：本插件已生效的
- * 掩码（`applied.deny`，同时是下一轮的 `carried`）造成的「看不见」由用户自己的开关决定，
- * 必须从差集里排除，否则用户无法在面板里把自己关掉的工具打开。
+ * 候选**只由会话读数决定**：全局层有、本会话看不到的名字（被别的作用域掩掉、或本来就不在
+ * 本会话里）不进候选，因此它们既不出现在分组清单里，也打不开——开关不再拿本会话拿不到的
+ * 名字虚报可关对象。关闭这类名字是**纯意图**（`matched` 为 0、`deny` 为空、意图保留在状态
+ * 里，等它真的出现在本会话后由 `tools/change → refresh()` 幂等链补上掩码）。
  *
- * 只读、不抛错：层读失败降级为空读数、默认档损坏由 `readDefaults` 降级为空档、
- * 全局层读数抛错由 {@link catalogOf} 降级为空表。
+ * 只读、不抛错：层读失败降级为空读数、默认档损坏由 `readDefaults` 降级为空档。
  *
  * @param deps - 控制端口。
  * @param session - 目标会话。
@@ -506,7 +494,6 @@ export function resetSession(deps: ControlDeps, session: SessionLike): ResetRepo
 export async function readPanel(deps: ControlDeps, session: SessionLike): Promise<PanelReading> {
   const state = deps.store.read(session)
   const layer = layerOf(deps, session)
-  const catalog = catalogOf(deps)
   const applied = snapshotOf(layer, deps.log)
   const skills = skillsOf(layer, deps.log)
   const scoped = applied.visible
@@ -514,7 +501,6 @@ export async function readPanel(deps: ControlDeps, session: SessionLike): Promis
   const workspace = await workspaceViewOf(deps, session)
 
   const plan = planMask({
-    catalog,
     scoped,
     carried: applied.deny,
     disabled: state.disabled,
@@ -535,22 +521,11 @@ export async function readPanel(deps: ControlDeps, session: SessionLike): Promis
     })
   }
 
-  const candidates = unionNames(catalog, scoped, applied.deny)
+  const candidates = unionNames(scoped, applied.deny)
   const groups = groupByServer(candidates)
   const builtinNames = candidates
     .filter((name) => serverOfToolName(name) === undefined)
     .sort(compareText)
-  // 「被其他作用域隐藏」= `catalog \ (scoped ∪ carried)`（diff-matrix R18，与面板 `panel.ts`
-  // 同一口径）：`applied.deny` 是本插件已生效的掩码（carried），它同样让名字从 scoped 消失。
-  // 若把它也算进来，用户自己关掉的工具会被当成「别人掩的」，面板据此禁用该行开关 → 用户
-  // 在分组清单里打不开它。层未就绪时没有可信的 carried，维持空读数（不可信即不报）。
-  const scopedSet = new Set(scoped)
-  const carriedSet = new Set(applied.deny)
-  const hiddenByOthers = layer === undefined
-    ? []
-    : catalog
-        .filter((name) => !scopedSet.has(name) && !carriedSet.has(name))
-        .sort(compareText)
 
   return {
     state,
@@ -559,7 +534,6 @@ export async function readPanel(deps: ControlDeps, session: SessionLike): Promis
     visible: scoped.length,
     appliedDeny: applied.deny,
     appliedShadowServers: applied.shadowServers,
-    catalog,
     scoped,
     defaults,
     defaultsPath: deps.defaultsPath,
@@ -567,7 +541,6 @@ export async function readPanel(deps: ControlDeps, session: SessionLike): Promis
     serverGroups: groups,
     builtinNames,
     builtinProtectedNames: builtinNames.filter((name) => deps.protectedNames.has(name)),
-    hiddenByOthers,
     matched: plan.matched,
     closed,
     createdAt: session.header.createdAt,
@@ -812,20 +785,6 @@ function layerOf(deps: ControlDeps, session: SessionLike): LayerHandle | undefin
 }
 
 /**
- * 读全局层注册名；读数抛错时降级为空数组（只影响计数展示，不影响开关语义）。
- * @param deps - 控制端口。
- * @returns 注册名。
- */
-function catalogOf(deps: ControlDeps): readonly string[] {
-  try {
-    return deps.catalog()
-  } catch (error) {
-    deps.log.warn(`无法读取全局层工具注册表：${messageOf(error)}`)
-    return []
-  }
-}
-
-/**
  * 读层的一手事实；层缺席或读失败时返回空读数。
  * @param layer - 层句柄（可能 undefined）。
  * @param log - 诊断出口。
@@ -1056,18 +1015,20 @@ function skillRowsOf(
 // ---------------------------------------------------------------------------
 
 /**
- * 三读并集（catalog → scoped → carried 首次出现序），供「可关对象」分组用。
- * @param catalog - 全局层注册名。
+ * 本会话两读并集（scoped → carried 首次出现序），供「可关对象」分组用。
+ *
+ * 与掩码引擎 `mask.ts` 的候选口径逐字相同（`scoped ∪ carried`）：只有本会话里真实出现过的
+ * 名字才是可关对象。刻意**不**从 `mask.ts` import——那是掩码计划的内部步骤，抽成共用会在两个
+ * 模块之间造一条只为一个三行函数服务的耦合（设计 ⑥ U3 的裁定）。
  * @param scoped - 本 agent 视角名。
- * @param carried - 上一轮仍受管的名字。
+ * @param carried - 上一轮 deny 里仍然受管的名字。
  * @returns 去重后的名字。
  */
 function unionNames(
-  catalog: readonly string[],
   scoped: readonly string[],
   carried: readonly string[],
 ): readonly string[] {
-  return Array.from(new Set([...catalog, ...scoped, ...carried]))
+  return Array.from(new Set([...scoped, ...carried]))
 }
 
 /**
@@ -1076,7 +1037,7 @@ function unionNames(
  * 服务器分组只能从 public name 前缀推导（DSH 没有公开的「MCP 服务器注册表」服务，见
  * 附录 §2.5）：`mcp__<server>__<suffix>` 取**第一个** `__` 之前的部分。这条规则与
  * `address.ts` 的 `mcpIdentityOf` 同一条；等 9.3 的 `panel.ts` 落地后收敛到一处。
- * @param names - 三读并集。
+ * @param names - 本会话两读并集。
  * @returns 按 server 名排序的分组计数。
  */
 function groupByServer(names: readonly string[]): readonly ServerGroupCount[] {

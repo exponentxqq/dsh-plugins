@@ -20,9 +20,9 @@
  *   「开关打开 = 该工具/该组可用」，`onChange(false)` 才是关闭。
  * - **在途禁用**：`pending` 按地址，命中本行/本组的开关 `disabled`；`busy`（`reset()` 在途，
  *   没有地址）让整段禁用。
- * - **三态禁用**：`protected` / `reserved` / `shadowed` 各带行内短标签（`entry.*`）与
- *   `title` 理由（`badge.*`，无插值）。三者都可与「已关」并存，但**禁用优先**：锁定行的开关
- *   根本点不动，组件这里再守一道（原生 `disabled` 只挡真实用户手势，程序化 dispatch 不挡）。
+ * - **两态禁用**：`protected` / `reserved` 各带行内短标签（`entry.*`）与 `title` 理由
+ *   （`badge.*`，无插值）。两者都可与「已关」并存，但**禁用优先**：锁定行的开关根本点不动，
+ *   组件这里再守一道（原生 `disabled` 只挡真实用户手势，程序化 dispatch 不挡）。
  *
  * @module dsh-plugin-session-tool-toggle/client/ToolPanelGroups
  */
@@ -63,11 +63,13 @@ export interface ToolPanelGroupsProps {
 
 /**
  * 分组标题：宿主只给 `kind`，中文/英文由这里渲染（设计 §2.5）。
+ *
+ * B 的 `DefaultsGroupList` 复用本函数（W5：复用模式不共用组件，只借标题口径）。
  * @param kind - 分区来源。
  * @param t - 翻译函数。
  * @returns 分区标题。
  */
-function groupTitle(kind: ToolGroup['kind'], t: Translate): string {
+export function groupTitle(kind: ToolGroup['kind'], t: Translate): string {
   switch (kind) {
     case 'mcp':
       return t('group.mcp')
@@ -81,26 +83,28 @@ function groupTitle(kind: ToolGroup['kind'], t: Translate): string {
 /**
  * 分组默认展开态：MCP 服务器默认折叠（工具多），技能与内置工具默认展开（这两段就是用户
  * 日常要点的那几行）。
+ *
+ * B 的 `DefaultsGroupList` 复用本函数（W5：复用模式不共用组件，只借默认展开口径）。
  * @param kind - 分区来源。
  * @returns 初始展开态。
  */
-function defaultExpanded(kind: ToolGroup['kind']): boolean {
+export function defaultExpanded(kind: ToolGroup['kind']): boolean {
   return kind !== 'mcp'
 }
 
 /** 一行被锁定的理由：行内短标签 + 悬停/读屏同一句解释。 */
 interface LockNotice {
-  /** 行内短标签文案（`entry.protected` / `entry.reserved` / `entry.shadowed`）。 */
+  /** 行内短标签文案（`entry.protected` / `entry.reserved`）。 */
   readonly tag: string
   /** `title` 与读屏共用的理由（`badge.*`）。 */
   readonly reason: string
 }
 
 /**
- * 判定一条工具的三态锁：保护名单优先于保留名，保留名优先于「被其它作用域隐藏」。
+ * 判定一条工具的两态锁：保护名单优先于保留名。
  *
- * 优先级不是随意排的：`protected` 与 `reserved` 是宿主解析期就拒绝的硬约束，`shadowed` 只是
- * 当前读数（别的座位把它藏了）；同一条目命中多个时，讲最硬的那条理由。
+ * 两者都是宿主解析期就拒绝的硬约束（保护名单是配置层拒关，保留名是 restrict 拒绝）；同一条目
+ * 命中多个时讲保护名单那条。
  * @param tool - 分组条目。
  * @param t - 翻译函数。
  * @returns 锁信息；可切换时是 `undefined`。
@@ -108,7 +112,6 @@ interface LockNotice {
 function lockOf(tool: ToolEntry, t: Translate): LockNotice | undefined {
   if (tool.protected) return { tag: t('entry.protected'), reason: t('badge.protected') }
   if (tool.reserved) return { tag: t('entry.reserved'), reason: t('badge.reserved') }
-  if (tool.shadowed) return { tag: t('entry.shadowed'), reason: t('badge.shadowed') }
   return undefined
 }
 

@@ -1,27 +1,45 @@
 /**
- * 面板第三段：用户级默认档编辑区（设计附录 §3.4）。
+ * 面板第三段：用户级默认档编辑区（`code-design.md` ③ 3.19 / W7；D10 / D11 / D13）。
  *
  * 默认档是**用户级**状态（`$DSH_HOME/session-tool-toggle/defaults.json`），只作为新会话创建
  * 时快照的来源：本区保存成功后**不**重拉会话快照、也**不**提供「应用到本会话」——D18 的
  * 「不追溯」在界面上就是这两句事实文案（`defaults.scope` / `defaults.snapshot`）。
  *
- * 三条刻意不做的事：
+ * 形状（D10 的分组开关界面，自上而下）：
  *
- * 1. **不在客户端校验文法**：输入按空白/逗号切成地址就交给宿主（`action:'off'`），文法与保护
- *    名单的唯一权威在宿主 `address.ts`；客户端猜文法必然与宿主漂移，失败由宿主回稳定码
- *    （`bad-address` / `defaults-unwritable` …），主文案按 `error.<code>` 渲染、`error.message`
- *    只作二级灰字。失败文案的键映射由容器（`ToolPanelAction`）负责，本组件只渲染字符串。
- * 2. **不做乐观更新**：条目列表读 `state.defaults`（宿主返回的活视图），保存期间整区禁用。
+ * - 外壳是 `DefaultsSectionFrame`（D13）：**默认收起**，标题行带计数摘要（`defaults.summary`）；
+ *   展开后才是路径行 / 损坏告警 / 三计数行 / 分组清单 / 两句不追溯 / 清空与失败行；
+ * - 清单是 `DefaultsGroupList`（与工作区级编辑器共用的唯一实现）：**没有自由文本添加**——
+ *   新关只来自清单里的开关，跨清单的地址走命令（命令提示文案由清单组件自己渲染）；
+ *   残留地址区同样在清单组件内，只能移除；
+ * - 三计数（{@link defaultsCountsOf}，D11）与清单读的是同一份 `defaults.disabled`，口径一致；
+ *   宇宙（`universe`）由容器从面板快照投影（`universeOfSnapshot`，D-19 零新增 wire 字段）。
+ *
+ * 三条刻意不做的事（沿重写前的裁定）：
+ *
+ * 1. **不在客户端校验文法**：开关打的是宿主给的规范形地址（`DefaultsGroupList` 里的
+ *    `group.address` / `entry.address`），文法与保护名单的唯一权威在宿主 `address.ts`；
+ *    失败由宿主回稳定码（`bad-address` / `defaults-unwritable` …），主文案按 `error.<code>`
+ *    渲染、`error.message` 只作二级灰字。失败文案的键映射由容器（`ToolPanelAction`）负责，
+ *    本组件只渲染字符串。
+ * 2. **不做乐观更新**：清单读 `defaults.disabled`（宿主返回的活视图），保存期间整区禁用
+ *    （`saving` → `DefaultsGroupList` 的 `busy`）。
  * 3. **不上 `RiskConfirmation`**：清空默认档不可逆性低（只影响之后新建的会话），二次确认用
  *    按钮文案变化实现（`defaults.clear` → `defaults.clearConfirm`）。
+ *
+ * `PanelFailure` 仍从本模块导出：`WorkspaceEntry.tsx` / `ToolPanelAction.tsx` 依赖这个导出
+ * 路径（重写不改归属）。
  *
  * @module dsh-plugin-session-tool-toggle/client/DefaultsEditor
  */
 
-import { useState, type ReactNode } from 'react'
-import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useMemo, useState, type ReactNode } from 'react'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { DefaultsAction, DefaultsView } from '../contract.ts'
+import type { DefaultsAction, DefaultsUniverse, DefaultsView } from '../contract.ts'
+import { defaultsCountsOf } from './defaults-view.ts'
+import { DefaultsGroupList } from './DefaultsGroupList.tsx'
+import { DefaultsSectionFrame } from './DefaultsSectionFrame.tsx'
 import { NS } from './locales.ts'
 import css from './panel.module.css'
 
@@ -46,6 +64,8 @@ export interface PanelFailure {
 export interface DefaultsEditorProps {
   /** 宿主返回的默认档活视图（`panel-controller` 的 `state.defaults`）。 */
   readonly defaults: DefaultsView
+  /** 面板快照投影的宇宙（`universeOfSnapshot`；D-19）。 */
+  readonly universe: DefaultsUniverse
   /** 本会话创建时间（epoch ms）：讲「本会话的快照来源」。 */
   readonly createdAt: number
   /** 本会话创建时快照的条目数（`state.snapshot.length`）。 */
@@ -84,24 +104,13 @@ function formatTime(at: number): string {
 }
 
 /**
- * 把自由文本切成地址（空白与中英文逗号都算分隔符）。
- *
- * **不校验文法**：`mcp:` / `tool:` / `skill` 的合法性与保护名单只由宿主判定；这里连
- * `mcp__` 这种内部形都不拒绝——客户端多一条规则就多一处与宿主漂移的地方。
- * @param text - 输入框原文。
- * @returns 去空段后的地址数组（可能为空）。
- */
-export function splitAddresses(text: string): string[] {
-  return text.split(/[\s,，]+/u).filter((part) => part !== '')
-}
-
-/**
- * 默认档编辑区：路径 + 条目列表 + 自由文本添加 + 清空 + 三句事实文案。
+ * 默认档编辑区：折叠壳 + 路径/告警/三计数 + 分组开关清单 + 不追溯两句 + 清空与失败行。
  * @param props - 见 {@link DefaultsEditorProps}。
  * @returns 面板第三段。
  */
 export function DefaultsEditor({
   defaults,
+  universe,
   createdAt,
   snapshotCount,
   saving,
@@ -110,26 +119,13 @@ export function DefaultsEditor({
   onUpdate,
   t,
 }: DefaultsEditorProps): ReactNode {
-  const [draft, setDraft] = useState('')
   const [armed, setArmed] = useState(false)
 
-  /** 提交添加：空输入是空操作，非空就把切出来的地址整份交给宿主。 */
-  const add = (): void => {
-    const addresses = splitAddresses(draft)
-    if (addresses.length === 0) return
-    setDraft('')
-    setArmed(false)
-    onUpdate('off', addresses)
-  }
-
-  /**
-   * 移除一条默认档条目（`on` = 从关闭集移出 = 新会话不再关它）。
-   * @param address - 条目地址。
-   */
-  const remove = (address: string): void => {
-    setArmed(false)
-    onUpdate('on', [address])
-  }
+  // 三计数与清单共用同一份 (universe, disabled) 读数：摘要 / 计数行 / 清单不会各算一套。
+  const counts = useMemo(
+    () => defaultsCountsOf(universe, defaults.disabled),
+    [universe, defaults.disabled],
+  )
 
   /** 清空默认档：第一次点击只改文案，第二次才真的发请求。 */
   const clear = (): void => {
@@ -141,12 +137,12 @@ export function DefaultsEditor({
     onUpdate('reset')
   }
 
-  const canAdd = !saving && draft.trim() !== ''
-
   return (
-    <section className={css.section}>
-      <h3 className={css.sectionTitle}>{t('section.defaults')}</h3>
-
+    <DefaultsSectionFrame
+      title={t('section.defaults')}
+      // 摘要用三计数里的两项（D13：收起时也要看得出「有没有默认关的东西」）。
+      summary={t('defaults.summary', { inDefaults: counts.inDefaults, residual: counts.residual })}
+    >
       <p className={css.meta}>
         <span>{t('defaults.path')}</span>
         <code className={css.path}>{defaults.path}</code>
@@ -154,47 +150,33 @@ export function DefaultsEditor({
 
       {defaults.corrupt && <p className={css.warning}>{t('notice.defaults-corrupt')}</p>}
 
-      {defaults.disabled.length === 0
-        ? <p className={css.muted}>{t('defaults.empty')}</p>
-        : (
-          <ul className={css.chips}>
-            {defaults.disabled.map((address) => (
-              <li key={address} className={css.chip}>
-                <code className={css.address} title={address}>{address}</code>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label={`${t('defaults.remove')} ${address}`}
-                  disabled={saving}
-                  onClick={() => {
-                    remove(address)
-                  }}
-                >
-                  {t('defaults.remove')}
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
+      <p className={css.meta}>
+        {t('defaults.counts', {
+          listed: counts.listed,
+          inDefaults: counts.inDefaults,
+          residual: counts.residual,
+        })}
+      </p>
 
-      <div className={css.addRow}>
-        <Input
-          className={css.addInput}
-          value={draft}
-          placeholder={t('defaults.addPlaceholder')}
-          aria-label={t('defaults.addPlaceholder')}
-          disabled={saving}
-          onChange={(event) => {
-            setDraft(event.target.value)
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') add()
-          }}
-        />
-        <Button variant="primary" size="sm" disabled={!canAdd} onClick={add}>{t('defaults.add')}</Button>
-      </div>
+      {/* 分组清单 + 残留区 + 命令提示都由清单组件渲染（`copy` 只带键文案）。 */}
+      <DefaultsGroupList
+        universe={universe}
+        disabled={defaults.disabled}
+        busy={saving}
+        onToggle={(address, on) => {
+          // 任何一次开关都撤掉「清空」的待确认态：它描述的上一次意图已经过期。
+          setArmed(false)
+          onUpdate(on ? 'on' : 'off', [address])
+        }}
+        copy={{
+          residualTitle: t('defaults.residualTitle'),
+          removeLabel: t('defaults.remove'),
+          removeAria: (a) => `${t('defaults.remove')} ${a}`,
+          cliHint: t('defaults.cliHint'),
+        }}
+        t={t}
+      />
 
-      <p className={css.muted}>{t('defaults.placeholder')}</p>
       <p className={css.muted}>{t('defaults.scope')}</p>
       <p className={css.meta}>{t('defaults.snapshot', { time: formatTime(createdAt), count: snapshotCount })}</p>
 
@@ -216,6 +198,6 @@ export function DefaultsEditor({
           {failure.detail !== undefined && <p className={css.detail}>{failure.detail}</p>}
         </div>
       )}
-    </section>
+    </DefaultsSectionFrame>
   )
 }

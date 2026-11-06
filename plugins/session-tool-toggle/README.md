@@ -9,7 +9,7 @@ DSH 插件（**双端**，`exports "."` 宿主 + `exports "./client"` 浏览器�
 ```text
 src/index.ts / src/host/   宿主半：/tools 命令面、每 agent 掩码层与技能阴影分面、状态持久化、用户档与工作区档、RPC 通道 /session-tool-toggle
 src/contract.ts            两端共享的线上契约（零 import，两端各内联一份）
-src/client/                浏览器半：会话头部工具区入口 + 组件内 Modal 面板（技能开关、工作区档）+ 统一「工作区配置」弹窗的工作区默认档分节（WorkspaceDefaultsSection）+ locale + CSS module
+src/client/                浏览器半：会话头部工具区入口 + 组件内 Modal 面板（技能开关、两个默认档分区——分组开关清单，默认折叠）+ 统一「工作区配置」弹窗的工作区默认档分节（WorkspaceDefaultsSection）+ locale + CSS module
 test/                      单测（宿主 node 环境 / 浏览器 jsdom）
 lib/index.js               宿主产物（单文件 ESM，只外置 node:*）
 lib/client.js              浏览器产物（CJS bundle，包在 window.__ModuleLoader__.load 壳里）
@@ -21,7 +21,7 @@ lib/client.js              浏览器产物（CJS bundle，包在 window.__Module
 
 | 输入 | 作用 |
 | --- | --- |
-| `/tools`、`/tools status` | 看本会话开关、技能关闭情况、默认档、工作区默认档、可关对象分组计数、保护名单 |
+| `/tools`、`/tools status` | 看本会话开关、技能关闭情况、默认档、工作区默认档、本会话可关对象分组计数、保护名单 |
 | `/tools off <地址…>` | 关闭（一次可给多个地址） |
 | `/tools on <地址…>` | 开启 |
 | `/tools reset` | 回到**创建时快照**（用户档 ∪ 工作区档在那时拍下） |
@@ -72,9 +72,9 @@ lib/client.js              浏览器产物（CJS bundle，包在 window.__Module
 
 ## Web 面板
 
-**两个挂载面**：会话头部 `conversation.session.header.utilities`（list / scope `session`，entry id `session-tool-toggle-panel`、order **20**，官方三项 -10 / -5 / 0 之后）打开工具面板；统一「工作区配置」弹窗的分节 `workspace-config.section`（list / scope `root`，entry id `session-tool-toggle-workspace-defaults`、order **20**，座位由 holder `dsh-plugin-workspace-config` 用 `children` 声明）承载工作区默认档编辑器。旧 `sidebar.footer.*` 入口已移除：侧栏 footer 只剩 holder 的统一入口，四包同装约定见仓库根 README。面板是组件内 Modal，六段自上而下：状态摘要 → 本会话开关（MCP 服务器 / 技能整档 / 内置工具三组，可折叠）→ 技能逐行开关 → 工作区默认档 → 用户级默认档 → 关闭集；面板底部左「刷新」右「关闭」。分节（旧对话框的替代）自带工作区下拉（只列 `workspaceRegistry` 里的已登记工作区），作用域恒为「所选工作区之后新建的会话」；统一弹窗的关闭 / 分节导航由 holder 提供。
+**两个挂载面**：会话头部 `conversation.session.header.utilities`（list / scope `session`，entry id `session-tool-toggle-panel`、order **20**，官方三项 -10 / -5 / 0 之后）打开工具面板；统一「工作区配置」弹窗的分节 `workspace-config.section`（list / scope `root`，entry id `session-tool-toggle-workspace-defaults`、order **20**，座位由 holder `dsh-plugin-workspace-config` 用 `children` 声明）承载工作区默认档编辑器。旧 `sidebar.footer.*` 入口已移除：侧栏 footer 只剩 holder 的统一入口，四包同装约定见仓库根 README。面板是组件内 Modal，六段自上而下：状态摘要 → 本会话开关（MCP 服务器 / 技能整档 / 内置工具三组，可折叠）→ 技能逐行开关 → 工作区默认档 → 用户级默认档 → 关闭集；面板底部左「刷新」右「关闭」。**两个默认档分区默认折叠**：标题行给「默认关 M · 残留 K」摘要（收起时也看得出有没有默认关的东西），点开是**分组开关清单**——MCP 服务器组（整组开关 + 组内工具行）、技能整档（`tool:skill` 组开关 + 逐技能行）、内置工具行（带过滤输入，无组开关），每个分区自带折叠标题行与计数；整组地址在档里时组内行禁用并标「整组默认关」，档里不在本会话清单里的地址落进「残留地址」区**只可移除**，**没有自由文本添加**——跨清单的新关走 `/tools default off` / `/tools workspace off`。统一弹窗的分节（旧对话框的替代）自带工作区下拉（只列 `workspaceRegistry` 里的已登记工作区），作用域恒为「所选工作区之后新建的会话」，且**不折叠**（折叠只属于面板里的两个分区）；弹窗的关闭 / 分节导航由 holder 提供。
 
-技能行开关的是**模型可见性**（关闭后行内标注「对模型隐藏，`/技能名` 手动调用保留」）；整档 `tool:skill` 关闭时逐行开关置灰并给一行提示。开关方向是**开 = 工具可用**：点击一个打开的组开关发出的是「把 `mcp:<server>` 加进关闭集」。分组清单里受保护 / 保留名 / 被其他作用域隐藏的行**禁用**并给出 `title` 理由；关闭集区可逐条「开启」，「恢复创建时快照」是两段式确认。
+技能行开关的是**模型可见性**（关闭后行内标注「对模型隐藏，`/技能名` 手动调用保留」）；整档 `tool:skill` 关闭时逐行开关置灰并给一行提示。开关方向是**开 = 工具可用**：点击一个打开的组开关发出的是「把 `mcp:<server>` 加进关闭集」。分组清单里受保护 / 保留名的行**禁用**并给出 `title` 理由（其余行都可切换）；关闭集区可逐条「开启」，「恢复创建时快照」是两段式确认。
 
 **与命令面是同一份状态，不是第二份。** 面板与对话框的读与写都走 Connection RPC 通道 `/session-tool-toggle`（`panel` / `toggle` / `reset` / `defaults` / `workspace` 五个端点），宿主侧所有入口共用 `src/host/control.ts` 的同一控制内核、同一状态存储、同一掩码层与同一技能分面——面板里关掉 `mcp:yunxiao` 与 `/tools off mcp:yunxiao` 写的是同一条记录，面板里改工作区档与 `/tools workspace off …` 走的是同一个 `updateWorkspaceDefaults`，随后 `/tools status` 显示同一关闭集与同一工作区档，下一次模型步骤同时生效。面板不自行维护关闭集：**不做乐观更新**，开关翻转一律等宿主返回的新快照；打开时必拉一次，之后靠 mutation 回执、本会话的 `/tools` 执行事件（`command/executed`）、窗口 focus 与手动「刷新」收敛。
 
@@ -117,7 +117,10 @@ lib/client.js              浏览器产物（CJS bundle，包在 window.__Module
 
 ## 已知限制
 
-- **读数取全局层（仅工具）**：面板的工具 `catalog` 与工具描述来自插件自身 ctx 的 `ctx.tools.schemas()`（全局层）。若某 profile 把内置工具注册在 agent 作用域，面板的 `stats.catalog`、`shadowed` 计数与描述会偏小；本部署主 profile 的实测基线（可见 214、MCP 139）属于正常口径，不受此偏差影响。技能行不走这条路——它按**会话视角**（`scope: agent`）读技能注册表，不受工具全局层口径影响。
+- **读数取本会话作用域**：面板的清单宇宙、分组计数与工具描述，以及 `/tools status` 的清单与计数，全部只读**本会话**——`scoped`（本会话该 agent 视角当前可见的工具，即 `ctx.tools.schemas(agent)`，与 `/inventory` 同一条表达式）∪ `carried`（本插件上一轮已生效的关闭集保底）；宿主全局层（其他工作区 / 其他 agent 注册的名字）不参与任何推导，被其他作用域隔离（如 project-mcp 的工作区隔离）的名字既不进清单、也不进分组计数。与 `/inventory` 读的是同一份会话视角，但面板清单有两处**刻意差异**：① **已关条目仍在清单里**——上一轮已关闭、本会话仍受管的条目保留在清单中，用户能看到它们并重新打开（`/inventory` 只列当前可见工具，没有这些行）；② **多出 `tool:<name>` 与 `tool:skill` 行**——面板可关内置工具与技能整档，`/inventory` 只做清单、不提供开关。代价是**已关条目没有 `title` 描述**：描述经本会话层 `visibleSchemas()` 读取，已关条目在会话读数里没有 schema，面板只显示名字、不显示描述。技能行同走会话视角（`scope: agent` 读技能注册表），不受工具读数口径影响。
+- **两个默认档界面只列本会话可见工具，且没有添加入口**：用户级与工作区级默认档的分组开关清单，宇宙与面板同源（本会话两读：可见 ∪ 已关保底），不是「这份档可能命中的全部地址」。界面能写进档的关闭项因此只有清单里出现过的地址；给**不在本会话清单里**的地址补一条默认关只能走命令行：用户级 `/tools default off <地址>`，工作区级 `/tools workspace off <地址>`（**只作用本会话所属工作区**，没有 `--path` 形态）。于是**其他工作区**里那些「本会话从未出现」的地址（典型是该工作区私有的 project-mcp 服务器）既没有界面也没有 CLI 可新增，只能手改 `$DSH_HOME/session-tool-toggle/workspaces.json`（键 = 工作区规范绝对路径，文件形状见「排障」）——这是「宇宙取本会话视角」与「界面无自由文本」两条口径叠加后的能力边界，已知并接受；界面上的命令提示只覆盖「本会话所属工作区」这一种情形。
+- **切其他工作区看到的是「当前会话视角」的近似**：统一「工作区配置」弹窗的分节可下拉切到其他已登记工作区，但切过去后的分组清单仍是**本会话**的宇宙，不是那个工作区自己会话的清单——该工作区私有的名字（上句那类「本会话从未出现」的地址）不会出现在分组里，该档里已有的只会落进残留地址区。「整组默认关则组内行禁用」在这个近似下同样表达意图：行禁用 = 该组地址已在所选工作区的档里，不代表该工作区真的没有这些工具。
+- **已关条目无描述（默认档界面同此）**：首条已说明面板上的已关（`carried`）条目没有 `title` 描述；两个默认档界面的宇宙与面板同源，因此那里的已关条目同样只有名字、不显示描述——不是默认档少读了什么，而是会话读数里本就没有它的 schema。
 - **无 skills 的 Web 组合受限（上游硬依赖）**：上游 agent preset 需要 `skill-filesystem` / `tool-skill`，`skills` 缺席时新会话创建直接失败（`agent-preset/invalid … waiting for skills`），因此该组合下没有可调整的活会话；这是上游 preset 的硬依赖，不是本插件的降级失败。此时命令面照常可用，技能地址只记意图，RPC 面板快照按 `skills-unavailable` 降级（技能区不渲染开关）。
 - **跨窗口不广播**：`command/executed` 只在命令提交的那个窗口发出，另一个窗口要靠 focus 或手动「刷新」才收敛；两处并发修改按「后写者胜」。
 - **`--dump-config-schema` 整体可能 exit 1**：本部署的 web profile 自带 4 条 `unrecognized Loader tree carrier` 诊断（`/186`–`/189`，与本插件无关，全新空 `DSH_HOME` 同样红）。核对本插件的口径是 `x-cordis.entries` 中本插件条目的 `status` 为 `"schema"` 且没有指向本插件的诊断，不要追全局 exit 0。

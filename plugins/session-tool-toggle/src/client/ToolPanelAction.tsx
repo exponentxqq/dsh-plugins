@@ -16,8 +16,13 @@
  *   注入面可能每次渲染都是新对象（座位重新给 inject face），所以用 ref 骑住，避免控制器重建。
  * - **六段布局**（自上而下）：状态摘要 → 本会话开关（`ToolPanelGroups`）→ 技能
  *   （`SkillPanel`，标题 `section.skills`）→ 工作区默认档（`WorkspaceDefaultsEditor`
- *   `variant='section'`，标题由该组件渲染）→ 用户级默认档（`DefaultsEditor`）→ 关闭集；
- *   footer 左「刷新」右「关闭」。
+ *   `variant='section'`，标题 `workspace.title`）→ 用户级默认档（`DefaultsEditor`，标题
+ *   `section.defaults`）→ 关闭集；footer 左「刷新」右「关闭」。
+ * - **两个默认档分区默认收起**：它们各自用 `DefaultsSectionFrame` 渲染自己的 `<section>`
+ *   （折叠壳，点开才是分组开关清单；收起时标题行仍给「默认关 M · 残留 K」摘要），所以本容器
+ *   **不**再为它们包 `<section>`——包了会叠一层壳与间距。两个编辑器共用同一份宇宙：从面板快照
+ *   投影得到（`universeOfSnapshot`，D-19 零新增 wire 字段）；快照未到达时的空宇宙见
+ *   {@link EMPTY_UNIVERSE}。
  * - **stale-while-revalidate**（§3.6）：`failed` 可与 `snapshot` 并存——有旧快照时渲染旧内容
  *   加一条错误行；只有连旧快照都没有时才走不可用降级，且那时**不渲染任何开关**（spec
  *   「RPC 不可用时的降级表现」）。
@@ -39,9 +44,10 @@ import type { PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-cl
 // 的声明方。注册本身由 10.5 完成。
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
-import type { DefaultsAction, NoticeView, PanelSnapshot } from '../contract.ts'
+import type { DefaultsAction, DefaultsUniverse, NoticeView, PanelSnapshot } from '../contract.ts'
 import type { PanelClient, PanelError } from './panel-client.ts'
 import { PanelController, type CommandExecutedHandler } from './panel-controller.ts'
+import { universeOfSnapshot } from './defaults-view.ts'
 import { DefaultsEditor, type PanelFailure } from './DefaultsEditor.tsx'
 import { SkillPanel } from './SkillPanel.tsx'
 import { ToolPanelGroups } from './ToolPanelGroups.tsx'
@@ -51,6 +57,16 @@ import css from './panel.module.css'
 
 /** 本组件消费的转发函数（命名空间键联合，由 `locales.ts` 的 `declare module` 提供）。 */
 type Translate = TranslateNS<typeof NS>
+
+/**
+ * 快照未到达时的空宇宙（`layerReady:false`：没有可列、可切的地址）。
+ *
+ * 两个默认档编辑器只在快照分支里渲染，所以这个值实际不会进到界面——它只解决类型面的事实：
+ * `state.snapshot` 是可选的，而 `DefaultsEditor` 的 `universe` 必填非空，`universeOfSnapshot`
+ * 又需要一份完整快照。用模块级常量而不是行内字面量：同一快照下 `universe` 的 identity 要稳定，
+ * 否则编辑器的三计数 `useMemo` 每次渲染都会重算。
+ */
+const EMPTY_UNIVERSE: DefaultsUniverse = { layerReady: false, skillsAvailable: false, groups: [] }
 
 /**
  * 本 entry 的注入面。
@@ -189,7 +205,7 @@ interface StateSectionProps {
 }
 
 /**
- * 第一段：四计数 + 创建时快照/持久化通道 + 变更代价形状 + 提示行（设计 §3.2）。
+ * 第一段：两计数 + 创建时快照/持久化通道 + 变更代价形状 + 提示行（设计 §3.2）。
  * @param props - 快照与增量。
  * @returns 状态摘要分区。
  */
@@ -200,9 +216,7 @@ function StateSection({ snapshot, kvDelta, t }: StateSectionProps): ReactNode {
       <h3 className={css.sectionTitle}>{t('section.state')}</h3>
       <ul className={css.counters}>
         <li>{t('state.visible', { visible: stats.visible })}</li>
-        <li>{t('state.catalog', { catalog: stats.catalog })}</li>
         <li>{t('state.denied', { denied: stats.denied })}</li>
-        <li>{t('state.shadowed', { shadowed: stats.shadowed })}</li>
       </ul>
       <p className={css.meta}>
         <span>{t('state.createdAt', { time: formatTime(snapshot.createdAt) })}</span>
@@ -342,6 +356,12 @@ export function ToolPanelAction({
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot)
   const opened = state.phase !== 'idle'
   const snapshot = state.snapshot
+  // D-19：两个默认档编辑器的宇宙从**同一份**面板快照投影（`groups` → 组/行开关、`skills` →
+  // 技能行），wire 形状零新增。快照还没到时给空宇宙（编辑器此时不渲染），保证 identity 稳定。
+  const universe = useMemo(
+    () => (snapshot === undefined ? EMPTY_UNIVERSE : universeOfSnapshot(snapshot)),
+    [snapshot],
+  )
   // 三份失败展示各自 memo：`failureOf` 每次调用都造新对象，稳定住 identity 才不让子组件无谓重渲染。
   const failure = useMemo(() => failureOf(state.error, t), [state.error, t])
   const defaultsFailure = useMemo(() => failureOf(state.defaultsError, t), [state.defaultsError, t])
@@ -468,6 +488,7 @@ export function ToolPanelAction({
               </section>
               <WorkspaceDefaultsEditor
                 workspace={state.workspace ?? null}
+                universe={universe}
                 choices={state.workspaceChoices}
                 variant="section"
                 saving={state.savingWorkspace}
@@ -488,6 +509,7 @@ export function ToolPanelAction({
               />
               <DefaultsEditor
                 defaults={state.defaults ?? snapshot.defaults}
+                universe={universe}
                 createdAt={snapshot.createdAt}
                 snapshotCount={snapshot.state.snapshot.length}
                 saving={state.savingDefaults}

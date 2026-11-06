@@ -15695,15 +15695,17 @@ var TOOL_ENTRY_KEYS = [
   "disabled",
   "protected",
   "reserved",
-  "shadowed",
   "description"
 ];
 var TOOL_GROUP_KEYS = ["kind", "key", "address", "toolCount", "disabledCount", "disabled", "tools"];
 var STATE_VIEW_KEYS = ["disabled", "snapshot", "seeded", "updatedAt", "storeKind"];
 var DEFAULTS_VIEW_KEYS = ["version", "disabled", "path", "readable", "corrupt"];
-var STATS_VIEW_KEYS = ["visible", "catalog", "denied", "shadowed"];
+var STATS_VIEW_KEYS = ["visible", "denied"];
 var WORKSPACE_CHOICE_KEYS = ["key", "title"];
 var WORKSPACE_VIEW_KEYS = ["key", "title", "registered", "disabled", "path", "readable", "corrupt"];
+var DEFAULTS_ENTRY_KEYS = ["address", "shortName", "description", "protected", "reserved"];
+var DEFAULTS_GROUP_KEYS = ["kind", "key", "address", "tools"];
+var DEFAULTS_UNIVERSE_KEYS = ["layerReady", "skillsAvailable", "groups"];
 var SKILL_VIEW_KEYS = ["name", "description", "disabled", "shadowed"];
 var PANEL_SNAPSHOT_KEYS = [
   "sessionId",
@@ -15712,7 +15714,6 @@ var PANEL_SNAPSHOT_KEYS = [
   "groups",
   "protectedNames",
   "defaults",
-  "hiddenByOthers",
   "intentOnly",
   "stats",
   "notices",
@@ -15745,8 +15746,6 @@ function readToolEntry(value, subject) {
   if (!isProtected.ok) return isProtected;
   const reserved = readBooleanField(record2, "reserved", subject);
   if (!reserved.ok) return reserved;
-  const shadowed = readBooleanField(record2, "shadowed", subject);
-  if (!shadowed.ok) return shadowed;
   const description = readOptionalStringField(record2, "description", subject, {
     maxLength: DESCRIPTION_MAX_LENGTH
   });
@@ -15758,7 +15757,6 @@ function readToolEntry(value, subject) {
     disabled: disabled.value,
     protected: isProtected.value,
     reserved: reserved.value,
-    shadowed: shadowed.value,
     // 可选字段只在确实带了描述时出现：面板用 `description === undefined` 判断有无描述，
     // 伪造一个 `description: undefined` 的键会让 `Object.keys` / JSON 序列化多一项。
     ...description.value === void 0 ? {} : { description: description.value }
@@ -15855,19 +15853,13 @@ function readStatsView(value, subject) {
   const record2 = object2.value;
   const visible = readCountField(record2, "visible", subject);
   if (!visible.ok) return visible;
-  const catalog = readCountField(record2, "catalog", subject);
-  if (!catalog.ok) return catalog;
   const denied = readCountField(record2, "denied", subject);
   if (!denied.ok) return denied;
-  const shadowed = readCountField(record2, "shadowed", subject);
-  if (!shadowed.ok) return shadowed;
   return {
     ok: true,
     value: {
       visible: visible.value,
-      catalog: catalog.value,
-      denied: denied.value,
-      shadowed: shadowed.value
+      denied: denied.value
     }
   };
 }
@@ -15940,6 +15932,70 @@ function readNullableWorkspaceView(value, subject) {
   if (value === null) return { ok: true, value: null };
   return readWorkspaceView(value, subject);
 }
+function readDefaultsEntry(value, subject) {
+  const object2 = readStrictObject(value, subject, DEFAULTS_ENTRY_KEYS);
+  if (!object2.ok) return object2;
+  const record2 = object2.value;
+  const address = readStringField(record2, "address", subject, { minLength: 1 });
+  if (!address.ok) return address;
+  const shortName = readStringField(record2, "shortName", subject, { minLength: 1 });
+  if (!shortName.ok) return shortName;
+  const description = readOptionalStringField(record2, "description", subject, {
+    maxLength: DESCRIPTION_MAX_LENGTH
+  });
+  if (!description.ok) return description;
+  const isProtected = readBooleanField(record2, "protected", subject);
+  if (!isProtected.ok) return isProtected;
+  const reserved = readBooleanField(record2, "reserved", subject);
+  if (!reserved.ok) return reserved;
+  return {
+    ok: true,
+    value: {
+      address: address.value,
+      shortName: shortName.value,
+      ...description.value === void 0 ? {} : { description: description.value },
+      protected: isProtected.value,
+      reserved: reserved.value
+    }
+  };
+}
+function readDefaultsGroup(value, subject) {
+  const object2 = readStrictObject(value, subject, DEFAULTS_GROUP_KEYS);
+  if (!object2.ok) return object2;
+  const record2 = object2.value;
+  const kind = readEnumField(record2, "kind", subject, TOOL_GROUP_KINDS);
+  if (!kind.ok) return kind;
+  const key = readStringField(record2, "key", subject, { minLength: 1 });
+  if (!key.ok) return key;
+  const address = readNullableStringField(record2, "address", subject);
+  if (!address.ok) return address;
+  const tools = readArrayField(record2, "tools", subject, readDefaultsEntry);
+  if (!tools.ok) return tools;
+  return {
+    ok: true,
+    value: { kind: kind.value, key: key.value, address: address.value, tools: tools.value }
+  };
+}
+function readNullableDefaultsUniverse(value, subject) {
+  if (value === null) return { ok: true, value: null };
+  const object2 = readStrictObject(value, subject, DEFAULTS_UNIVERSE_KEYS);
+  if (!object2.ok) return object2;
+  const record2 = object2.value;
+  const layerReady = readBooleanField(record2, "layerReady", subject);
+  if (!layerReady.ok) return layerReady;
+  const skillsAvailable = readBooleanField(record2, "skillsAvailable", subject);
+  if (!skillsAvailable.ok) return skillsAvailable;
+  const groups = readArrayField(record2, "groups", subject, readDefaultsGroup);
+  if (!groups.ok) return groups;
+  return {
+    ok: true,
+    value: {
+      layerReady: layerReady.value,
+      skillsAvailable: skillsAvailable.value,
+      groups: groups.value
+    }
+  };
+}
 function readPanelSnapshot(value, subject) {
   const object2 = readStrictObject(value, subject, PANEL_SNAPSHOT_KEYS);
   if (!object2.ok) return object2;
@@ -15956,8 +16012,6 @@ function readPanelSnapshot(value, subject) {
   if (!protectedNames.ok) return protectedNames;
   const defaults = readDefaultsView(record2["defaults"], `${subject}.defaults`);
   if (!defaults.ok) return defaults;
-  const hiddenByOthers = readStringArrayField(record2, "hiddenByOthers", subject);
-  if (!hiddenByOthers.ok) return hiddenByOthers;
   const intentOnly = readStringArrayField(record2, "intentOnly", subject);
   if (!intentOnly.ok) return intentOnly;
   const stats = readStatsView(record2["stats"], `${subject}.stats`);
@@ -15977,7 +16031,6 @@ function readPanelSnapshot(value, subject) {
       groups: groups.value,
       protectedNames: protectedNames.value,
       defaults: defaults.value,
-      hiddenByOthers: hiddenByOthers.value,
       intentOnly: intentOnly.value,
       stats: stats.value,
       notices: notices.value,
@@ -16059,7 +16112,7 @@ function parseDefaultsValue(raw) {
 }
 function parseWorkspaceValue(raw) {
   const subject = "workspace \u54CD\u5E94";
-  const object2 = readStrictObject(raw, subject, ["workspace", "choices", "changed"]);
+  const object2 = readStrictObject(raw, subject, ["workspace", "choices", "changed", "universe"]);
   if (!object2.ok) return object2;
   const workspace = readNullableWorkspaceView(object2.value["workspace"], `${subject}.workspace`);
   if (!workspace.ok) return workspace;
@@ -16067,7 +16120,17 @@ function parseWorkspaceValue(raw) {
   if (!choices.ok) return choices;
   const changed = readStringArrayField(object2.value, "changed", subject, { itemMinLength: 1 });
   if (!changed.ok) return changed;
-  return { ok: true, value: { workspace: workspace.value, choices: choices.value, changed: changed.value } };
+  const universe = readNullableDefaultsUniverse(object2.value["universe"], `${subject}.universe`);
+  if (!universe.ok) return universe;
+  return {
+    ok: true,
+    value: {
+      workspace: workspace.value,
+      choices: choices.value,
+      changed: changed.value,
+      universe: universe.value
+    }
+  };
 }
 
 // src/host/address.ts
@@ -16466,7 +16529,7 @@ function sampleOf(values, limit = 3) {
 // src/host/mask.ts
 var PROTECTED_NAMES = new Set(PROTECTED_BASELINE);
 function planMask(inputs) {
-  const candidates = unionNames(inputs);
+  const candidates = unionNames(inputs.scoped, inputs.carried);
   const addresses = resolveAddresses(inputs.disabled);
   const matched = /* @__PURE__ */ new Map();
   const hitNames = /* @__PURE__ */ new Set();
@@ -16493,8 +16556,8 @@ function guardReason(toolName, disabled) {
   }
   return void 0;
 }
-function unionNames(inputs) {
-  return Array.from(/* @__PURE__ */ new Set([...inputs.catalog, ...inputs.scoped, ...inputs.carried]));
+function unionNames(scoped, carried) {
+  return Array.from(/* @__PURE__ */ new Set([...scoped, ...carried]));
 }
 function resolveAddresses(disabled) {
   const byText = /* @__PURE__ */ new Map();
@@ -16848,12 +16911,10 @@ function toggleSession(deps, session, texts, on) {
   if (!parsed2.ok) return { ok: false, text: parsed2.message };
   const stateBefore = deps.store.read(session);
   const layer = layerOf(deps, session);
-  const catalog = catalogOf(deps);
   const before = snapshotOf(layer, deps.log);
   const skillsBefore = skillsOf(layer, deps.log);
   const visibleBefore = before.visible.length;
   const plan = planMask({
-    catalog,
     scoped: before.visible,
     carried: before.deny,
     disabled: parsed2.entries.map((entry) => entry.text)
@@ -16960,14 +17021,12 @@ function resetSession(deps, session) {
 async function readPanel(deps, session) {
   const state = deps.store.read(session);
   const layer = layerOf(deps, session);
-  const catalog = catalogOf(deps);
   const applied = snapshotOf(layer, deps.log);
   const skills = skillsOf(layer, deps.log);
   const scoped = applied.visible;
   const defaults = await readDefaults(deps.defaultsPath, deps.defaultsIo, deps.log);
   const workspace = await workspaceViewOf(deps, session);
   const plan = planMask({
-    catalog,
     scoped,
     carried: applied.deny,
     disabled: state.disabled
@@ -16983,12 +17042,9 @@ async function readPanel(deps, session) {
       shadowed: parsed2.address.kind === "mcp-group" && applied.shadowServers.includes(parsed2.address.server)
     });
   }
-  const candidates = unionNames2(catalog, scoped, applied.deny);
+  const candidates = unionNames2(scoped, applied.deny);
   const groups = groupByServer(candidates);
   const builtinNames = candidates.filter((name2) => serverOfToolName(name2) === void 0).sort(compareText3);
-  const scopedSet = new Set(scoped);
-  const carriedSet = new Set(applied.deny);
-  const hiddenByOthers = layer === void 0 ? [] : catalog.filter((name2) => !scopedSet.has(name2) && !carriedSet.has(name2)).sort(compareText3);
   return {
     state,
     storeKind: deps.store.kind,
@@ -16996,7 +17052,6 @@ async function readPanel(deps, session) {
     visible: scoped.length,
     appliedDeny: applied.deny,
     appliedShadowServers: applied.shadowServers,
-    catalog,
     scoped,
     defaults,
     defaultsPath: deps.defaultsPath,
@@ -17004,7 +17059,6 @@ async function readPanel(deps, session) {
     serverGroups: groups,
     builtinNames,
     builtinProtectedNames: builtinNames.filter((name2) => deps.protectedNames.has(name2)),
-    hiddenByOthers,
     matched: plan.matched,
     closed,
     createdAt: session.header.createdAt,
@@ -17135,14 +17189,6 @@ function layerOf(deps, session) {
     return void 0;
   }
 }
-function catalogOf(deps) {
-  try {
-    return deps.catalog();
-  } catch (error51) {
-    deps.log.warn(`\u65E0\u6CD5\u8BFB\u53D6\u5168\u5C40\u5C42\u5DE5\u5177\u6CE8\u518C\u8868\uFF1A${messageOf3(error51)}`);
-    return [];
-  }
-}
 function snapshotOf(layer, log) {
   if (layer === void 0) return { deny: [], shadowServers: [], visible: [] };
   try {
@@ -17259,8 +17305,8 @@ function skillRowsOf(snapshot2, disabled, protectedNames) {
   }
   return Array.from(rows.values()).sort((left, right) => compareText3(left.name, right.name));
 }
-function unionNames2(catalog, scoped, carried) {
-  return Array.from(/* @__PURE__ */ new Set([...catalog, ...scoped, ...carried]));
+function unionNames2(scoped, carried) {
+  return Array.from(/* @__PURE__ */ new Set([...scoped, ...carried]));
 }
 function groupByServer(names) {
   const counts = /* @__PURE__ */ new Map();
@@ -17570,7 +17616,6 @@ function statusText(reading) {
   lines.push(workspaceStatusLine(reading));
   lines.push(switchableText(reading));
   lines.push(`\u3010\u4FDD\u62A4\u540D\u5355\u3011${reading.protectedNames.length} \u9879\uFF1A${reading.protectedNames.join("\u3001")}`);
-  lines.push(`  \xB7 ${hiddenText(reading)}`);
   return lines.join("\n");
 }
 function skillsText(reading) {
@@ -17611,7 +17656,7 @@ function closedStateText(entry, skills) {
     }
     return `${entry.text}\uFF08\u5DF2\u8BB0\u5F55\uFF1A\u5F53\u524D\u6CA1\u6709\u8FD9\u4E2A\u6280\u80FD\uFF1B\u5B89\u88C5\u540E\u81EA\u52A8\u751F\u6548\uFF09`;
   }
-  return entry.matched > 0 ? `\u5DF2\u5173\u95ED${entry.shadowed ? "\uFF0C\u670D\u52A1\u5668\u6307\u4EE4\u6BB5\u5DF2\u906E\u853D" : ""}` : "\u5DF2\u8BB0\u5F55\uFF1A\u5F53\u524D\u65E0\u6CE8\u518C\u5DE5\u5177\u5339\u914D\uFF1B\u670D\u52A1\u5668\u4E0A\u7EBF\u540E\u81EA\u52A8\u751F\u6548";
+  return entry.matched > 0 ? `\u5DF2\u5173\u95ED${entry.shadowed ? "\uFF0C\u670D\u52A1\u5668\u6307\u4EE4\u6BB5\u5DF2\u906E\u853D" : ""}` : "\u5DF2\u8BB0\u5F55\uFF1A\u672C\u4F1A\u8BDD\u5F53\u524D\u6CA1\u6709\u5339\u914D\u7684\u5DE5\u5177\u5B9A\u4E49\uFF1B\u5B83\u51FA\u73B0\u5728\u672C\u4F1A\u8BDD\u540E\u81EA\u52A8\u751F\u6548";
 }
 function skillInvocation(text) {
   return `/${text.slice(SKILL_PREFIX.length)}`;
@@ -17661,16 +17706,13 @@ function workspaceUnresolvedText(session) {
   ].join("\n");
 }
 function switchableText(reading) {
+  if (!reading.layerReady) return "\u3010\u53EF\u5173\u5BF9\u8C61\u3011\u4F1A\u8BDD\u5C42\u672A\u5C31\u7EEA\uFF1A\u65E0\u6CD5\u8BFB\u53D6\u672C\u4F1A\u8BDD\u7684\u5DE5\u5177\u6E05\u5355";
   const groups = reading.serverGroups;
   const servers = groups.length === 0 ? "MCP \u670D\u52A1\u5668 0 \u53F0" : `MCP \u670D\u52A1\u5668 ${groups.length} \u53F0\uFF08${groups.map((group) => `${group.address} ${group.count}`).join("\u3001")}\uFF09`;
   const protectedCount = reading.builtinProtectedNames.length;
   const builtin = `\u5185\u7F6E\u5DE5\u5177 ${reading.builtinNames.length} \u4E2A` + (protectedCount === 0 ? "" : `\uFF08\u5176\u4E2D ${protectedCount} \u4E2A\u53D7\u4FDD\u62A4\uFF09`);
   const singleTools = reading.closed.filter((entry) => entry.kind === "mcp-tool").length;
   return `\u3010\u53EF\u5173\u5BF9\u8C61\u3011${servers}\uFF1B${builtin}\uFF1B\u5355\u5DE5\u5177\u5173\u95ED ${singleTools} \u9879`;
-}
-function hiddenText(reading) {
-  if (!reading.layerReady) return "\u4F1A\u8BDD\u5C42\u672A\u5C31\u7EEA\uFF1A\u65E0\u6CD5\u8BFB\u53D6\u300C\u88AB\u5176\u4ED6\u4F5C\u7528\u57DF\u9690\u85CF\u300D\u7684\u8BA1\u6570";
-  return `\u88AB\u5176\u4ED6\u4F5C\u7528\u57DF\u9690\u85CF ${reading.hiddenByOthers.length} \u4E2A\u5DE5\u5177\u5B9A\u4E49\uFF08\u5168\u5C40\u5C42\u6709\u3001\u672C\u4F1A\u8BDD\u4E0D\u53EF\u89C1\uFF09`;
 }
 function storeKindText(kind) {
   return kind === "record" ? "\u4F1A\u8BDD\u65E5\u5FD7" : "\u5185\u5B58\uFF08\u964D\u7EA7\uFF1A\u91CD\u542F\u6216\u6062\u590D\u540E\u4F1A\u4E22\u5931\u672C\u4F1A\u8BDD\u7684\u5F00\u5173\uFF09";
@@ -18035,20 +18077,12 @@ var NO_PROTECTED_NAMES3 = /* @__PURE__ */ new Set();
 var TOLERATED_PROTECTED_NAMES = new Set(PROTECTED_BASELINE);
 var NO_NAMES = /* @__PURE__ */ new Set();
 function buildPanelSnapshot(inputs) {
-  const candidates = sortedTexts([...inputs.catalog, ...inputs.scoped, ...inputs.carried]);
-  const catalogNames = uniqueTexts(inputs.catalog);
-  const scopedNames = uniqueTexts(inputs.scoped);
+  const candidates = sortedTexts([...inputs.scoped, ...inputs.carried]);
   const plan = planMask({
-    catalog: inputs.catalog,
     scoped: inputs.scoped,
     carried: inputs.carried,
     disabled: inputs.state.disabled
   });
-  const scopedSet = new Set(scopedNames);
-  const carriedSet = new Set(inputs.carried);
-  const hiddenByOthers = sortedTexts(
-    catalogNames.filter((name2) => !scopedSet.has(name2) && !carriedSet.has(name2))
-  );
   const closed = closedAddressesOf(inputs.state.disabled);
   const closedTexts = closed.map((entry) => entry.text);
   const closedSkillNames = /* @__PURE__ */ new Set();
@@ -18062,9 +18096,9 @@ function buildPanelSnapshot(inputs) {
     return installedSkillNames.has(entry.address.name) ? [] : [entry.text];
   });
   const intentOnly = sortedTexts([...toolIntentOnly, ...skillIntentOnly]);
+  const deny = new Set(plan.deny);
   const context = {
-    deny: new Set(plan.deny),
-    hidden: new Set(hiddenByOthers),
+    deny,
     protectedNames: new Set(inputs.protectedNames),
     descriptions: inputs.descriptions
   };
@@ -18087,18 +18121,107 @@ function buildPanelSnapshot(inputs) {
       readable: inputs.defaultsReadable,
       corrupt: inputs.defaultsCorrupt
     },
-    hiddenByOthers,
     intentOnly,
     stats: {
-      visible: scopedNames.length,
-      catalog: catalogNames.length,
-      denied: plan.deny.length,
-      shadowed: hiddenByOthers.length
+      visible: candidates.filter((name2) => !deny.has(name2)).length,
+      denied: plan.deny.length
     },
     notices: noticesOf(inputs),
     skills: skillViewsOf(inputs.skills, closedSkillNames),
     workspace: workspaceViewOf2(inputs.workspace)
   };
+}
+var NO_GROUPS = Object.freeze([]);
+var EMPTY_UNIVERSE = Object.freeze({
+  layerReady: false,
+  skillsAvailable: false,
+  groups: NO_GROUPS
+});
+function buildDefaultsUniverse(inputs) {
+  if (!inputs.layerReady) return EMPTY_UNIVERSE;
+  const candidates = sortedTexts([
+    ...inputs.schemas.map((schema) => schema.name),
+    ...inputs.carried
+  ]);
+  const descriptions = /* @__PURE__ */ new Map();
+  for (const schema of inputs.schemas) descriptions.set(schema.name, schema.description ?? "");
+  const servers = /* @__PURE__ */ new Map();
+  const builtin = [];
+  let hasSkill = false;
+  for (const name2 of candidates) {
+    const parts = mcpPartsOf(name2);
+    if (parts !== void 0) {
+      const entry = defaultsEntryOf(
+        name2,
+        parts.suffix,
+        formatAddress({ kind: "mcp-tool", server: parts.server, pattern: parts.suffix }),
+        descriptions,
+        inputs.protectedNames
+      );
+      const bucket = servers.get(parts.server);
+      if (bucket === void 0) servers.set(parts.server, [entry]);
+      else bucket.push(entry);
+      continue;
+    }
+    if (name2 === SKILL_NAME2) {
+      hasSkill = true;
+      continue;
+    }
+    builtin.push(
+      defaultsEntryOf(
+        name2,
+        name2,
+        formatAddress({ kind: "tool", name: name2 }),
+        descriptions,
+        inputs.protectedNames
+      )
+    );
+  }
+  const groups = [];
+  for (const server of Array.from(servers.keys()).sort(compareText4)) {
+    const tools = servers.get(server);
+    if (tools === void 0) continue;
+    groups.push({
+      kind: "mcp",
+      key: server,
+      address: formatAddress({ kind: "mcp-group", server }),
+      tools
+    });
+  }
+  if (hasSkill) {
+    groups.push({
+      kind: "skill",
+      key: SKILL_NAME2,
+      address: formatAddress({ kind: "tool", name: SKILL_NAME2 }),
+      tools: skillEntriesOf(inputs.skills, inputs.protectedNames)
+    });
+  }
+  if (builtin.length > 0) {
+    groups.push({ kind: "builtin", key: BUILTIN_GROUP_KEY, address: null, tools: builtin });
+  }
+  return {
+    layerReady: true,
+    skillsAvailable: inputs.skills?.available === true,
+    groups
+  };
+}
+function defaultsEntryOf(name2, shortName, address, descriptions, protectedNames) {
+  const description = descriptionOf(name2, descriptions);
+  const entry = {
+    address,
+    shortName,
+    protected: protectedNames.has(name2),
+    reserved: isReservedName(name2)
+  };
+  return description === void 0 ? entry : { ...entry, description };
+}
+function skillEntriesOf(skills, protectedNames) {
+  if (skills === void 0 || !skills.available) return [];
+  const descriptions = /* @__PURE__ */ new Map();
+  for (const row of skills.visible) descriptions.set(row.name, row.description);
+  return sortedTexts([...descriptions.keys(), ...skills.shadowed]).map(
+    (name2) => defaultsEntryOf(name2, name2, formatAddress({ kind: "skill", name: name2 }), descriptions, protectedNames)
+  );
 }
 function closedAddressesOf(disabled) {
   const byText = /* @__PURE__ */ new Map();
@@ -18205,8 +18328,7 @@ function toolEntryOf(name2, shortName, address, context) {
     address,
     disabled: context.deny.has(name2),
     protected: context.protectedNames.has(name2),
-    reserved: isReservedName(name2),
-    shadowed: context.hidden.has(name2)
+    reserved: isReservedName(name2)
   };
   return description === void 0 ? entry : { ...entry, description };
 }
@@ -18236,9 +18358,6 @@ function noticesOf(inputs) {
   if (inputs.storeKind === "memory") notices.add("persistence-degraded");
   if (inputs.defaultsCorrupt) notices.add("defaults-corrupt");
   return NOTICE_ORDER.filter((code) => notices.has(code));
-}
-function uniqueTexts(texts) {
-  return Array.from(new Set(texts));
 }
 function sortedTexts(texts) {
   const unique = Array.from(new Set(texts));
@@ -18358,13 +18477,15 @@ async function handleWorkspace(deps, request) {
     if (!precheck.ok) return precheck.failure;
   }
   const choices = choicesOf(deps);
+  const universe = resolved.target.kind === "session" ? universeOf(deps, resolved.target.session) : null;
   if (action === "read") {
     const reading = await workspaceFileOf(deps);
     const value2 = {
       workspace: workspaceViewOf3(deps, resolved, disabledOf(reading.file, resolved.key), reading),
       choices,
       // read 不写任何东西（契约字段语义）。
-      changed: []
+      changed: [],
+      universe
     };
     return checked(parseWorkspaceValue(value2), deps, "workspace \u54CD\u5E94");
   }
@@ -18379,7 +18500,8 @@ async function handleWorkspace(deps, request) {
       corrupt: false
     }),
     choices,
-    changed: [...disabled]
+    changed: [...disabled],
+    universe
   };
   return checked(parseWorkspaceValue(value), deps, "workspace \u54CD\u5E94");
 }
@@ -18531,11 +18653,11 @@ function precheckAddresses(texts, protectedNames) {
     grammar.push({ address: text, parseCode: parsed2.code });
   }
   if (protectedHits.length > 0) {
-    const names = uniqueTexts2(protectedHits);
+    const names = uniqueTexts(protectedHits);
     return rejected3(failure("protected", `\u4FDD\u62A4\u540D\u5355\u5185\u7684\u5DE5\u5177\u4E0D\u80FD\u5173\u95ED\uFF1A${names.join("\u3001")}`, { names }));
   }
   if (reservedHits.length > 0) {
-    const names = uniqueTexts2(reservedHits);
+    const names = uniqueTexts(reservedHits);
     return rejected3(
       failure("reserved", `\u4FDD\u7559\u5DE5\u5177\u4E0D\u80FD\u5173\u95ED\uFF08\u6CE8\u518C\u8868\u4E0E restrict \u90FD\u4F1A\u62D2\u7EDD\uFF09\uFF1A${names.join("\u3001")}`, { names })
     );
@@ -18554,7 +18676,7 @@ function toolNameOf(text) {
 async function snapshotOf2(deps, session) {
   const reading = await kernelOf(deps).readPanel(deps, session);
   const defaultsState = await defaultsStateOf(deps, reading.defaults);
-  const descriptions = descriptionsOf(deps);
+  const descriptions = descriptionsOf(deps, session);
   const skills = skillsOf2(deps, session);
   const workspace = workspacePanelInputsOf(reading);
   const inputs = {
@@ -18562,7 +18684,6 @@ async function snapshotOf2(deps, session) {
     createdAt: reading.createdAt,
     state: reading.state,
     storeKind: reading.storeKind,
-    catalog: reading.catalog,
     scoped: reading.scoped,
     carried: reading.appliedDeny,
     protectedNames: reading.protectedNames,
@@ -18572,11 +18693,11 @@ async function snapshotOf2(deps, session) {
     defaultsCorrupt: defaultsState.corrupt,
     // 提示码的分工（H6）：构建器只排序去重，技能两条由组装层从技能分面与关闭集推导。
     notices: noticesOf2(session, reading, skills),
-    // 技能行与工作区视图的**投影**在 `panel.ts` 构建器里（H6）：这里只交原始读数，
-    // 面板、`/tools status` 与命令面因此共享同一份事实（D14）。
+    // 技能行、工作区视图与描述列的**投影**在 `panel.ts` 构建器里（H6）：这里只交原始读数，
+    // 面板、`/tools status` 与命令面因此共享同一份事实（D14）。描述恒传：层缺席时是空表。
     ...skills === void 0 ? {} : { skills },
     ...workspace === void 0 ? {} : { workspace },
-    ...descriptions === void 0 ? {} : { descriptions }
+    descriptions
   };
   return buildPanelSnapshot(inputs);
 }
@@ -18589,6 +18710,31 @@ function skillsOf2(deps, session) {
     deps.log.warn(`\u8BFB\u53D6\u4F1A\u8BDD ${session.id} \u7684\u6280\u80FD\u5206\u9762\u5931\u8D25\uFF08\u9762\u677F\u5C06\u6309\u4E0D\u53EF\u7528\u5904\u7406\uFF09\uFF1A${messageOf5(error51)}`);
     return void 0;
   }
+}
+var EMPTY_UNIVERSE2 = Object.freeze({
+  layerReady: false,
+  skillsAvailable: false,
+  groups: []
+});
+function universeOf(deps, session) {
+  const layer = deps.layerFor(session.id);
+  if (layer === void 0) return EMPTY_UNIVERSE2;
+  let schemas;
+  let carried;
+  try {
+    schemas = layer.visibleSchemas();
+    carried = layer.snapshot().deny;
+  } catch (error51) {
+    deps.log.warn(`\u8BFB\u53D6\u4F1A\u8BDD ${session.id} \u7684\u5DE5\u5177\u5B87\u5B99\u5931\u8D25\uFF08\u9ED8\u8BA4\u6863\u754C\u9762\u5C06\u53EA\u663E\u793A\u6B8B\u7559\u533A\uFF09\uFF1A${messageOf5(error51)}`);
+    return EMPTY_UNIVERSE2;
+  }
+  return buildDefaultsUniverse({
+    layerReady: true,
+    schemas,
+    carried,
+    skills: skillsOf2(deps, session),
+    protectedNames: deps.protectedNames
+  });
 }
 function workspacePanelInputsOf(reading) {
   const view = reading.workspace;
@@ -18650,13 +18796,13 @@ async function canReadFile(io, path) {
     return false;
   }
 }
-function descriptionsOf(deps) {
-  if (deps.descriptions === void 0) return void 0;
+function descriptionsOf(deps, session) {
   try {
-    return deps.descriptions();
+    const schemas = deps.layerFor(session.id)?.visibleSchemas() ?? [];
+    return new Map(schemas.map((schema) => [schema.name, schema.description ?? ""]));
   } catch (error51) {
-    deps.log.warn(`\u65E0\u6CD5\u8BFB\u53D6\u5DE5\u5177\u63CF\u8FF0\uFF08\u9762\u677F\u5C06\u4E0D\u5C55\u793A description\uFF09\uFF1A${messageOf5(error51)}`);
-    return void 0;
+    deps.log.warn(`\u8BFB\u53D6\u4F1A\u8BDD ${session.id} \u7684\u5DE5\u5177\u63CF\u8FF0\u5931\u8D25\uFF08\u9762\u677F\u5C06\u4E0D\u5C55\u793A description\uFF09\uFF1A${messageOf5(error51)}`);
+    return /* @__PURE__ */ new Map();
   }
 }
 async function valueOf(deps, session, mutation) {
@@ -18742,7 +18888,7 @@ function isEndpoint(value) {
 function kernelOf(deps) {
   return deps.kernel ?? DEFAULT_KERNEL;
 }
-function uniqueTexts2(texts) {
+function uniqueTexts(texts) {
   return Array.from(new Set(texts));
 }
 function messageOf5(error51) {
@@ -18824,14 +18970,13 @@ function surfaceOf(scope, agent) {
     guard: (guard) => scope.tools.guard(guard),
     section: (section) => scope.systemPrompt.section(section),
     visibleNames: () => scope.tools.schemas(agent).map((schema) => schema.name),
+    visibleSchemas: () => scope.tools.schemas(agent).map(({ name: name2, description }) => ({ name: name2, description })),
     sectionOrder: (name2) => scope.systemPrompt.getSectionOrder(name2)
   };
 }
 var SessionLayer = class {
   /** 诊断出口。 */
   log;
-  /** 全局层读数（未掩码的注册集）。 */
-  catalog;
   /** 取工具面的方式。 */
   openSurface;
   /** 绑定的 agent（`detach` 后清空）。 */
@@ -18906,11 +19051,10 @@ var SessionLayer = class {
   /** `skills/change` 监听的 disposer（`detach` 时显式卸载；缺省 undefined）。 */
   skillListenerDispose;
   /**
-   * @param ports - 诊断出口、全局读数与取工具面的方式。
+   * @param ports - 诊断出口与取工具面的方式。
    */
   constructor(ports) {
     this.log = ports.log;
-    this.catalog = ports.catalog;
     this.openSurface = ports.openSurface ?? agentSurface;
   }
   /**
@@ -18967,7 +19111,8 @@ var SessionLayer = class {
     this.scheduleSkills();
   }
   /**
-   * `tools/change` 全量重算：三读并集重新取一遍，结果与当前掩码相同则什么都不做。
+   * `tools/change` 全量重算：两读并集（scoped ∪ carried）重新取一遍，结果与当前掩码相同则
+   * 什么都不做。
    *
    * 幂等是硬要求：`restrict` 自己会触发 `tools/change`，一次不幂等的重算会喂自己。
    *
@@ -19029,6 +19174,24 @@ var SessionLayer = class {
       return surface.visibleNames();
     } catch (error51) {
       this.absorbFailure(error51, `${this.label()}\uFF1A\u8BFB\u672C\u4F1A\u8BDD\u7684\u5DE5\u5177\u89C6\u56FE\u5931\u8D25`);
+      return [];
+    }
+  }
+  /**
+   * 该 agent 视角下当前可见工具的名字 + 描述（面板描述来源，`VisibleToolSchema` 投影）。
+   *
+   * 与 {@link visibleNames} 同一读数面、同一降级纪律：只取 `name` 与可选的 `description`，
+   * **不带** `parameters`（契约见 `types.ts`）。读失败降级成空数组——描述是展示用的增强
+   * 信息，一次只读请求不该因为它失败而失败。
+   * @returns 可见工具的轻量投影；未挂载 / 已退场 / 读失败时为空。
+   */
+  visibleSchemas() {
+    const surface = this.surface;
+    if (surface === void 0 || this.retreat) return [];
+    try {
+      return surface.visibleSchemas();
+    } catch (error51) {
+      this.absorbFailure(error51, `${this.label()}\uFF1A\u8BFB\u672C\u4F1A\u8BDD\u7684\u5DE5\u5177\u63CF\u8FF0\u5931\u8D25`);
       return [];
     }
   }
@@ -19479,7 +19642,12 @@ var SessionLayer = class {
     }
   }
   /**
-   * 算一轮掩码计划（三读并集 + 本会话关闭集）。
+   * 算一轮掩码计划（本会话可见读数 + 本会话关闭集）。
+   *
+   * 候选集只剩两读：`scoped`（本会话视角）与 `carried`（上一轮仍受管的名字）。**没有**全局
+   * 层读数：会话外的工具不该因为「全局注册过」就进 deny（那会为一组本会话根本看不见的名字
+   * 白装掩码，且掩码口径与本会话视图脱节）。代价是「关闭本会话暂不可见的工具」只记意图
+   * （`matched: 0`），等它出现后由 `tools/change → refresh()` 补上。
    *
    * `carried` 由调用方给：常规重算传已生效的 deny（防第二读缩小导致振荡），I3 的重推
    * 传空数组（刚刚失败的那一组名字不能再被带回来）。
@@ -19488,14 +19656,6 @@ var SessionLayer = class {
    * @returns 计划；读数失败且无法继续时 undefined。
    */
   plan(surface, carried) {
-    let catalog;
-    try {
-      catalog = this.catalog();
-    } catch (error51) {
-      this.absorbFailure(error51, `${this.label()}\uFF1A\u8BFB\u5BBF\u4E3B\u5168\u5C40\u5DE5\u5177\u6CE8\u518C\u8868\u5931\u8D25`);
-      return void 0;
-    }
-    if (this.retreat) return void 0;
     let scoped;
     try {
       scoped = surface.visibleNames();
@@ -19504,7 +19664,7 @@ var SessionLayer = class {
       scoped = [];
     }
     if (this.retreat) return void 0;
-    return planMask({ catalog, scoped, carried, disabled: this.state.disabled });
+    return planMask({ scoped, carried, disabled: this.state.disabled });
   }
   /**
    * 应用一组 deny（一次 `restrict`），失败时按 I3 重推并重试一次。
@@ -19699,7 +19859,6 @@ function apply(ctx, config2) {
   const workspacesFile = workspacesPath(settings.workspacesFile);
   const workspacesIo = defaultsIo;
   const layers = /* @__PURE__ */ new Map();
-  const catalog = () => ctx.tools.schemas().map((schema) => schema.name);
   let projections;
   const projectionsPort = {
     stateOf: (session, key) => projections?.stateOf(session, key)
@@ -19863,7 +20022,7 @@ function apply(ctx, config2) {
     }
     await ensureStore(session);
     const state = await readOrSeed(session);
-    const layer = new SessionLayer({ log, catalog });
+    const layer = new SessionLayer({ log });
     layers.set(id, layer);
     await layer.attach(agent, state);
     reportSkillsDegradationOnce(layer);
@@ -19944,9 +20103,7 @@ function apply(ctx, config2) {
     workspaceOf,
     workspaceChoices,
     protectedNames,
-    log,
-    // R15（任务 9.1）：全局层未掩码注册名并入 `ControlDeps`，命令面与 RPC 共用同一份。
-    catalog
+    log
   };
   const commandDeps = controlDeps;
   ctx.inject(["commands"], (scope) => {
@@ -19963,8 +20120,7 @@ function apply(ctx, config2) {
   };
   const rpcDeps = {
     ...controlDeps,
-    agents: agentsPort,
-    descriptions: () => new Map(ctx.tools.schemas().map((schema) => [schema.name, schema.description ?? ""]))
+    agents: agentsPort
   };
   ctx.inject(["connection", "webServer"], (scope) => {
     const connection = scope.root.get("connection");

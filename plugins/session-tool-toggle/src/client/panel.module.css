@@ -62,7 +62,7 @@
   letter-spacing: 0.01em;
 }
 
-/* —— 状态摘要：四计数一行 + 三条事实行 —— */
+/* —— 状态摘要：两计数一行 + 三条事实行 —— */
 .counters {
   display: flex;
   flex-wrap: wrap;
@@ -261,7 +261,7 @@
   text-overflow: ellipsis;
 }
 
-/* 行级锁定短标签（`entry.protected` / `entry.reserved` / `entry.shadowed`）。 */
+/* 行级锁定短标签（`entry.protected` / `entry.reserved`）。 */
 .tag {
   flex: none;
   padding: 0 6px;
@@ -340,16 +340,6 @@
   gap: 8px;
 }
 
-.addInput {
-  display: inline-flex;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.addInput input {
-  width: 100%;
-}
-
 /* —— 工作区默认档下拉（对话框形态）：原生 select，与输入框同高（C2） —— */
 .select {
   flex: 1 1 auto;
@@ -382,6 +372,27 @@
 /* 「已保存（本会话不变）」：保存成功的瞬时确认，用成功色。 */
 .saved {
   color: var(--dsw-alias-state-success-primary, #16955f);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* —— B 的默认档分组开关界面 —— */
+
+/* 面板两分区的可折叠壳（`DefaultsSectionFrame`）：壳本身无背景无边框，视觉靠标题行；
+ * 顶部留白取分区节奏，与相邻分区拉开一档（内容列另有 18px 的分区间距）。 */
+.sectionFrame {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  background: none;
+  border: 0;
+}
+
+/* 残留 chips 区的标题（只可移除）：小字号、次要色，与上方的组列表拉开。 */
+.residual {
+  margin: 8px 0 0;
+  color: var(--dsw-alias-label-tertiary, #7f8287);
   font-size: 12px;
   line-height: 18px;
 }

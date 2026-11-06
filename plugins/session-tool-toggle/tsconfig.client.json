@@ -8,6 +8,7 @@
     "test/**/*.test.tsx",
     "test/stubs/**/*.tsx",
     "test/client-index.test.ts",
+    "test/defaults-view.test.ts",
     "test/locale-parity.test.ts",
     "test/panel-client.test.ts",
     "test/panel-controller.test.ts"

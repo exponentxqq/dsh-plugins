@@ -51,6 +51,8 @@ B 部分新增决策（D-16–D-25，全文与反例见 code-design ④）：
 | D-24 | `handleWorkspace` 写响应也带宇宙（写后清单不消失，B10） | 只读响应带（`update()` 用写响应整份替换 value → 点一次开关清单消失） |
 | D-25 | delta 以 unify 归档后文本为基（承接 decisions D12）；承载形态为「Web 配置界面」**单块 MODIFIED**（正文 = unify 分节座位表述 + A 宇宙句 + B 两编辑面句），「工作区默认档分节」保留 unify 原文（strict 校验要求 delta 对当前主规格可归档——该需求 unify 归档前不存在；其正文与场景不与 B 矛盾）；执行期末 T10 按实际归档文本机械复核 | 维持旧基（归档时替换会冲掉 unify 的入口迁移表述）；双块 MODIFIED（第二块过不了当前主规格的 strict 校验） |
 
+- 执行环境：直用主工作区。创建于 2026-11-05
+
 ## 接口与数据形状（摘要，全文见 code-design ③）
 
 - A：`ScopedSurface`/`LayerHandle` 增 `visibleSchemas(): readonly VisibleToolSchema[]`；`MaskInputs` 两读；`descriptionsOf(deps, session)` 经 `layerFor`；wire `Stats = {visible, denied}`、`ToolEntry` 去 `shadowed`、`PanelSnapshot` 去 `hiddenByOthers`（三张 strict 键表同步）。

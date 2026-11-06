@@ -52,6 +52,7 @@ import {
   type BadRequestDetails,
   type DefaultsAction,
   type DefaultsRequest,
+  type DefaultsUniverse,
   type DefaultsUnwritableDetails,
   type DefaultsValue,
   type HostFailureCode,
@@ -89,7 +90,7 @@ import type {
   WorkspaceTarget,
 } from './control.ts'
 import { EMPTY_DEFAULTS } from './defaults.ts'
-import { buildPanelSnapshot } from './panel.ts'
+import { buildDefaultsUniverse, buildPanelSnapshot } from './panel.ts'
 import { EMPTY_WORKSPACES, disabledOf, readWorkspaces } from './workspaces.ts'
 import type { WorkspaceDefaultsFile } from './workspaces.ts'
 import type {
@@ -101,6 +102,7 @@ import type {
   PanelInputs,
   SessionLike,
   SkillLayerSnapshot,
+  VisibleToolSchema,
   WorkspaceAttribution,
   WorkspacePanelInputs,
 } from './types.ts'
@@ -163,21 +165,14 @@ const DEFAULT_KERNEL: RpcKernel = Object.freeze({
 /**
  * dispatcher 的依赖注入面。
  *
- * `ControlDeps` 的全部字段（状态端口、层句柄、默认档路径与 IO、保护名单、全局层读数、日志、
+ * `ControlDeps` 的全部字段（状态端口、层句柄、默认档路径与 IO、保护名单、日志、
  * 工作区档四件套）与命令面**共用同一份对象**——这正是 D14「不存在两份状态」在类型上的表达；
- * 这里只补三件命令面不需要的东西：agent 表（判 `session-not-live`）、可选的描述读数与可选的
- * 单测内核。
+ * 这里只补两件命令面不需要的东西：agent 表（判 `session-not-live`）与可选的单测内核。
+ * 工具描述不另设注入面：它只从本会话层（`layer.visibleSchemas()`）读（H6）。
  */
 export interface RpcDeps extends ControlDeps {
   /** 会话寻址端口（`session-not-live` 判定与拿 `SessionLike` 都靠它）。 */
   readonly agents: AgentLookup
-  /**
-   * 工具描述来源（public name → 描述原文）。
-   *
-   * 可选：`PanelInputs.descriptions` 缺省即「快照不携带 description」，面板照常可用；9.5 的
-   * 装配层用 `ctx.tools.schemas()` 一次填好（与 `catalog` 同一读数面）。
-   */
-  readonly descriptions?: () => ReadonlyMap<string, string>
   /** 内核注入面（缺省 {@link DEFAULT_KERNEL}；单测用来注入坏形状 / 抛错）。 */
   readonly kernel?: RpcKernel
 }
@@ -228,7 +223,7 @@ export type RpcDispatcher = (endpoint: string, payload: unknown) => Promise<RpcE
  * 工厂本身不触达任何宿主资源（只捕获 `deps`），因此可以在测试里直接构造并逐端点驱动；
  * 每次请求都按 sessionId 现读状态，不存在「工厂里缓存了某个会话」的路径。
  *
- * @param deps - 控制端口 + agent 表 + 可选的描述读数与内核。
+ * @param deps - 控制端口 + agent 表 + 可选内核。
  * @returns `(endpoint, payload) => Promise<RpcEnvelope>`。
  */
 export function createRpcDispatcher(deps: RpcDeps): RpcDispatcher {
@@ -415,6 +410,10 @@ async function handleWorkspace(deps: RpcDeps, request: WorkspaceRequest): Promis
   }
 
   const choices = choicesOf(deps)
+  // 宇宙只对 `{sessionId}` 寻址有意义（U1：目标无关，读的是本会话两读）；路径形态没有
+  // 会话视角，按契约给 `null`（D-24：写响应同样带宇宙，否则客户端写后替换会丢清单）。
+  const universe =
+    resolved.target.kind === 'session' ? universeOf(deps, resolved.target.session) : null
   if (action === 'read') {
     const reading = await workspaceFileOf(deps)
     const value: WorkspaceValue = {
@@ -422,6 +421,7 @@ async function handleWorkspace(deps: RpcDeps, request: WorkspaceRequest): Promis
       choices,
       // read 不写任何东西（契约字段语义）。
       changed: [],
+      universe,
     }
     return checked(parseWorkspaceValue(value), deps, 'workspace 响应')
   }
@@ -441,6 +441,7 @@ async function handleWorkspace(deps: RpcDeps, request: WorkspaceRequest): Promis
     }),
     choices,
     changed: [...disabled],
+    universe,
   }
   return checked(parseWorkspaceValue(value), deps, 'workspace 响应')
 }
@@ -787,8 +788,8 @@ function toolNameOf(text: string): string {
  *
  * 读数复用控制内核的 `readPanel`（三读并集、默认档、工作区视图、保护名单都在里面），因此
  * 面板与 `/tools status` 看到的永远是同一组事实（D14）；这里只补 `readPanel` 不产出的三样：
- * 默认档的 `readable` / `corrupt` 两态、技能原始读数（`layer.skills()`，投影在 `panel.ts`）
- * 与提示码。
+ * 默认档的 `readable` / `corrupt` 两态、技能分面与工具描述（都读本会话层：`layer.skills()` /
+ * `layer.visibleSchemas()`，投影在 `panel.ts`）以及提示码。
  * @param deps - 依赖注入面。
  * @param session - 目标会话。
  * @returns 契约形状的面板快照（与 `panel.ts` 的宿主侧形状由交叉可赋值锁住一致）。
@@ -796,7 +797,7 @@ function toolNameOf(text: string): string {
 async function snapshotOf(deps: RpcDeps, session: SessionLike): Promise<PanelSnapshot> {
   const reading = await kernelOf(deps).readPanel(deps, session)
   const defaultsState = await defaultsStateOf(deps, reading.defaults)
-  const descriptions = descriptionsOf(deps)
+  const descriptions = descriptionsOf(deps, session)
   const skills = skillsOf(deps, session)
   const workspace = workspacePanelInputsOf(reading)
 
@@ -805,7 +806,6 @@ async function snapshotOf(deps: RpcDeps, session: SessionLike): Promise<PanelSna
     createdAt: reading.createdAt,
     state: reading.state,
     storeKind: reading.storeKind,
-    catalog: reading.catalog,
     scoped: reading.scoped,
     carried: reading.appliedDeny,
     protectedNames: reading.protectedNames,
@@ -815,11 +815,11 @@ async function snapshotOf(deps: RpcDeps, session: SessionLike): Promise<PanelSna
     defaultsCorrupt: defaultsState.corrupt,
     // 提示码的分工（H6）：构建器只排序去重，技能两条由组装层从技能分面与关闭集推导。
     notices: noticesOf(session, reading, skills),
-    // 技能行与工作区视图的**投影**在 `panel.ts` 构建器里（H6）：这里只交原始读数，
-    // 面板、`/tools status` 与命令面因此共享同一份事实（D14）。
+    // 技能行、工作区视图与描述列的**投影**在 `panel.ts` 构建器里（H6）：这里只交原始读数，
+    // 面板、`/tools status` 与命令面因此共享同一份事实（D14）。描述恒传：层缺席时是空表。
     ...(skills === undefined ? {} : { skills }),
     ...(workspace === undefined ? {} : { workspace }),
-    ...(descriptions === undefined ? {} : { descriptions }),
+    descriptions,
   }
   return buildPanelSnapshot(inputs)
 }
@@ -842,6 +842,44 @@ function skillsOf(deps: RpcDeps, session: SessionLike): SkillLayerSnapshot | und
     deps.log.warn(`读取会话 ${session.id} 的技能分面失败（面板将按不可用处理）：${messageOf(error)}`)
     return undefined
   }
+}
+
+// ---------------------------------------------------------------------------
+// 默认档宇宙（分组开关界面的候选清单，目标无关）
+// ---------------------------------------------------------------------------
+
+/** 层不可用时的空宇宙（冻结；`layerReady:false` 让界面只渲染残留区）。 */
+const EMPTY_UNIVERSE: DefaultsUniverse = Object.freeze({
+  layerReady: false,
+  skillsAvailable: false,
+  groups: [],
+})
+
+/**
+ * 读本会话的工具宇宙（目标无关）。层缺席 / 读失败 → 空宇宙 + 一次 warn。
+ * @param deps - 依赖注入面。
+ * @param session - 目标会话。
+ * @returns 宇宙（永不抛错）。
+ */
+function universeOf(deps: RpcDeps, session: SessionLike): DefaultsUniverse {
+  const layer = deps.layerFor(session.id)
+  if (layer === undefined) return EMPTY_UNIVERSE
+  let schemas: readonly VisibleToolSchema[]
+  let carried: readonly string[]
+  try {
+    schemas = layer.visibleSchemas()
+    carried = layer.snapshot().deny
+  } catch (error) {
+    deps.log.warn(`读取会话 ${session.id} 的工具宇宙失败（默认档界面将只显示残留区）：${messageOf(error)}`)
+    return EMPTY_UNIVERSE
+  }
+  return buildDefaultsUniverse({
+    layerReady: true,
+    schemas,
+    carried,
+    skills: skillsOf(deps, session),
+    protectedNames: deps.protectedNames,
+  })
 }
 
 /**
@@ -995,18 +1033,23 @@ async function canReadFile(io: DefaultsIo, path: string): Promise<boolean> {
 }
 
 /**
- * 读工具描述；缺席或读数抛错时返回 undefined（快照不携带 description）。
+ * 读本会话的工具描述（`layer.visibleSchemas()`）。
+ *
+ * 描述只认本会话层（H6）：层缺席（会话未挂载 / 已退场）返回空 `Map` 且不告警——这不是异常，
+ * 新会话尚未挂载也会走到这里；读数抛错同样返回空 `Map`，但留一次 warn，因为「层在却读不出来」
+ * 需要排障线索。两种情况下面板都照常可用，只是不展示 `description`（R6：软读数缺席只降级）。
+ * 键用工具注册名（与 `VisibleToolSchema.name`、面板的候选名同一文法），缺描述记空串。
  * @param deps - 依赖注入面。
- * @returns 描述表或 undefined。
+ * @param session - 目标会话。
+ * @returns 描述表（public name → 描述原文）；永不为 `undefined`。
  */
-function descriptionsOf(deps: RpcDeps): ReadonlyMap<string, string> | undefined {
-  if (deps.descriptions === undefined) return undefined
+function descriptionsOf(deps: RpcDeps, session: SessionLike): ReadonlyMap<string, string> {
   try {
-    return deps.descriptions()
+    const schemas = deps.layerFor(session.id)?.visibleSchemas() ?? []
+    return new Map<string, string>(schemas.map((schema) => [schema.name, schema.description ?? '']))
   } catch (error) {
-    // 描述只是展示增强：读不到就不带，面板其余部分照常可用（一次 warn 够定位）。
-    deps.log.warn(`无法读取工具描述（面板将不展示 description）：${messageOf(error)}`)
-    return undefined
+    deps.log.warn(`读取会话 ${session.id} 的工具描述失败（面板将不展示 description）：${messageOf(error)}`)
+    return new Map<string, string>()
   }
 }
 

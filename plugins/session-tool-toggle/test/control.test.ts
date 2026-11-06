@@ -3,8 +3,8 @@
  *
  * 全部用例都在**假 `ControlDeps`** 上驱动，不拉起宿主、不读写真实 `$DSH_HOME`：
  * 状态端口（`StateStore`）、层句柄（`LayerHandle`）、默认档 / 工作区档 IO（`DefaultsIo`）、
- * 全局层读数（`catalog`）与工作区归属（`workspaceOf` / `workspaceChoices`）都是内存替身，
- * 因此「写了几次状态、掩码怎么变、影子集合怎么变、文件里落了什么」都能直接计数断言。
+ * 工作区归属（`workspaceOf` / `workspaceChoices`）都是内存替身，因此「写了几次状态、
+ * 掩码怎么变、影子集合怎么变、文件里落了什么」都能直接计数断言。
  *
  * 覆盖任务 9.1 的三条主验证句：
  *
@@ -15,9 +15,10 @@
  * 另按设计 ③.7 / D14 / H7（任务 6.2 / T8）覆盖：全有或全无（保护 / 保留名 / 文法一次判完）、
  * 固定顺序（`store.write` → `layer.setState` → 组装回执）、`writeDefaults` /
  * `writeWorkspaces` 失败**向上抛**（供 RPC 映射 `defaults-unwritable` /
- * `workspace-unwritable`）、`reset` 的对称差计数、写失败降级标记、三读并集与「被其他作用域
- * 隐藏」的读数、`hiddenSkills` 与 `schemaChanged` 的扩义（deny 未变但影子集合变化）、
- * `PanelReading` 的技能行 / 工作区视图三字段，以及工作区档两种寻址形态与四动作。
+ * `workspace-unwritable`）、`reset` 的对称差计数、写失败降级标记、会话两读
+ * （`scoped ∪ carried`）推出的分组 / 命中计数读数、`hiddenSkills` 与 `schemaChanged` 的扩义
+ * （deny 未变但影子集合变化）、`PanelReading` 的技能行 / 工作区视图三字段，以及工作区档
+ * 两种寻址形态与四动作。
  */
 import { describe, expect, it } from 'vitest'
 import type { WorkspaceChoice } from '../src/contract.ts'
@@ -41,6 +42,7 @@ import type {
   SpecLog,
   StateStore,
   StoreKind,
+  VisibleToolSchema,
   WorkspaceAttribution,
 } from '../src/host/types.ts'
 
@@ -163,7 +165,8 @@ interface FakeSkillsOptions {
 }
 
 /**
- * 假层句柄：按 `planMask` 的三读并集重算掩码，并让名字从 `visibleNames()` 消失。
+ * 假层句柄：按 `planMask` 的两读并集（`scoped ∪ carried`）重算掩码，并让名字从
+ * `visibleNames()` 消失。
  *
  * 与生产层同构的三个行为：掩码生效后名字从 `scoped` 消失（所以 carried 必须存在）、
  * 遮蔽段只由整组关闭产生、关闭集里的已知技能在 `setState` 后**同步**进入影子集合
@@ -196,15 +199,13 @@ class FakeLayer implements LayerHandle {
   private readonly events: string[] | undefined
 
   /**
-   * @param catalog - 全局层注册名。
-   * @param scope - 该 agent **未**被本插件掩码时的视角名字。
+   * @param scope - 该 agent **未**被本插件掩码时的视角名字（工具读数的唯一来源）。
    * @param initial - 初始整值状态（构造即应用一次，模拟 `attach`）。
    * @param setStateError - 注入的 `setState` 错误。
    * @param events - 共享事件序列（可选）。
    * @param skills - 技能分面选项（缺省「不可用」）。
    */
   constructor(
-    private readonly catalog: readonly string[],
     private readonly scope: readonly string[],
     initial: SessionToolState,
     private readonly setStateError: Error | undefined = undefined,
@@ -247,6 +248,14 @@ class FakeLayer implements LayerHandle {
   }
 
   /**
+   * 读本会话当前可见工具的名字 + 描述投影（本假层只记名字，描述按缺省）。
+   * @returns 可见名字的轻量投影。
+   */
+  visibleSchemas(): readonly VisibleToolSchema[] {
+    return this.visibleNames().map((name) => ({ name }))
+  }
+
+  /**
    * 读本会话的技能分面（影子 stub 由 {@link reconcile} 同步维持）。
    * @returns 可用标记、影子名字与模型可调用技能。
    */
@@ -269,7 +278,6 @@ class FakeLayer implements LayerHandle {
   /** 一轮重算：scoped 读「上一轮掩码之后」的视角，carried 读上一轮 deny；技能影子同步更新。 */
   private reconcile(): void {
     const plan = planMask({
-      catalog: this.catalog,
       scoped: this.visibleNames(),
       carried: this.masked,
       disabled: this.applied.disabled,
@@ -330,9 +338,7 @@ class FakeDefaultsIo implements DefaultsIo {
 
 /** 假端口的构造参数（只写用例关心的部分）。 */
 interface HarnessOptions {
-  /** 全局层注册名。 */
-  readonly catalog?: readonly string[]
-  /** 该 agent 未被掩码时的视角名字（默认与 `catalog` 相同）。 */
+  /** 该 agent 未被掩码时的视角名字（工具读数的唯一来源；缺省为空）。 */
   readonly scope?: readonly string[]
   /** 本会话关闭集。 */
   readonly disabled?: readonly string[]
@@ -350,8 +356,6 @@ interface HarnessOptions {
   readonly storeWriteError?: Error
   /** 注入 `layer.setState` 错误。 */
   readonly layerSetStateError?: Error
-  /** 注入全局层读数错误。 */
-  readonly catalogError?: Error
   /** 注入默认档写入错误。 */
   readonly defaultsWriteError?: Error
   /** 实际生效的持久化通道（默认 `record`）。 */
@@ -393,8 +397,7 @@ interface Harness {
  */
 function harness(options: HarnessOptions = {}): Harness {
   const session = fakeSession()
-  const catalog = options.catalog ?? []
-  const scope = options.scope ?? catalog
+  const scope = options.scope ?? []
   const initial: SessionToolState = {
     version: 1,
     disabled: options.disabled ?? [],
@@ -408,7 +411,7 @@ function harness(options: HarnessOptions = {}): Harness {
   const layer =
     options.withLayer === false
       ? undefined
-      : new FakeLayer(catalog, scope, initial, options.layerSetStateError, events, options.skills)
+      : new FakeLayer(scope, initial, options.layerSetStateError, events, options.skills)
 
   const defaultsIo = new FakeDefaultsIo()
   if (options.defaultsMissing !== true) {
@@ -437,10 +440,6 @@ function harness(options: HarnessOptions = {}): Harness {
     },
     workspaceChoices: () => workspaceChoices,
     protectedNames: new Set(PROTECTED_BASELINE),
-    catalog: () => {
-      if (options.catalogError !== undefined) throw options.catalogError
-      return catalog
-    },
     log: recorded.log,
   }
 
@@ -483,7 +482,7 @@ function workspaceHarness(options: HarnessOptions = {}): Harness {
 
 describe('全有或全无：保护 / 保留名 / 文法一次判完再落盘', () => {
   it('保护命中：整单拒绝，store.write 调用数为 0', () => {
-    const h = harness({ catalog: ['mcp__a__x', 'mcp__a__y'], scope: ['mcp__a__x', 'mcp__a__y'] })
+    const h = harness({ scope: ['mcp__a__x', 'mcp__a__y'] })
     const outcome = toggleSession(h.deps, h.session, ['mcp:a', 'tool:bash'], false)
 
     expect(outcome.ok).toBe(false)
@@ -499,7 +498,7 @@ describe('全有或全无：保护 / 保留名 / 文法一次判完再落盘', (
 
   it('保留名 / 文法错误 / 空地址同样整单拒绝，且一次写入都不发生', () => {
     for (const bad of ['tool:run_code', 'mcp:a::b?', 'bogus', '']) {
-      const h = harness({ catalog: ['mcp__a__x'], scope: ['mcp__a__x'] })
+      const h = harness({ scope: ['mcp__a__x'] })
       const outcome = toggleSession(h.deps, h.session, ['mcp:a', bad], false)
       expect(outcome.ok, `「${bad}」应被拒绝`).toBe(false)
       expect(h.store.writeCalls, `「${bad}」不应写状态`).toBe(0)
@@ -521,7 +520,7 @@ describe('全有或全无：保护 / 保留名 / 文法一次判完再落盘', (
 
 describe('0 匹配地址：意图仍被记录（matched:0）', () => {
   it('0 匹配地址：仍进关闭集且 matched:0，但前缀缓存不重建', () => {
-    const h = harness({ catalog: ['mcp__a__x'], scope: ['mcp__a__x'] })
+    const h = harness({ scope: ['mcp__a__x'] })
     const outcome = toggleSession(h.deps, h.session, ['mcp:zzz'], false)
     expect(outcome.ok).toBe(true)
     if (!outcome.ok) return
@@ -542,7 +541,7 @@ describe('0 匹配地址：意图仍被记录（matched:0）', () => {
   })
 
   it('readPanel 对 0 匹配地址给 matched:0（两态区分的键仍在）', async () => {
-    const h = harness({ catalog: ['mcp__a__x'], scope: ['mcp__a__x'], disabled: ['mcp:zzz'] })
+    const h = harness({ scope: ['mcp__a__x'], disabled: ['mcp:zzz'] })
     const reading = await readPanel(h.deps, h.session)
     expect(reading.matched.get('mcp:zzz')).toBe(0)
     expect(reading.closed).toHaveLength(1)
@@ -562,9 +561,30 @@ describe('0 匹配地址：意图仍被记录（matched:0）', () => {
   })
 })
 
+describe('关闭会话外组：意图记录、无掩码生效（会话口径）', () => {
+  it('关闭本会话不存在的组 mcp:dbx：matched 0、不重建缓存、状态记录、deny 不含该组（G3）', () => {
+    const h = harness({ scope: ['mcp__b__y', 'bash'] })
+    const outcome = toggleSession(h.deps, h.session, ['mcp:dbx'], false)
+    expect(outcome.ok).toBe(true)
+    if (!outcome.ok) return
+
+    const report = outcome.report
+    expect(report.entries[0]?.matched).toBe(0)
+    // 没有任何工具定义被掩掉 → 前缀缓存不重建。
+    expect(report.schemaChanged).toBe(false)
+    // 关闭意图照旧落地（记录在会话状态里，deny 里不会出现读不到的名字）。
+    expect(h.deps.store.read(h.session).disabled).toContain('mcp:dbx')
+    expect(h.layer?.snapshot().deny.filter((name) => name.startsWith('mcp__dbx__'))).toEqual([])
+    // 可见数不变；遮蔽段按「整组关闭」照旧产生（与命中无关，D-15）。
+    expect(report.visibleBefore).toBe(2)
+    expect(report.visibleAfter).toBe(2)
+    expect(h.layer?.snapshot().shadowServers).toEqual(['dbx'])
+  })
+})
+
 describe('无变化：withToggled 同引用短路', () => {
   it('重复关闭：返回快照与旧状态对象同引用，且 store.write 调用数为 0', () => {
-    const h = harness({ catalog: ['mcp__a__x'], scope: ['mcp__a__x'], disabled: ['mcp:a'] })
+    const h = harness({ scope: ['mcp__a__x'], disabled: ['mcp:a'] })
     const before = h.store.current
     const outcome = toggleSession(h.deps, h.session, ['mcp:a'], false)
     expect(outcome.ok).toBe(true)
@@ -580,7 +600,7 @@ describe('无变化：withToggled 同引用短路', () => {
   })
 
   it('重复开启：同样返回旧对象且不写', () => {
-    const h = harness({ catalog: ['mcp__a__x'], scope: ['mcp__a__x'] })
+    const h = harness({ scope: ['mcp__a__x'] })
     const before = h.store.current
     const outcome = toggleSession(h.deps, h.session, ['mcp:a'], true)
     expect(outcome.ok).toBe(true)
@@ -594,7 +614,7 @@ describe('无变化：withToggled 同引用短路', () => {
 
 describe('固定顺序：withToggled → store.write → layer.setState → 回执', () => {
   it('多地址一次处理：一次 write、一次 setState，顺序固定', () => {
-    const h = harness({ catalog: ['mcp__a__x', 'mcp__b__y'], scope: ['mcp__a__x', 'mcp__b__y'] })
+    const h = harness({ scope: ['mcp__a__x', 'mcp__b__y'] })
     const outcome = toggleSession(h.deps, h.session, ['mcp:a', 'mcp:b'], false)
     expect(outcome.ok).toBe(true)
     if (!outcome.ok) return
@@ -608,7 +628,7 @@ describe('固定顺序：withToggled → store.write → layer.setState → 回�
   })
 
   it('状态未变时两步写入都不发生（短路早于写）', () => {
-    const h = harness({ catalog: ['mcp__a__x'], scope: ['mcp__a__x'], disabled: ['mcp:a'] })
+    const h = harness({ scope: ['mcp__a__x'], disabled: ['mcp:a'] })
     toggleSession(h.deps, h.session, ['mcp:a'], false)
     expect(h.events).toEqual([])
   })
@@ -616,7 +636,7 @@ describe('固定顺序：withToggled → store.write → layer.setState → 回�
 
 describe('schemaChanged：工具 deny 或影子 stub 集合任一变化', () => {
   it('关闭真实工具：deny 变化 → 报缓存重建，可见数下降', () => {
-    const h = harness({ catalog: ['mcp__a__x'], scope: ['mcp__a__x'] })
+    const h = harness({ scope: ['mcp__a__x'] })
     const outcome = toggleSession(h.deps, h.session, ['mcp:a'], false)
     expect(outcome.ok).toBe(true)
     if (!outcome.ok) return
@@ -626,7 +646,7 @@ describe('schemaChanged：工具 deny 或影子 stub 集合任一变化', () => 
   })
 
   it('开启真实工具：deny 变化 → 报缓存重建，可见数回升', () => {
-    const h = harness({ catalog: ['mcp__a__x'], scope: ['mcp__a__x'], disabled: ['mcp:a'] })
+    const h = harness({ scope: ['mcp__a__x'], disabled: ['mcp:a'] })
     const outcome = toggleSession(h.deps, h.session, ['mcp:a'], true)
     expect(outcome.ok).toBe(true)
     if (!outcome.ok) return
@@ -637,7 +657,6 @@ describe('schemaChanged：工具 deny 或影子 stub 集合任一变化', () => 
 
   it('技能关闭：deny 未变但影子集合变化 → schemaChanged=true 且 hiddenSkills=1', () => {
     const h = harness({
-      catalog: ['skill', 'bash'],
       scope: ['skill', 'bash'],
       skills: { available: true, installed: [{ name: 'x', description: '技能 x' }] },
     })
@@ -655,7 +674,6 @@ describe('schemaChanged：工具 deny 或影子 stub 集合任一变化', () => 
 
   it('技能开启：影子集合缩小 → hiddenSkills=-1，schemaChanged=true', () => {
     const h = harness({
-      catalog: ['skill'],
       scope: ['skill'],
       disabled: ['skill:x'],
       skills: { available: true, installed: [{ name: 'x' }] },
@@ -670,7 +688,6 @@ describe('schemaChanged：工具 deny 或影子 stub 集合任一变化', () => 
 
   it('技能服务不可用：skill 地址只记意图，hiddenSkills=0 且 schemaChanged=false', () => {
     const h = harness({
-      catalog: ['skill'],
       scope: ['skill'],
       skills: { available: false, installed: [{ name: 'x' }] },
     })
@@ -686,7 +703,6 @@ describe('schemaChanged：工具 deny 或影子 stub 集合任一变化', () => 
 describe('写失败与层缺席：命令不失败，代价进回执', () => {
   it('store.write 抛错：persistFailed=true，layer 仍收到写入后的状态', () => {
     const h = harness({
-      catalog: ['mcp__a__x'],
       scope: ['mcp__a__x'],
       storeWriteError: new Error('模拟的会话日志写入失败'),
     })
@@ -704,7 +720,6 @@ describe('写失败与层缺席：命令不失败，代价进回执', () => {
 
   it('layer.setState 抛错：layerFailed=true，状态已写', () => {
     const h = harness({
-      catalog: ['mcp__a__x'],
       scope: ['mcp__a__x'],
       layerSetStateError: new Error('模拟的掩码更新失败'),
     })
@@ -720,7 +735,7 @@ describe('写失败与层缺席：命令不失败，代价进回执', () => {
   })
 
   it('会话层缺席：可见计数不可信，但状态照写、不调 setState', () => {
-    const h = harness({ withLayer: false, catalog: ['mcp__a__x'] })
+    const h = harness({ withLayer: false })
     const outcome = toggleSession(h.deps, h.session, ['mcp:a'], false)
     expect(outcome.ok).toBe(true)
     if (!outcome.ok) return
@@ -729,24 +744,11 @@ describe('写失败与层缺席：命令不失败，代价进回执', () => {
     expect(outcome.report.visibleAfter).toBe(0)
     expect(h.store.writeCalls).toBe(1)
   })
-
-  it('全局层读数抛错：降级为空表并 warn，开关语义不受影响', async () => {
-    const h = harness({ catalogError: new Error('模拟的注册表读取失败') })
-    const outcome = toggleSession(h.deps, h.session, ['mcp:a'], false)
-    expect(outcome.ok).toBe(true)
-    if (!outcome.ok) return
-    expect(outcome.report.entries[0]?.matched).toBe(0)
-    expect(h.log.warnings.some((message) => message.includes('全局层工具注册表'))).toBe(true)
-
-    const reading = await readPanel(h.deps, h.session)
-    expect(reading.catalog).toEqual([])
-  })
 })
 
 describe('reset：回到创建时快照（对称差计数）', () => {
   it('对称差 = 只在一侧出现的条目数（2），并写回快照', () => {
     const h = harness({
-      catalog: ['mcp__a__x', 'mcp__b__y', 'mcp__c__z'],
       scope: ['mcp__a__x', 'mcp__b__y', 'mcp__c__z'],
       disabled: ['mcp:a', 'mcp:b'],
       snapshot: ['mcp:b', 'mcp:c'],
@@ -777,7 +779,6 @@ describe('reset：回到创建时快照（对称差计数）', () => {
 
   it('快照里的技能地址：影子集合变化 → hiddenSkills=1 且 schemaChanged=true', () => {
     const h = harness({
-      catalog: ['skill'],
       scope: ['skill'],
       snapshot: ['skill:x'],
       skills: { available: true, installed: [{ name: 'x' }] },
@@ -799,34 +800,26 @@ describe('reset：回到创建时快照（对称差计数）', () => {
   })
 })
 
-describe('readPanel：三读并集与默认档读数', () => {
-  it('全局层 / 本视角 / 已生效掩码三读合并，本插件已生效掩码不计入隐藏（R18）', async () => {
-    const h = harness({
-      catalog: ['mcp__a__x', 'mcp__b__y', 'bash'],
-      scope: ['mcp__b__y', 'bash'],
-      disabled: ['mcp:a'],
-    })
+describe('readPanel：会话两读（scoped ∪ carried）与默认档读数', () => {
+  it('内核读数形状：scoped 是唯一工具读数来源，读数不带 catalog / hiddenByOthers（G3）', async () => {
+    const h = harness({ scope: ['mcp__b__y', 'bash'], disabled: ['mcp:a'] })
     const reading = await readPanel(h.deps, h.session)
 
+    expect(reading.scoped).toEqual(['mcp__b__y', 'bash'])
+    // 两读口径：`catalog` / `hiddenByOthers` 两个字段整条删除（不是恒空数组）。
+    expect(reading).not.toHaveProperty('catalog')
+    expect(reading).not.toHaveProperty('hiddenByOthers')
     expect(reading.layerReady).toBe(true)
     expect(reading.visible).toBe(2)
-    expect(reading.catalog).toEqual(['mcp__a__x', 'mcp__b__y', 'bash'])
-    expect(reading.scoped).toEqual(['mcp__b__y', 'bash'])
-    expect(reading.appliedDeny).toEqual(['mcp__a__x'])
+    // 本会话里没有 mcp:a 的任何工具定义：deny 为空、命中 0，但关闭意图与遮蔽段保留。
+    expect(reading.appliedDeny).toEqual([])
     expect(reading.appliedShadowServers).toEqual(['a'])
-    expect(reading.matched.get('mcp:a')).toBe(1)
+    expect(reading.matched.get('mcp:a')).toBe(0)
     expect(reading.closed).toEqual([
-      { text: 'mcp:a', kind: 'mcp-group', matched: 1, shadowed: true },
-    ])
-    expect(reading.serverGroups).toEqual([
-      { server: 'a', address: 'mcp:a', count: 1 },
-      { server: 'b', address: 'mcp:b', count: 1 },
+      { text: 'mcp:a', kind: 'mcp-group', matched: 0, shadowed: true },
     ])
     expect(reading.builtinNames).toEqual(['bash'])
     expect(reading.builtinProtectedNames).toEqual(['bash'])
-    // mcp__a__x 是本插件关掉且掩码已生效的名字（在 carried / appliedDeny 里）：
-    // 它算不上「被其他作用域隐藏」，否则面板会禁用这一行、用户打不开自己关掉的工具。
-    expect(reading.hiddenByOthers).toEqual([])
     expect(reading.protectedNames).toHaveLength(PROTECTED_BASELINE.length)
     expect(reading.defaults).toEqual({ version: 1, disabled: [] })
     expect(reading.defaultsPath).toBe(DEFAULTS_PATH)
@@ -834,24 +827,25 @@ describe('readPanel：三读并集与默认档读数', () => {
     expect(reading.createdAt).toBe(CREATED_AT)
   })
 
-  it('真被其他作用域掩掉（不在 carried 里）的名字仍然进 hiddenByOthers', async () => {
-    // 本会话什么都没关：全局层有 x，本视角看不到，且它不在本插件的掩码里。
-    const h = harness({
-      catalog: ['mcp__a__x', 'mcp__b__y', 'bash'],
-      scope: ['mcp__b__y', 'bash'],
-    })
+  it('serverGroups 只由 scoped ∪ carried 推出：关闭会话外组不产生分组（G3）', async () => {
+    // 用户关了 mcp:a，但本会话视角里没有 a 组任何名字、carried 也为空 → 候选里没有它。
+    const h = harness({ scope: ['mcp__b__y'], disabled: ['mcp:a'] })
     const reading = await readPanel(h.deps, h.session)
 
-    expect(reading.appliedDeny).toEqual([])
-    expect(reading.hiddenByOthers).toEqual(['mcp__a__x'])
+    expect(reading.scoped).toEqual(['mcp__b__y'])
+    expect(reading.serverGroups).toEqual([{ server: 'b', address: 'mcp:b', count: 1 }])
+    expect(reading.builtinNames).toEqual([])
+    // 关闭意图仍保留：遮蔽段照旧产生（与是否命中无关），但清单与命中计数不含 a。
+    expect(reading.appliedShadowServers).toEqual(['a'])
+    expect(reading.matched.get('mcp:a')).toBe(0)
   })
 
-  it('层缺席：layerReady=false，隐藏计数为空、可见数不可信', async () => {
-    const h = harness({ withLayer: false, catalog: ['mcp__a__x'] })
+  it('层缺席：layerReady=false，可见数不可信', async () => {
+    const h = harness({ withLayer: false })
     const reading = await readPanel(h.deps, h.session)
     expect(reading.layerReady).toBe(false)
     expect(reading.visible).toBe(0)
-    expect(reading.hiddenByOthers).toEqual([])
+    expect(reading.scoped).toEqual([])
   })
 
   it('默认档缺失：按空档处理并 warn；内存通道如实上报', async () => {
@@ -864,7 +858,6 @@ describe('readPanel：三读并集与默认档读数', () => {
 
   it('技能行：可见技能按关闭集给 disabled、按影子集合给 shadowed', async () => {
     const h = harness({
-      catalog: ['skill'],
       scope: ['skill'],
       disabled: ['skill:x'],
       skills: {

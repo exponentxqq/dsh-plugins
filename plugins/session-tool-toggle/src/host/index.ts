@@ -53,12 +53,14 @@
  * 目录已删导致 realpath 全程失败）时 fail-closed，只按用户级默认档播种。
  *
  * 依赖装配：`ControlDeps`（层注册表 + `StateStore` + 默认档 / 工作区档 IO + 工作区归属闭包
- * 与下拉投影 + 保护名单 + 全局层 `catalog` + 日志）只构造**一份**，直接交给命令面与 RPC
- * 通道（`RpcDeps` 在同一份之上只补 agent 查找面与描述读数）；两者因此不存在两份状态（D14）。
- * `catalog` 自任务 9.1 起就在 `ControlDeps` 里（R15 ①），`ToolsCommandDeps` 只是它的后向
- * 兼容别名。工作区四件读数（`workspacesPath` / `workspacesIo` / `workspaceOf` /
- * `workspaceChoices`）同在这一份对象上：`snapshotOf` 的工作区视图与 `handleWorkspace` 的
- * 路径白名单都读它，装配层不再另造第二条读路径。
+ * 与下拉投影 + 保护名单 + 日志）只构造**一份**，直接交给命令面与 RPC 通道（`RpcDeps` 在
+ * 同一份之上只补 agent 查找面）；两者因此不存在两份状态（D14）。`ToolsCommandDeps` 只是
+ * `ControlDeps` 的别名，没有第二份对象。**装配层不持有工具读数**：本文件既没有根 ctx 上的
+ * 全局工具名闭包，也没有装配期的描述表——工具清单与描述都经**本会话的层**读（`layerFor` →
+ * `visibleNames()` / `visibleSchemas()`），层尚未就绪时命令面与 RPC 各自诚实降级，而不是
+ * 回落到根 ctx 的全局读数。工作区四件读数（`workspacesPath` / `workspacesIo` /
+ * `workspaceOf` / `workspaceChoices`）同在这一份对象上：`snapshotOf` 的工作区视图与
+ * `handleWorkspace` 的路径白名单都读它，装配层不再另造第二条读路径。
  *
  * 两处刻意的设计选择：
  *
@@ -124,7 +126,12 @@ import type {
 export const name = 'session-tool-toggle'
 
 /**
- * 依赖服务名单：agent 注册表（生命周期 + 启动补挂）与工具注册表（全局层读数、每 agent 掩码）。
+ * 依赖服务名单：agent 注册表（生命周期 + 启动补挂）与工具注册表（每 agent 掩码的服务面）。
+ *
+ * `tools` 是**装配顺序契约**而不是本文件的读数面：装配层已不再从根 ctx 读工具清单（工具与
+ * 描述都经每会话的层读），保留它才能把「没有 `tools` 服务的 profile」挡在 `apply` 之前——
+ * 否则 `agent/created` 会卡在每层 `attach` 的 `ctx.inject(['tools', …])` 上永不结算，把整个
+ * profile 的会话创建挂死（D-6 的反例）。
  *
  * `commands` / `sessionProjections` / `workingDirectory` / `workspaceRegistry` 刻意**不**在这里：
  * 它们是可选能力面，走 `ctx.inject([...])` 软注入，缺席时插件照常加载（只是没有 `/tools`、
@@ -263,14 +270,6 @@ export function apply(ctx: Context, config?: SessionToolToggleConfig): void {
    * 键是宿主的 `SessionId`（运行时就是字符串），值是该会话唯一的 {@link SessionLayer}。
    */
   const layers = new Map<string, SessionLayer>()
-
-  /**
-   * 全局层工具注册名（插件自身 ctx 读，**不受**任何 agent 限制）。
-   *
-   * 掩码推导与 `/tools status` 的分组计数都必须用这个未掩码集合：从 agent 已被本插件掩过的
-   * 视图推导 deny 会算出越来越小的集合（`mask.ts` 的 carried 正是为此存在）。
-   */
-  const catalog = (): readonly string[] => ctx.tools.schemas().map((schema) => schema.name)
 
   // -------------------------------------------------------------------------
   // 会话状态存储：懒解析 + 单飞 + 内存降级
@@ -639,7 +638,7 @@ export function apply(ctx: Context, config?: SessionToolToggleConfig): void {
     await ensureStore(session)
     const state = await readOrSeed(session)
 
-    const layer = new SessionLayer({ log, catalog })
+    const layer = new SessionLayer({ log })
     // 先登记再挂载：`attach` 内部的失败已被层吞掉，登记保证 `layerFor` / `detach` 一定能找到它。
     layers.set(id, layer)
     await layer.attach(agent as unknown as AgentLike, state)
@@ -760,8 +759,6 @@ export function apply(ctx: Context, config?: SessionToolToggleConfig): void {
     workspaceChoices,
     protectedNames,
     log,
-    // R15（任务 9.1）：全局层未掩码注册名并入 `ControlDeps`，命令面与 RPC 共用同一份。
-    catalog,
   }
   // 任务 9.1 之后 `ToolsCommandDeps = ControlDeps`：这里只是保留既有变量名，不复制对象。
   const commandDeps: ToolsCommandDeps = controlDeps
@@ -800,16 +797,13 @@ export function apply(ctx: Context, config?: SessionToolToggleConfig): void {
    * 已经随 `...controlDeps` 一并带过来：`snapshotOf` 组装工作区视图、`handleWorkspace` 的
    * 两种寻址形态与路径白名单都读这一份，装配层不另造读数逻辑（D14）。
    *
-   * 另补两件命令面不需要的东西（`RpcDeps` 相对 `ControlDeps` 的增量）：
-   *
-   * - `agents`：判 `session-not-live` 与取活会话（附录 §2.4 三步校验的第二、三步）；
-   * - `descriptions`（R19）：面板的工具描述来源，与 `catalog` 同一读数面（`ctx.tools.schemas()`）；
-   *   缺了它面板仍可用，只是每条工具不带 description。
+   * `RpcDeps` 相对 `ControlDeps` 的增量只有 `agents`：判 `session-not-live` 与取活会话（附录
+   * §2.4 三步校验的第二、三步）。**描述读数不在装配层**：`rpc.ts` 内部的 `descriptionsOf`
+   * 经 `layerFor(session.id)` 从本会话层取（D-4），这里不传任何全局读数。
    */
   const rpcDeps: RpcDeps = {
     ...controlDeps,
     agents: agentsPort,
-    descriptions: () => new Map(ctx.tools.schemas().map((schema) => [schema.name, schema.description ?? ''])),
   }
 
   // 6. Web 面板的 RPC 通道 `/session-tool-toggle`（D20 的五个端点）。两条注入要求与

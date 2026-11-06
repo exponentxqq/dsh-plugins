@@ -2,8 +2,8 @@
  * 每 agent 层测试（规范：dsh-session-tool-toggle —— 会话级工具面开关）。
  *
  * 全部用例都在**假 surface** 上驱动，不拉起宿主：层对外的唯一接触面是
- * `ScopedSurface`（restrict / guard / section / visibleNames / sectionOrder）与
- * `catalog()` 读数，因此「装了几次掩码、守卫拦不拦、段参数是什么」都能直接计数断言。
+ * `ScopedSurface`（restrict / guard / section / visibleNames / visibleSchemas / sectionOrder），
+ * 因此「装了几次掩码、守卫拦不拦、段参数是什么、描述读数给了什么」都能直接计数断言。
  *
  * 六条不变量各有一组用例（编号与 `src/host/session-layer.ts` 的文件头一致）：
  *
@@ -17,6 +17,10 @@
  *
  * 假 surface 刻意模拟两件真实行为：掩码生效后名字从 `visibleNames()` 消失（carried 因此
  * 必须存在，否则第二读会缩小 → 掩码被抬掉 → 振荡），以及 `restrict` 对未知名抛错。
+ *
+ * 两条读数纪律由「读数失败与掩码保底」与「visibleSchemas：会话工具描述面」两组用例钉住：
+ * 候选集只剩 scoped ∪ carried 之后，「读视图失败」不再有全局层兜底 —— 首轮失败**不装**掩码
+ * （guard 仍拦），而上一轮已生效的掩码靠 carried 保底不被抬掉（不振荡）。
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -34,6 +38,7 @@ import type {
   SkillServiceLike,
   SkillSummaryLike,
   SpecLog,
+  VisibleToolSchema,
 } from '../src/host/types.ts'
 
 /** 宿主里 `MCP_SERVERS` 段的真实顺序（假 surface 原样返回，用 I4 断言它被透传）。 */
@@ -102,8 +107,10 @@ function fakeAgent(id = 's1', ctx: unknown = {}): AgentLike {
 /**
  * 假工具面：记录每一次 `restrict` / `section` / `guard` 调用，并模拟掩码的可见性后果。
  *
- * - `names` 是**未掩码**的注册集（catalog 读数也用它，见 {@link harness}）；
+ * - `names` 是**未掩码**的注册集（`visibleNames()` 的读数也用它）；
  * - 掩码生效后 `visibleNames()` 少掉被掩的名字（真实行为）；
+ * - `visibleSchemas()` 默认由未掩码的名字推导（只有 name），`setVisibleSchemas` 可整份替换
+ *   读数以注入描述，`setVisibleSchemasError` 让它抛错以驱动描述读数的降级；
  * - `setRefuse` 让某次（或每次）`restrict` 抛错，用来驱动 I3；
  * - `setOnRestrict` 在每次**成功**的 `restrict` 返回 disposer **之前**同步回调，用来模拟
  *   `dsh-scope` 的 `ScopedLayers.effect` 在返回前广播 `tools/change`（I6 / R26）；
@@ -128,6 +135,8 @@ function fakeSurface(options: { names?: readonly string[]; order?: number } = {}
   let onRestrict: ((deny: readonly string[]) => void) | undefined
   let inactive = false
   let visibleError: Error | undefined
+  let visibleSchemasError: Error | undefined
+  let visibleSchemasValue: readonly VisibleToolSchema[] | undefined
 
   const scopeError = (service: string) =>
     new Error(`cannot get required service "${service}" in inactive context`)
@@ -174,6 +183,12 @@ function fakeSurface(options: { names?: readonly string[]; order?: number } = {}
       if (visibleError !== undefined) throw visibleError
       return names.filter((name) => !applied.includes(name))
     },
+    visibleSchemas: () => {
+      if (visibleSchemasError !== undefined) throw visibleSchemasError
+      // 注入了整份读数就用它（投影由被测层负责）；否则按未掩码名字推导（只有 name）。
+      if (visibleSchemasValue !== undefined) return visibleSchemasValue
+      return names.filter((name) => !applied.includes(name)).map((name) => ({ name }))
+    },
     sectionOrder: (name) => {
       if (name !== 'MCP_SERVERS') throw new Error(`意外的段顺序名：${name}`)
       return order
@@ -194,8 +209,6 @@ function fakeSurface(options: { names?: readonly string[]; order?: number } = {}
     },
     /** 已装上的遮蔽段段名（排序）。 */
     sectionNames: (): string[] => Array.from(sections.keys()).sort(),
-    /** catalog 读数：未掩码的注册集（拷贝，避免用例之间串改）。 */
-    registry: (): string[] => [...names],
     /** 模拟「名字在读与写之间从注册表消失」。 */
     drop: (name: string): void => {
       const index = names.indexOf(name)
@@ -217,12 +230,20 @@ function fakeSurface(options: { names?: readonly string[]; order?: number } = {}
     setVisibleError: (next: Error | undefined): void => {
       visibleError = next
     },
+    /** 整份替换 `visibleSchemas()` 的读数（注入名字 + 描述，默认只有 name）。 */
+    setVisibleSchemas: (next: readonly VisibleToolSchema[] | undefined): void => {
+      visibleSchemasValue = next
+    },
+    /** 让 `visibleSchemas()` 抛一个非退场错误（描述读数的降级路径）。 */
+    setVisibleSchemasError: (next: Error | undefined): void => {
+      visibleSchemasError = next
+    },
   }
 }
 
 /**
- * 搭一个「假 surface + 假日志 + catalog 读同一份注册集」的层。
- * @param options - 注册名、初始状态与段顺序。
+ * 搭一个「假 surface + 假日志」的层（读数与假 surface 共用同一份注册集）。
+ * @param options - 注册名与段顺序。
  * @returns 层、假 surface 与日志收集器。
  */
 function harness(options: { names?: readonly string[]; order?: number } = {}) {
@@ -230,7 +251,6 @@ function harness(options: { names?: readonly string[]; order?: number } = {}) {
   const { log, infos, warnings, errors } = recordingLog()
   const ports: SessionLayerPorts = {
     log,
-    catalog: () => fake.registry(),
     openSurface: async (_agent, use) => {
       use(fake.surface)
     },
@@ -243,7 +263,6 @@ describe('attach：首轮掩码、遮蔽段与守卫', () => {
     const fake = fakeSurface({ names: ['mcp__a__x', 'mcp__a__y', 'bash'] })
     const layer = new SessionLayer({
       log: QUIET_LOG,
-      catalog: () => fake.registry(),
       // 延迟一个微任务才交付工具面：attach 必须等它，否则 agent 的首步会看到未掩的工具。
       openSurface: async (_agent, use) => {
         await Promise.resolve()
@@ -391,12 +410,12 @@ describe('I3：restrict 抛错 → 从活读数重推并重试一次', () => {
     const fake = fakeSurface({ names: ['mcp__a__x', 'mcp__a__y'] })
     fake.setRefuse((_deny, call) => {
       if (call > 0) return undefined
-      // 模拟注册表在 catalog 读与 restrict 写之间丢掉了这个工具。
+      // 模拟注册表在本会话读数与 restrict 写之间丢掉了这个工具。
       fake.drop('mcp__a__y')
       return 'tools.restrict() names unknown global tool "mcp__a__y"'
     })
     const { log, errors } = recordingLog()
-    const layer = new SessionLayer({ log, catalog: () => fake.registry(), openSurface: async (_a, use) => { use(fake.surface) } })
+    const layer = new SessionLayer({ log, openSurface: async (_a, use) => { use(fake.surface) } })
 
     await layer.attach(fakeAgent(), stateOf(['mcp:a']))
 
@@ -424,7 +443,7 @@ describe('I3：restrict 抛错 → 从活读数重推并重试一次', () => {
         : 'tools.restrict() names unknown global tool "mcp__a__x"'
     })
     const { log, errors } = recordingLog()
-    const layer = new SessionLayer({ log, catalog: () => fake.registry(), openSurface: async (_a, use) => { use(fake.surface) } })
+    const layer = new SessionLayer({ log, openSurface: async (_a, use) => { use(fake.surface) } })
 
     await layer.attach(fakeAgent(), stateOf(['mcp:a']))
 
@@ -441,7 +460,7 @@ describe('I3：restrict 抛错 → 从活读数重推并重试一次', () => {
     const fake = fakeSurface({ names: ['mcp__a__x'] })
     fake.setRefuse(() => 'tools.restrict() names unknown global tool "mcp__a__x"')
     const { log, errors } = recordingLog()
-    const layer = new SessionLayer({ log, catalog: () => fake.registry(), openSurface: async (_a, use) => { use(fake.surface) } })
+    const layer = new SessionLayer({ log, openSurface: async (_a, use) => { use(fake.surface) } })
 
     await layer.attach(fakeAgent(), stateOf(['mcp:a']))
 
@@ -503,14 +522,13 @@ describe('I6：restrict 同步触发 tools/change 的重入幂等（R26）', () 
     const fake = fakeSurface({ names: ['mcp__a__x', 'mcp__a__y'] })
     fake.setRefuse((_deny, call) => {
       if (call > 0) return undefined
-      // 模拟注册表在 catalog 读与 restrict 写之间丢掉了这个工具。
+      // 模拟注册表在本会话读数与 restrict 写之间丢掉了这个工具。
       fake.drop('mcp__a__y')
       return 'tools.restrict() names unknown global tool "mcp__a__y"'
     })
     const { log, errors } = recordingLog()
     const layer = new SessionLayer({
       log,
-      catalog: () => fake.registry(),
       openSurface: async (_a, use) => {
         use(fake.surface)
       },
@@ -579,36 +597,55 @@ describe('detach：分步容错（I5）', () => {
   })
 })
 
-describe('退场与读数失败', () => {
-  it('catalog 读抛 inactive context：不抛、不记 error，并停止后续重算', async () => {
-    let catalogCalls = 0
-    const { log, errors } = recordingLog()
-    const layer = new SessionLayer({
-      log,
-      catalog: () => {
-        catalogCalls += 1
-        throw new Error('cannot get required service "tools" in inactive context')
-      },
-      openSurface: async (_agent, use) => {
-        use(fakeSurface().surface)
-      },
-    })
-
-    await expect(layer.attach(fakeAgent(), stateOf(['mcp:a']))).resolves.toBeUndefined()
-    expect(() => layer.refresh()).not.toThrow()
-
-    expect(catalogCalls).toBe(1)
-    expect(errors).toHaveLength(0)
-  })
-
-  it('读视图失败（非退场）：降级为空读数、记一条 error，不抛', async () => {
+describe('读数失败与掩码保底', () => {
+  it('首轮读视图失败（非退场）：不装掩码、记一条 error，但 guard 仍装', async () => {
     const { layer, fake, errors } = harness({ names: ['mcp__a__x'] })
     fake.setVisibleError(new Error('boom'))
     await layer.attach(fakeAgent(), stateOf(['mcp:a']))
 
-    // catalog 仍给出名字，所以掩码照样生效；只是一次读数失败被记下来了。
+    // 候选集只剩 scoped ∪ carried：没有全局层读数兜底，首轮失败 → 本轮不装掩码（降级）。
+    expect(fake.restrictCalls).toHaveLength(0)
+    expect(layer.snapshot().deny).toEqual([])
     expect(errors.some((message) => message.includes('读本会话的工具视图失败'))).toBe(true)
-    expect(fake.restrictCalls[0].deny).toEqual(['mcp__a__x'])
+    // guard 先于掩码装上：这段空窗里被关工具的调用仍会被拦下。
+    expect(fake.guardCalls).toHaveLength(1)
+    expect(fake.guardCalls[0]({ name: 'mcp__a__x' })).toContain('已在本会话被')
+    // 遮蔽段只由关闭集决定，与读数成败无关：意图仍然保留。
+    expect(fake.sectionNames()).toEqual(['mcp:a'])
+  })
+
+  it('carried 保底：掩码已生效后读视图失败，refresh 不抬掩码（不振荡）', async () => {
+    const { layer, fake } = harness({ names: ['mcp__a__x'] })
+    await layer.attach(fakeAgent(), stateOf(['mcp:a']))
+    expect(fake.restrictCalls).toHaveLength(1)
+
+    // 读数瞬断：carried 让本轮 deny 与上一轮相同 → 既不抬旧掩码也不重装（一轮都没有多）。
+    fake.setVisibleError(new Error('boom'))
+    layer.refresh()
+
+    expect(fake.restrictCalls).toHaveLength(1)
+    expect(fake.lifted).toBe(0)
+    expect(layer.snapshot().deny).toEqual(['mcp__a__x'])
+  })
+})
+
+describe('visibleSchemas：会话工具描述面', () => {
+  it('投影本会话可见工具的名字 + 描述（面板与编辑器的描述来源）', async () => {
+    const { layer, fake } = harness({ names: ['mcp__a__x'] })
+    fake.setVisibleSchemas([{ name: 'mcp__a__x', description: '读取页面内容' }])
+    await layer.attach(fakeAgent(), stateOf())
+
+    expect(layer.visibleSchemas()).toEqual([{ name: 'mcp__a__x', description: '读取页面内容' }])
+  })
+
+  it('读描述失败（非退场）：降级为空数组、记一条 error，不抛', async () => {
+    const { layer, fake, errors } = harness({ names: ['mcp__a__x'] })
+    await layer.attach(fakeAgent(), stateOf())
+    fake.setVisibleSchemasError(new Error('boom'))
+
+    expect(() => layer.visibleSchemas()).not.toThrow()
+    expect(layer.visibleSchemas()).toEqual([])
+    expect(errors.some((message) => message.includes('读本会话的工具描述失败'))).toBe(true)
   })
 })
 
@@ -635,7 +672,12 @@ describe('agentSurface：子 fiber 内的生产适配', () => {
         },
         schemas: (scope?: object) => {
           calls.schemaScopes.push(scope)
-          return names.map((name) => ({ name }))
+          // 上游 schema 带 parameters；层的投影只保留 name + description。
+          return names.map((name) => ({
+            name,
+            description: `${name} 的描述`,
+            parameters: { type: 'object' },
+          }))
         },
       },
       systemPrompt: {
@@ -668,6 +710,10 @@ describe('agentSurface：子 fiber 内的生产适配', () => {
 
     expect(calls.deps).toEqual([['tools', 'systemPrompt']])
     expect(surface.visibleNames()).toEqual(['mcp__a__x'])
+    // 生产适配把 schemas 投影成 { name, description }：parameters 不外带。
+    expect(surface.visibleSchemas()).toEqual([
+      { name: 'mcp__a__x', description: 'mcp__a__x 的描述' },
+    ])
     expect(calls.schemaScopes[0]).toBe(agent)
 
     surface.restrict({ deny: ['mcp__a__x'] })
@@ -680,7 +726,7 @@ describe('agentSurface：子 fiber 内的生产适配', () => {
     await expect(agentSurface(fakeAgent('s9', {}), () => {})).rejects.toThrow(/inject/)
 
     const { log, errors, warnings } = recordingLog()
-    const layer = new SessionLayer({ log, catalog: () => [] })
+    const layer = new SessionLayer({ log })
     await expect(layer.attach(fakeAgent('s9', {}), stateOf())).resolves.toBeUndefined()
     expect(errors).toHaveLength(1)
     expect(warnings).toHaveLength(1)
@@ -688,7 +734,7 @@ describe('agentSurface：子 fiber 内的生产适配', () => {
 
   it('默认 openSurface 走 agentSurface：attach 端到端穿过假 ctx', async () => {
     const { calls, ctx } = fakeAgentContext(['mcp__a__x'])
-    const layer = new SessionLayer({ log: QUIET_LOG, catalog: () => ['mcp__a__x'] })
+    const layer = new SessionLayer({ log: QUIET_LOG })
 
     await layer.attach(fakeAgent('s1', ctx), stateOf(['mcp:a']))
 

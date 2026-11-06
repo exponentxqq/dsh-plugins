@@ -1139,6 +1139,13 @@ const selectAndRemember = (key: string): void => {
   - `expect(Object.keys(result.value.groups[0].tools[0]).sort()).toEqual(['address','description','disabled','name','protected','reserved','shortName'])`
 - **禁止**：在本组改 `panel.ts` 之外的宿主逻辑（`types.ts` 只加类型，不加运行时）。
 
+- **终形态记录（执行期实测，2026-11-05）**：
+  - 出口实绩：`vitest run test/wire-contract.test.ts` 268/268 全绿（263→268：+3 形状断言 +3 旧键拒绝 −1 删用例）；1.3 落地前 42 failed 全为夹具旧键 strict 拒（预期红）。
+  - 行号漂移：unify 归档后 `contract.ts`/`wire-contract.test.ts` 实际行号与本蓝图快照有偏移，三个子代理均按内容定位完成，无一处需回改。
+  - TS7 的「顶层键集合期望数组（L754）」在现行文件中不存在（该处实为空快照用例的 `hiddenByOthers` 链）；执行改为**新增**顶层 11 键精确断言落实设计意图（1.3 回执偏差，已核对接受）。
+  - 验证句口径：`grep -c "shadowed"` 实测 5（3 处 SkillView 保留 + 2 处 G1 强制拒绝断言）；「仅剩 SkillView 相关命中」按意图豁免强制拒绝断言自身的命中。
+  - 1.2 偏差接受：`visibleSchemas()` 返回 `readonly VisibleToolSchema[]`（与蓝图 ③ 3.2 及文件既有 `readonly string[]` 风格一致）。
+
 ### G2 — 会话读数面（层 + RPC + 装配；对应 T2）
 
 - **文件**：`src/host/session-layer.ts`、`src/host/rpc.ts`、`src/host/index.ts`（+ `test/session-layer.test.ts`、`test/rpc.test.ts`）。
@@ -1182,6 +1189,11 @@ const selectAndRemember = (key: string): void => {
   - `expect(reading.serverGroups).toEqual([{server:'b',address:'mcp:b',count:1}])`（只由 scoped ∪ carried 推出）
 - **禁止**：顺手把 `unionNames` 抽到 `mask.ts` 共用（见 ⑥ U3）。
 
+- **终形态记录（执行期实测，2026-11-05）**：
+  - 出口实绩：`vitest run test/mask.test.ts test/control.test.ts` 88/88 全绿（mask 41 + control 47，control 删 2 增 2 用例数不变）。
+  - `control.ts` 私有 `unionNames(scoped, carried)` 两参副本保留（未从 mask.ts 抽共用，U3 遵守，JSDoc 记录裁定）；`candidates = unionNames(scoped, applied.deny)`。
+  - 跨组接口对齐实证：3.1 落地后 session-layer.ts 的 `Property 'catalog' is missing` 瞬态自动消失；全仓 typecheck 错误 99 → 67 →（3.2 后）client/test 侧余错。
+
 ### G4 — 面板构建器与命令面（对应 T4）
 
 - **文件**：`src/host/panel.ts`、`src/host/commands.ts`（+ `test/panel.test.ts`、`test/commands.test.ts`）。
@@ -1201,12 +1213,25 @@ const selectAndRemember = (key: string): void => {
   - 命令面：`expect(text).toContain('MCP 服务器 2 台（mcp:a 1、mcp:b 1）')` 且 `expect(text).not.toContain('被其他作用域隐藏')`
   - `expect(lineWith(text,'mcp:zzz 0 个工具定义')).toContain('已记录：本会话当前没有匹配的工具定义；它出现在本会话后自动生效')`
   - 层未就绪：`expect(text).toContain('【可关对象】会话层未就绪：无法读取本会话的工具清单')`
+
+- **终形态记录（执行期实测，2026-11-05）**：
+  - 出口实绩：`vitest run test/panel.test.ts test/commands.test.ts test/rpc.test.ts` 167/167 全绿（panel 46 + commands 72 + rpc 49）。
+  - **stats visible 语义裁决（蓝图矛盾修正）**：③ 3.6 片段的 `visible: scopedNames.length` 与 G4 必含断言（carried 保底 `{visible:0,denied:1}`）及 `test/rpc.test.ts` 期望 `{visible:1,denied:2}` 矛盾——执行按「**visible = 候选（scoped ∪ carried 去重排序）− deny**」实现（4.1），4.3 断言同口径。后续组（7.2 的 buildDefaultsUniverse 等）引用 stats 语义时以本条为准。
+  - D-9 两处刻意差异已写进 `panel.ts` 模块头（已关条目 + `tool:`/`tool:skill` 行），未新增 UI 文案。
+  - 4.2 的层未就绪判定复用 `PanelReading.layerReady` 既有字段（control.ts L212/533），非新字段；`hiddenText` 整块删除、段 6 只剩保护名单。
+  - 4.4 连带修补：`FakeLayer.visibleSchemas()` 补齐（LayerHandle 接口必需）、「层未就绪 off」用例按新语义改写（无层 → matched 0）。
 - **禁止**：改 `intentOnly` 的三分逻辑（工具 0 命中 ∪ 技能无安装）——它一字不动。
 
 ### G5 — 浏览器半（对应 T5）
 
 - **文件**：`src/client/locales.ts`、`src/client/ToolPanelGroups.tsx`、`src/client/ToolPanelAction.tsx`、`src/client/panel.module.css`（+ 四个客户端测试文件）。
 - **要点**：删四键（zh/en 各四，锚点按 ② 2.1 的 87/93/156/158 与 245/251/313/315）；`lockOf` 两态；状态摘要两计数；注释同步。
+- **终形态记录（执行期实测，2026-11-05）**：
+  - 出口实绩：四文件 vitest 125/125 全绿（tool-panel 31 + locale-parity 10 + panel-client 42 + panel-controller 42）；`grep src/client` 四旧键零残留；src/ 侧 typecheck 0 错（余错全部收敛到 test/** 后被本组清零）。
+  - locales zh/en 对称删 4（各 106 键不变对称）；REQUIRED_KEYS 73→70。
+  - 行禁用实现语义澄清：`disabled = busy || locked || pending`，**不含 `tool.disabled`**（否则已关工具无法重开）——蓝图 5.2 提示里的 `tool.disabled || locked` 是语义简写，以实现为准。
+  - 连带注释清理（主会话）：`SkillPanel.tsx` L9 陈旧交叉引用（工具行 shadowed 已废）、`panel.module.css` L65「四计数」→「两计数」。
+  - TS8 的 counters 断言用 `ul[class*="counters"]` + `screen`+`closest('section')`（面板正文 portal 到 body，render container 取不到）——沿用后续组写 UI 断言时注意。
 - **出口**：
   ```bash
   pnpm --filter dsh-plugin-session-tool-toggle exec vitest run \
@@ -1237,6 +1262,12 @@ const selectAndRemember = (key: string): void => {
   门禁口径：全量测试文件全绿、零 `skip`；`typecheck` 零错误；`lint` 零告警（oxlint 抓删除后残留的未用 import / 变量）。
 - **禁止**：`git add -A`（并行会话与本变更未提交文件并存，必须逐路径 add）。
 
+- **终形态记录（执行期实测，2026-11-05）**：
+  - 出口实绩：`verify:all` exit 0，**22 测试文件全绿、1013 用例、零 skip**；产物纯度 `hiddenByOthers`(index)=0、`entry.shadowed`(client)=0、`被其他作用域隐藏`(index)=0；`shadowed`(client)=5（技能分面保留，预期）；`hiddenSkills/hiddenTools` 抽检证明产物吸收新契约。
+  - **连带夹具修正（主会话，类型驱动）**：`test/workspace-editor.test.tsx` L374/L376 的旧形状夹具（`hiddenByOthers` + 四计数 stats）在 6.3 typecheck 必红，而其完整重写属 9.5/TS12——最小修正为删 `hiddenByOthers` 行、stats 改 `{visible:0, denied:0}`（数值沿用，断言零改动）。9.5 重写时以本修正后的夹具为基。
+  - **并行变更发现（不处置）**：工作区另有 `openspec/changes/project-mcp-isolation-enforcement/{code-design,design,tasks}.md` 的未提交改动，属**另一会话并行执行**该变更（tasks 勾选 1.1/2.1/3.1/4.1/4.2 等）——keep-out 四条目零出现、6.2 门禁不受影响；**最后提交时绝不 add 该三文件**（逐路径 add 纪律）。
+  - node 引擎告警（容器 22.18.0 vs engines ^22.19.0 / volta pin 24.21.0）为既有环境偏差，非阻塞。
+
 ### G7 — 默认档宇宙的契约与宿主构建（对应 T7）
 
 - **文件**：`src/contract.ts`、`src/host/panel.ts`、`src/host/rpc.ts`（+ `test/wire-contract.test.ts`、`test/panel.test.ts`、`test/rpc.test.ts`、`test/panel-client.test.ts`）。
@@ -1257,6 +1288,14 @@ const selectAndRemember = (key: string): void => {
   - rpc：`{sessionId}` read 的 `universe.layerReady === true` 且 `groups` 只由 scope ∪ carried 推出（被掩掉的服务器不出现）；同形态 `off` 写响应也带 `universe`；`{workspacePath}` read 的 `universe === null`；`withLayer:false` → `{layerReady:false, skillsAvailable:false, groups:[]}`
   - `buildDefaultsUniverse({ layerReady:false, ... })` 深等于空宇宙；`skills:{available:false}` → `skillsAvailable:false` 且技能组（含 `tool:skill`）仍在
 - **禁止**：给 `WorkspaceRequest` 加字段（D-18）；改 `panel-controller.ts`（D-19）。
+
+- **终形态记录（执行期实测，2026-11-05）**：
+  - 出口实绩：`vitest run test/wire-contract.test.ts test/panel.test.ts test/rpc.test.ts` **401/401 全绿**（291 + 56 + 54；wire-contract +23 拒绝/合法用例、panel +10、rpc +5）；全包 typecheck exit 0（7.2/7.3 互相连通后瞬态清零）。
+  - 技能组存在性裁定（7.2 Q1，主会话裁定**维持现实现**）：组的存在由候选分桶决定（候选含 `skill` 名才建组）、行由 skills 分面决定（`available:false` → 行空、`tool:skill` 组开关仍在）——③ 3.16 要点 4 原文「组开关仍在」优先于提示批注的「skills 缺席 ⇒ 组整个不出现」。
+  - 7.1 偏差接受：`readDefaultsGroup` 的 kind 复用既有 `TOOL_GROUP_KINDS`（避免枚举双源）。
+  - 7.3 fixture 细节：carried-only 内置行用 `workflow` 而非 `bash`（`bash` 在保护基线，`parseAddress` 拒绝，永不进 deny——假层与生产同语义）。
+  - 7.4 扩围（主会话裁定）：TS18 原文两文件之外，`tool-panel.test.tsx`/`workspace-editor.test.tsx` 的 WorkspaceValue 夹具并入补 `universe:null`（同性质夹具补键；T7/T8 期间 typecheck 判定面保持干净，9.5/9.6 重写时自然覆盖）。
+  - rpc `EMPTY_UNIVERSE` 与 panel 私有冻结空宇宙逐字同形、分属两处（③ 3.16/3.17 本如此），未抽共用。
 
 ### G8 — 客户端基础件（对应 T8）
 
@@ -1279,6 +1318,15 @@ const selectAndRemember = (key: string): void => {
   - `universeOfSnapshot(snapshot)` 的技能组：`address === 'tool:skill'` 且行地址为 `skill:<name>`
   - `zh` 无 8 个已删键；`en` 与 `zh` 键集合相等（locale-parity 自动覆盖）
 - **禁止**：在 `DefaultsGroupList` 里读 `t()` 之外的任何全局状态；不让该组件 import 宿主模块。
+
+- **终形态记录（执行期实测，2026-11-05）**：
+  - 出口实绩：defaults-view 20/20、locale-parity 10/10（zh/en 110/110 对称）；`.addInput` 删除（css L343 区）、`.sectionFrame`/`.residual` 就位；8.2 三文件 typecheck 零错误（`tsc -b --force` 复核），全包红点仅剩两个旧编辑器与 9.x 测试的预期瞬态。
+  - **主会话连带修正**：`test/defaults-view.test.ts` 补进 `tsconfig.client.json` include（`.ts` 测试逐文件枚举惯例，`.tsx` 走通配）。
+  - **裁定 P1（组头计数口径）**：`defaults.groupCount`/`groupInDefaults` 按**行数**（与 `ToolPanelGroups` 的 `toolCount/disabledCount` 同构，不含组开关本身）；分区摘要三计数（`defaultsCountsOf`）才是组开关计入 listed 的层级——两层级口径不同不矛盾。9.5/9.6 断言按行数写。
+  - **裁定 P2（cliHint 渲染归属）**：保留 `DefaultsGroupList` 自渲染 `copy.cliHint`（③ 3.19 接口权威形状即此语义）。**9.1/9.2 handoff**：① 编辑器**不要**再单独渲染 `defaults.cliHint`/`workspace.cliHint`（否则同句出现两次）；② **不要**再包 `<section>`（`DefaultsSectionFrame` 自带壳）；③ copy 建议接法——用户级 `{residualTitle: t('defaults.residualTitle'), removeLabel: t('defaults.remove'), removeAria: (a) => `${t('defaults.remove')} ${a}`, cliHint: t('defaults.cliHint')}`；工作区级 `removeLabel: t('workspace.remove')`、`removeAria: (a) => t('workspace.removeAria', { address: a })`、`cliHint: t('workspace.cliHint')`。
+  - 8.3 事实性偏差接受：`REQUIRED_KEYS` 实删 7（`defaults.addPlaceholder` 本不在表中）；`defaults.note` 死键按蓝图保留。
+  - blocked 行 title 用 `defaults.groupOff` 兼作理由（locales 无专用键，不为此加键）。
+  - 8.3 的「grep src 无输出」全局收口**顺延到 9.1/9.2 落地后**（消费者引用届时清除），8.3 勾选随 T9 组收口统一判定。
 
 ### G9 — 两个编辑器、两形态与面板接线（对应 T9）
 
@@ -1305,6 +1353,14 @@ const selectAndRemember = (key: string): void => {
   - 三计数行：`expect(screen.getByText(/清单 \d+ · 默认关 \d+ · 残留 \d+/)).toBeTruthy()`
   - dialog 形态下拉：`fireEvent.change(select, {target:{value:'/w2'}})` → `onSelect('/w2')`；section 形态无 `select`
   - `universe={null}`：渲染 `zh['defaults.universeUnavailable']`，仍有残留区、无分组
+
+- **终形态记录（执行期实测，2026-11-05）**：
+  - 出口实绩：`vitest run test/workspace-editor.test.tsx test/tool-panel.test.tsx` **71/71 全绿**（36 + 35）；**全包 typecheck exit 0**（T1–T9 期间全部预期瞬态清零，R2 口径兑现）；oxlint 三文件 0 警告。
+  - 9.4 必要偏差（接受留痕）：`state.snapshot` 可选（`PanelSnapshot | undefined`）而 `universeOfSnapshot` 要求完整快照——实际写法 `useMemo(() => (snapshot === undefined ? EMPTY_UNIVERSE : universeOfSnapshot(snapshot)), [snapshot])`，模块级 `EMPTY_UNIVERSE` 仅类型面兜底（两编辑器只在快照分支渲染，该值不进界面）。
+  - 9.2 主动裁定（接受留痕）：`workspace === null` 时不渲染三计数行（目标档缺席无可数关闭集），折叠摘要降级 `默认关 0 · 残留 0`；9.5/9.6 断言已按此写。
+  - 9.5/9.6 的「无添加入口」断言按实现选稳：全部 input 恰好 1 个且为 `group.filter`（内置过滤）+ chip 无 input + 两条 cliHint 在场——蓝图 `textbox===null` 字面会被过滤框误杀。
+  - TS12「删 5 条添加框用例」实测为 2 条专用用例 + 若干内嵌断言（蓝图估计值偏差，添加链引用已全部清零）。
+  - 夹具双分区计数刻意不同（用户级 1/1、工作区 1/2）——读错目标档立即红。
   - **切换工作区后分组清单仍在**（缓存回归）：`WorkspaceDefaultsSection` 先返回 `{workspace:/w1, universe: 非空}`，`change` 到 `/w2` 后返回 `{workspace:/w2, universe:null}` → `expect(screen.getByRole('switch', {name: /mcp:a/})).toBeTruthy()`（宇宙来自 remembered）
 - **禁止**：改 `useWorkspaceDefaults` 的 phase/saving/sequence 语义；改 `panel-controller.ts`；给统一弹窗加第二层 Modal。
 
@@ -1328,6 +1384,13 @@ const selectAndRemember = (key: string): void => {
   ```
   门禁口径：**23 个测试文件全绿、零 `skip`**；用例总数不作硬门（逐条断言见各组）；`typecheck` 零错误；`lint` 零告警；产物纯度三条 grep 为 0。
 - **禁止**：`git add -A`；把 `openspec/changes/unify-workspace-config-entry/*` 的未提交改动带进本变更提交。
+
+- **终形态记录（执行期实测，2026-11-06）**：
+  - **10.4 门禁实绩：`verify:all` exit 0——23 测试文件全绿、1085 用例、零 skip；全包 typecheck 零错误；lint 零告警。** 任务 40/40 全勾，全部批次完成。
+  - 10.3 门禁措辞修订（主会话裁定）：`entry.shadowed` 探针对 `lib/index.js` 不适用——唯一命中是宿主 `ClosedAddressReading.shadowed`（同名不同义、设计明确保留、HEAD 基线同为 1）；index.js 门禁改为 `hiddenByOthers\|state.catalog` → 0。独立纯度校验（HEAD→now）：index `hiddenByOthers` 11→0；client 旧键全清、`shadowed` 总数 23→5（与蓝图「技能分面保留」逐字吻合）。
+  - 10.2 复核结论：**比对通过、零校正**——当前主规格「Web 配置界面」与 unify 归档文本逐字节相同；delta 以该 641 字基线逐字节开头（增补 730 字）；「工作区默认档分节」保留原文不动成立；`openspec validate --strict` exit 0。两点供 spec-done 留意（场景同名两现、U1 近似收窄）——已写入 tasks.md 沉淀回流清单。
+  - 10.1 两项裁定：`workspace.cliHint` **维持 ③3.20 键表短版**（落档定稿键表优先；README L121 已完整披露 `workspaces.json` 边界，PB1「接受并写清」意图达成，不动 locales 免生 churn）；README L12 括号顺手补「两个默认档分区——分组开关清单，默认折叠」（主会话一行修正）。
+  - 沉淀回流清单与 R4–R6 已追加进 `tasks.md` 附录（并行变更共存纪律、ASCII 探针、验证句粒度意图判定）。
 
 ---
 

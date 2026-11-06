@@ -651,7 +651,7 @@ function statusText(reading: PanelReading): string {
   const lines: string[] = []
 
   // 段 1：本会话开关。每条关闭地址按 matched 分两态（已关闭 / 已记录），这是
-  // 「全局层有、本会话关」与「从未注册」在输出上的唯一区别。技能地址的单位是「个技能」，
+  // 「本会话命中」与「本会话暂无匹配」在输出上的唯一区别。技能地址的单位是「个技能」，
   // 不是「个工具定义」，因此单独一行（H11 的 closedStateText 分支）。
   const disabledCount = reading.state.disabled.length
   lines.push(
@@ -685,9 +685,8 @@ function statusText(reading: PanelReading): string {
   // 段 5：可关对象（按 server 分组计数 + 单工具命中数）。
   lines.push(switchableText(reading))
 
-  // 段 6：保护名单 + 被其他作用域隐藏的计数。
+  // 段 6：保护名单（状态摘要的最后一个事实；「被其他作用域隐藏」行已随会话层口径移除）。
   lines.push(`【保护名单】${reading.protectedNames.length} 项：${reading.protectedNames.join('、')}`)
-  lines.push(`  · ${hiddenText(reading)}`)
 
   return lines.join('\n')
 }
@@ -757,7 +756,7 @@ type SkillRow = PanelReading['skills'][number]
 /**
  * 一条关闭地址的两态文案。
  *
- * 工具地址沿用「已关闭 / 已记录（无匹配）」两态；`skill` 地址的单位是技能，且关闭后
+ * 工具地址沿用「已关闭 / 已记录（本会话暂无匹配）」两态；`skill` 地址的单位是技能，且关闭后
  * 仍保留 `<技能名>` 的手动调用入口（D5），因此走 H11 的专用分支。
  *
  * 「模型是否真的看不见」以技能行（层读数）为准，不以工具命中数为准：技能不是工具注册名，
@@ -780,7 +779,7 @@ function closedStateText(entry: ClosedAddressReading, skills: readonly SkillRow[
   }
   return entry.matched > 0
     ? `已关闭${entry.shadowed ? '，服务器指令段已遮蔽' : ''}`
-    : '已记录：当前无注册工具匹配；服务器上线后自动生效'
+    : '已记录：本会话当前没有匹配的工具定义；它出现在本会话后自动生效'
 }
 
 /**
@@ -884,10 +883,14 @@ function workspaceUnresolvedText(session: SessionLike): string {
  *
  * 刻意**不**展开工具清单（D6：回执只报计数与代价形状）：一台服务器可能有 70 个工具，
  * 回执会被撑爆；清单由 Web 面板（9.3）按需展示。
+ *
+ * 会话层缺席时**不能**把清单读数当成空清单：那会把「读不到本会话的工具清单」说成本会话
+ * 没有可关对象。两态由此分开——层未就绪 → 显式降级一行；层在但清单为空 → 正常的 0 计数。
  * @param reading - 读数。
  * @returns 一行文案。
  */
 function switchableText(reading: PanelReading): string {
+  if (!reading.layerReady) return '【可关对象】会话层未就绪：无法读取本会话的工具清单'
   const groups = reading.serverGroups
   const servers =
     groups.length === 0
@@ -901,19 +904,6 @@ function switchableText(reading: PanelReading): string {
     + (protectedCount === 0 ? '' : `（其中 ${protectedCount} 个受保护）`)
   const singleTools = reading.closed.filter((entry) => entry.kind === 'mcp-tool').length
   return `【可关对象】${servers}；${builtin}；单工具关闭 ${singleTools} 项`
-}
-
-/**
- * 「被其他作用域隐藏」的计数行。
- *
- * 这一行与「本会话已关」是两件不同的事：名字在全局层注册过、但本 agent 视角看不到，
- * 说明它被别的机制（如 project-mcp 的工作区隔离）掩掉了；本插件不能把它「开回来」。
- * @param reading - 读数。
- * @returns 一行文案。
- */
-function hiddenText(reading: PanelReading): string {
-  if (!reading.layerReady) return '会话层未就绪：无法读取「被其他作用域隐藏」的计数'
-  return `被其他作用域隐藏 ${reading.hiddenByOthers.length} 个工具定义（全局层有、本会话不可见）`
 }
 
 /**

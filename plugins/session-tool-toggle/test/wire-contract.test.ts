@@ -65,7 +65,7 @@ import type { PanelSnapshot as HostPanelSnapshot } from '../src/host/panel.ts'
 /* ────────────────────────────── 夹具 ────────────────────────────── */
 
 /**
- * 一份"什么都带上"的合法快照：MCP 组（含描述 / 被隐藏 / 已关三种条目）、skill 组
+ * 一份"什么都带上"的合法快照：MCP 组（含描述 / 已关两种条目）、skill 组
  * （保护）、builtin 组（保护 + 保留 + 组地址 null），外加两个提示码。
  */
 const SNAPSHOT: PanelSnapshot = {
@@ -94,7 +94,6 @@ const SNAPSHOT: PanelSnapshot = {
           disabled: false,
           protected: false,
           reserved: false,
-          shadowed: false,
           description: '取当前用户',
         },
         {
@@ -104,7 +103,6 @@ const SNAPSHOT: PanelSnapshot = {
           disabled: true,
           protected: false,
           reserved: false,
-          shadowed: true,
         },
       ],
     },
@@ -123,7 +121,6 @@ const SNAPSHOT: PanelSnapshot = {
           disabled: false,
           protected: true,
           reserved: false,
-          shadowed: false,
         },
       ],
     },
@@ -142,7 +139,6 @@ const SNAPSHOT: PanelSnapshot = {
           disabled: false,
           protected: true,
           reserved: true,
-          shadowed: false,
         },
       ],
     },
@@ -155,9 +151,8 @@ const SNAPSHOT: PanelSnapshot = {
     readable: true,
     corrupt: false,
   },
-  hiddenByOthers: ['tool:mcp__x__y'],
   intentOnly: ['mcp:gone'],
-  stats: { visible: 12, catalog: 214, denied: 2, shadowed: 1 },
+  stats: { visible: 12, denied: 2 },
   notices: ['persistence-degraded', 'session-subagent'],
   skills: [
     { name: 'openspec-propose', description: '提案工作流', disabled: true, shadowed: true },
@@ -203,7 +198,44 @@ const DEFAULTS_VALUE: DefaultsValue = {
   changed: ['mcp:b', 'tool:skill'],
 }
 
-/** `workspace` 的成功值：目标工作区视图 + 下拉可选项 + 实际写入项。 */
+/**
+ * 会话视角的工具宇宙最小样本（三组各一条：MCP 一条带描述、技能一条、内置工具一条）；
+ * 三组顺序即契约要求（mcp → skill → builtin）。
+ */
+const WORKSPACE_UNIVERSE: NonNullable<WorkspaceValue['universe']> = {
+  layerReady: true,
+  skillsAvailable: true,
+  groups: [
+    {
+      kind: 'mcp',
+      key: 'yunxiao',
+      address: 'mcp:yunxiao',
+      tools: [
+        {
+          address: 'mcp:yunxiao::get_current_user',
+          shortName: 'get_current_user',
+          description: '取当前用户',
+          protected: false,
+          reserved: false,
+        },
+      ],
+    },
+    {
+      kind: 'skill',
+      key: 'skill',
+      address: 'tool:skill',
+      tools: [{ address: 'skill:skill-creator', shortName: 'skill-creator', protected: false, reserved: false }],
+    },
+    {
+      kind: 'builtin',
+      key: 'builtin',
+      address: null,
+      tools: [{ address: 'tool:bash', shortName: 'bash', protected: true, reserved: false }],
+    },
+  ],
+}
+
+/** `workspace` 的成功值：目标工作区视图 + 下拉可选项 + 实际写入项 + 会话视角宇宙。 */
 const WORKSPACE_VALUE: WorkspaceValue = {
   workspace: {
     key: '/home/u/develop/proj',
@@ -219,6 +251,7 @@ const WORKSPACE_VALUE: WorkspaceValue = {
     { key: '/home/u/develop/other', title: 'other' },
   ],
   changed: ['mcp:b'],
+  universe: WORKSPACE_UNIVERSE,
 }
 
 /* ────────────────────────────── 助手 ────────────────────────────── */
@@ -732,6 +765,47 @@ describe('parsePanelSnapshot：合法快照', () => {
     expect(parsePanelSnapshot(plain(SNAPSHOT))).toStrictEqual({ ok: true, value: SNAPSHOT })
   })
 
+  it('统计只有 visible / denied 两个计数（会话级目录口径）', () => {
+    const result = parsePanelSnapshot(plain(SNAPSHOT))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.stats).toStrictEqual({ visible: 12, denied: 2 })
+  })
+
+  it('顶层键集合恰为契约字段（已删字段不再回潮）', () => {
+    const result = parsePanelSnapshot(plain(SNAPSHOT))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(Object.keys(result.value).sort()).toEqual([
+      'createdAt',
+      'defaults',
+      'groups',
+      'intentOnly',
+      'notices',
+      'protectedNames',
+      'sessionId',
+      'skills',
+      'state',
+      'stats',
+      'workspace',
+    ])
+  })
+
+  it('工具条目恰有七个键（旧可见性字段不再回潮）', () => {
+    const result = parsePanelSnapshot(plain(SNAPSHOT))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(Object.keys(result.value.groups[0].tools[0]).sort()).toEqual([
+      'address',
+      'description',
+      'disabled',
+      'name',
+      'protected',
+      'reserved',
+      'shortName',
+    ])
+  })
+
   it('无描述的条目不带 description 键（可选字段不被伪造）', () => {
     const result = parsePanelSnapshot(plain(SNAPSHOT))
     expect(result.ok).toBe(true)
@@ -749,11 +823,7 @@ describe('parsePanelSnapshot：合法快照', () => {
   })
 
   it('空分组 / 空关闭集 / 无提示也是合法快照', () => {
-    const empty = setAt(
-      setAt(setAt(setAt(SNAPSHOT, 'groups', []), 'state.disabled', []), 'notices', []),
-      'hiddenByOthers',
-      [],
-    )
+    const empty = setAt(setAt(setAt(SNAPSHOT, 'groups', []), 'state.disabled', []), 'notices', [])
     const result = parsePanelSnapshot(empty)
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -847,9 +917,8 @@ describe('parsePanelSnapshot：strict 拒绝', () => {
     { name: 'defaults.path 为空串', raw: setAt(SNAPSHOT, 'defaults.path', '') },
     { name: 'defaults.corrupt 不是布尔值', raw: setAt(SNAPSHOT, 'defaults.corrupt', 'no') },
     { name: 'defaults 带未知字段', raw: setAt(SNAPSHOT, 'defaults.mtime', 1), fragment: /未知字段：mtime/ },
-    { name: 'hiddenByOthers 含 null', raw: setAt(SNAPSHOT, 'hiddenByOthers', ['tool:a', null]) },
     { name: 'intentOnly 不是数组', raw: setAt(SNAPSHOT, 'intentOnly', 'mcp:gone') },
-    { name: 'stats 缺 shadowed', raw: dropAt(SNAPSHOT, 'stats.shadowed'), fragment: /shadowed/ },
+    { name: 'stats 缺 denied（必填计数）', raw: dropAt(SNAPSHOT, 'stats.denied'), fragment: /denied/ },
     { name: 'stats.denied 为负', raw: setAt(SNAPSHOT, 'stats.denied', -1) },
     { name: 'stats 带未知字段', raw: setAt(SNAPSHOT, 'stats.total', 214), fragment: /未知字段：total/ },
     { name: 'notices 含未知码', raw: setAt(SNAPSHOT, 'notices', ['unknown']), fragment: /不是已知取值/ },
@@ -876,6 +945,22 @@ describe('parsePanelSnapshot：strict 拒绝', () => {
     { name: 'workspace 带未知字段', raw: setAt(SNAPSHOT, 'workspace.size', 1), fragment: /未知字段：size/ },
     { name: '未知快照键 groupsX', raw: setAt(SNAPSHOT, 'groupsX', []), fragment: /未知字段：groupsX/ },
     { name: '顶层未知字段 extra', raw: setAt(SNAPSHOT, 'extra', true), fragment: /未知字段：extra/ },
+  ])
+})
+
+describe('parsePanelSnapshot：旧形状出现即拒绝', () => {
+  runRejected(parsePanelSnapshot, [
+    { name: 'stats.catalog（旧四计数）', raw: setAt(SNAPSHOT, 'stats.catalog', 9), fragment: /catalog/ },
+    {
+      name: '工具条目的旧可见性字段',
+      raw: setAt(SNAPSHOT, 'groups.0.tools.0.shadowed', false),
+      fragment: /shadowed/,
+    },
+    {
+      name: 'hiddenByOthers（旧顶层字段）',
+      raw: setAt(SNAPSHOT, 'hiddenByOthers', []),
+      fragment: /hiddenByOthers/,
+    },
   ])
 })
 
@@ -994,12 +1079,111 @@ describe('parseWorkspaceValue：工作区档视图', () => {
     expect(result.value.workspace === null ? undefined : 'title' in result.value.workspace).toBe(false)
   })
 
+  it('universe 带会话视角的三组（mcp → skill → builtin）与行地址', () => {
+    // G7 出口断言：合法样本必须读出宇宙，且组序与行地址原样保留。
+    const parsed = parseWorkspaceValue(plain(WORKSPACE_VALUE))
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(parsed.value.universe?.groups.map((group) => group.kind)).toEqual(['mcp', 'skill', 'builtin'])
+    expect(parsed.value.universe?.groups[0].tools[0].address).toBe('mcp:yunxiao::get_current_user')
+    expect(parsed.value.universe?.groups[2].address).toBeNull()
+  })
+
+  it('universe 为 null 合法（{workspacePath} 寻址没有会话视角）', () => {
+    const result = parseWorkspaceValue(setAt(WORKSPACE_VALUE, 'universe', null))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.universe).toBeNull()
+  })
+
+  it('universe 层未就绪是合法读数（layerReady:false 而非 null）', () => {
+    const notReady = setAt(setAt(WORKSPACE_VALUE, 'universe.layerReady', false), 'universe.skillsAvailable', false)
+    const result = parseWorkspaceValue(setAt(notReady, 'universe.groups', []))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.universe).toStrictEqual({ layerReady: false, skillsAvailable: false, groups: [] })
+  })
+
   runRejected(parseWorkspaceValue, [
     { name: '成功值是数组', raw: [] },
     { name: '成功值是 null', raw: null },
     { name: '缺 workspace', raw: dropAt(WORKSPACE_VALUE, 'workspace'), fragment: /不是对象/ },
     { name: '缺 choices', raw: dropAt(WORKSPACE_VALUE, 'choices'), fragment: /choices 不是数组/ },
     { name: '缺 changed', raw: dropAt(WORKSPACE_VALUE, 'changed'), fragment: /changed 不是数组/ },
+    {
+      name: '缺 universe（新增字段不可缺省，null 也必须显式给出）',
+      raw: dropAt(WORKSPACE_VALUE, 'universe'),
+      fragment: /universe 不是对象/,
+    },
+    { name: 'universe 不是对象（字符串）', raw: setAt(WORKSPACE_VALUE, 'universe', 'universe') },
+    { name: 'universe 不是对象（数组）', raw: setAt(WORKSPACE_VALUE, 'universe', []) },
+    {
+      name: 'universe 缺 layerReady',
+      raw: dropAt(WORKSPACE_VALUE, 'universe.layerReady'),
+      fragment: /layerReady 不是布尔值/,
+    },
+    {
+      name: 'universe 带未知字段',
+      raw: setAt(WORKSPACE_VALUE, 'universe.version', 1),
+      fragment: /未知字段：version/,
+    },
+    {
+      name: 'universe.skillsAvailable 不是布尔值',
+      raw: setAt(WORKSPACE_VALUE, 'universe.skillsAvailable', 'yes'),
+    },
+    { name: 'universe.groups 不是数组', raw: setAt(WORKSPACE_VALUE, 'universe.groups', {}) },
+    { name: 'universe 分组不是对象', raw: setAt(WORKSPACE_VALUE, 'universe.groups.0', 'mcp') },
+    {
+      name: 'universe.groups[].kind 非枚举（server）',
+      raw: setAt(WORKSPACE_VALUE, 'universe.groups.0.kind', 'server'),
+      fragment: /不是已知取值/,
+    },
+    {
+      name: 'universe 分组 key 为空串',
+      raw: setAt(WORKSPACE_VALUE, 'universe.groups.0.key', ''),
+      fragment: /为空/,
+    },
+    {
+      name: 'universe 分组缺 address（builtin 组必须显式 null）',
+      raw: dropAt(WORKSPACE_VALUE, 'universe.groups.2.address'),
+      fragment: /不是字符串或 null/,
+    },
+    { name: 'universe 分组地址不是字符串或 null', raw: setAt(WORKSPACE_VALUE, 'universe.groups.0.address', 1) },
+    {
+      name: 'universe 分组带未知字段',
+      raw: setAt(WORKSPACE_VALUE, 'universe.groups.0.toolCount', 1),
+      fragment: /未知字段：toolCount/,
+    },
+    { name: 'universe 组内 tools 不是数组', raw: setAt(WORKSPACE_VALUE, 'universe.groups.0.tools', {}) },
+    { name: 'universe 条目不是对象', raw: setAt(WORKSPACE_VALUE, 'universe.groups.0.tools.0', 'get_current_user') },
+    {
+      name: '组内 tools[].address 为空串',
+      raw: setAt(WORKSPACE_VALUE, 'universe.groups.0.tools.0.address', ''),
+      fragment: /为空/,
+    },
+    {
+      name: 'universe 条目 shortName 为空串',
+      raw: setAt(WORKSPACE_VALUE, 'universe.groups.0.tools.0.shortName', ''),
+      fragment: /为空/,
+    },
+    {
+      name: 'universe 条目 protected 不是布尔值',
+      raw: setAt(WORKSPACE_VALUE, 'universe.groups.0.tools.0.protected', 'no'),
+    },
+    {
+      name: 'universe 条目带未知字段（entry 多键）',
+      raw: setAt(WORKSPACE_VALUE, 'universe.groups.0.tools.0.extra', 1),
+      fragment: /未知字段：extra/,
+    },
+    {
+      name: 'universe 条目描述超长（161 > 160）',
+      raw: setAt(
+        WORKSPACE_VALUE,
+        'universe.groups.0.tools.0.description',
+        'd'.repeat(DESCRIPTION_MAX_LENGTH + 1),
+      ),
+      fragment: /超过 160 字符/,
+    },
     { name: 'choices 不是数组', raw: setAt(WORKSPACE_VALUE, 'choices', {}) },
     { name: '下拉项不是对象', raw: setAt(WORKSPACE_VALUE, 'choices.0', '/w') },
     { name: '下拉项缺 title', raw: dropAt(WORKSPACE_VALUE, 'choices.0.title') },

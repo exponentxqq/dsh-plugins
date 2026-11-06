@@ -256,8 +256,6 @@ export interface ToolEntry {
   readonly protected: boolean
   /** 保留名（如 `run_code`，restrict 拒绝）。 */
   readonly reserved: boolean
-  /** 全局层有、本会话看不见（被别的作用域隐藏）。 */
-  readonly shadowed: boolean
   /** 描述首 {@link DESCRIPTION_MAX_LENGTH} 字符（已截断），缺省表示无描述。 */
   readonly description?: string
 }
@@ -308,16 +306,12 @@ export interface DefaultsView {
   readonly corrupt: boolean
 }
 
-/** 面板摘要的四计数。 */
+/** 面板摘要的两计数。 */
 export interface StatsView {
   /** 本会话当前可见工具数（掩码后）。 */
   readonly visible: number
-  /** 全局层（不受任何 agent 限制）名字数。 */
-  readonly catalog: number
   /** 当前 deny 名字数（= 掩码实际生效量）。 */
   readonly denied: number
-  /** `hiddenByOthers.length` 的镜像，省一次客户端计算。 */
-  readonly shadowed: number
 }
 
 /** footer 下拉的一项。 */
@@ -372,11 +366,9 @@ export interface PanelSnapshot {
   readonly protectedNames: readonly string[]
   /** 默认档视图（同一次事务内读，避免两段式漂移）。 */
   readonly defaults: DefaultsView
-  /** 全局层有、本会话看不到的名字（两态区分的第二态）。 */
-  readonly hiddenByOthers: readonly string[]
   /** 关闭集里当前命中 0 个注册名的地址（"意图已记录、暂无匹配"）。 */
   readonly intentOnly: readonly string[]
-  /** 四计数。 */
+  /** 两计数。 */
   readonly stats: StatsView
   /** 降级 / 子代理提示码。 */
   readonly notices: readonly NoticeView[]
@@ -438,7 +430,45 @@ export interface DefaultsValue {
   readonly changed: readonly string[]
 }
 
-/** `workspace` 端点的成功值：目标工作区视图 + 下拉可选项 + 实际写入项。 */
+/* ────────────────────────── 默认档宇宙（分组开关界面，§3.15） ────────────────────────── */
+
+/** 默认档分组界面的一条可切换条目（目标无关：用户级档与工作区档共用）。 */
+export interface DefaultsEntry {
+  /** 规范形地址（行地址：`mcp:<server>::<tool>` / `skill:<name>` / `tool:<name>`）。 */
+  readonly address: string
+  /** 展示用短名（MCP 为 public 后缀；技能与内置工具为名字本身）。 */
+  readonly shortName: string
+  /** 描述首 160 字符；缺省 = 无描述（已关且本会话读不到 schema 描述）。 */
+  readonly description?: string
+  /** 在生效保护名单内（写路径会拒绝）。 */
+  readonly protected: boolean
+  /** 注册表保留名（`run_code`）：`restrict` 拒绝，永远不可关。 */
+  readonly reserved: boolean
+}
+
+/** 一个默认档分组。`kind:'skill'` 的行是 `skill:<name>`，组地址是 `tool:skill`。 */
+export interface DefaultsGroup {
+  /** 分组来源（与 `ToolGroupKind` 同取值域）。 */
+  readonly kind: 'mcp' | 'skill' | 'builtin'
+  /** 分组键：MCP = serverName；skill = `skill`；builtin = `builtin`。 */
+  readonly key: string
+  /** 整组开关的地址；`builtin` 不可整组关 → `null`。 */
+  readonly address: string | null
+  /** 组内可切换条目（按地址升序）。 */
+  readonly tools: readonly DefaultsEntry[]
+}
+
+/** 本会话视角的工具宇宙（`{sessionId}` 寻址的 `workspace` 响应携带）。 */
+export interface DefaultsUniverse {
+  /** 会话层读数是否可用（false = 读不到清单，界面只能展示残留区）。 */
+  readonly layerReady: boolean
+  /** 技能服务是否可用（false = 技能组只保留 `tool:skill` 组开关 + 降级提示）。 */
+  readonly skillsAvailable: boolean
+  /** 分组（MCP 组按 server 升序 → 技能组 → 内置工具组；空组不出现）。 */
+  readonly groups: readonly DefaultsGroup[]
+}
+
+/** `workspace` 端点的成功值：目标工作区视图 + 下拉可选项 + 实际写入项 + 会话视角宇宙。 */
 export interface WorkspaceValue {
   /** 目标工作区视图；`null` = cwd 无法归属 / 路径未登记。 */
   readonly workspace: WorkspaceView | null
@@ -446,6 +476,11 @@ export interface WorkspaceValue {
   readonly choices: readonly WorkspaceChoice[]
   /** 本次实际写入的规范形地址（`read` 时为空数组）。 */
   readonly changed: readonly string[]
+  /**
+   * 会话视角的工具宇宙；`{workspacePath}` 寻址时为 `null`。
+   * 层读数不可用时**非 null**，而是 `layerReady:false`。
+   */
+  readonly universe: DefaultsUniverse | null
 }
 
 /* ────────────────────────── 失败细节（§2.3 details 表） ────────────────────────── */
@@ -989,7 +1024,6 @@ const TOOL_ENTRY_KEYS = [
   'disabled',
   'protected',
   'reserved',
-  'shadowed',
   'description',
 ] as const
 
@@ -1003,13 +1037,22 @@ const STATE_VIEW_KEYS = ['disabled', 'snapshot', 'seeded', 'updatedAt', 'storeKi
 const DEFAULTS_VIEW_KEYS = ['version', 'disabled', 'path', 'readable', 'corrupt'] as const
 
 /** `StatsView` 的字段集（strict）。 */
-const STATS_VIEW_KEYS = ['visible', 'catalog', 'denied', 'shadowed'] as const
+const STATS_VIEW_KEYS = ['visible', 'denied'] as const
 
 /** `WorkspaceChoice` 的字段集（strict）。 */
 const WORKSPACE_CHOICE_KEYS = ['key', 'title'] as const
 
 /** `WorkspaceView` 的字段集（strict）。 */
 const WORKSPACE_VIEW_KEYS = ['key', 'title', 'registered', 'disabled', 'path', 'readable', 'corrupt'] as const
+
+/** `DefaultsEntry` 的字段集（strict）。 */
+const DEFAULTS_ENTRY_KEYS = ['address', 'shortName', 'description', 'protected', 'reserved'] as const
+
+/** `DefaultsGroup` 的字段集（strict）。 */
+const DEFAULTS_GROUP_KEYS = ['kind', 'key', 'address', 'tools'] as const
+
+/** `DefaultsUniverse` 的字段集（strict）。 */
+const DEFAULTS_UNIVERSE_KEYS = ['layerReady', 'skillsAvailable', 'groups'] as const
 
 /** `SkillView` 的字段集（strict）。 */
 const SKILL_VIEW_KEYS = ['name', 'description', 'disabled', 'shadowed'] as const
@@ -1022,7 +1065,6 @@ const PANEL_SNAPSHOT_KEYS = [
   'groups',
   'protectedNames',
   'defaults',
-  'hiddenByOthers',
   'intentOnly',
   'stats',
   'notices',
@@ -1066,8 +1108,6 @@ function readToolEntry(value: unknown, subject: string): Parsed<ToolEntry> {
   if (!isProtected.ok) return isProtected
   const reserved = readBooleanField(record, 'reserved', subject)
   if (!reserved.ok) return reserved
-  const shadowed = readBooleanField(record, 'shadowed', subject)
-  if (!shadowed.ok) return shadowed
   const description = readOptionalStringField(record, 'description', subject, {
     maxLength: DESCRIPTION_MAX_LENGTH,
   })
@@ -1079,7 +1119,6 @@ function readToolEntry(value: unknown, subject: string): Parsed<ToolEntry> {
     disabled: disabled.value,
     protected: isProtected.value,
     reserved: reserved.value,
-    shadowed: shadowed.value,
     // 可选字段只在确实带了描述时出现：面板用 `description === undefined` 判断有无描述，
     // 伪造一个 `description: undefined` 的键会让 `Object.keys` / JSON 序列化多一项。
     ...(description.value === undefined ? {} : { description: description.value }),
@@ -1193,7 +1232,7 @@ function readDefaultsView(value: unknown, subject: string): Parsed<DefaultsView>
 }
 
 /**
- * 校验四计数。
+ * 校验两计数。
  * @param value - 原始值。
  * @param subject - 字段路径前缀。
  * @returns 统计视图，或不合契约的原因。
@@ -1204,19 +1243,13 @@ function readStatsView(value: unknown, subject: string): Parsed<StatsView> {
   const record = object.value
   const visible = readCountField(record, 'visible', subject)
   if (!visible.ok) return visible
-  const catalog = readCountField(record, 'catalog', subject)
-  if (!catalog.ok) return catalog
   const denied = readCountField(record, 'denied', subject)
   if (!denied.ok) return denied
-  const shadowed = readCountField(record, 'shadowed', subject)
-  if (!shadowed.ok) return shadowed
   return {
     ok: true,
     value: {
       visible: visible.value,
-      catalog: catalog.value,
       denied: denied.value,
-      shadowed: shadowed.value,
     },
   }
 }
@@ -1321,6 +1354,92 @@ function readNullableWorkspaceView(value: unknown, subject: string): Parsed<Work
 }
 
 /**
+ * 校验默认档宇宙里的一条可切换条目。
+ * @param value - 原始值。
+ * @param subject - 字段路径前缀（已含分组与下标）。
+ * @returns 条目，或不合契约的原因。
+ */
+function readDefaultsEntry(value: unknown, subject: string): Parsed<DefaultsEntry> {
+  const object = readStrictObject(value, subject, DEFAULTS_ENTRY_KEYS)
+  if (!object.ok) return object
+  const record = object.value
+  const address = readStringField(record, 'address', subject, { minLength: 1 })
+  if (!address.ok) return address
+  const shortName = readStringField(record, 'shortName', subject, { minLength: 1 })
+  if (!shortName.ok) return shortName
+  // 可选字段缺省不补键：界面用 `description === undefined` 判断有无描述（与 `readToolEntry` 同款）。
+  const description = readOptionalStringField(record, 'description', subject, {
+    maxLength: DESCRIPTION_MAX_LENGTH,
+  })
+  if (!description.ok) return description
+  const isProtected = readBooleanField(record, 'protected', subject)
+  if (!isProtected.ok) return isProtected
+  const reserved = readBooleanField(record, 'reserved', subject)
+  if (!reserved.ok) return reserved
+  return {
+    ok: true,
+    value: {
+      address: address.value,
+      shortName: shortName.value,
+      ...(description.value === undefined ? {} : { description: description.value }),
+      protected: isProtected.value,
+      reserved: reserved.value,
+    },
+  }
+}
+
+/**
+ * 校验一个默认档分组。
+ * @param value - 原始值。
+ * @param subject - 字段路径前缀（已含下标）。
+ * @returns 分组，或不合契约的原因。
+ */
+function readDefaultsGroup(value: unknown, subject: string): Parsed<DefaultsGroup> {
+  const object = readStrictObject(value, subject, DEFAULTS_GROUP_KEYS)
+  if (!object.ok) return object
+  const record = object.value
+  const kind = readEnumField(record, 'kind', subject, TOOL_GROUP_KINDS)
+  if (!kind.ok) return kind
+  const key = readStringField(record, 'key', subject, { minLength: 1 })
+  if (!key.ok) return key
+  const address = readNullableStringField(record, 'address', subject)
+  if (!address.ok) return address
+  const tools = readArrayField(record, 'tools', subject, readDefaultsEntry)
+  if (!tools.ok) return tools
+  return {
+    ok: true,
+    value: { kind: kind.value, key: key.value, address: address.value, tools: tools.value },
+  }
+}
+
+/**
+ * 校验可空的默认档宇宙（`null` = `{workspacePath}` 寻址，没有会话视角）。
+ * @param value - 原始值。
+ * @param subject - 字段路径前缀。
+ * @returns 宇宙、`null`，或不合契约的原因。
+ */
+function readNullableDefaultsUniverse(value: unknown, subject: string): Parsed<DefaultsUniverse | null> {
+  if (value === null) return { ok: true, value: null }
+  const object = readStrictObject(value, subject, DEFAULTS_UNIVERSE_KEYS)
+  if (!object.ok) return object
+  const record = object.value
+  const layerReady = readBooleanField(record, 'layerReady', subject)
+  if (!layerReady.ok) return layerReady
+  const skillsAvailable = readBooleanField(record, 'skillsAvailable', subject)
+  if (!skillsAvailable.ok) return skillsAvailable
+  const groups = readArrayField(record, 'groups', subject, readDefaultsGroup)
+  if (!groups.ok) return groups
+  return {
+    ok: true,
+    value: {
+      layerReady: layerReady.value,
+      skillsAvailable: skillsAvailable.value,
+      groups: groups.value,
+    },
+  }
+}
+
+/**
  * 校验面板快照（`panel` 的成功值，也是 `toggle` / `reset` 成功值里的 `snapshot`）。
  *
  * 快照**不携带**工具入参 schema（`parameters`）：面板不展示入参，携带它会让响应体积
@@ -1345,8 +1464,6 @@ function readPanelSnapshot(value: unknown, subject: string): Parsed<PanelSnapsho
   if (!protectedNames.ok) return protectedNames
   const defaults = readDefaultsView(record['defaults'], `${subject}.defaults`)
   if (!defaults.ok) return defaults
-  const hiddenByOthers = readStringArrayField(record, 'hiddenByOthers', subject)
-  if (!hiddenByOthers.ok) return hiddenByOthers
   const intentOnly = readStringArrayField(record, 'intentOnly', subject)
   if (!intentOnly.ok) return intentOnly
   const stats = readStatsView(record['stats'], `${subject}.stats`)
@@ -1366,7 +1483,6 @@ function readPanelSnapshot(value: unknown, subject: string): Parsed<PanelSnapsho
       groups: groups.value,
       protectedNames: protectedNames.value,
       defaults: defaults.value,
-      hiddenByOthers: hiddenByOthers.value,
       intentOnly: intentOnly.value,
       stats: stats.value,
       notices: notices.value,
@@ -1495,16 +1611,17 @@ export function parseDefaultsValue(raw: unknown): Parsed<DefaultsValue> {
 }
 
 /**
- * 校验 `workspace` 端点的成功值（目标工作区视图 + 下拉可选项 + 实际写入项）。
+ * 校验 `workspace` 端点的成功值（目标工作区视图 + 下拉可选项 + 实际写入项 + 会话视角宇宙）。
  *
  * `workspace` 为 `null` 是合法读数（cwd 无法归属 / 无 registry）：面板按空档展示，
- * 不把它当响应损坏。
+ * 不把它当响应损坏。`universe` 同理由 {@link readNullableDefaultsUniverse} 处理，
+ * 但**键本身必填**（`null` 合法）：旧响应一律拒绝，沿 D-14 的版本漂移报警。
  * @param raw - 端点返回的原始值。
  * @returns 成功值，或不合契约的原因。
  */
 export function parseWorkspaceValue(raw: unknown): Parsed<WorkspaceValue> {
   const subject = 'workspace 响应'
-  const object = readStrictObject(raw, subject, ['workspace', 'choices', 'changed'] as const)
+  const object = readStrictObject(raw, subject, ['workspace', 'choices', 'changed', 'universe'] as const)
   if (!object.ok) return object
   const workspace = readNullableWorkspaceView(object.value['workspace'], `${subject}.workspace`)
   if (!workspace.ok) return workspace
@@ -1512,7 +1629,17 @@ export function parseWorkspaceValue(raw: unknown): Parsed<WorkspaceValue> {
   if (!choices.ok) return choices
   const changed = readStringArrayField(object.value, 'changed', subject, { itemMinLength: 1 })
   if (!changed.ok) return changed
-  return { ok: true, value: { workspace: workspace.value, choices: choices.value, changed: changed.value } }
+  const universe = readNullableDefaultsUniverse(object.value['universe'], `${subject}.universe`)
+  if (!universe.ok) return universe
+  return {
+    ok: true,
+    value: {
+      workspace: workspace.value,
+      choices: choices.value,
+      changed: changed.value,
+      universe: universe.value,
+    },
+  }
 }
 
 /* ────────────────────────── 失败细节 parser ────────────────────────── */

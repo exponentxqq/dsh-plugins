@@ -47,7 +47,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { WorkspaceAction, WorkspaceRequest, WorkspaceValue } from '../contract.ts'
+import type { DefaultsUniverse, WorkspaceAction, WorkspaceRequest, WorkspaceValue } from '../contract.ts'
 import type { PanelFailure } from './DefaultsEditor.tsx'
 import { WorkspaceDefaultsEditor } from './WorkspaceDefaultsEditor.tsx'
 import { PanelError, type PanelClient } from './panel-client.ts'
@@ -362,6 +362,25 @@ export function WorkspaceDefaultsSection(props: WorkspaceDefaultsSectionProps): 
     initialTarget,
   })
 
+  /**
+   * 跨目标缓存的「上一份宇宙」（W9 / ③ 3.19）。
+   *
+   * 宇宙是**会话视角**的读数：目标切到 `{workspacePath}` 寻址后，响应里的 `universe` 是 `null`
+   * （宿主只按会话合成它）。没有这份缓存，下拉一切换分组清单就整块消失——记住最后一份非空
+   * 宇宙，切目标期间仍能显示清单与三计数（U1 的近似语义，D-18 / W14 记录了已知限制）。
+   *
+   * 不变式：只在「已有非空宇宙」时被写；切目标、写目标、刷新目标都不清空它。
+   */
+  const remembered = useRef<DefaultsUniverse | null>(null)
+  /** 渲染用的宇宙：当前响应优先，被抹成 `null` 时退回缓存（从未读到过才是 `null`）。 */
+  const universe = value?.universe ?? remembered.current
+
+  /** 下拉切换前记住当前宇宙：切到 `{workspacePath}` 后响应里 `universe` 为 null。 */
+  const selectAndRemember = (key: string): void => {
+    if (value?.universe !== undefined && value.universe !== null) remembered.current = value.universe
+    select(key)
+  }
+
   // 挂载即读一次：分节在弹窗打开（`only` 命中本节）时挂载，先把 choices 与当前工作区的档
   // 拉到手；失败也只是节内的一句话。刷新走编辑器 dialog 形态自带的按钮（`onRefresh`）。
   useEffect(() => {
@@ -394,12 +413,13 @@ export function WorkspaceDefaultsSection(props: WorkspaceDefaultsSectionProps): 
         : (
           <WorkspaceDefaultsEditor
             workspace={value.workspace}
+            universe={universe}
             choices={value.choices}
             variant="dialog"
             saving={saving}
             saved={saved}
             failure={failure}
-            onSelect={select}
+            onSelect={selectAndRemember}
             onUpdate={(action, addresses) => {
               void update(action, addresses)
             }}

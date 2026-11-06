@@ -6,16 +6,30 @@
  * 规则都能在单测里用一份入参直接断言，不需要拉起宿主。读取动作（`ctx.tools.schemas()`、
  * 层的 `visibleNames()`、默认档文件）由调用方（9.1 的控制内核）准备好，构建器只负责推导。
  *
- * 推导链写死（附录 §2.5）：
+ * 推导链写死（附录 §2.5，**会话口径**）：
  *
- * 1. 三读并集 `catalog ∪ scoped ∪ carried` 得到候选名（与掩码引擎同一份语义，见 `mask.ts`）；
+ * 1. 候选 = **两读并集 `scoped ∪ carried`**（与掩码引擎同一份语义，见 `mask.ts`）：`scoped`
+ *    是本会话该 agent 视角当前可见的名字，也是「可关对象」的唯一来源；`carried` 是本插件
+ *    上一轮已生效的掩码（`layer.snapshot().deny`），保证已关条目不因第二读缩小而从清单里
+ *    消失。宿主全局层（其它工作区 / 其它 agent 注册的名字）**不参与本模块的任何推导**；
  * 2. 分组：`mcp__<serverName>__<suffix>` 按**首个** `__` 切分（`toolServerOf` 同一条规则），
  *    其余名字里 `skill` 单列「技能」组、剩下的进「内置工具」组；
- * 3. 每条工具四个标记：`disabled`（命中关闭集）/ `protected`（生效保护名单）/
- *    `reserved`（注册表保留名）/ `shadowed`（全局层有、本会话看不见，**且不是本插件掩的**）；
- * 4. `stats` 四计数、`hiddenByOthers`、`intentOnly`、`notices` 汇总；
+ * 3. 每条工具三个标记：`disabled`（命中关闭集）/ `protected`（生效保护名单）/
+ *    `reserved`（注册表保留名）；
+ * 4. `stats` 两计数、`intentOnly`、`notices` 汇总；
  * 5. 两个顶层视图：`skills`（逐技能行，来自 `inputs.skills` 的技能分面读数）与
  *    `workspace`（本会话所属工作区的默认档视图；无法归属时为 `null`）。
+ *
+ * **与 `/inventory` 的两处刻意差异**（D-9：只在文档与提案的预期管理段落写明，面板**不**加
+ * 「本清单只含本会话有效工具」之类的提示行）：两者读的是同一份会话视角（`/inventory` 读
+ * `ctx.tools.schemas(agent)`，面板的 `scoped` 即同一表达式），但面板清单仍比 `/inventory`
+ * 多两类行——
+ *
+ * 1. **已关条目仍在清单里**：`/inventory` 只列当前真的可用的东西；面板为了能把关闭项打开，
+ *    必须继续列出被本插件自己掩掉的名字（`carried` 保底），因此条目数可能多于 `/inventory`；
+ * 2. **多出 `tool:` / `tool:skill` 行**：`/inventory` 只报会话 MCP 服务器与技能；面板还管
+ *    内置工具（`tool:<name>` 的整档行）与技能整档（`tool:skill`），这两类行在 `/inventory`
+ *    里没有对应条目。
  *
  * 关闭集（`state.disabled`）走**全地址归一**：逐条 `parseAddress` 取规范形文本，不再只取
  * `planMask.matched` 的键。工具掩码不认识技能地址（`skill:<name>` 不进 `deny`、也不在
@@ -26,12 +40,6 @@
  * 技能行与工具分组是**互补**关系：`groups` 里的 `skill` 整档行（`kind:'skill'`）保持原样，
  * 逐技能行只出现在顶层 `skills`。技能名不是工具注册名，技能行不能混进 `ToolGroup`，否则该
  * 行只能恒显示「未关闭」，或者迫使技能名进入 `restrict` 的 deny（对未知名字会抛错）。
- *
- * 一条与面板交互直接相关的口径（diff-matrix R18）：「被其他作用域隐藏」= `catalog \ (scoped
- * ∪ carried)`。`carried` 是本插件**已生效**的掩码（`layer.snapshot().deny`），它同样会让名字
- * 从 `scoped` 消失；若把这类名字也算作「被别的作用域隐藏」，用户自己关掉的工具就会同时带
- * `disabled` 与 `shadowed`，而面板对 `shadowed` 行**禁用开关**（附录 §3.3）→ 用户在分组清单
- * 里再也打不开自己关掉的工具（只能绕去关闭集 chip）。因此本插件掩掉的名字必须从差集里排除。
  *
  * 两条刻意的不变量：
  *
@@ -46,6 +54,7 @@
  * @module dsh-plugin-session-tool-toggle/host/panel
  */
 
+import type { DefaultsEntry, DefaultsGroup, DefaultsUniverse } from '../contract.ts'
 import { PROTECTED_BASELINE, formatAddress, parseAddress } from './address.ts'
 import type { SwitchAddress } from './address.ts'
 import { planMask } from './mask.ts'
@@ -54,6 +63,7 @@ import type {
   PanelInputs,
   SkillLayerSnapshot,
   StoreKind,
+  VisibleToolSchema,
   WorkspacePanelInputs,
 } from './types.ts'
 
@@ -127,13 +137,6 @@ export interface ToolEntry {
   readonly protected: boolean
   /** 注册表保留名（如 `run_code`）：`restrict` 会拒绝，永远不可关。 */
   readonly reserved: boolean
-  /**
-   * 全局层有、本会话看不见，**且不是本插件掩掉的**（`catalog \ (scoped ∪ carried)`，R18）。
-   *
-   * 本插件已生效的掩码（`carried`）造成的「看不见」不算：它由用户自己的开关决定，面板
-   * 必须让这一行的开关可点，用户才能把工具打开。
-   */
-  readonly shadowed: boolean
   /** 描述首 160 字符（已截断）；缺省表示无描述。**绝不**携带 `parameters`。 */
   readonly description?: string
 }
@@ -214,16 +217,12 @@ export interface DefaultsView {
   readonly corrupt: boolean
 }
 
-/** 统计四计数（`PanelSnapshotSchema.stats` 的宿主侧形状）。 */
+/** 统计两计数（`PanelSnapshotSchema.stats` 的宿主侧形状）。 */
 export interface Stats {
-  /** 本会话当前可见工具数（掩码后）。 */
+  /** 候选（`scoped ∪ carried` 去重）里掩码后仍可见的名字数（= 候选 − deny）。 */
   readonly visible: number
-  /** 全局层（不受任何 agent 限制）名字数。 */
-  readonly catalog: number
   /** 当前 deny 名字数（= 掩码实际生效量）。 */
   readonly denied: number
-  /** `hiddenByOthers.length` 的镜像，省一次客户端计算。 */
-  readonly shadowed: number
 }
 
 /**
@@ -249,8 +248,6 @@ export interface PanelSnapshot {
   readonly protectedNames: readonly string[]
   /** 用户级默认档视图。 */
   readonly defaults: DefaultsView
-  /** 全局层有、本会话看不到的名字（`catalog \ (scoped ∪ carried)`，已排序；R18）。 */
-  readonly hiddenByOthers: readonly string[]
   /**
    * 关闭集里当前匹配不到的地址（「意图已记录、暂无匹配」）。
    *
@@ -258,7 +255,7 @@ export interface PanelSnapshot {
    * **无安装**（既不在 `visible` 也不在 `shadowed`）。
    */
   readonly intentOnly: readonly string[]
-  /** 统计四计数。 */
+  /** 统计两计数。 */
   readonly stats: Stats
   /** 降级 / 提示码（已去重、按固定顺序）。 */
   readonly notices: readonly Notice[]
@@ -274,34 +271,21 @@ export interface PanelSnapshot {
  * 纯函数：只读 `inputs`，不修改其中任何数组 / Map，同一输入两次调用返回深相等的两份结果。
  * 不抛错：损坏的关闭集条目由 {@link planMask} 静默跳过，未知 serverName / 工具名只是不进
  * 分组或不命中（C10 宽容），空输入得到一份全空的快照。
- * @param inputs - 宿主侧已读到的事实（三读、状态、默认档、保护名单、描述）。
+ * @param inputs - 宿主侧已读到的事实（两读、状态、默认档、保护名单、描述）。
  * @returns 面板快照。
  */
 export function buildPanelSnapshot(inputs: PanelInputs): PanelSnapshot {
-  // 三读并集 → 候选名。排序在分组之前做：各分组桶的插入顺序因此天然按注册名升序，
-  // 不需要对每组再排一次。
-  const candidates = sortedTexts([...inputs.catalog, ...inputs.scoped, ...inputs.carried])
-  const catalogNames = uniqueTexts(inputs.catalog)
-  const scopedNames = uniqueTexts(inputs.scoped)
+  // 两读并集（会话口径）→ 候选名。排序在分组之前做：各分组桶的插入顺序因此天然按注册名
+  // 升序，不需要对每组再排一次。`carried` 只做保底：它不是「可关对象」的新来源，而是让
+  // 上一轮已生效的关闭项继续留在清单里（否则用户再也点不开自己关掉的工具）。
+  const candidates = sortedTexts([...inputs.scoped, ...inputs.carried])
 
   // 与掩码引擎同一份读数：deny / matched 都由它算，面板不与实际掩码各算一遍。
   const plan = planMask({
-    catalog: inputs.catalog,
     scoped: inputs.scoped,
     carried: inputs.carried,
     disabled: inputs.state.disabled,
   })
-
-  // 「被其他作用域隐藏」按 diff-matrix R18 的口径 = `catalog \ (scoped ∪ carried)`：`carried`
-  // 是本插件**已生效**的掩码（`layer.snapshot().deny`），它同样会让名字从 scoped 消失。若把
-  // 它也算作「被其他作用域隐藏」，本会话关掉且已生效的工具会同时带 `disabled` 与 `shadowed`，
-  // 而面板对 shadowed 行禁用开关（附录 §3.3）→ 用户无法在分组清单里把自己关掉的工具打开。
-  // 命令面（`control.ts` 的 `readPanel`）用同一口径，两处不能分叉。
-  const scopedSet = new Set(scopedNames)
-  const carriedSet = new Set(inputs.carried)
-  const hiddenByOthers = sortedTexts(
-    catalogNames.filter((name) => !scopedSet.has(name) && !carriedSet.has(name)),
-  )
 
   // 关闭集：**全地址归一**（逐条 `parseAddress` 取规范形），不再只取 `planMask.matched`
   // 的键。工具掩码刻意不认识技能地址（`skill:<name>` 不进 deny、也不在 matched 里留键，
@@ -326,9 +310,11 @@ export function buildPanelSnapshot(inputs: PanelInputs): PanelSnapshot {
   })
   const intentOnly = sortedTexts([...toolIntentOnly, ...skillIntentOnly])
 
+  // deny 集合：条目的 `disabled` 与 `stats` 的两计数共用这一份，避免「清单已掩、计数未掩」
+  // 这类分叉。`planMask.deny` 恒是候选的子集（只收命中过的候选名）。
+  const deny = new Set(plan.deny)
   const context: EntryContext = {
-    deny: new Set(plan.deny),
-    hidden: new Set(hiddenByOthers),
+    deny,
     protectedNames: new Set(inputs.protectedNames),
     descriptions: inputs.descriptions,
   }
@@ -352,18 +338,212 @@ export function buildPanelSnapshot(inputs: PanelInputs): PanelSnapshot {
       readable: inputs.defaultsReadable,
       corrupt: inputs.defaultsCorrupt,
     },
-    hiddenByOthers,
     intentOnly,
     stats: {
-      visible: scopedNames.length,
-      catalog: catalogNames.length,
+      visible: candidates.filter((name) => !deny.has(name)).length,
       denied: plan.deny.length,
-      shadowed: hiddenByOthers.length,
     },
     notices: noticesOf(inputs),
     skills: skillViewsOf(inputs.skills, closedSkillNames),
     workspace: workspaceViewOf(inputs.workspace),
   }
+}
+
+/* ─────────────────── 默认档分组界面的工具宇宙（目标无关） ─────────────────── */
+
+/**
+ * `buildDefaultsUniverse` 的输入：全部是宿主侧已读到的会话事实。
+ *
+ * 与 {@link PanelInputs} 的差别只在「读了什么」：宇宙不关心关闭集、默认档与工作区归属
+ * ——它只回答「本会话有哪些地址可以被默认档开关打中」，因此不需要状态读数。
+ */
+export interface DefaultsUniverseInputs {
+  /** 会话层是否可用（false = 只有残留区；`schemas` / `carried` 一律忽略）。 */
+  readonly layerReady: boolean
+  /** 本会话可见工具的名字 + 描述（`layer.visibleSchemas()`）。 */
+  readonly schemas: readonly VisibleToolSchema[]
+  /** 上一轮仍受管的名字（`layer.snapshot().deny`；已关条目保留在清单里）。 */
+  readonly carried: readonly string[]
+  /** 技能分面读数（`layer.skills()`；缺席 = 服务不可用）。 */
+  readonly skills?: SkillLayerSnapshot
+  /** 生效保护名单（排序后的文本）。 */
+  readonly protectedNames: ReadonlySet<string>
+}
+
+/** 空宇宙的分组数组（冻结，与空宇宙常量共用一份）。 */
+const NO_GROUPS: readonly DefaultsGroup[] = Object.freeze([])
+
+/**
+ * 层未就绪时的空宇宙：`layerReady:false` 是**读数**而不是错误，界面据此只渲染残留区。
+ *
+ * 冻结且复用同一个引用：本模块对该分支不读入参，调用方也可以直接按引用判断「层没就绪」。
+ */
+const EMPTY_UNIVERSE: DefaultsUniverse = Object.freeze({
+  layerReady: false,
+  skillsAvailable: false,
+  groups: NO_GROUPS,
+})
+
+/**
+ * 构建默认档分组界面的**工具宇宙**（B 的宿主侧唯一宇宙构建器）。
+ *
+ * **目标无关**——用户级默认档（`$DSH_HOME/session-tool-toggle/defaults.json`）与工作区级默认档
+ * （`workspaces.json` 的一个键）共用这一份宇宙：宇宙只由当前会话的两读（`visibleSchemas()` ∪
+ * `snapshot().deny`）与技能分面读数推出，与「正在编辑哪一档」无关，也**不按目标工作区**推导。
+ *
+ * 与 {@link buildPanelSnapshot} 是「同一套判据、两个出口」：分组规则（首个 `__` 切分、`skill`
+ * 单列、其余归内置工具）、三个标记的判据（`protected` / `reserved`）与描述截断
+ * （{@link DESCRIPTION_MAX_LENGTH}）都复用同几个私有件，区别只在出口形状——面板要说「哪条被关
+ * 了」（`disabled` 与两计数），宇宙只要「有哪些可切换的地址」（{@link DefaultsEntry} 没有
+ * `disabled`）。**本函数不改变 `buildPanelSnapshot` 的任何行为**。
+ *
+ * 纯函数：不读时钟、不做 IO、不改入参（`schemas` / `carried` / `protectedNames` 只读），同一
+ * 输入两次调用深相等。
+ * @param inputs - 宿主侧已读到的会话事实。
+ * @returns 宇宙（`layerReady:false` 时是冻结的空宇宙）。
+ */
+export function buildDefaultsUniverse(inputs: DefaultsUniverseInputs): DefaultsUniverse {
+  // 层读不到就是「没有候选可列」：`schemas` / `carried` 此时只是调用方手里上一次读数的残影，
+  // 拿来拼一份看似完整的宇宙会让界面把已经失效的行当成可切换项。
+  if (!inputs.layerReady) return EMPTY_UNIVERSE
+
+  // 候选与面板同源：两读并集、排序去重（`carried` 只做保底，理由见文件顶部注释）。排序在
+  // 分桶之前做：各桶的插入顺序因此天然按注册名升序，不需要对每组再排一次。
+  const candidates = sortedTexts([
+    ...inputs.schemas.map((schema) => schema.name),
+    ...inputs.carried,
+  ])
+
+  // 描述表只由 schema 读数给出：`carried` 只有名字（已关工具读不到 schema），因此残留区 /
+  // carried-only 行天然没有描述可展示。
+  const descriptions = new Map<string, string>()
+  for (const schema of inputs.schemas) descriptions.set(schema.name, schema.description ?? '')
+
+  const servers = new Map<string, DefaultsEntry[]>()
+  const builtin: DefaultsEntry[] = []
+  // 技能组的存在性只看「技能工具本身还在候选里」：它被整档关掉时从 scoped 消失、由
+  // `carried` 带回来，组与组开关因此不会因「用户关过它」而消失。
+  let hasSkill = false
+
+  for (const name of candidates) {
+    const parts = mcpPartsOf(name)
+    if (parts !== undefined) {
+      const entry = defaultsEntryOf(
+        name,
+        parts.suffix,
+        formatAddress({ kind: 'mcp-tool', server: parts.server, pattern: parts.suffix }),
+        descriptions,
+        inputs.protectedNames,
+      )
+      const bucket = servers.get(parts.server)
+      if (bucket === undefined) servers.set(parts.server, [entry])
+      else bucket.push(entry)
+      continue
+    }
+    if (name === SKILL_NAME) {
+      // 组内行**不来自候选**：技能名不是工具注册名，行要从技能分面读数取（见
+      // {@link skillEntriesOf}）。
+      hasSkill = true
+      continue
+    }
+    builtin.push(
+      defaultsEntryOf(
+        name,
+        name,
+        formatAddress({ kind: 'tool', name }),
+        descriptions,
+        inputs.protectedNames,
+      ),
+    )
+  }
+
+  // 组顺序写死：MCP 组按 server 升序 → 技能组 → 内置工具组；空组不出现。
+  const groups: DefaultsGroup[] = []
+  for (const server of Array.from(servers.keys()).sort(compareText)) {
+    const tools = servers.get(server)
+    if (tools === undefined) continue
+    groups.push({
+      kind: 'mcp',
+      key: server,
+      address: formatAddress({ kind: 'mcp-group', server }),
+      tools,
+    })
+  }
+  // 技能组**行空也保留**：`skillsAvailable:false` 时界面只留标题与 `tool:skill` 组开关并给
+  // 降级提示（D-23），组本身仍在，用户仍可整档关闭技能。
+  if (hasSkill) {
+    groups.push({
+      kind: 'skill',
+      key: SKILL_NAME,
+      address: formatAddress({ kind: 'tool', name: SKILL_NAME }),
+      tools: skillEntriesOf(inputs.skills, inputs.protectedNames),
+    })
+  }
+  if (builtin.length > 0) {
+    groups.push({ kind: 'builtin', key: BUILTIN_GROUP_KEY, address: null, tools: builtin })
+  }
+
+  return {
+    layerReady: true,
+    skillsAvailable: inputs.skills?.available === true,
+    groups,
+  }
+}
+
+/**
+ * 造一条宇宙条目：两个标记各查一个集合，描述按需截断（与 `toolEntryOf` 同一套判据）。
+ *
+ * 与 `ToolEntry` 的差别只有「没有 `disabled`」：默认档界面把条目的开关状态与目标档的关闭集
+ * 求交，宇宙本身不带任何档的口径。
+ * @param name - 注册名（MCP 是 public name）。
+ * @param shortName - 展示用短名（MCP 为 public 后缀；技能与内置工具就是名字本身）。
+ * @param address - 该条目自己的规范形地址。
+ * @param descriptions - 描述来源（键是 `name`）；缺省表示没有描述可展示。
+ * @param protectedNames - 生效保护名单。
+ * @returns 宇宙条目（无描述时不带 `description` 键）。
+ */
+function defaultsEntryOf(
+  name: string,
+  shortName: string,
+  address: string,
+  descriptions: ReadonlyMap<string, string> | undefined,
+  protectedNames: ReadonlySet<string>,
+): DefaultsEntry {
+  const description = descriptionOf(name, descriptions)
+  const entry: DefaultsEntry = {
+    address,
+    shortName,
+    protected: protectedNames.has(name),
+    reserved: isReservedName(name),
+  }
+  // 条件展开的理由同 `toolEntryOf`：键存在但值为 undefined 会让「有没有这个字段」依赖访问
+  // 方式（`in` 与 `=== undefined` 给出不同答案）。
+  return description === undefined ? entry : { ...entry, description }
+}
+
+/**
+ * 技能组的行：技能分面读数里模型可调用（`visible`）∪ 已遮蔽（`shadowed`）的技能名。
+ *
+ * 来源与面板的顶层 `skills` 同一份读数（H6）：`visible` 给名字 + 描述，`shadowed` 只给名字
+ * （影子 stub 读不到描述），两集合并集后按名字升序——地址都带同一个 `skill:` 前缀，所以名字
+ * 升序就是地址升序。`skills` 缺席或 `available:false` → 空数组：没有技能服务就没有可信的
+ * 技能行，界面改出降级提示（组开关仍在）。
+ * @param skills - 技能分面读数（可能缺席）。
+ * @param protectedNames - 生效保护名单。
+ * @returns 按地址升序的技能行（可能为空数组）。
+ */
+function skillEntriesOf(
+  skills: SkillLayerSnapshot | undefined,
+  protectedNames: ReadonlySet<string>,
+): readonly DefaultsEntry[] {
+  if (skills === undefined || !skills.available) return []
+
+  const descriptions = new Map<string, string>()
+  for (const row of skills.visible) descriptions.set(row.name, row.description)
+
+  return sortedTexts([...descriptions.keys(), ...skills.shadowed]).map((name) =>
+    defaultsEntryOf(name, name, formatAddress({ kind: 'skill', name }), descriptions, protectedNames),
+  )
 }
 
 /** 一条解析成功的关闭地址：规范形文本 + 地址形状。 */
@@ -471,12 +651,10 @@ function workspaceViewOf(workspace: WorkspacePanelInputs | undefined): Workspace
   }
 }
 
-/** 构造工具条目时共用的只读上下文（把四个集合打包，避免逐条目重建）。 */
+/** 构造工具条目时共用的只读上下文（把三个集合打包，避免逐条目重建）。 */
 interface EntryContext {
   /** 当前 deny 集合（`planMask.deny`，逐条目查 `disabled`）。 */
   readonly deny: ReadonlySet<string>
-  /** 被其他作用域隐藏（已排除本插件掩码）的名字（逐条目查 `shadowed`）。 */
-  readonly hidden: ReadonlySet<string>
   /** 生效保护名单。 */
   readonly protectedNames: ReadonlySet<string>
   /** 描述来源（public name → 原文）；缺省表示没有描述可展示。 */
@@ -488,8 +666,9 @@ interface EntryContext {
  *
  * 只输出**非空**分组：空组在界面上是一行没有内容的标题，纯噪声。MCP 组按 serverName
  * 升序、组内工具按注册名升序（候选名已排序，插入即有序）；skill / builtin 两组固定排在
- * 所有 MCP 组之后，顺序与枚举顺序一致，故整份清单与入参顺序无关。
- * @param candidates - 已排序去重的候选名（三读并集）。
+ * 所有 MCP 组之后，顺序与枚举顺序一致，故整份清单与入参顺序无关。候选只由两读（`scoped`
+ * ∪ `carried`）推出，因此**不存在**「全局层有、本会话被别处隐藏」的组。
+ * @param candidates - 已排序去重的候选名（两读并集，会话口径）。
  * @param context - 条目标记用的只读上下文。
  * @param closed - 规范化关闭集（判断整组是否关闭）。
  * @returns 分组清单（可能为空数组）。
@@ -572,7 +751,7 @@ function groupOf(
 }
 
 /**
- * 造一条工具条目：四个标记各查一个集合，描述按需截断。
+ * 造一条工具条目：三个标记各查一个集合，描述按需截断。
  * @param name - 注册名。
  * @param shortName - 展示用短名。
  * @param address - 该条目自己的规范形地址。
@@ -593,7 +772,6 @@ function toolEntryOf(
     disabled: context.deny.has(name),
     protected: context.protectedNames.has(name),
     reserved: isReservedName(name),
-    shadowed: context.hidden.has(name),
   }
   // 用条件展开而不是 `description: undefined`：键存在但值为 undefined 会让「快照里到底
   // 有没有这个字段」变得依赖访问方式（`in` 与 `=== undefined` 给出不同答案）。
@@ -679,15 +857,6 @@ function noticesOf(inputs: PanelInputs): readonly Notice[] {
   if (inputs.storeKind === 'memory') notices.add('persistence-degraded')
   if (inputs.defaultsCorrupt) notices.add('defaults-corrupt')
   return NOTICE_ORDER.filter((code) => notices.has(code))
-}
-
-/**
- * 去重（保持首次出现序）。
- * @param texts - 文本列表。
- * @returns 去重后的新数组。
- */
-function uniqueTexts(texts: readonly string[]): readonly string[] {
-  return Array.from(new Set(texts))
 }
 
 /**
