@@ -45,6 +45,9 @@
 | D-11 | pm/uc/zcode 三包 `vitest.config.ts` 直接删除（内容全是默认值） | 被否：保留并纳入断言（防不住「升级改 3 处」）；反例：vitest 默认 include 变了会收集 0 用例报绿 → 验收必须比对用例数 |
 | D-12 | 内部包一律 private+0.0.0+仅 devDependencies，AR1 机器断言 | 误入 `dependencies` 本地永远测不出（workspace 内可解析），只有 profile 侧炸 |
 | D-14 | 仓级 ADR 体系 `docs/decisions/`，与 multi-root ADR 两套独立编号、引用带路径 | ADR-0001 推翻「不共享代码」旧结论；ADR-0002 记录 #3 裁定与原子索引纪律 |
+| D-15 | 新建 `tooling/contracts` 纯类型包，座位契约类型权威从 holder（workspace-config）**完全转移**：holder 与三贡献方全部 `import type` 直连 `@dsh-plugins/contracts`，holder 的 `src/client/contract.ts` 退化为文档指针；D2/D3（仅编译期类型依赖、零运行时加载边）与字面量直写断言继续有效，**修订归档决策 D4**（修订记录并入 ADR-0001）；spec 层无需 delta（「降级与安装矩阵」requirement 的「贡献方对持有者的依赖仅限类型」在转移后更成立） | 用户在落档后 grill-me 追认轮拍板（推翻规划期「维持 holder 导出」共识）；被否：维持 holder 导出（权威与版本耦合 holder 发布节奏）、holder re-export 一层（双入口 = 两处事实源） |
+
+**grill-me 追认轮（落档后，2026-11-06）**：①`#3` 裁定追认（值语义 + 诊断，实例说明后确认）；②类型检查形态追认（`tsc -b` → 双 `tsc -p --noEmit`、去 composite）；③变更名追认；④D-7 产物断言上移仓级追认（1.6 表三行 bundle.test 矛盾以 D-7 为准）；⑤stt CSS 去重潜伏 bug 顺手修复追认（产物字节变化属预期，模块词硬断言不变）；⑥CI 覆盖面边界追认（不跑需运行中 dsh 的 smoke）；⑦**contracts 包拍板**（见 D-15，构成落档后 scope 修订）。
 
 落档分歧点裁决（用户已确认）：①stt 第三份日志适配器**纳入** G5（改调 `createLog`）；②CI **加** `pnpm docs:check`；③G4/G5 薄再导出文件**保留**（承载本包真实差异 + 测试零改动即等价证据）；④host-kit/test-kit **不补** `verify:all`（同一批命令跑两遍无增量）；⑤`@types/react` 统一较新值**并修类型**；⑥豁免清单生成化**本次不做**（另案）。
 
@@ -66,7 +69,7 @@ G0 冻结基线（模块词集合快照 + 用例数记录）→ G1 build-kit（�
 ## 逐任务组与接口断言（摘要，全文见 code-design ③⑤）
 
 - 接口形状断言：`buildPlugin(options)` 返回 `{ packageName, kind, dtsOwned, artifacts }`；host-kit 导出 `buildRootIndex`/`lookupIn`/`walkUp`/`RootAttributor`/`WatchIo`/`installTriggers`/`workspaceRoots`/`createLog`/`nodeRealpathIo`/`nodeWatchIo`（零依赖、零 `@deepseek-ai/*` import）；`gen:plugin` 只写文件不跑 git/pnpm；AR1–AR7 / B1–B6 为 `check-architecture.mjs` / `check-artifacts.mjs` 的断言契约。
-- 任务组断言（与 tasks.md 一一对齐）：**G0** 冻结基线且门禁在未改树上全绿；**G1** 六包薄入口 + 模块词集合逐字相等 + multi-root `lib/` 零 diff；**G2** lockfile `packages:` 键集合零差异 + `dsh:upgrade` 幂等 + 红队（改回字面量必红）；**G3** 用例数不减 + `expect(` 计数逐包相等；**G4** 三包接管 + oracle 测试零改动 + `grep -c "@dsh-plugins/" plugins/*/lib/index.js` 全 0；**G5** pm/uc 阶梯用例不改即过 + 日志前缀逐字不变；**G6** 红→绿取证 + `openspec validate --all` 绿；**G7** 红队三连（AR1/AR4/B2）+ CI 等价链本地全绿；**G8** 双 kind 生成演练后 `git status --porcelain` 为空 + 模板零版本字面量；**G-doc-sync** 失效行号引用清零 + 引用路径 `test -e` 全过 + dotfiles 单独 commit。
+- 任务组断言（与 tasks.md 一一对齐）：**G0** 冻结基线且门禁在未改树上全绿；**G1** 六包薄入口 + 模块词集合逐字相等 + multi-root `lib/` 零 diff；**G2** lockfile `packages:` 键集合零差异 + `dsh:upgrade` 幂等 + 红队（改回字面量必红）；**G3** 用例数不减 + `expect(` 计数逐包相等；**G4** 三包接管 + oracle 测试零改动 + `grep -c "@dsh-plugins/" plugins/*/lib/index.js` 全 0 + **contracts 权威转移**（四包 `import type` 直连、holder `contract.ts` 退化为指针、贡献方产物不含 holder/contracts 词）；**G5** pm/uc 阶梯用例不改即过 + 日志前缀逐字不变；**G6** 红→绿取证 + `openspec validate --all` 绿 + ADR 补 D4 修订记录；**G7** 红队三连（AR1/AR4/B2）+ CI 等价链本地全绿；**G8** 双 kind 生成演练后 `git status --porcelain` 为空 + 模板零版本字面量；**G-doc-sync** 失效行号引用清零 + 引用路径 `test -e` 全过 + dotfiles 单独 commit。
 
 ## Open Questions
 

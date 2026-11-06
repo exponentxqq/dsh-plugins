@@ -155,3 +155,23 @@ optimize-architecture
 4. **扩展与守护**：`pnpm gen:plugin` 模板生成命令（Q9）；漂移守护挂 dsh:check（共识）+ 内部包禁入 dependencies 断言（C10）+ kit 治理断言（K2/K3）；最小 GitHub Actions CI（Q10）。
 5. **跨仓**：dsh-plugin-writer skill 同步改版（Q11，dotfiles 仓单独 commit）。
 6. **维持不变**：multi-root 边界（C2）、契约类型包维持 holder 导出（O1 共识）、字面量直写纪律（C9）、git tag 分发与统一版本（C7）、豁免清单生成化纳入任务尾部（O8）。
+
+## 七、grill-me 追认轮（落档提交 600df68 之后，2026-11-06）
+
+> 主题（用户拍板）：审视落档方案中未经用户直接拍板的残留决策。四轮十一问，前沿清空。
+
+| # | 问题 | 答复 | 影响 |
+| --- | --- | --- | --- |
+| Q1 | 访谈主题 | 审视落档方案的残留决策 | — |
+| Q2 | `#3` 裁定（roots[0]≠primaryRoot → 保根+诊断）追认 | **追认**（经实例详解：例 B 中 pm 现状会静默丢根 fail-closed 无日志；例 C 消除 uc 自相矛盾） | 维持 spec delta 原文 |
+| Q3 | 类型检查形态（tsc -b → 双 `tsc -p --noEmit`、去 composite） | **接受** | 维持 D-1 |
+| Q4 | 变更名 `optimize-architecture` | **追认** | — |
+| Q5 | 契约类型包：维持 holder 导出 vs 抽 contracts | **本次顺带抽 `@dsh-plugins/contracts` 包**（推翻本文件 O1 共识与收敛结论第 6 条） | 触发 D-15 与工件修订（见下） |
+| Q6 | 产物断言落点（D-7 上移仓级 vs 三包各写） | **追认 D-7**（1.6 表三行 bundle.test 矛盾以 D-7 为准） | 维持 tasks 原样 |
+| Q7 | stt CSS 去重潜伏 bug 顺手修复 | **追认**（产物字节变化属预期，模块词硬断言不变） | 维持 G1 |
+| Q8 | CI 边界（不跑需运行中 dsh 的 smoke） | **接受** | 维持 R5 |
+| Q9 | contracts 权威形态 | **权威完全转移**（holder 与三贡献方全部直连；否决 holder re-export 双入口） | 见 D-15 / code-design 1.4b |
+| Q10 | （推导项，未问）contracts 位置 = `tooling/contracts` | 按 Q3-a + D-9 推导；spec 层无需 delta（requirement「依赖仅限类型」查证后更成立） | — |
+| Q11 | scope 变更落档方式 | **立即修订五工件 + 追加 commit** | 本轮修订即为执行 |
+
+**本轮产生的工件修订**：proposal（四包/Impact/O1 修订）、design（D-15 + 追认记录 + G4 断言）、tasks（G4 新增 5.5 contracts 任务、5.6 收口顺延；G6 7.3 补 D4 修订验证）、code-design（一页纸四包、1.4b 触达面 C1–C4、D-15、G4 第 6 点、对应关系表修订）、本文件本节。`#3` 实例详解（例 A/B/C）以对话记录为准。

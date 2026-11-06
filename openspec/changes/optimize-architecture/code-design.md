@@ -10,7 +10,7 @@
 
 ## 0. 一页纸结论（本设计新增的结构性判断）
 
-1. **`tooling/` 下三个包，职责互不重叠**：`build-kit`（构建期·纯 `.mjs`·只依赖 esbuild）、`host-kit`（运行期源码·纯 TS·**零依赖**·被 esbuild 内联进各包产物）、`test-kit`（测试夹具底座·纯 TS）。`tooling/template/` 是模板素材，**不是 package**（清单文件叫 `package.json.tmpl`），因而不进 workspace。
+1. **`tooling/` 下四个包，职责互不重叠**：`build-kit`（构建期·纯 `.mjs`·只依赖 esbuild）、`host-kit`（运行期源码·纯 TS·**零依赖**·被 esbuild 内联进各包产物）、`test-kit`（测试夹具底座·纯 TS）、`contracts`（座位契约**纯类型包**·零运行时·权威完全转移，见 D-15）。`tooling/template/` 是模板素材，**不是 package**（清单文件叫 `package.json.tmpl`），因而不进 workspace。
 2. **共享源码用「包 exports → `src/*.ts`」+ 根 tsconfig `paths` 双轨解析**：esbuild 走 node_modules 软链直接读 TS 源（探针 G：exit 0），`tsc` 走 `paths` 映射读同一份源（探针 F：exit 0）。**前提是 6 个软插件的 tsconfig 去 `composite`**——composite + 跨包源文件会硬失败 TS6307（探针 C/I 实测），这是本次唯一一处「必须先改类型检查命令形态才能共享源码」的硬约束。
 3. **`tooling/build-kit` 的策略全部从包事实推导**，薄入口只剩两个不可推导的旋钮（`hostExternals` / `cjsRequireShim`）与一个保产物字节的旋钮（`cssClassPrefix`）；「要不要清 `lib/types`」由 `exports[*].types` 是否存在推导，正好把 workspace-config 的特例变成推导规则而不是开关。
 4. **pnpm catalog 拆两层**：命名 catalog `dsh`（DSH 全家 + cordis + schemastery，由 `upgrade-dsh.mjs` 单点重写）+ 默认 catalog（工具链，人工升）。**multi-root 一个都不迁**（C2 硬前提），因此 catalog 与 multi-root 的字面量版本共存，`dsh:check` 必须先把 `catalog:` 归一化再比对。
@@ -91,6 +91,17 @@
 | T3 | `tooling/test-kit/src/ui-primitives.tsx` | **新建**：stub 公共底座 | 三份现有 stub 的**并集实现**（Button / Input / Switch / Modal / Checkbox / SegmentedTabs / Menu / MenuItemButton / ~15 个图标）；Modal 取 wsc 版（`className`/`contentClassName`）+ web-ux 版的 `data-modal-body`/`data-modal-footer` 标记 |
 | T4 | `tooling/test-kit/src/locale-parity.ts` | **新建**：文案一致性纯函数 | `localeParityIssues({ ns, zh, en, required, expectedNs }) => string[]`（**不 import vitest**，断言留在各包测试里，守住「字面量直写」纪律） |
 | T5 | `tooling/test-kit/README.md` | **新建** | 「只放无分支的夹具底座；任何包的行为断言不许上移」 |
+
+### 1.4b `tooling/contracts/`（新建包，所属仓：根仓；D-15，落档后 grill-me 追认轮拍板）
+
+| # | 文件 | 改动意图 | 关键改动点 |
+| --- | --- | --- | --- |
+| C1 | `tooling/contracts/package.json` | **新建** | `@dsh-plugins/contracts`、`private:true`、`version:"0.0.0"`、`type:module`；`exports` 的 types/default 均指向 `./src/index.ts`（纯类型包，与 host-kit 同款双轨解析）；`dependencies:{}`；devDeps 仅 typescript/oxlint（catalog）；scripts 仅 lint/typecheck |
+| C2 | `tooling/contracts/src/index.ts` | **新建**：座位契约类型权威 | 整体迁自 `plugins/workspace-config/src/client/contract.ts` 的类型面：`WorkspaceConfigSectionSeat` 字面量类型、`WorkspaceConfigSectionOwnerProps`、`declare module` SlotMap 增补、order 常量（trigger 50/dialog 530/分节 10-20-30）与三条纪律 docblock |
+| C3 | `tooling/contracts/tsconfig.json` | **新建** | extends 根基准；include 仅 `src/**/*.ts` |
+| C4 | 三贡献方 + holder 接线 | 改 import | `multi-root-workspace` / `session-tool-toggle` / `web-ux` 的座位契约 `import type` 改自 `@dsh-plugins/contracts`（devDep 加 `@dsh-plugins/contracts: workspace:*`、删 `dsh-plugin-workspace-config: workspace:*`）；holder `src/client/contract.ts` 类型移出后仅留文档指针与本地 re-export（`export type { … } from '@dsh-plugins/contracts'` 供其内部与测试过渡），holder 的 `exports`/`lib/types` 产物面**不动**（dtsOwned 推导不受影响）；`pnpm-workspace.yaml` packages 增第四显式行 |
+
+> D2/D3 纪律与字面量直写断言继续有效：`import type` 编译期擦除，贡献方产物词集不变；贡献方 bundle 断言（产物不含 holder）照旧全绿。spec 层无需 delta（「降级与安装矩阵」的「贡献方对持有者的依赖仅限类型」在转移后更成立）。
 
 ### 1.5 `tooling/template/`（新建目录，**非** workspace 包，所属仓：根仓）
 
@@ -732,6 +743,13 @@ type MissPolicy =
 - 被否「写进 `tooling/host-kit/README.md`」：README 不是决策记录，无法承载「推翻旧结论 + 被否方案」。
 - 反例：把仓级 ADR 也编成 `ADR-0001` 而不加路径限定，会让「ADR-0009 是精确 peer 策略」这条既有引用产生歧义（multi-root 的 ADR-0009 与本仓级 ADR-0001 不同名但同前缀），因此 `docs/decisions/README.md` 必须写明「两套独立编号、引用带路径」。
 
+**D-15 ★ 座位契约类型权威完全转移至 `tooling/contracts`（落档后 grill-me 追认轮用户拍板，修订归档 D4）**
+- 内容：新建纯类型包 `@dsh-plugins/contracts` 承载座位契约全部类型面（Seat 字面量类型 / owner props / SlotMap 增广 / order 常量）；holder（workspace-config）与三贡献方全部 `import type` 直连；holder 的 `contract.ts` 退化为文档指针 + 内部过渡 re-export；holder `exports`/`lib/types` 产物面不动（dtsOwned 推导不受影响）；修订记录并入 ADR-0001。
+- 理由：类型权威不再耦合 holder 的发布节奏；contracts 与 host-kit/test-kit 同属 tooling 治理面（AR1/AR2 断言自动覆盖）；`import type` 编译期擦除使运行时零影响、产物词集不变。
+- 被否 1「维持 holder 导出（规划期共识）」：被用户在追认轮明确推翻——权威与 holder 版本耦合是既知痛点，本次重构正该一并解决。
+- 被否 2「holder re-export 一层保持对外类型面」：双入口 = 两处事实源，违背单一权威。
+- 反例：若贡献方继续从 holder import 类型，下一个贡献分节的插件必须 devDep holder 才能拿到类型——而 holder 是「四包同装矩阵」的一等公民，类型面外泄会让「缺 holder 自动降级」的安装矩阵语义被类型依赖悄悄绑死。
+
 ---
 
 ## ⑤ 逐任务组实现要点
@@ -813,6 +831,7 @@ type MissPolicy =
 3. stt：`src/host/attribution.ts` 重写成策略适配器（D-4），`src/host/types.ts` 的 `SpecLog` 走别名（Q1 未决时保留本地定义）。
 4. H10/H11：内核规范级用例（含 #3 异常、并发窗口）。
 5. 包内 `test/attribution.test.ts`（pm/uc）**一条用例都不改**，作为等价 oracle。
+6. **（D-15）contracts 权威转移**：C1–C4 全部文件 + 四包接线（详见 1.4b）；holder `contract.ts` 退化为指针、三贡献方 `import type` 直连并删 holder devDep、workspace packages 增第四行；`import type` 擦除故产物词集与基线仍逐字相等。
 
 **验证**
 - `pnpm --filter @dsh-plugins/host-kit test` 全绿（含 `roots[0]≠primaryRoot` 与「重扫中不 fail-closed」两例，后者在 G6 复现为回归）。
@@ -965,7 +984,7 @@ type MissPolicy =
 | 3 monorepo（plugins/* 平铺 + tooling/ 顶层；devDeps 迁 catalog 与 upgrade 同批） | R1/R3、G2 |
 | 4 扩展与守护（gen:plugin 模板生成；漂移守护挂 dsh:check；内部包禁入 dependencies；kit 治理断言；最小 CI） | G7、G8（守护断言 AR1/AR2/AR4/AR6 与 CI 在 G7） |
 | 5 跨仓 writer skill 同步（dotfiles 单独 commit） | G-doc-sync |
-| 6 维持不变（multi-root 边界、契约 holder 导出、字面量直写、git tag + 统一版本、豁免清单生成化留尾部） | §1.7 全「不动」；G3 的断言数不减；R12 保持版本同步范围；豁免清单生成化**本次不做**（属收敛结论「纳入任务尾部」，本设计不含该任务组，避免与 O8 的低收益扩张冲突） |
+| 6 维持不变（multi-root 边界、~~契约 holder 导出~~（**已被 D-15 修订**：权威转移至 tooling/contracts，D2/D3 与字面量直写不变）、字面量直写、git tag + 统一版本、豁免清单生成化留尾部） | §1.7 全「不动」（multi-root 仅契约 import 来源改为 contracts，见 1.4b/C4）；G3 的断言数不减；R12 保持版本同步范围；豁免清单生成化**本次不做**（属收敛结论「纳入任务尾部」，本设计不含该任务组，避免与 O8 的低收益扩张冲突） |
 
 ## 附：阶段 1.75 界面演示（判定与确认）
 
