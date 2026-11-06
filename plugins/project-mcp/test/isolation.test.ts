@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   deriveDeny,
+  globalGuardDecision,
   guardReason,
   IsolationLayer,
   RESOURCE_TOOLS,
@@ -632,5 +633,152 @@ describe('isolation layer resource face', () => {
     const guard = io.guards[0]
     expect(guard?.({ name: 'mcp__probe-shared__ping' })).toBeUndefined()
     expect(guard?.({ name: 'list_mcp_resources', arguments: { server: 'probe-shared' } })).toBeUndefined()
+  })
+})
+
+describe('global guard decision', () => {
+  it('leaves a non-MCP call alone without reading the claim set', () => {
+    let blockedReads = 0
+    const decision = globalGuardDecision(
+      { name: 'read_file' },
+      () => {
+        blockedReads += 1
+        return new Set(['figma'])
+      },
+      () => undefined,
+    )
+
+    // This guard runs for every tool call in the process, so a built-in name
+    // must not even pay for a claim-set reading.
+    expect(decision).toEqual({ kind: 'allow' })
+    expect(blockedReads).toBe(0)
+  })
+
+  it('refuses an agentless MCP tool call in the per-agent wording', () => {
+    const decision = globalGuardDecision(
+      { name: 'mcp__figma__get_figma_data' },
+      () => new Set(['figma']),
+      () => undefined,
+    )
+
+    // Word for word the per-agent reason: the model must not be able to tell
+    // which guard refused a call whose workspace is unknown.
+    expect(decision).toEqual({
+      kind: 'deny',
+      reading: 'agentless',
+      reason: guardReason('mcp__figma__get_figma_data', new Set(['figma']), new Set()),
+    })
+  })
+
+  it('refuses an agentless resource call for the named server in the upstream wording', () => {
+    for (const toolName of RESOURCE_TOOLS) {
+      const decision = globalGuardDecision(
+        { name: toolName, arguments: { server: 'dbx-brains' } },
+        () => new Set(['dbx-brains']),
+        () => undefined,
+      )
+
+      // Exactly the text the upstream resource runtime uses for a server it
+      // cannot resolve: an unattributed call must not be an existence probe.
+      expect(decision).toEqual({
+        kind: 'deny',
+        reading: 'agentless',
+        reason: resourceDenyReason('dbx-brains'),
+      })
+    }
+  })
+
+  it('hands an agentless resource call with an unusable server argument back to the tool', () => {
+    // The same contract as the per-agent face: the guard runs before the tool
+    // validates its schema, so a malformed call must never look like isolation.
+    const malformed: unknown[] = [undefined, {}, { server: 1 }, { server: '' }]
+    for (const args of malformed) {
+      expect(globalGuardDecision(
+        { name: 'read_mcp_resource', arguments: args },
+        () => new Set(['figma']),
+        () => undefined,
+      )).toEqual({ kind: 'allow' })
+    }
+  })
+
+  it('fails closed for an untracked agent on a blocked server only', () => {
+    const blocked = new Set(['figma'])
+    const untracked = () => undefined
+
+    // No visible set is known for this agent, so the blocked reading alone
+    // decides: a claimed server is refused, everything else is left alone.
+    expect(globalGuardDecision({ name: 'mcp__figma__x', agent: {} }, () => blocked, untracked))
+      .toEqual({
+        kind: 'deny',
+        reading: 'untracked',
+        reason: guardReason('mcp__figma__x', blocked, new Set()),
+      })
+    expect(globalGuardDecision({ name: 'mcp__codebase-memory__search', agent: {} }, () => blocked, untracked))
+      .toEqual({ kind: 'allow' })
+  })
+
+  it('judges a tracked agent by its own visible set', () => {
+    const blocked = new Set(['figma', 'dbx-brains'])
+    const visible = new Set(['figma'])
+    const agent = {}
+
+    expect(globalGuardDecision({ name: 'mcp__dbx-brains__execute_query', agent }, () => blocked, () => visible))
+      .toEqual({
+        kind: 'deny',
+        reading: 'tracked',
+        reason: guardReason('mcp__dbx-brains__execute_query', blocked, visible),
+      })
+    expect(globalGuardDecision({ name: 'mcp__figma__get_figma_data', agent }, () => blocked, () => visible))
+      .toEqual({ kind: 'allow' })
+
+    // The resource face reads the very same visible set.
+    expect(globalGuardDecision(
+      { name: 'read_mcp_resource', arguments: { server: 'dbx-brains' }, agent },
+      () => blocked,
+      () => visible,
+    )).toEqual({
+      kind: 'deny',
+      reading: 'tracked',
+      reason: resourceDenyReason('dbx-brains'),
+    })
+    expect(globalGuardDecision(
+      { name: 'read_mcp_resource', arguments: { server: 'figma' }, agent },
+      () => blocked,
+      () => visible,
+    )).toEqual({ kind: 'allow' })
+  })
+})
+
+describe('isolation layer attach identity', () => {
+  it('installs one guard and one restriction for a joined attach', async () => {
+    const io = fakeTools()
+    const layer = new IsolationLayer(ports({
+      catalog: () => ['mcp__figma__get_figma_data'],
+      blockedServerNames: () => new Set(['figma']),
+    }))
+    const key = {}
+
+    await Promise.all([
+      layer.attach(key, '/work/b', io.tools),
+      layer.attach(key, '/work/b', io.tools),
+    ])
+
+    // The second attach joins the first agent's life: one agent key never
+    // carries two guards or two restrictions.
+    expect(io.guards).toHaveLength(1)
+    expect(io.restrictions).toHaveLength(1)
+  })
+
+  it('tracks and untracks one key', async () => {
+    const io = fakeTools()
+    const layer = new IsolationLayer(ports())
+    const key = {}
+
+    expect(layer.isTracked(key)).toBe(false)
+    await layer.attach(key, '/work/b', io.tools)
+    expect(layer.isTracked(key)).toBe(true)
+
+    layer.detach(key)
+    expect(layer.isTracked(key)).toBe(false)
   })
 })

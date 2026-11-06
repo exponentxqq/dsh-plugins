@@ -8,17 +8,22 @@
  * only wires them to the host context and owns the ordering:
  *
  * 1. an initial scan loads whatever the workspaces already configure;
- * 2. `agent/created` attaches per-session isolation, and its disposer rides
- *    the agent's own scope;
+ * 2. `agent/created` attaches per-session isolation through ONE attach path,
+ *    and its disposer rides the agent's own scope; the same path catches up
+ *    the sessions the host already held when this fiber loaded, so a plugin
+ *    installed into a running process isolates the sessions it meets;
  * 3. `tools/change` recomputes isolation for every live agent (idempotently);
  * 4. registry and durable-domain changes, filesystem events, and the
  *    `/mcp-reload` command all funnel into ONE serialized rescan, so
  *    overlapping triggers converge instead of interleaving;
- * 5. unloading the fiber releases watchers, restrictions, triggers, and every
- *    MCP child fiber;
+ * 5. unloading the fiber releases watchers, restrictions, the global guard,
+ *    triggers, and every MCP child fiber;
  * 6. the prompt-assembly waterfall filters the project server names and the
  *    `mcp:<server>` instruction sections out of every prompt whose session may
- *    not see them.
+ *    not see them;
+ * 7. a process-wide dispatch guard, installed before the first await, is the
+ *    fourth face (see `isolation.ts`): it fails closed for an MCP call the host
+ *    attributed to no session, or to a session this layer does not track.
  *
  * Rescans are serialized because they are declarative: each one re-reads the
  * registry, re-scans every root, and hands the complete desired set to the
@@ -28,13 +33,14 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-workspace'
 import { Attributor } from './attribution.ts'
+import { sweepLiveSessions } from './boot-sweep.ts'
 import { nodeRealpathIo, nodeScanIo, nodeWatchIo, scanLog } from './host-io.ts'
-import { IsolationLayer, type ScopedTools } from './isolation.ts'
+import { globalGuardDecision, IsolationLayer, type ScopedTools } from './isolation.ts'
 import { McpManager, type SyncSummary } from './mcp-manager.ts'
 import { createServerLoader } from './plugin-loader.ts'
 import { createAssembleListener } from './prompt-isolation.ts'
@@ -47,8 +53,11 @@ import { DirectoryWatcher, watchTargets } from './watcher.ts'
 /** Cordis plugin name used by loader diagnostics (the bundle's row id). */
 export const name = 'project-mcp'
 
-/** Required services: the workspace registry to scan and the tool registry to isolate. */
-export const inject = ['workspaceRegistry', 'tools']
+/**
+ * Required services: the workspace registry to scan, the tool registry to
+ * isolate, and the live sessions to catch up.
+ */
+export const inject = ['workspaceRegistry', 'tools', 'agents']
 
 declare module '@deepseek-ai/cordis' {
   interface Events {
@@ -99,6 +108,41 @@ export function apply(ctx: Context): void {
     blockedServerNames: () => manager.blockedServerNames(),
     log,
   })
+
+  // 0. The global gate: installed before the first await, and released by the
+  //    teardown effect below, so it can never outlive the fiber that owns it.
+  //    It runs for EVERY tool call in the process, which is why it reads no
+  //    port until the call is in the MCP family (`globalGuardDecision` decides
+  //    that first): a non-MCP call is allowed with zero port reads and zero
+  //    log lines. Only a fail-closed denial — no calling agent, or a session
+  //    this layer does not track — is reported, and the count is throttled to
+  //    the first three plus every hundredth: a busy session can produce one
+  //    such denial per call.
+  let failClosedDenials = 0
+  let globalGuard: (() => void) | undefined
+  try {
+    globalGuard = ctx.tools.guard((execution) => {
+      const decision = globalGuardDecision(
+        execution,
+        () => manager.blockedServerNames(),
+        (key) => isolation.visibleFor(key),
+      )
+      if (decision.kind === 'allow') return undefined
+      if (decision.reading !== 'tracked') {
+        failClosedDenials += 1
+        if (failClosedDenials <= 3 || failClosedDenials % 100 === 0) {
+          log.warn(
+            `isolation: global guard denied ${execution.name}`
+              + ` (${decision.reading === 'agentless' ? 'no calling agent' : 'untracked session'})`
+              + `; ${failClosedDenials} such denial(s)`,
+          )
+        }
+      }
+      return decision.reason
+    })
+  } catch (error) {
+    log.error(`cannot install the workspace isolation global guard: ${String(error)}`)
+  }
 
   /** The serialized rescan queue. */
   let queue: Promise<SyncSummary> = Promise.resolve(EMPTY_SUMMARY)
@@ -153,27 +197,41 @@ export function apply(ctx: Context): void {
     return run
   }
 
-  // 1. Per-session isolation, owned by the agent's own scope: the restriction
-  //    and the guard unwind with the agent, without a second registry to keep.
-  //    The attach is RETURNED on purpose: `agent/created` is a serial
-  //    announcement whose returned promise the registry awaits before the
-  //    session may take its first step, so a session never assembles a first
-  //    prompt while an out-of-scope tool is still visible. A failure is
-  //    reported rather than rejecting the creation it rides on.
-  ctx.on('agent/created', ({ agent }) => {
+  /**
+   * Attach one session's workspace isolation: the only attach path.
+   *
+   * `agent/created` and the boot sweep both go through here, so a session is
+   * tracked exactly once — never with two guards or two restrictions. The
+   * detach is registered only for a key this layer does not track yet, so one
+   * agent scope never carries two disposers for the same effect; the
+   * restriction and the guard then unwind with that scope, without a second
+   * registry to keep.
+   * @param agent - the live agent to isolate.
+   * @returns after the initial restriction settled.
+   */
+  async function attachAgent(agent: Agent): Promise<void> {
     const key: object = agent
-    const cwd = agent.session.header.cwd
-    agent.ctx.effect(() => () => {
-      isolation.detach(key)
-    }, 'dsh-plugin-project-mcp: workspace isolation')
-    return isolation.attach(key, cwd, scopedTools(agent.ctx, key)).then(
-      () => undefined,
-      (error: unknown) => {
-        log.error(`cannot apply workspace isolation to a session: ${String(error)}`)
-        return undefined
-      },
-    )
-  })
+    if (!isolation.isTracked(key)) {
+      agent.ctx.effect(() => () => {
+        isolation.detach(key)
+      }, 'dsh-plugin-project-mcp: workspace isolation')
+    }
+    await isolation.attach(key, agent.session.header.cwd, scopedTools(agent.ctx, key))
+  }
+
+  // 1. Per-session isolation. The attach is RETURNED on purpose:
+  //    `agent/created` is a serial announcement whose returned promise the
+  //    registry awaits before the session may take its first step, so a
+  //    session never assembles a first prompt while an out-of-scope tool is
+  //    still visible. A failure is reported rather than rejecting the creation
+  //    it rides on.
+  ctx.on('agent/created', ({ agent }) => attachAgent(agent).then(
+    () => undefined,
+    (error: unknown) => {
+      log.error(`cannot apply workspace isolation to a session: ${String(error)}`)
+      return undefined
+    },
+  ))
 
   // 2. Any tool registering or leaving (an MCP server connecting, a config
   //    change, another plugin adding a tool) re-derives every agent's deny set.
@@ -229,6 +287,7 @@ export function apply(ctx: Context): void {
   ctx.effect(() => () => {
     watcher.dispose()
     isolation.dispose()
+    globalGuard?.()
     for (const dispose of triggers) dispose()
     void manager.dispose()
   }, 'dsh-plugin-project-mcp: teardown')
@@ -245,17 +304,26 @@ export function apply(ctx: Context): void {
     log,
   }))
 
-  // 7. Boot pass: a workspace that already configures servers needs no restart.
-  //    Sessions that already exist never receive `agent/created`, so one line
-  //    states the boundary: name isolation applies from their next assembly,
-  //    resource isolation from the next agent/created.
-  const agents = ctx.get('agents')
-  const live = agents === undefined ? 0 : agents.list().length
-  if (live > 0) {
-    log.info(
-      `boot: ${live} session(s) predate this load; name isolation applies from their next assembly, `
-        + 'resource isolation from the next agent/created',
+  // 7. Boot pass: a session the host held before this fiber loaded never
+  //    receives `agent/created` from us, so it is attached here through the
+  //    same path. The order is the semantics (`boot-sweep.ts`): attribution
+  //    first, because each attach reads it; then the sweep; then the first full
+  //    scan, so the deny sets it just computed are recomputed against the
+  //    freshly loaded server set. The failure is reported rather than thrown:
+  //    `apply` returns synchronously and nothing awaits this pass.
+  async function boot(): Promise<void> {
+    await attributor.update(workspaceRoots(ctx))
+    let live: Agent[] = []
+    try {
+      live = ctx.agents.list()
+    } catch (error) {
+      log.error(`cannot read the live sessions for the boot sweep: ${String(error)}`)
+    }
+    await sweepLiveSessions(
+      live.map((agent) => ({ key: agent, id: agent.session.header.id, attach: () => attachAgent(agent) })),
+      { isTracked: (key) => isolation.isTracked(key), log },
     )
+    await rescan()
   }
-  background()
+  void boot().catch(reportFailure)
 }

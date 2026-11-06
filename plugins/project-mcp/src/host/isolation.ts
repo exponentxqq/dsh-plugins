@@ -2,7 +2,7 @@
  * Workspace visibility isolation: one agent sees only the project MCP servers
  * of the workspace its session belongs to.
  *
- * Two mechanisms carry that, deliberately layered:
+ * Two mechanisms carry that per agent, deliberately layered:
  *
  * - **A restriction** masks the out-of-scope `mcp__…` names in the global
  *   layer, which is what makes them invisible to the model in the first place.
@@ -20,7 +20,7 @@
  * claim that never loaded cannot shadow a profile-level server of the same
  * name.
  *
- * Isolation covers three surfaces over the same live reading:
+ * Isolation covers four surfaces over the same live reading:
  *
  * - the **tool face** — `mcp__<server>__*` calls, gated by
  *   {@link guardReason};
@@ -28,11 +28,29 @@
  *   sections (`prompt-isolation.ts`), gated by
  *   {@link IsolationLayer.visibleFor};
  * - the **resource face** — the three resource tools, whose `arguments.server`
- *   must belong to the agent's scope ({@link resourceGuardReason}).
+ *   must belong to the agent's scope ({@link resourceGuardReason});
+ * - the **global face** — the plugin context's own dispatch guard, which has no
+ *   agent scope and therefore sits in the global layer ahead of every
+ *   per-agent guard ({@link globalGuardDecision}).
  *
  * The resource face refuses in the very words the upstream MCP resource
  * runtime uses for an unavailable server, so a model cannot tell an
  * out-of-scope server from a missing one (no existence probe).
+ *
+ * The global face is the backstop for the calls no per-agent guard ever saw: a
+ * session that predates this plugin's load, or a call the host did not
+ * attribute to an agent at all. It must fail closed there, because a call this
+ * plugin cannot tie to a workspace must never reach a project server: an
+ * unattributed call is denied the whole `mcp__` family (and a resource call
+ * once its `arguments.server` is determinable), and a session this layer does
+ * not track is judged against no visible set at all. The blocked reading is
+ * deliberately not consulted on the unattributed path — the claim set is
+ * cleared first when the manager is disposed, so trusting it would open
+ * exactly the window that matters. It does not replace the per-agent guard:
+ * being process-wide and scope-less, it can neither mask a name from the model
+ * nor read an agent's live scope, so the restriction and the per-agent guard
+ * remain the mechanism that isolates one session from another. The denial text
+ * is the same either way, so a model cannot tell which face refused it.
  *
  * Recomputation is idempotent by construction. `restrict` itself fires
  * `tools/change`, so a recompute that re-registered an unchanged deny set
@@ -70,6 +88,20 @@ export function resourceDenyReason(server: string): string {
 }
 
 /**
+ * The refusal reason for one out-of-scope MCP tool call.
+ *
+ * The single source of the tool-face text, shared by {@link guardReason} and
+ * the global face so a call cannot be told apart by the words it was refused
+ * with.
+ * @param toolName - the called tool's name.
+ * @param server - the serverName the name belongs to.
+ * @returns the denial reason.
+ */
+export function toolDenyReason(toolName: string, server: string): string {
+  return `tool ${toolName} belongs to MCP server ${server}, which is not configured for this session's workspace`
+}
+
+/**
  * The slice of a tool call a guard reads (a subset of the upstream
  * `ToolExecution`).
  */
@@ -82,6 +114,11 @@ export interface GuardedExecution {
    * a guard runs before the tool validates its own schema.
    */
   readonly arguments?: unknown
+  /**
+   * The calling agent's scope key, when the host attributed the call. The layer
+   * only needs the identity: `IsolationLayer` keys its tracked agents by it.
+   */
+  readonly agent?: object
 }
 
 /** The tool surface of one agent scope, as this layer drives it. */
@@ -218,7 +255,7 @@ export function guardReason(
 ): string | undefined {
   const server = toolServerOf(toolName)
   if (server === undefined || !blocked.has(server) || visible.has(server)) return undefined
-  return `tool ${toolName} belongs to MCP server ${server}, which is not configured for this session's workspace`
+  return toolDenyReason(toolName, server)
 }
 
 /**
@@ -269,6 +306,81 @@ export function resourceGuardReason(
   const server = resourceServerOf(args)
   if (server === undefined || !blocked.has(server) || visible.has(server)) return undefined
   return resourceDenyReason(server)
+}
+
+/** Which reading produced a global-guard denial (diagnostics only; never the text). */
+export type GlobalGuardReading = 'agentless' | 'untracked' | 'tracked'
+
+/** What the global guard decided. */
+export type GlobalGuardDecision =
+  | { readonly kind: 'allow' }
+  | { readonly kind: 'deny'; readonly reason: string; readonly reading: GlobalGuardReading }
+
+/** No project server is visible: the fail-closed reading of an untracked agent. */
+const NO_SERVERS: ReadonlySet<string> = new Set()
+
+/**
+ * The decision of the global (plugin-context) guard.
+ *
+ * This runs for EVERY tool call in the process, so the order is part of the
+ * contract: the name family is judged first, then whether the host attributed
+ * a calling agent, and only a call that survives both reads a port at all. The
+ * rows, in order:
+ *
+ * 1. neither an `mcp__<server>__*` name nor a resource tool → allow;
+ * 2. no calling agent, MCP tool → {@link toolDenyReason} (`agentless`); the
+ *    whole family is closed because there is no workspace to attribute the
+ *    call to, and the blocked set is not read (it is cleared first when the
+ *    manager is disposed, so it cannot be the fail-closed reading);
+ * 3. no calling agent, resource tool, `arguments.server` a non-empty string →
+ *    {@link resourceDenyReason} (`agentless`);
+ * 4. no calling agent, resource tool, `arguments.server` unusable → allow, so
+ *    the tool's own required validation answers (a malformed call must never
+ *    look like isolation);
+ * 5. tracked agent, MCP tool → {@link guardReason};
+ * 6. tracked agent, resource tool → {@link resourceGuardReason};
+ * 7. untracked agent, MCP tool → {@link guardReason} against
+ *    {@link NO_SERVERS};
+ * 8. untracked agent, resource tool → {@link resourceGuardReason} against
+ *    {@link NO_SERVERS}.
+ *
+ * The `reading` is diagnostics only and never reaches the reason: rows 5–8
+ * share the per-agent functions word for word, so a model cannot tell which
+ * guard refused the call.
+ * @param execution - the call, including the calling agent when attributed.
+ * @param blocked - live reader; called ONLY for a call that carries an agent
+ *   (a thunk, because this runs for every tool call in the process).
+ * @param visibleFor - live per-agent visible set; `undefined` means untracked.
+ * @returns the decision.
+ */
+export function globalGuardDecision(
+  execution: GuardedExecution,
+  blocked: () => ReadonlySet<string>,
+  visibleFor: (key: object) => ReadonlySet<string> | undefined,
+): GlobalGuardDecision {
+  const server = toolServerOf(execution.name)
+  if (server === undefined && !RESOURCE_TOOLS.has(execution.name)) return { kind: 'allow' }
+
+  const agent = execution.agent
+  if (agent === undefined) {
+    if (server !== undefined) {
+      return { kind: 'deny', reason: toolDenyReason(execution.name, server), reading: 'agentless' }
+    }
+    const named = resourceServerOf(execution.arguments)
+    if (named === undefined) return { kind: 'allow' }
+    return { kind: 'deny', reason: resourceDenyReason(named), reading: 'agentless' }
+  }
+
+  // One live read per call, and only now: a call outside the MCP namespace (or
+  // one no agent made) never pays for the claim-set reading.
+  const live = blocked()
+  const visible = visibleFor(agent)
+  const reason = server === undefined
+    ? resourceGuardReason(execution.name, execution.arguments, live, visible ?? NO_SERVERS)
+    : guardReason(execution.name, live, visible ?? NO_SERVERS)
+  return reason === undefined
+    ? { kind: 'allow' }
+    : { kind: 'deny', reason, reading: visible === undefined ? 'untracked' : 'tracked' }
 }
 
 /**
@@ -337,6 +449,9 @@ export class IsolationLayer {
   /** Tracked agents, keyed by their scope object. */
   private readonly agents = new Map<object, Tracked>()
 
+  /** Attaches in flight, so a second call joins instead of duplicating effects. */
+  private readonly attaching = new Map<object, Promise<void>>()
+
   /**
    * Whether the plugin's own context went away (cordis inactive context).
    *
@@ -354,14 +469,38 @@ export class IsolationLayer {
   constructor(private readonly ports: IsolationPorts) {}
 
   /**
+   * Whether this layer already tracks one agent.
+   *
+   * The boot sweep reads this to skip a session the `agent/created` path
+   * already attached. It answers from the claim, so an attach still in flight
+   * already reads as tracked.
+   * @param key - the agent's identity object (its scope).
+   * @returns whether the key has a tracked agent in this layer.
+   */
+  isTracked(key: object): boolean {
+    return this.agents.has(key)
+  }
+
+  /**
    * Start tracking one agent: install its dispatch guard and apply its initial
    * restriction.
+   *
+   * Idempotent per key. The first call claims the {@link Tracked} record
+   * synchronously and starts the agent's life ({@link start}); a second call
+   * for the same key joins that start while it is in flight, or returns once
+   * it settled, so one agent life never carries two guards or two
+   * restrictions. A key this layer no longer tracks is claimed again by the
+   * next call — a new life.
    * @param key - the agent's identity object (its scope).
    * @param cwd - the session's creation directory, when known.
    * @param tools - the agent scope's tool surface.
    * @returns after the initial restriction settled.
    */
   async attach(key: object, cwd: string | undefined, tools: ScopedTools): Promise<void> {
+    const inFlight = this.attaching.get(key)
+    if (inFlight !== undefined) return inFlight
+    if (this.agents.has(key)) return
+
     const tracked: Tracked = {
       tools,
       cwd,
@@ -373,13 +512,35 @@ export class IsolationLayer {
     }
     this.agents.set(key, tracked)
 
+    const started = this.start(tracked)
+    this.attaching.set(key, started)
+    try {
+      await started
+    } finally {
+      // Clear by identity: a detach followed by a new attach may already own
+      // this slot, and that life must keep its own in-flight entry.
+      if (this.attaching.get(key) === started) this.attaching.delete(key)
+    }
+  }
+
+  /**
+   * Install one agent's dispatch guard and apply its first restriction.
+   *
+   * Split out of {@link attach} so a concurrent second attach can join this
+   * very start instead of installing a second guard. Neither step rejects: a
+   * guard that cannot be installed is reported and the recompute still runs,
+   * and the recompute carries its own backstop.
+   * @param tracked - the agent's state, already claimed in `agents`.
+   * @returns after the initial restriction settled.
+   */
+  private async start(tracked: Tracked): Promise<void> {
     try {
       // Installed once and kept for the agent's lifetime: it reads the live
       // blocked and visible sets, so a restriction refresh never needs to
       // re-register it (and a registration failure is reported, not fatal).
       // The tool face answers first; the resource face only sees calls the
       // tool face left alone, so a name-prefixed call is never judged twice.
-      tracked.guard = tools.guard((execution) => {
+      tracked.guard = tracked.tools.guard((execution) => {
         // One live read per call: both faces gate on the same snapshot, and a
         // blocked/visible change takes effect on the very next call (D-12).
         const blocked = this.ports.blockedServerNames()

@@ -56,22 +56,22 @@ env:
 - **可见集合**：归属工作区的**整个根集合**（主根 + 授予它的附加根）下定义的服务器对该会话可见，其余项目的工具、名字与资源一律不可见/不可用。归属只决定**谁赢**，不改变赢者可见的范围；返回的根集合保持登记时的拼写（与 scan 仲裁同一份拼写）。
 - **与 scan 仲裁的分工**：`roots.ts` 的有序 root set 服务 serverName 的**先到先得**仲裁，归属判定只决定会话归属哪个工作区，两者各司其职。
 - **fail-closed**：无归属的会话看不到**任何**项目 MCP 工具、提示词中的项目服务器名，其资源读取也全部被拒。
-- **工具面两层强制**：`tools.restrict({ deny })` 把关掉的名字从模型可见的工具表里移除；每个 agent 另挂一个 dispatch guard，拒绝对越权受管名的调用（覆盖「工具注册」与「限制重算」之间的窗口，以及名单漂移的边角；限制万一挂不上，guard 仍是唯一拦截面）。
+- **工具面三层强制**：`tools.restrict({ deny })` 把关掉的名字从模型可见的工具表里移除（restriction）；每个 agent 另挂一个 dispatch guard，拒绝对越权受管名的调用（per-agent guard，覆盖「工具注册」与「限制重算」之间的窗口，以及名单漂移的边角）；插件 `apply` 时另在 `ctx.tools.guard` 注册一个**进程级全局闸口**（global gate）——按同一份归属判定与 deny 集合在 dispatch 前兜底拒绝，即使某会话的 restriction / per-agent guard 因重载等时序缺失，越权 `mcp__*` 调用仍被拒，agentless 进程内直接调用也落在这层。限制万一挂不上，guard 与全局闸口仍构成双层拦截面。
 - deny 名单**只从实际注册名推导**（`restrict` 遇未注册名会抛错，所以绝不手工拼名）。候选集取三个读数的并集：宿主全局层（`tools.schemas()`）、**该会话自己 scope 的视角**（`tools.schemas(agent)`）、以及**当前已被屏蔽且服务器仍在受管集合内**的名字。三者缺一不可：本部署的模型可见**内置**工具在 agent 平面（实测同构实例 `global=9` / `scoped=35`），把项目 MCP 行排布到该平面的部署同样成立；而第三项防止「限制生效后视角读数缩水 → 下一遍算出更小的 deny → 摘下限制」的振荡。内置工具与非本插件管理的 profile 级 MCP 工具（如 `mcp__dbx__*`）永远不会进名单，也不受影响。
 - **健壮性**：归属判定、全局读数、视角读数各自兜底并降级（归属失败即 fail-closed 全屏蔽），每次重算整体再兜底一次——单个会话的运行期异常不会中断其他会话的刷新，且诊断行会点出失败阶段。
-- **动态刷新**：`tools/change`（服务器连接、断开、工具同步）对全部存活 agent 重算；`agent/created` 是 serial 派发且框架会 `await` 监听器返回值，插件**返回**挂载 Promise，因此新会话**首步装配前**限制必定已生效。重算幂等——deny 集不变就**不重复注册**（`restrict` 本身会触发 `tools/change`，没有这条 diff 守卫会自激）。
+- **动态刷新**：`tools/change`（服务器连接、断开、工具同步）对全部存活 agent 重算；`agent/created` 是 serial 派发且框架会 `await` 监听器返回值，插件**返回**挂载 Promise，因此新会话**首步装配前**限制必定已生效。进程启动或插件重载时另有 **boot 补挂**：对补挂时已存活的会话逐个 attach（`boot: swept N live session(s): attached A, already tracked S, failed F`），重载前就存在的会话同样进入三层强制。重算幂等——deny 集不变就**不重复注册**（`restrict` 本身会触发 `tools/change`，没有这条 diff 守卫会自激）。
 - **排障**：本 profile 运行期没有 logger 出口，插件的诊断同时写 `ctx.logger` 与 `console`，因此 `docker logs dsh | grep dsh-plugin-project-mcp` 能看到 `isolation: cwd=… roots=N visible=[…] global=N(mcp=N) scoped=N(mcp=N) carried=N deny=N […]`、`isolation: masked N tool(s) …` 与冲突/跳过行——「隔离算空」和「隔离生效」一眼可辨。名字面的 `prompt: resource names …` 行与重载时的 `boot: …` 行见下节。
 
 ## 三面隔离（工具 / 名字 / 资源）
 
 同一次归属判定产出同一份 `visible`，三面共用同一刷新路径与同一实时读数；无新开关、无额外连接、无上游修改：
 
-- **工具面**：`tools.restrict({ deny })` 把越权 `mcp__<server>__*` 从模型可见工具表移除；每个 agent 另挂 dispatch guard，拒绝对越权受管名的调用（见上节「工具面两层强制」）。
+- **工具面**：`tools.restrict({ deny })` 把越权 `mcp__<server>__*` 从模型可见工具表移除；每个 agent 另挂 dispatch guard，拒绝对越权受管名的调用；`apply` 时注册的进程级全局闸口按同一 deny 集合在 dispatch 前兜底（含 agentless 调用，见上节「工具面三层强制」）。
 - **名字面**：监听 `system-prompt/assemble` 瀑布，在 `await next()` 之后按**调用会话**的归属改写 `## MCP resource servers` 段里的名字数组（保留 profile 名，移除无权项目名），并整段删除无权项目服务器的 `mcp:<server>` 指令段（标题与正文一并消失）。过滤后名字数组为空 → 整段删除（与上游「无服务器不贡献该段」同形）；上游文本形态无法解析 → **fail-closed 删段**并 warn（前 3 次）。改写用 `{...section, text}` 保留 `interpolate:false`——挑字段重建会让服务器 instructions 被当模板插值。
 - **资源面**：`list_mcp_resources` / `list_mcp_resource_templates` / `read_mcp_resource` 三个工具在**派发前**按 `arguments.server` 判定：属于 `blocked` 且不在本会话 `visible` → 拒绝，**不触达**目标服务器，模型拿不到该服务器的资源、URI 或内容。拒绝文案与上游「不可用」逐字同形（`MCP resource server "<server>" is unavailable in this agent's scope`），模型无法据此探测服务器是否存在；`server` 缺失或非字符串时交回工具自身校验，不额外拒绝。原生调用与 PTC（`run_code`）内层调用走同一条 guard 管线。
 - **口径**：`visible` = 该会话归属工作区根集合下**声称（claimed）**的服务器名（授权面，不变）；`blocked = claimed \ failedClaims`（= 已加载 ∪ 加载中；加载失败的 claim 剔除）。应拒 / 应隐集合 = `blocked \ visible`。每次调用与每次装配都读实时集合，不缓存快照。
 - **`blocked` 的动机与窗口语义**：旧口径直接拿 `claimed` 当应拒集合，一个**加载失败**的项目 claim（例如项目侧 `figma` 为 profile 行占名而加载失败）会把同名 profile 服务器一并 deny / 隐掉，误伤与本工作区无关的会话。改为 `blocked` 后，失败的 claim 不再进入应拒集合；**尚未加载完的 claim 仍在集合里**（fail-closed 方向）——若改用纯 `active`（加载成功后才写入），`connection.ready` 之前 provider 已注册而 `active` 尚未落笔，会开一个 fail-open 窗口。只有「确定加载失败」的才剔除。
-- **诊断**：`docker logs dsh | grep -E "isolation:|prompt: resource names|boot:"`。既有 `isolation: cwd=… roots=N visible=[…] … deny=N […]` 不变；新增名字面行 `prompt: resource names session=<id> cwd=<cwd> tracked=yes kept=[…] removed=[…] sections=[…] unparsable=N`，未被跟踪的装配为 `prompt: resource names session=<id> cwd=none tracked=no hidden=<n>`。无归属会话仍被建模为「已跟踪、可见集为空」（`roots=none visible=[]`），因此显示 `tracked=yes`、`kept` 只含 profile 名。同一形状只打一条，形状变化才再打；`unparsable` warn 前 3 次（`prompt: resource names section unparsable (deleted), upstream text drifted`）。插件加载时若已有会话，另打 `boot: N session(s) predate this load; name isolation applies from their next assembly, resource isolation from the next agent/created`（见「降级矩阵」）。
+- **诊断**：`docker logs dsh | grep -E "isolation:|prompt: resource names|boot:"`。既有 `isolation: cwd=… roots=N visible=[…] … deny=N […]` 不变；新增名字面行 `prompt: resource names session=<id> cwd=<cwd> tracked=yes kept=[…] removed=[…] sections=[…] unparsable=N`，未被跟踪的装配为 `prompt: resource names session=<id> cwd=none tracked=no hidden=<n>`。无归属会话仍被建模为「已跟踪、可见集为空」（`roots=none visible=[]`），因此显示 `tracked=yes`、`kept` 只含 profile 名。同一形状只打一条，形状变化才再打；`unparsable` warn 前 3 次（`prompt: resource names section unparsable (deleted), upstream text drifted`）。启动 / 重载补挂打 `boot: swept N live session(s): attached A, already tracked S, failed F`（`live=0` 静默；逐条失败另打 `boot: cannot attach the workspace isolation of session <id>: <error>`，不中断其余会话）；全局闸口拒绝越权调用时打节流 warn（前 3 次后每 100 次，闸口安装失败仅 error），见「降级矩阵」。
 
 ## 热重载与 `/mcp-reload`
 
@@ -91,12 +91,12 @@ env:
 | 无 `systemPrompt` 服务 | `system-prompt/assemble` 监听不触发，名字面静默缺席；工具面与资源面不受影响（该部署的提示词里本来也没有名字段） |
 | 无 `mcpResources`（上游未装） | 三个资源工具不存在，资源面自然缺席；工具面与名字面不受影响 |
 | 名字段文本形态漂移（上游改文案） | 该段整体删除（fail-closed）+ warn 前 3 次；资源读取的硬拒绝不受影响 |
-| HMR / 插件重载后的存量会话 | 这些会话收不到 `agent/created`：名字面自**下一次装配**起隐去全部项目名（fail-closed 方向，profile 名保留），资源面在下一个 `agent/created` 之前**没有守卫**（已知 fail-open 窗口）；加载时若已有会话，日志打 `boot: …` 提示 |
-| `exec.agent === undefined` 的进程内直接调用 | per-agent guard 不参与，不覆盖（模型调用总在 agent 内） |
+| HMR / 插件重载后的存量会话 | 重载即补挂：apply 末尾的 boot 补挂对已存活会话逐个 attach（`boot: swept …`），工具面三层与资源面随即恢复；attach 落地前的极短窗口由进程级全局闸口兜底（越权 `mcp__*` 一律拒，fail-closed）；单条补挂失败不中断其余会话（日志 `boot: cannot attach …`） |
+| `exec.agent === undefined` 的进程内直接调用 | per-agent guard 不参与，由进程级全局闸口接管：受管越权名一律拒（fail-closed），profile 级与可见集内名字不受影响 |
 
 已知噪声：加载失败的 claim 每次 rescan 都会重试并重记一条 error（与 scan 冲突日志同类），不影响 profile 服务器与其它配置。
 
-**回滚代价**：降级到上一版本即恢复旧行为——同时退回「名字 / 资源面不隔离」与旧工具面的 `claimed` 口径（加载失败的 claim 会再次误伤同名 profile 服务器）。无数据迁移、无配置清理：本版本未新增任何配置键。
+**回滚代价**：降级到上一版本即恢复旧行为——同时退回「名字 / 资源面不隔离」与旧工具面的 `claimed` 口径（加载失败的 claim 会再次误伤同名 profile 服务器），并退回进程级全局闸口与重载补挂（重载窗口回归旧行为：存量会话要等下一次装配才恢复隔离）。无数据迁移、无配置清理：本版本未新增任何配置键。
 
 ## 残余边界
 
@@ -114,6 +114,8 @@ env:
 | `…/person/dsh-plugins` | 3 | figma, probe-opc, probe-plugins, probe-shared | 1 | 5 个（figma×2 + probe 系 3；**没有** probe-cs） |
 | `…/company/web/cloud-the-sky` | 2 | probe-cs | 5 | 2 个（probe-cs + profile 级 probe-profile） |
 | `/tmp`（无归属） | none | —（fail-closed） | 6 | 全部项目 MCP 工具不可见 |
+
+> 注记：本表早于 isolation-enforcement 变更（2026-11-05 记录），重载行为以「降级矩阵」新语义为准（重载补挂 + 全局闸口），本表不重跑。
 
 同一轮冒烟同时确认：
 

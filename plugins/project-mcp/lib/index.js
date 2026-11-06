@@ -7441,6 +7441,35 @@ var Attributor = class {
   }
 };
 
+// src/host/boot-sweep.ts
+async function sweepLiveSessions(candidates, ports) {
+  const live = candidates.length;
+  let attached = 0;
+  let skipped = 0;
+  let failed = 0;
+  for (const candidate of candidates) {
+    if (ports.isTracked(candidate.key)) {
+      skipped += 1;
+      continue;
+    }
+    try {
+      await candidate.attach();
+      attached += 1;
+    } catch (error) {
+      failed += 1;
+      ports.log.error(
+        `boot: cannot attach the workspace isolation of session ${candidate.id}: ${String(error)}`
+      );
+    }
+  }
+  if (live > 0) {
+    ports.log.info(
+      `boot: swept ${live} live session(s): attached ${attached}, already tracked ${skipped}, failed ${failed}`
+    );
+  }
+  return { live, attached, skipped, failed };
+}
+
 // src/host/host-io.ts
 import { promises as fs } from "node:fs";
 import { watch as watchDirectory } from "node:fs";
@@ -7491,6 +7520,9 @@ var RESOURCE_TOOLS = /* @__PURE__ */ new Set([
 function resourceDenyReason(server) {
   return `MCP resource server "${server}" is unavailable in this agent's scope`;
 }
+function toolDenyReason(toolName, server) {
+  return `tool ${toolName} belongs to MCP server ${server}, which is not configured for this session's workspace`;
+}
 function toolServerOf(toolName) {
   if (!toolName.startsWith(MCP_TOOL_PREFIX)) return void 0;
   const rest = toolName.slice(MCP_TOOL_PREFIX.length);
@@ -7509,7 +7541,7 @@ function deriveDeny(registered, blocked, visible) {
 function guardReason(toolName, blocked, visible) {
   const server = toolServerOf(toolName);
   if (server === void 0 || !blocked.has(server) || visible.has(server)) return void 0;
-  return `tool ${toolName} belongs to MCP server ${server}, which is not configured for this session's workspace`;
+  return toolDenyReason(toolName, server);
 }
 function resourceServerOf(args) {
   if (typeof args !== "object" || args === null || Array.isArray(args)) return void 0;
@@ -7521,6 +7553,24 @@ function resourceGuardReason(toolName, args, blocked, visible) {
   const server = resourceServerOf(args);
   if (server === void 0 || !blocked.has(server) || visible.has(server)) return void 0;
   return resourceDenyReason(server);
+}
+var NO_SERVERS = /* @__PURE__ */ new Set();
+function globalGuardDecision(execution, blocked, visibleFor) {
+  const server = toolServerOf(execution.name);
+  if (server === void 0 && !RESOURCE_TOOLS.has(execution.name)) return { kind: "allow" };
+  const agent = execution.agent;
+  if (agent === void 0) {
+    if (server !== void 0) {
+      return { kind: "deny", reason: toolDenyReason(execution.name, server), reading: "agentless" };
+    }
+    const named = resourceServerOf(execution.arguments);
+    if (named === void 0) return { kind: "allow" };
+    return { kind: "deny", reason: resourceDenyReason(named), reading: "agentless" };
+  }
+  const live = blocked();
+  const visible = visibleFor(agent);
+  const reason = server === void 0 ? resourceGuardReason(execution.name, execution.arguments, live, visible ?? NO_SERVERS) : guardReason(execution.name, live, visible ?? NO_SERVERS);
+  return reason === void 0 ? { kind: "allow" } : { kind: "deny", reason, reading: visible === void 0 ? "untracked" : "tracked" };
 }
 function sameDeny(left, right) {
   return left.length === right.length && left.every((name2, index) => name2 === right[index]);
@@ -7547,6 +7597,8 @@ var IsolationLayer = class {
   }
   /** Tracked agents, keyed by their scope object. */
   agents = /* @__PURE__ */ new Map();
+  /** Attaches in flight, so a second call joins instead of duplicating effects. */
+  attaching = /* @__PURE__ */ new Map();
   /**
    * Whether the plugin's own context went away (cordis inactive context).
    *
@@ -7558,14 +7610,36 @@ var IsolationLayer = class {
    */
   teardown = false;
   /**
+   * Whether this layer already tracks one agent.
+   *
+   * The boot sweep reads this to skip a session the `agent/created` path
+   * already attached. It answers from the claim, so an attach still in flight
+   * already reads as tracked.
+   * @param key - the agent's identity object (its scope).
+   * @returns whether the key has a tracked agent in this layer.
+   */
+  isTracked(key) {
+    return this.agents.has(key);
+  }
+  /**
    * Start tracking one agent: install its dispatch guard and apply its initial
    * restriction.
+   *
+   * Idempotent per key. The first call claims the {@link Tracked} record
+   * synchronously and starts the agent's life ({@link start}); a second call
+   * for the same key joins that start while it is in flight, or returns once
+   * it settled, so one agent life never carries two guards or two
+   * restrictions. A key this layer no longer tracks is claimed again by the
+   * next call — a new life.
    * @param key - the agent's identity object (its scope).
    * @param cwd - the session's creation directory, when known.
    * @param tools - the agent scope's tool surface.
    * @returns after the initial restriction settled.
    */
   async attach(key, cwd, tools) {
+    const inFlight = this.attaching.get(key);
+    if (inFlight !== void 0) return inFlight;
+    if (this.agents.has(key)) return;
     const tracked = {
       tools,
       cwd,
@@ -7576,8 +7650,27 @@ var IsolationLayer = class {
       reported: false
     };
     this.agents.set(key, tracked);
+    const started = this.start(tracked);
+    this.attaching.set(key, started);
     try {
-      tracked.guard = tools.guard((execution) => {
+      await started;
+    } finally {
+      if (this.attaching.get(key) === started) this.attaching.delete(key);
+    }
+  }
+  /**
+   * Install one agent's dispatch guard and apply its first restriction.
+   *
+   * Split out of {@link attach} so a concurrent second attach can join this
+   * very start instead of installing a second guard. Neither step rejects: a
+   * guard that cannot be installed is reported and the recompute still runs,
+   * and the recompute carries its own backstop.
+   * @param tracked - the agent's state, already claimed in `agents`.
+   * @returns after the initial restriction settled.
+   */
+  async start(tracked) {
+    try {
+      tracked.guard = tracked.tools.guard((execution) => {
         const blocked = this.ports.blockedServerNames();
         const toolReason = guardReason(execution.name, blocked, tracked.visible);
         if (toolReason !== void 0) return toolReason;
@@ -8481,7 +8574,7 @@ var DirectoryWatcher = class {
 
 // src/host/index.ts
 var name = "project-mcp";
-var inject = ["workspaceRegistry", "tools"];
+var inject = ["workspaceRegistry", "tools", "agents"];
 var EMPTY_SUMMARY = { loaded: [], reloaded: [], unloaded: [], unchanged: [], failed: [] };
 function scopedTools(scope, key) {
   return {
@@ -8503,6 +8596,29 @@ function apply(ctx) {
     blockedServerNames: () => manager.blockedServerNames(),
     log
   });
+  let failClosedDenials = 0;
+  let globalGuard;
+  try {
+    globalGuard = ctx.tools.guard((execution) => {
+      const decision = globalGuardDecision(
+        execution,
+        () => manager.blockedServerNames(),
+        (key) => isolation.visibleFor(key)
+      );
+      if (decision.kind === "allow") return void 0;
+      if (decision.reading !== "tracked") {
+        failClosedDenials += 1;
+        if (failClosedDenials <= 3 || failClosedDenials % 100 === 0) {
+          log.warn(
+            `isolation: global guard denied ${execution.name} (${decision.reading === "agentless" ? "no calling agent" : "untracked session"}); ${failClosedDenials} such denial(s)`
+          );
+        }
+      }
+      return decision.reason;
+    });
+  } catch (error) {
+    log.error(`cannot install the workspace isolation global guard: ${String(error)}`);
+  }
   let queue = Promise.resolve(EMPTY_SUMMARY);
   const watcher = new DirectoryWatcher(nodeWatchIo, () => {
     background();
@@ -8533,20 +8649,22 @@ function apply(ctx) {
     );
     return run;
   }
-  ctx.on("agent/created", ({ agent }) => {
+  async function attachAgent(agent) {
     const key = agent;
-    const cwd = agent.session.header.cwd;
-    agent.ctx.effect(() => () => {
-      isolation.detach(key);
-    }, "dsh-plugin-project-mcp: workspace isolation");
-    return isolation.attach(key, cwd, scopedTools(agent.ctx, key)).then(
-      () => void 0,
-      (error) => {
-        log.error(`cannot apply workspace isolation to a session: ${String(error)}`);
-        return void 0;
-      }
-    );
-  });
+    if (!isolation.isTracked(key)) {
+      agent.ctx.effect(() => () => {
+        isolation.detach(key);
+      }, "dsh-plugin-project-mcp: workspace isolation");
+    }
+    await isolation.attach(key, agent.session.header.cwd, scopedTools(agent.ctx, key));
+  }
+  ctx.on("agent/created", ({ agent }) => attachAgent(agent).then(
+    () => void 0,
+    (error) => {
+      log.error(`cannot apply workspace isolation to a session: ${String(error)}`);
+      return void 0;
+    }
+  ));
   let toolChanges = 0;
   ctx.on("tools/change", () => {
     toolChanges += 1;
@@ -8587,6 +8705,7 @@ function apply(ctx) {
   ctx.effect(() => () => {
     watcher.dispose();
     isolation.dispose();
+    globalGuard?.();
     for (const dispose of triggers) dispose();
     void manager.dispose();
   }, "dsh-plugin-project-mcp: teardown");
@@ -8595,14 +8714,21 @@ function apply(ctx) {
     blockedServerNames: () => manager.blockedServerNames(),
     log
   }));
-  const agents = ctx.get("agents");
-  const live = agents === void 0 ? 0 : agents.list().length;
-  if (live > 0) {
-    log.info(
-      `boot: ${live} session(s) predate this load; name isolation applies from their next assembly, resource isolation from the next agent/created`
+  async function boot() {
+    await attributor.update(workspaceRoots(ctx));
+    let live = [];
+    try {
+      live = ctx.agents.list();
+    } catch (error) {
+      log.error(`cannot read the live sessions for the boot sweep: ${String(error)}`);
+    }
+    await sweepLiveSessions(
+      live.map((agent) => ({ key: agent, id: agent.session.header.id, attach: () => attachAgent(agent) })),
+      { isTracked: (key) => isolation.isTracked(key), log }
     );
+    await rescan();
   }
-  background();
+  void boot().catch(reportFailure);
 }
 export {
   apply,
