@@ -1072,9 +1072,8 @@ if (failures.length > 0) {
   console.error('\n[architecture] 结构不变式不成立：\n')
   for (const failure of failures) console.error(`  - ${failure}`)
   console.error(
-    '\n按 code-design 的 AR 契约修复后重试（AR1–AR7 见 '
-    + 'openspec/specs/dsh-plugin-toolchain/spec.md，AR8 见 '
-    + 'openspec/changes/residual-convergence/code-design.md ③.2）。\n',
+    '\n按 spec 的 AR 契约修复后重试（AR1–AR8 见 '
+    + 'openspec/specs/dsh-plugin-toolchain/spec.md）。\n',
   )
   process.exit(1)
 }
