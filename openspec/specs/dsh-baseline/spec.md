@@ -7,7 +7,7 @@
 
 ### Requirement: 基线常量唯一来源与软范围派生
 
-仓库 SHALL 以单一常量(`scripts/dsh-baseline.mjs` 的 `DSH_BASELINE`)声明当前开发与发布验证所针对的 DSH 精确版本;全部插件(含 multi-root)的 `dsh.engines.dsh` 与全部 DSH peer 范围 SHALL 由该常量机械派生为 `>=<基线> <<主>.<次+1>.0`。基线提升后,任何插件声明与派生值不一致 SHALL 构成检查失败。multi-root 运行时门持有的基线副本 SHALL 由升级脚本与该常量同批重指。
+仓库 SHALL 以单一常量(`scripts/dsh-baseline.mjs` 的 `DSH_BASELINE`)声明当前开发与发布验证所针对的 DSH 精确版本;全部插件(含 multi-root)的 `dsh.engines.dsh` 与全部 DSH peer 范围 SHALL 由该常量机械派生为 `>=<基线> <<主>.<次+1>.0`。基线提升后,任何插件声明与派生值不一致 SHALL 构成检查失败;基线检查的版本比对 SHALL 先把 `catalog:`/`catalog:dsh` 引用归一化为 catalog 实际值再比较。multi-root 运行时门持有的基线副本 SHALL 由升级脚本与该常量同批重指。
 
 #### Scenario: 基线提升收紧软范围
 
@@ -51,9 +51,9 @@ multi-root 的全部 DSH `peerDependencies`(含 `@deepseek-ai/dsh`)与 `dsh.engi
 - **WHEN** 豁免清单缺少 lockfile 中已解析的 `@deepseek-ai/schemastery@3.19.0` 或残留陈旧的 `3.18.5` 条目
 - **THEN** `pnpm dsh:check` 分别报出 missing 与 stale 条目并以非零退出码结束
 
-### Requirement: 升级脚本候选树推导
+### Requirement: 升级重指面与 catalog 单点重写
 
-根级升级脚本(`pnpm dsh:upgrade <version> [--probe]`)SHALL 把基线常量、全部插件 DSH devDeps、全部插件范围与豁免清单重指到目标版本;multi-root 的 DSH peers、`dsh.engines.dsh` 与 `src/compat/dsh-version.ts` 的运行时基线副本 SHALL 随同批重指。DSH 家族与 cordis、schemastery 的 devDependencies 以命名 catalog(`catalog:dsh`)引用时,重指的对象 SHALL 是 `pnpm-workspace.yaml` 的 `catalogs.dsh` 块(升级脚本 MUST 单点重写该块),各插件 manifest 中值为 `catalog:`/`catalog:dsh` 的条目 MUST NOT 被改写为字面量版本;重写结束后,全部插件的 devDependencies 中 MUST NOT 残留 DSH 家族、cordis、schemastery 的字面量版本声明(残留 SHALL 构成检查失败)。基线检查对 devDependencies 的版本比对 SHALL 先把 `catalog:`/`catalog:dsh` 归一化为 catalog 实际值再比较。cordis 与 schemastery 的精确 pin SHALL 从候选 dsh 树的声明推导(取 `dsh` 与 `dsh-tools` 对该包的单个 tilde/caret 声明解析出的精确版本),声明不是单一 tilde/caret 时 SHALL 拒绝执行而非猜测。`--probe` 追加的 overrides 块 SHALL 在不带 `--probe` 重跑时移除。脚本 MUST NOT 重写默认 catalog(工具链册)中的任何条目。
+根级升级脚本(`pnpm dsh:upgrade <version>`)SHALL 把基线常量、全部插件 DSH devDeps、全部插件范围与豁免清单重指到目标版本;multi-root 的 DSH peers、`dsh.engines.dsh` 与运行时基线副本 SHALL 随同批重指。DSH 家族与 cordis、schemastery 以命名 catalog(`catalog:dsh`)引用时,重指对象 SHALL 是 `pnpm-workspace.yaml` 的 `catalogs.dsh` 块(MUST 单点重写);manifest 的 `catalog:`/`catalog:dsh` 条目 MUST NOT 被改写为字面量,重写后全部插件 devDependencies MUST NOT 残留 DSH 家族、cordis、schemastery 的字面量声明(残留即检查失败)。脚本 MUST NOT 重写默认 catalog(工具链册)中的任何条目。
 
 #### Scenario: 升级重指 catalog 而非字面量
 
@@ -64,6 +64,10 @@ multi-root 的全部 DSH `peerDependencies`(含 `@deepseek-ai/dsh`)与 `dsh.engi
 
 - **WHEN** 某插件的 `@deepseek-ai/dsh` devDependency 被手写为字面量版本
 - **THEN** 升级脚本的后置断言或 dsh:check 失败并指明该包
+
+### Requirement: 升级脚本候选树推导
+
+cordis 与 schemastery 的精确 pin SHALL 从候选 dsh 树的声明推导(取 `dsh` 与 `dsh-tools` 对该包的单个 tilde/caret 声明解析出的精确版本),声明不是单一 tilde/caret 时 SHALL 拒绝执行而非猜测。`--probe` 追加的 overrides 块 SHALL 在不带 `--probe` 重跑时移除。
 
 #### Scenario: schemastery 随候选树推导
 
