@@ -16,7 +16,7 @@
 | F6 | `./package.json` **有外部消费者**（DSH 插件元数据） | `@deepseek-ai/dsh-app-boot/lib/index.js:3008` 用 Node 解析器解析 `` `${specifier}/package.json` `` |
 | F7 | `./src/*` 仓内零消费者、DSH 侧零解析路径 | `git log -S'./src/*'` 首现提交 `0c68025`（「迁入 dotfiles/dsh/plugins 三个插件」），无理由记录 |
 | F8 | attribution 5 份 608 行；host-kit 371 行内核套件 | project-mcp 179+145、user-commands 111+91+82 |
-| F9 | 三份 vitest.config 28/32/30 行同形；模板 12 行且**无 alias、无 stub 文件**；multi-root 18 行（`pool:'forks'` + 30s + `tests/`） | `plugins/*/vitest.config.ts` |
+| F9 | 三份 vitest.config 28/32/30 行同形；模板 12 行且**无 alias、无 stub 文件**；multi-root 18 行（`pool:'forks'` + 30s + `tests/`；目录名 2026-11-07 已统一为 `test/`，见 diff-matrix §7 R9，行数与配置形态不变） | `plugins/*/vitest.config.ts` |
 | F10 | 模板 tsconfig 与真实包第二处形态分叉 | 模板 host `include:["src/index.ts","test/**/*.ts"]`、client `include:["src/client"]`（`templates/default/tsconfig.*.json:3`）vs 真实 dual 三包 client 均 include 测试 |
 | F11 | `assertSelfContained` 是 build-kit 死导出 | 全仓仅 `guards.mjs` / `index.mjs:223` / `guards.test.mjs` / README 自引用；README 声称的「bundle.test / check-artifacts 调用」不存在 |
 | F12 | 七个插件 importer 全在 lockfile；根 importer 为空对象 | `pnpm-lock.yaml:205`（`.: {}`）与 `:207` 起 7 个 `plugins/*` |
@@ -101,7 +101,7 @@
 | `plugins/user-commands/src/host/attribution.ts` | 插件子包 user-commands | 2 | 改 | 头注释里 `test/attribution-concurrency.test.ts` 引用改指 `tooling/host-kit/test/attribution.test.ts` 的并发段 |
 | `plugins/user-commands/package.json` | 插件子包 user-commands | 5 | 改 | 新增 `exports["./package.json"]`（`exports` 块 `:11-15`） |
 | `plugins/zcode-plan/package.json` | 插件子包 zcode-plan | 5 | 改 | 新增 `exports["./package.json"]`（`:10-12`） |
-| `plugins/multi-root-workspace/**` | 插件子包 multi-root | — | **不动** | 构建体系、vitest.config、14 exports、tests/ 全部排除（C3/C6/F9） |
+| `plugins/multi-root-workspace/**` | 插件子包 multi-root | — | **不动** | 构建体系、vitest.config、14 exports、tests/ 全部排除（C3/C6/F9；「不动」指构建体系与配置形态，非目录名冻结——2026-11-07 执行期追加目录统一 `tests/`→`test/`，见 diff-matrix §7 R9） |
 
 ### 1.4 模板与 scripts
 
@@ -449,7 +449,7 @@ export function selfContainmentIssues({ words, externals }): string[]   // guard
 
 > 组间串行，组内可并行。每组收口判据 = 该组全部门禁命令 exit 0，且不引入下一组的返工。
 
-### 组 0（批次前置，1 条命令）：冻结 B6 迁移等价基线
+### 组 0（批次前置，1 条命令）：冻结 B6 迁移等价基线（终形态：2026-11-07 执行完毕，0.1 已勾选）
 
 - 命令（在组 1 任何编辑之前执行，读已提交的 `lib/`，不重建）：
   ```bash
@@ -459,7 +459,21 @@ export function selfContainmentIssues({ words, externals }): string[]   // guard
 - 判据：命令 exit 0；`git status --porcelain docs/assessments/multi-root-baseline` 恰 7 个新文件。
 - 说明：组 1–5 不触 multi-root 产物（C9 边界）；若中途发现必须触达，冻结动作回退到该组之前重做。
 
-### 组 1：止血与债（4 条可并行）
+实测事实（组 0 执行期，冻结锚点 HEAD `58c62d5`）：
+- 脚本自带 mkdir（无需手工 `mkdir -p`）；`--write-baseline` 重跑幂等（重复执行 exit 0）。
+- 判据③的 porcelain 计数实际须加 `-uall`（未跟踪目录默认折叠 1 行；见 diff-matrix §7 R1），已用双命令留证：折叠行 1 行 + `-uall` 展开恰 7 行。
+- 基线可用性预验：`node scripts/check-artifacts.mjs --baseline docs/assessments/multi-root-baseline` exit 0（7 包模块词集合与基线逐字相等）；7 份快照 `host.sha256` 与 `git show HEAD:plugins/<p>/lib/index.js | sha256sum` 逐一 MATCH（未重建证据；`git status -uall plugins/` 为空）。
+- host-only 三包 client 段为 0 词属正常形态。
+
+### 组 1：止血与债（4 条可并行）（终形态：2026-11-07 执行完毕，1.1–1.5 已勾选，七链 exit 0 + B6 基线比对 exit 0）
+
+实测事实（组 1 执行期）：
+- B3 清零实证：拆分后 `openspec validate --all --strict` = 14 passed / 0 failed（exit 0）；两文件 52 + 39 scenario 数不变，SHALL/MUST 计数逐字不变（脚本切片搬运，非手抄）。拆分点句末标点 `；`→`。` 属结构调整（2 处），无语义变化。
+- smoke 实测定稿：11.196s（46/46+99/99+60/60，devDependency dsh CLI 0.2.2-rc.1，零容器零凭证）——ci.yml「为什么不跑 verify」理由 = 职责分工而非耗时（见 R3）。
+- 1.5 的 include 实际为 4 项（任务原文 3 项 + 既有 `src/css-modules.d.ts`）：`.test.tsx` 经组件传递导入 `.module.css`，wildcard 环境声明必须进 program 才能编译（15 条 TS2307 的解法）；文件为既有 src 文件、非新建（见 R4）。
+- 宿主 program 事实：`GlobalStandardProps` 会被贡献方 renderer/session 模块增补出 9 个必需 Hook——直接 `render()` 座位组件的测试需显式「注入面补齐」桥（wsc 以 `dialogProps()` 单点桥实现，替代整对象 `as unknown as`）。
+- 1.5 修复方式备忘：`SOFT_DSH_RANGE` 用 `createRequire` + 类型断言过 TS7016（`scripts/dsh-baseline.d.mts` 缺失；补声明后可改回静态 import——非本轮触达面，挂起待用户裁定）。
+- 环境事实：R2（store-dir flag）；组收口七链实测全 0，lib/ 重建后字节零漂移。
 
 **1A（N1+N10）openspec 进根 devDep + CI 步骤**
 - `package.json`：加 `"spec:check": "openspec validate --all --strict"` 与 devDep；`pnpm install`（重写 lockfile 根 importer）。
@@ -543,6 +557,8 @@ export function selfContainmentIssues({ words, externals }): string[]   // guard
 
 1. 先落对照清单；**任何一条找不到 host-kit 对应行，先给 host-kit `CASES` 补行并跑绿，再回头删**（映射不闭合的降级路径：补表后删，不保留插件侧副本）。
 2. 删 3 文件、改 4 处引用（1.3 表）。
+
+（终形态：2026-11-07 执行完毕，2.1 已勾选）实测事实：**23/23 映射闭合，host-kit 零补行**；对照清单工件 `artifacts/a3-attribution-coverage-map.md`（23 行表 + 逐条核验 + 差异说明 + 组 3 消费指引）自此为**删除凭证的权威源**。一处修正：#23（uc-concurrency 旧附加根归属完整）设计表原记承接「并发 #2 `:336`」，实测主承接为**并发 #1 `:289`**（`:320-323` 窗口断言）+ 并发 #2 为更强变体，两者并集覆盖原断言——判定闭合、未补行（工件 §2.3/§3 留痕）。设计表 host-kit 行号为 case 块级近似（最大偏 7 行），以工件实测 `name:`/`it(` 行为准。
 3. 验证：
    ```bash
    pnpm --filter @dsh-plugins/host-kit test        # 内核套件独立绿
@@ -555,7 +571,15 @@ export function selfContainmentIssues({ words, externals }): string[]   // guard
 4. 保留证据：`grep -n "onAnomaly\|Attributor" plugins/*/test/attribution-anomaly.test.ts` 非空（wiring 仍在）。
 5. 收口：`pnpm typecheck`（两包 glob include，删文件不需改 tsconfig）+ 组 1 的整链。
 
-### 组 3：A1 vitest 工厂 + 模板分化 + ADR + AR8
+### 组 3：A1 vitest 工厂 + 模板分化 + ADR + AR8（终形态：2026-11-07 执行完毕，4.1/4.2/5.1–5.4 已勾选，六链 exit 0 + B6 零漂移）
+
+实测事实（组 4–5 执行期）：
+- 工厂与消费面落地：三包 `vitest.config.ts` 各 **3 物理行**（≤6 断言通过；规划口径「4 行」按换行计），逐字一致零注释；wsc 55 / web-ux 579 / stt 1086 测试全绿（jsdom 组件套件经 alias 接缝真实跑通）。
+- AR8 六包判定通过，逐包计数 stt 23 / web-ux 19 / wsc 6（与收口判据一致）；两个负向探针（字面量、tsconfig 覆盖删除）均红、恢复均绿。
+- **负向 A 原判据失真**：删工厂 `esbuild.jsx` 运行时行 wsc 仍绿——automatic JSX 在当前 vitest/vite 组合下非该行承重；判据替换为 alias 接缝承重探针（NO-SUCH-SEAM → `Cannot find module '@deepseek-ai/dsh-client-ui-primitives'` 红，恢复绿）。裁定与证据全文见 diff-matrix §7 R8；S1（vitest 纯对象加载形态）结案：纯对象工厂被三包真实消费。
+- 模板分化：`template.json` 11→12 条目（config 与 stub 均 `only: dual`）；structureTree host-only 8 文件 / dual 12 文件（dry-run 探针，无落盘，机械验证归 CI scaffold/D16）；模板无 CSS 导入链故不加 `css-modules.d.ts`（R4① 条件不满足）。
+- ADR-0001 新节落地（含被否三条）；「落地证据」段由主会话回填实测结论（原 4.2 时 4.1 未落地，不预写未发生事实）。
+- 顺手修正：check-architecture 失败提示的 AR1–AR7 指向已归档路径（optimize-architecture ③.4 不存在）→ 改指权威 spec `openspec/specs/dsh-plugin-toolchain/spec.md`（AR8 指向本变更 code-design ③.2，收尾归档后由 spec-done 复核）。
 
 1. `tooling/test-kit/src/vitest.ts`（3.1）+ `package.json` exports + README 章程段 + ADR-0001 修订（`:61` 行与修订记录）。
 2. 三包 `vitest.config.ts` 换成 4 行薄声明（模板同形态，`only: dual`）。
@@ -578,7 +602,14 @@ export function selfContainmentIssues({ words, externals }): string[]   // guard
      ```
      期望：demo-host 无 `vitest.config.ts`、有 `test/smoke.test.ts`；demo-dual 有 config（4 行）与 `test/stubs/ui-primitives.tsx`。
 
-### 组 4：A2 产物契约下沉 build-kit
+### 组 4：A2 产物契约下沉 build-kit（终形态：2026-11-07 执行完毕，6.1 已勾选）
+
+实测事实（组 6 执行期）：
+- 四函数纯模块落地：build-kit 测试 32→49（guards 删 6、contract 增 23）；`assertSelfContained` 在 `tooling/build-kit/src` 连注释清零（旧名仅存历史文档）。
+- 负面探针文案形态：`[p] lib/client.js: …` 前缀 + 期望/实际；requireSurface 双泄漏一探针双 issue；`exports["./artifact-contract"] = { types, default }`（d.mts 过 `tsc --noEmit --strict`）。
+- 子路径消费面预验证（R6 口径）：web-ux cwd 下 node import 四函数 OK；TS Bundler 解析到 d.mts——组 7 的类型/运行时消费面已就绪。
+- 字节不变基线 `/tmp/rc-b6-before` 已由 6.1 写就（7 包逐字相等）；组 7 改造前重写同路径即可。
+- hostSelfContainmentIssues 默认 `externals=['node:*']` 即三软包消费形态（三包 host 半均无 hostExternals）。
 
 1. 新建 `artifact-contract.mjs` + `.d.mts`；`package.json` 加子路径 export。
 2. `guards.mjs` 删 `assertSelfContained` 与 `isBuiltin` 链；`index.mjs:223` 同步；`guards.test.mjs` 删 6 用例；新测试文件搬到 artifact-contract（正面 + 负面）。
@@ -603,7 +634,14 @@ export function selfContainmentIssues({ words, externals }): string[]   // guard
      期望 exit 0，issue 文案含 `p` 与 `lib/client.js`。
    - 三份测试的断言集合对照：旧文件逐条 `expect(` 与改造后「契约调用 + 包内保留断言」一一对应（评审项，diff 留痕）。
 
-### 组 5：A4 manifest 审计与对账 + B4 CI 冒烟
+### 组 5：A4 manifest 审计与对账 + B4 CI 冒烟（终形态：2026-11-07 执行完毕，8.1–8.4 已勾选）
+
+实测事实（组 8 执行期）：
+- manifest 落地面 7 文件 +8/−9；wsc `./package.json` 本已存在（「补齐 3 包」实际改 uc/zcode-plan 两包，wsc 由验证句复核无缺口）。
+- `--check` 落地要点：键路径比较不比键序（模板 `./package.json` 结尾 vs finalizeManifest 追加 `./client` 的键序差被 canonicalJson 吸收）；`files` 只比集合形态（`lib/**/*.d.ts` 按 dtsOwned 条件进期望集合，非实体文件断言）；version 等非规范键不比较（zcode-plan 9.9.9 对照探针绿）。互斥 `--dry-run` exit 2。附加强探针 4 条（dtsOwned/files/icon 缺失/dual 删 client）全红可恢复。
+- 打包面（六包 npm pack）：README 6/6 自动出现；icon.svg 恰 4 包（pm/uc/stt/web-ux）；`src` 随包分发（Q3）；wsc dts 8 份、stt/web-ux 各 1 份 types 入口。
+- CI scaffold 作业落地：10 步（frozen → gen×2 → no-frozen → verify:all×2 → dsh:check），setup 与 verify 同形；R7 收口（AR1–AR7 清零、「组 5 落地」清除）；CI 首跑证据留待 push 后（终末段核）。
+- 模板 smoke 契约化：第 4 份复制消失（`__ModuleLoader__` 手写清零）；/tmp 端到端演练双 kind 4/4 绿 + 负向承重探针（缺 factory 形态、未声明外部词）红且 issue 带包名。**裁定**：通用 `@dsh-plugins/` 子串 ABSENT 标记退役（契约词级判据更准，注释误报面消除）。
 
 1. 审计（先产出结论再改）：逐包列出 `exports` / `files` / `icon` 三项的理由；判定结果 = D8/D9（删 `./src/*`、补 `./package.json`、删 wsc `README.md`、模板补 `./package.json` 与 `lib/**/*.d.ts`）。
 2. 改 6 个插件 manifest + 模板 `.tmpl`；`gen-plugin --check`（3.4）落地；`templates/README.md` 增「manifest 形态对账」小节。
@@ -631,7 +669,14 @@ export function selfContainmentIssues({ words, externals }): string[]   // guard
      期望：`README.md` 自动出现；`icon.svg` 仅 4 个有 icon 的包出现；不含 `exports` 里已删的 `./src/*` 目标以外的意外文件。
    - CI：`node -e` YAML 解析出 `['verify','scaffold']`（1A 命令）；push 后两个作业均绿，scaffold 日志含 `built dsh-plugin-ci-smoke-dual` 与 `[dsh:check] 3 组门禁全部通过`（这是 B4 首次机械证据）。
 
-### 组 6：B1 评估档案 + 收尾
+### 组 6：B1 评估档案 + 收尾（终形态：2026-11-07 执行完毕，9.1–9.5 已勾选，全链终检全绿）
+
+实测事实（组 9 执行期）：
+- 评估档案落地：`docs/assessments/`（README 索引「非 ADR」+ multi-root-build-unification.md 四节 114 行）+ decisions/README 评估档案小节 + build-kit README 指针；`--dump-config` 装配冒烟 exit 0；「B1–B3 typecheck」按仓内语义拆为「B1–B3 产物契约门 + host/client typecheck 双绿」两条独立门槛（原文口径已按实现修正）。
+- test-kit 自测 7 用例（locale-parity 5 + ui-primitives 2，`renderToStaticMarkup` 零新增依赖）；`vitest@3.2.7`（catalog: 同源）仅 devDep；TOOLING_CONTRACT 加 `test`；N9 死分支删除（内容锚点 :1033，pending 无孤儿引用）。主路由两连败后按三档回退第①档兜底路由完成。
+- N2 盘点：51 文件（48 套件 + 3 stub）全覆盖未覆盖 0；独立复算 + `--showConfig` 第二源交叉验证 6 组集合逐文件一致；固定结论三数字双口径记账（stt 23 / web-ux 19 取 *.test 口径，wsc 7 含 stub，AR8 日志 wsc「6」为 *.test 口径）。
+- 根文档同步：README/AGENTS 各 +assessments 目录行 / `gen:plugin --check` 命令行 / 测试薄入口约定（计数 4/4 ≥ 3）。
+- **9.5 终检（主会话执行，2026-11-07）**：七链 exit 0；`--baseline docs/assessments/multi-root-baseline` exit 0（7 包模块词逐字相等）；`git status --porcelain | grep -E 'plugins/[^/]+/lib/' | wc -l` = 0。**实施完成**。
 
 1. B1：`docs/assessments/multi-root-build-unification.md`（现状差异清单 / 不迁移理由 / 迁移通过标准 / 工作量与风险 / 结论）+ `docs/assessments/README.md` 索引 + `docs/decisions/README.md` 指针 + `tooling/build-kit/README.md` 的 multi-root 行链过去。
 2. 基线比对：

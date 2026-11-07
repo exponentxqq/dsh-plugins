@@ -1,0 +1,18 @@
+{
+  "package": "dsh-plugin-user-commands",
+  "host": {
+    "words": [
+      "@deepseek-ai/dsh-llm",
+      "buffer",
+      "node:fs",
+      "node:os",
+      "node:path",
+      "process"
+    ],
+    "sha256": "2a342aabdf89ad77dcca1a6c45cfb8ab322ccbb8230207ad5524be40c9a5e54a"
+  },
+  "client": {
+    "words": [],
+    "sha256": null
+  }
+}

@@ -7,7 +7,7 @@
  * helper and stay identical across both releases — which is what makes one
  * suite valid evidence for the whole allowlist.
  *
- * @module tests/support/confine
+ * @module test/support/confine
  */
 
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'

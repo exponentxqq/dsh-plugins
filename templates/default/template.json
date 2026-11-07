@@ -8,10 +8,11 @@
     { "template": "tsconfig.json", "output": "tsconfig.json", "format": "solution" },
     { "template": "tsconfig.host.json", "output": "tsconfig.host.json" },
     { "template": "tsconfig.client.json", "output": "tsconfig.client.json", "only": "dual" },
-    { "template": "vitest.config.ts", "output": "vitest.config.ts" },
+    { "template": "vitest.config.ts", "output": "vitest.config.ts", "only": "dual" },
     { "template": "src/index.ts", "output": "src/index.ts" },
     { "template": "src/client/index.ts", "output": "src/client/index.ts", "only": "dual" },
     { "template": "test/smoke.test.ts", "output": "test/smoke.test.ts" },
+    { "template": "test/stubs/ui-primitives.tsx", "output": "test/stubs/ui-primitives.tsx", "only": "dual" },
     { "template": "plugin-README.md.tmpl", "output": "README.md" }
   ]
 }

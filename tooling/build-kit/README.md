@@ -83,8 +83,12 @@ await buildPlugin({ root: import.meta.dirname, cjsRequireShim: true })
 | `indentBlock(text, levels)` | 按制表符层级缩进（空行不加尾随空白） |
 | `assertNoDynamicRequire(code, shimEnabled)` | 产物含 `__require(` 但未开 shim → 抛 F3 解释 |
 | `assertNoInternalWord(code)` | 产物含 `@dsh-plugins/` → 抛错（内部包必须内联） |
-| `assertSelfContained(words, externals)` | 模块词未被「内建 / 相对块 / 外部词」覆盖 → 抛错 |
 | `DEFAULT_CLIENT_EXTERNALS` / `CJS_REQUIRE_BANNER` / `HOST_BASE_EXTERNALS` | 常量（外部词清单 / banner 文案 / 宿主基础外置词） |
+
+`assertSelfContained(words, externals)` 已删除：它是无调用方的死导出（README 早先声称它由
+`bundle.test.ts` / `check-artifacts.mjs` 调用，实际全仓零调用）。词集合级的自包含判据收口到
+子路径 `@dsh-plugins/build-kit/artifact-contract`（下一节）——build 期没有词法器，kit 不再保留
+抛出式的重复实现。
 
 ## CSS modules 的两条硬规则
 
@@ -104,17 +108,54 @@ await buildPlugin({ root: import.meta.dirname, cjsRequireShim: true })
 
 守卫失败时先删掉该产物再抛错：`lib/` 随仓库提交，不能把未过守卫的字节留在工作区。
 
-`assertSelfContained` 接收的是**模块词**而不是源码，词法器的单一实现在
-`scripts/lib/artifacts.mjs`（R9）；因此它由包内 `bundle.test.ts` / 仓级
-`check-artifacts.mjs` 调用，`buildPlugin` 不重复实现词法器。词法器会抓到产物里的
-文案片段（web-ux 的 locale 文案是已知误报），守卫只判定形如模块说明符的词，含空白
-或非 ASCII 的片段直接跳过。
+词集合级的自包含判据**不在 build 期**（build 期没有词法器，重复实现没有增量）：
+它由包内 `bundle.test.ts` 在产物落盘后对**已构建的字节**断言，见下一节。
+
+## 产物契约断言：`@dsh-plugins/build-kit/artifact-contract`
+
+双端插件的 `test/bundle.test.ts` 的结构层断言（ModuleLoader 壳 / require 面 / 宿主半
+自包含）原先在三份测试里逐字重复；本次变更把它们收敛为子路径
+`@dsh-plugins/build-kit/artifact-contract` 下的四个**无状态纯函数**：
+
+| 函数 | 判据 | issue 文案要点 |
+| --- | --- | --- |
+| `loaderShellIssues({ packageName, source })` | `lib/client.js` 必须含 `window.__ModuleLoader__.load({`、`id: "<packageName>"`、`factory: (require) => {` 三条字面量标记 | 点名缺哪一条标记 |
+| `requireSurfaceIssues({ packageName, expected, required, imported })` | `required` 与 `expected` **精确集合相等**；`imported` 无 `node:*`；`imported` 无包名子串（自引用） | 分别报「多余/缺失」「node: 泄漏」「自引用」 |
+| `hostSelfContainmentIssues({ packageName, words, externals = ['node:*'] })` | 宿主半（`lib/index.js`）模块词都能被「内建 / 相对块 / 外部词」覆盖——`selfContainmentIssues` 判据 + 包名/产物名前缀 | 列出未覆盖词（去重） |
+| `selfContainmentIssues({ words, externals })` | 低层原语：相对块恒合法；`node:*` 需命中 externals；裸内建名仅当 externals 含 `node:*`；通配与包名子路径匹配 | 保留原 `assertSelfContained` 的三段失败文案 |
+
+约定：入参是**词数组**（由 `scripts/lib/artifacts.mjs` 的词法器产出，R9 单源），出参是
+issue 列表——空数组 = 通过；每条 issue 自带包名、产物名与期望/实际，失败时不需要调用方
+再拼上下文。`selfContainmentIssues` 是低层原语（无包名），保留原 `assertSelfContained` 的
+失败文案；需要身份前缀时用 `hostSelfContainmentIssues`。
+
+消费形态（三份 `test/bundle.test.ts` 的结构层断言；INLINED/ABSENT 标记、css 注入器计数、
+座位字面量等包独有断言仍留包内）：
+
+```ts
+expect(loaderShellIssues({ packageName: PACKAGE_NAME, source })).toEqual([])
+expect(requireSurfaceIssues({
+  packageName: PACKAGE_NAME,
+  expected: CLIENT_REQUIRES,
+  required: requiredWords(source),
+  imported: importedWords(source),
+})).toEqual([])
+expect(hostSelfContainmentIssues({
+  packageName: PACKAGE_NAME,
+  words: importedWords(readArtifact(ROOT, 'index.js')),
+})).toEqual([])
+```
+
+纪律：本模块是纯 `.mjs`、零依赖（只用 `node:module` 的 `isBuiltin`）、**不读盘**、不 import
+vitest、不 import `scripts/lib`——词法仍是 `scripts/lib/artifacts.mjs` 的单一实现，kit 不反向
+import（R6 / R9）。正面与负面用例在 `test/artifact-contract.test.mjs`（壳缺标记、词集多一少一、
+`node:` 泄漏、自引用、未覆盖词、文案片段不误判各有用例）。
 
 ## 什么不该进 kit
 
 | 不属于这里 | 归属 |
 | --- | --- |
-| 多入口 / 多 format / 代码分块 / `tsdown` 路线（`multi-root-workspace`） | 该包自己的 `tsc + tsdown` 构建（C2：不纳入统一构建） |
+| 多入口 / 多 format / 代码分块 / `tsdown` 路线（`multi-root-workspace`） | 该包自己的 `tsc + tsdown` 构建（C2：不纳入统一构建）；不迁移的理由与未来迁移通过标准见[评估档案](../../docs/assessments/multi-root-build-unification.md) |
 | 运行期共享源码（归属内核、watcher、日志、根集合） | `tooling/host-kit`（TS，被 esbuild 内联） |
 | 测试夹具底座（ui-primitives 并集、locale-parity） | `tooling/test-kit` |
 | 座位契约**类型**（`WorkspaceConfigSectionSeat` 等） | `tooling/contracts`（纯类型包） |
@@ -128,7 +169,7 @@ await buildPlugin({ root: import.meta.dirname, cjsRequireShim: true })
 ## 自测
 
 ```bash
-pnpm --filter @dsh-plugins/build-kit test   # css 双模块去重 / 壳形状 / 守卫四格
+pnpm --filter @dsh-plugins/build-kit test   # css 双模块去重 / 壳形状 / 守卫四格 / 产物契约正面+负面
 pnpm --filter @dsh-plugins/build-kit lint
 ```
 

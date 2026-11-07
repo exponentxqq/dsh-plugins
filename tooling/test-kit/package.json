@@ -2,15 +2,17 @@
   "name": "@dsh-plugins/test-kit",
   "version": "0.0.0",
   "private": true,
-  "description": "DSH 双端插件共用的测试夹具底座（ui-primitives stub 并集 + locale-parity 纯函数）；只放无分支的夹具，任何包的行为断言留在包内",
+  "description": "DSH 双端插件共用的测试夹具底座（ui-primitives stub 并集 + locale-parity 纯函数）；只放无分支的夹具，任何包的行为断言留在包内 + `./vitest` 测试接线原语",
   "type": "module",
   "exports": {
     "./ui-primitives": "./src/ui-primitives.tsx",
-    "./locale-parity": "./src/locale-parity.ts"
+    "./locale-parity": "./src/locale-parity.ts",
+    "./vitest": "./src/vitest.ts"
   },
   "scripts": {
     "lint": "oxlint",
-    "typecheck": "tsc -p tsconfig.json --pretty false"
+    "typecheck": "tsc -p tsconfig.json --pretty false",
+    "test": "vitest run"
   },
   "dependencies": {
     "react": "catalog:",
@@ -21,6 +23,7 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "oxlint": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

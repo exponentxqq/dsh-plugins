@@ -11,7 +11,8 @@
   "exports": {
     ".": {
       "default": "./lib/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "dsh": {
     "engines": {

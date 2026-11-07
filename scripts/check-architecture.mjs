@@ -2,7 +2,7 @@
 /**
  * 结构不变式门禁（R7，G7 8.1 全量开启）。
  *
- * 七组断言（契约见 code-design ③.4，执行期裁定见 tasks.md 附录）：
+ * 八组断言（AR1–AR7 契约见 code-design ③.4、AR8 见 ③.2，执行期裁定见 tasks.md 附录）：
  *
  * - AR1：任何 workspace 包（`plugins/*` + `tooling/*`）的 `dependencies` 不得出现
  *   `@dsh-plugins/*`——内部包只能进 devDependencies（构建期内联；profile 侧
@@ -20,6 +20,12 @@
  *   为空数组、`ignorePatterns` 恰为 R4 三条（执行期 R11①②）；
  * - AR7：workspace `packages` 恰为 `plugins/*` + 四个显式 tooling 包
  *   （执行期 R12①），`templates/` 不是包（禁止 `templates` / `templates/*` 进 `packages`）。
+ * - AR8：软插件的 Web 测试接线必须收敛到 `@dsh-plugins/test-kit/vitest`——`dsh.client.platform`
+ *   为 `web` 的包必须有 `vitest.config.ts`（AR8-1）；该文件是 ≤ 6 行的薄入口：单 import +
+ *   单次 `export default defineWebTestConfig({...})`，代码不含 `alias` / `esbuild` / `include` /
+ *   `environment` / `jsdom` / primitives 包名（AR8-2）；工厂的 `WEB_TEST_INCLUDE` 必须恰为
+ *   `.ts` + `.tsx` 双面，test/ 下测试文件命名与 tsconfig include 覆盖必须闭合（AR8-3）；
+ *   存在入口时 `test/stubs/ui-primitives.tsx` 必须薄 re-export test-kit 并集底座（AR8-4）。
  *
  * 全部失败一次列出，不遇到第一个就退出；退出码 0 通过 / 1 断言失败 / 2 用法错误。
  *
@@ -27,7 +33,7 @@
  */
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /** 仓库根（`scripts/` 的上一级）。 */
@@ -43,7 +49,7 @@ const BASE_TSCONFIG = join(REPO_ROOT, 'tsconfig.plugin.base.json')
 
 /** 命令用法。 */
 const USAGE = `用法：
-  node scripts/check-architecture.mjs    # 结构不变式门禁（AR1–AR7 全量）`
+  node scripts/check-architecture.mjs    # 结构不变式门禁（AR1–AR8 全量）`
 
 const failures = []
 const notes = []
@@ -153,7 +159,7 @@ const TOOLING_CONTRACT = {
   },
   'test-kit': {
     runtime: ['react', 'react-dom'],
-    scripts: ['lint', 'typecheck'],
+    scripts: ['lint', 'typecheck', 'test'],
   },
   contracts: {
     runtime: [],
@@ -751,6 +757,248 @@ function inspectWorkspacePackages() {
 }
 
 // ---------------------------------------------------------------------------
+// AR8：Web 测试接线（薄入口 / include 双面 / stub 指向）
+// ---------------------------------------------------------------------------
+
+/** 双端包测试配置的唯一 import 源（test-kit 的 vitest 子路径）。 */
+const WEB_TEST_CONFIG_MODULE = '@dsh-plugins/test-kit/vitest'
+
+/** AR8-2 薄入口有效代码行上限（去注释后计）。 */
+const WEB_TEST_CONFIG_MAX_LINES = 6
+
+/** AR8-2 禁止在消费方配置里出现的字面量（配置细节只能由 test-kit 工厂提供）。 */
+const WEB_TEST_CONFIG_FORBIDDEN = [
+  'alias',
+  'esbuild',
+  'include',
+  'environment',
+  'jsdom',
+  '@deepseek-ai/dsh-client-ui-primitives',
+]
+
+/** AR8-3 include 常量的唯一真源（工厂定义处，门禁只读不抄）。 */
+const WEB_TEST_INCLUDE_FILE = join(REPO_ROOT, 'tooling', 'test-kit', 'src', 'vitest.ts')
+
+/** AR8-3 期望的 include 双面值（顺序即契约：`.ts` 在前、`.tsx` 在后）。 */
+const WEB_TEST_INCLUDE_EXPECTED = ['test/**/*.test.ts', 'test/**/*.test.tsx']
+
+/** 薄入口文件名、测试目录、stub 相对包根的路径。 */
+const WEB_TEST_CONFIG_FILE = 'vitest.config.ts'
+const WEB_TEST_DIR = 'test'
+const WEB_TEST_STUB = 'test/stubs/ui-primitives.tsx'
+
+/** AR8-4 stub 必须薄 re-export 的模块。 */
+const WEB_TEST_STUB_MODULE = '@dsh-plugins/test-kit/ui-primitives'
+
+/** 包内工程 tsconfig（host 必在；client 只有双端包有，只读 include、不解析 extends）。 */
+const WEB_TEST_TSCONFIGS = ['tsconfig.host.json', 'tsconfig.client.json']
+
+/**
+ * 递归列出一个目录下的全部文件。
+ * @param dir - 目录绝对路径。
+ * @returns 文件绝对路径列表。
+ */
+function listFilesRecursively(dir) {
+  const files = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) files.push(...listFilesRecursively(full))
+    else files.push(full)
+  }
+  return files
+}
+
+/**
+ * 把 tsconfig `include` 条目按 glob 语义转成正则。
+ *
+ * 只实现 include 需要的通配：`**`（跨目录，跟随 `/` 时允许零层）与 `*`（目录内任意字符），
+ * `?` 按单字符处理；不解析 `extends`，也不展开 include 之外的编译语义。
+ * @param pattern - 已规范化的 include 条目。
+ * @returns 以 `^` / `$` 包住的正则。
+ */
+function globToRegExp(pattern) {
+  let source = ''
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index]
+    if (char === '*') {
+      if (pattern[index + 1] === '*') {
+        // `**/` 允许零层目录：`test/**/*.ts` 也要匹配 `test/a.test.ts`。
+        if (pattern[index + 2] === '/') {
+          source += '(?:.*/)?'
+          index += 2
+        } else {
+          source += '.*'
+          index += 1
+        }
+      } else {
+        source += '[^/]*'
+      }
+      continue
+    }
+    if (char === '?') {
+      source += '[^/]'
+      continue
+    }
+    source += /[.*+?^${}()|[\]\\]/u.test(char) ? `\\${char}` : char
+  }
+  return new RegExp(`^${source}$`, 'u')
+}
+
+/**
+ * 判断一条 tsconfig include 条目是否覆盖包内相对路径。
+ *
+ * 无通配的条目按 TypeScript 语义同时表示「该文件」与「该目录下的文件」；带通配的条目
+ * 只做 glob 匹配（不做目录展开）。
+ * @param entry - tsconfig `include` 里的一条字符串。
+ * @param filePath - 相对包根、以 `/` 分隔的文件路径。
+ * @returns 是否覆盖。
+ */
+function includeEntryCovers(entry, filePath) {
+  const normalized = entry.replaceAll('\\', '/').replace(/^\.\//u, '').replace(/\/+$/u, '')
+  if (normalized === '') return false
+  if (globToRegExp(normalized).test(filePath)) return true
+  return !normalized.includes('*') && filePath.startsWith(`${normalized}/`)
+}
+
+/**
+ * 从 test-kit 工厂源码提取 `WEB_TEST_INCLUDE` 的数组字面量（AR8-3）。
+ *
+ * 解析失败返回 `null`，由调用方记为失败——「读不到真源」等于没有双面 include 的证据，
+ * 不允许静默跳过。
+ * @returns 字符串数组；文件缺失或数组字面量无法解析时返回 `null`。
+ */
+function readWebTestInclude() {
+  if (!existsSync(WEB_TEST_INCLUDE_FILE)) return null
+  const source = stripComments(readFileSync(WEB_TEST_INCLUDE_FILE, 'utf8'))
+  const array = /export\s+const\s+WEB_TEST_INCLUDE\s*=\s*\[([^\]]*)\]/u.exec(source)
+  if (array === null) return null
+  return [...array[1].matchAll(/(['"])([^'"]*)\1/gu)].map((match) => match[2])
+}
+
+/**
+ * 核对工厂 include 常量（AR8-3 的「vitest 工厂 include」面）。
+ */
+function inspectWebTestInclude() {
+  const values = readWebTestInclude()
+  if (values === null) {
+    fail(
+      'AR8 tooling/test-kit/src/vitest.ts: 无法解析 WEB_TEST_INCLUDE 数组字面量'
+      + `（应形如 export const WEB_TEST_INCLUDE = ${JSON.stringify(WEB_TEST_INCLUDE_EXPECTED)} as const）`,
+    )
+    return
+  }
+  if (JSON.stringify(values) !== JSON.stringify(WEB_TEST_INCLUDE_EXPECTED)) {
+    fail(
+      'AR8 tooling/test-kit/src/vitest.ts: WEB_TEST_INCLUDE 必须恰为 '
+      + `${JSON.stringify(WEB_TEST_INCLUDE_EXPECTED)}，当前 ${JSON.stringify(values)}`
+      + '（漏 `.tsx` 会让组件套件静默消失）',
+    )
+  }
+}
+
+/**
+ * 检查一个软插件的 Web 测试接线（AR8-1/2/3/4）。
+ * @param pkg - `{ dir, dirName, manifest }`。
+ */
+function inspectWebTestWiring(pkg) {
+  const packageName = String(pkg.manifest.name)
+  const configFile = join(pkg.dir, WEB_TEST_CONFIG_FILE)
+  const label = `AR8 ${packageName}/${WEB_TEST_CONFIG_FILE}`
+  const hasConfig = existsSync(configFile)
+  const isWeb = pkg.manifest.dsh?.client?.platform === 'web'
+
+  // AR8-1：Web 双端包必须有测试薄入口。
+  if (isWeb && !hasConfig) {
+    fail(`${label}: 不存在——dsh.client.platform 为 "web" 的包必须有 vitest 薄入口`)
+  }
+
+  if (hasConfig) {
+    // AR8-2：薄入口形态（≤ 6 行 / 单 import / 单工厂调用 / 无配置字面量）。
+    const code = stripComments(readFileSync(configFile, 'utf8'))
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '')
+      .join('\n')
+    const codeLines = code === '' ? [] : code.split('\n')
+    if (codeLines.length > WEB_TEST_CONFIG_MAX_LINES) {
+      fail(`${label}: 有效代码 ${codeLines.length} 行，超过薄入口上限 ${WEB_TEST_CONFIG_MAX_LINES} 行`)
+    }
+    const imports = codeLines.filter((line) => /^import\b/u.test(line))
+    const importMatch = /^import\s*\{\s*defineWebTestConfig\s*\}\s*from\s*(['"])([^'"]+)\1;?$/u.exec(imports[0] ?? '')
+    if (imports.length !== 1 || importMatch === null || importMatch[2] !== WEB_TEST_CONFIG_MODULE) {
+      fail(
+        `${label}: 必须恰有一条 import，且形如 "import { defineWebTestConfig } from '${WEB_TEST_CONFIG_MODULE}'"；`
+        + `当前 import ${imports.length} 条${imports.length === 0 ? '' : `（${imports.join(' / ')}）`}`,
+      )
+    }
+    if (code.split('export default defineWebTestConfig({').length - 1 !== 1) {
+      fail(`${label}: 必须恰有一条 \`export default defineWebTestConfig({ ... })\`（工厂单入口）`)
+    }
+    const forbidden = WEB_TEST_CONFIG_FORBIDDEN.filter((word) => code.includes(word))
+    if (forbidden.length > 0) {
+      fail(
+        `${label}: 代码出现禁止字面量 ${forbidden.map((word) => `"${word}"`).join(' / ')}`
+        + '——配置细节只能由 test-kit 工厂提供，消费方不得覆写',
+      )
+    }
+
+    // AR8-4：替身只允许薄 re-export test-kit 的并集底座。
+    const stubFile = join(pkg.dir, WEB_TEST_STUB)
+    if (!existsSync(stubFile)) {
+      fail(`AR8 ${packageName}/${WEB_TEST_STUB}: 不存在——双端包的 ui-primitives 替身必须指向 test-kit`)
+    } else {
+      const stubSource = readFileSync(stubFile, 'utf8')
+      const stubImport = new RegExp(`from\\s+['"]${WEB_TEST_STUB_MODULE.replaceAll('/', '\\/')}['"]`, 'u')
+      if (!stubImport.test(stubSource)) {
+        fail(`AR8 ${packageName}/${WEB_TEST_STUB}: 缺少 "from '${WEB_TEST_STUB_MODULE}'"（替身只能薄 re-export 并集底座）`)
+      }
+    }
+  }
+
+  // AR8-3：磁盘测试命名 + tsconfig include 覆盖（每个 test/ 文件至少被一个工程覆盖）。
+  const testDir = join(pkg.dir, WEB_TEST_DIR)
+  if (!existsSync(testDir)) return
+  const files = listFilesRecursively(testDir)
+    .map((file) => relative(pkg.dir, file).replaceAll('\\', '/'))
+    .sort()
+  const testFiles = files.filter((file) => /\.test\./u.test(file))
+  for (const file of testFiles) {
+    if (!/\.test\.(?:ts|tsx)$/u.test(file)) {
+      fail(`AR8 ${packageName}/${file}: 文件名匹配 ".test." 但不以 .test.ts / .test.tsx 结尾（套件会静默消失）`)
+    }
+  }
+
+  const includeEntries = []
+  for (const fileName of WEB_TEST_TSCONFIGS) {
+    const tsconfigFile = join(pkg.dir, fileName)
+    if (!existsSync(tsconfigFile)) continue
+    let config
+    try {
+      config = JSON.parse(readFileSync(tsconfigFile, 'utf8'))
+    } catch (error) {
+      fail(
+        `AR8 ${packageName}/${fileName}: 不是合法的 JSON，无法核对 test/ 覆盖`
+        + `（${error instanceof Error ? error.message : String(error)}）`,
+      )
+      continue
+    }
+    const include = config?.include
+    if (!Array.isArray(include)) continue
+    for (const entry of include) {
+      if (typeof entry === 'string') includeEntries.push(entry)
+    }
+  }
+  const uncovered = files.filter((file) => !includeEntries.some((entry) => includeEntryCovers(entry, file)))
+  if (uncovered.length > 0) {
+    fail(
+      `AR8 ${packageName}/tsconfig: ${uncovered.length} 个 test/ 文件没有被任何工程的 include 覆盖：`
+      + uncovered.join(' / '),
+    )
+  }
+  note(`AR8: ${packageName} ${testFiles.length} 个测试文件全部覆盖`)
+}
+
+// ---------------------------------------------------------------------------
 // 执行
 // ---------------------------------------------------------------------------
 
@@ -782,12 +1030,8 @@ note(`AR1: ${workspacePackages.length} 个 workspace 包的 dependencies 均无 
 // AR2
 for (const pkg of toolingPackages) inspectToolingPackage(pkg)
 const registered = toolingPackages.map((pkg) => pkg.dirName)
-const pending = Object.keys(TOOLING_CONTRACT).filter((name) => !registered.includes(name))
 if (!registered.includes('build-kit')) fail('AR2 tooling/build-kit 包缺失（构建骨架是六个软插件的前提）')
-note(
-  `AR2: ${registered.length} 个 tooling 包已纳管`
-  + (pending.length > 0 ? `；${pending.join(' / ')} 尚未建包，建成后自动纳入同一契约` : ''),
-)
+note(`AR2: ${registered.length} 个 tooling 包已纳管`)
 
 // AR3
 for (const pkg of softPlugins) inspectCoreScripts(pkg)
@@ -819,12 +1063,21 @@ note('AR6: 根 .oxlintrc.json 为唯一基准（plugins: []，ignorePatterns 三
 inspectWorkspacePackages()
 note('AR7: packages 恰为 plugins/* + 四个显式 tooling 包，templates/ 不是包（禁止 templates / templates/*）')
 
+// AR8
+inspectWebTestInclude()
+for (const pkg of softPlugins) inspectWebTestWiring(pkg)
+note(`AR8: ${softPlugins.length} 个软插件的测试接线按 test-kit 工厂与 tsconfig include 核对`)
+
 if (failures.length > 0) {
   console.error('\n[architecture] 结构不变式不成立：\n')
   for (const failure of failures) console.error(`  - ${failure}`)
-  console.error('\n按 openspec/changes/optimize-architecture/code-design.md ③.4 的 AR 契约修复后重试。\n')
+  console.error(
+    '\n按 code-design 的 AR 契约修复后重试（AR1–AR7 见 '
+    + 'openspec/specs/dsh-plugin-toolchain/spec.md，AR8 见 '
+    + 'openspec/changes/residual-convergence/code-design.md ③.2）。\n',
+  )
   process.exit(1)
 }
 
 for (const message of notes) console.log(`[architecture] ${message}`)
-console.log('[architecture] AR1–AR7 通过')
+console.log('[architecture] AR1–AR8 通过')

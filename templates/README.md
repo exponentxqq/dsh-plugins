@@ -8,7 +8,7 @@
 templates/
   README.md        # 本文件：多模板通用约定
   default/         # 缺省模板（--template 的缺省取值）
-    template.json  # 件套清单（11 条目，顺序即生成顺序）
+    template.json  # 件套清单（12 条目，顺序即生成顺序）
     README.md      # 本模板的件套表
     ...            # 其余件套素材见该件套表
 ```
@@ -61,13 +61,64 @@ templates/
 
 ```bash
 pnpm gen:plugin <name> --kind host-only|dual [--template <name>] [--dry-run]
+pnpm gen:plugin --check [--template <name>]
 ```
 
 - `--template <name>` 与 `--template=<name>` 两种写法等价；缺省 `default`。
 - 生成器只读被选中的模板目录、只写 `plugins/<name>/`，不跑 git / pnpm；`--dry-run` 只打印将创建的文件与内容摘要，不写盘。
 - 未知模板 → exit 1（错误含可用模板列表）；`--template` 缺值 → exit 2（用法错误）。
 - 退出码：`0` 成功；`1` 校验失败（名字非法 / 目录已存在 / 未知 kind / 未知模板 / 模板清单非法 / 素材缺失）；
-  `2` 用法错误（缺必需参数、未知 flag、`--template` 缺值）。
+  `2` 用法错误（缺必需参数、未知 flag、`--template` 缺值、`--check` 与 `--dry-run` 同给）。
+- `--check` 是不写盘的只读对账模式（不生成插件），契约见下节。
+
+## manifest 形态对账（`gen-plugin --check`）
+
+生成器除「生成骨架」外还有一个只读模式：不写盘，逐个核对全部**软插件**的
+`plugins/<name>/package.json` 与模板渲染出的期望 manifest 形态是否一致。期望值**复用生成路径**
+（`buildTokens` → `buildFiles` → `finalizeManifest`）现渲染，不另写一份比对逻辑——模板改了，
+对账口径自动跟着改，模板与真实包因此不会双源漂移。它按需运行：不进 `pnpm dsh:check`
+（新增包是低频事件，本地门禁不加重，D10）。
+
+```bash
+pnpm gen:plugin --check              # 全部一致 → exit 0
+pnpm gen:plugin --check --dry-run    # 互斥（都是只读模式）→ exit 2
+pnpm gen:plugin --check <name>       # 不接受 <name>（同理不接受 --kind）→ exit 2
+```
+
+- **软插件判定与 AR3 同源**：`plugins/*` 下没有精确契约文件 `src/compat/dsh-version.ts` 的包
+  （multi-root 是唯一硬插件，不参与对账）。
+- **形态由包事实决定**：`dsh.client?.platform === 'web'` ⇒ `dual`，否则 `host-only`；包名去掉
+  `dsh-plugin-` 前缀即模板渲染名，不是 `dsh-plugin-<kebab-case>` 形态的直接失败。
+- **只比较规范键集合，其余键不比较**：`version` / `description` / `devDependencies` / `scripts` /
+  `dsh.client.inject` / 额外 peer 等逐包天然不同的键不参与比较。比较面为 `type`、`main`、
+  `license`、`exports["."]`、`exports["./package.json"]`、`exports["./client"]`（dual）、
+  `exports["./client"].types`（dtsOwned）、`dsh.bundle.patch`、`dsh.engines.dsh`、
+  `dsh.client.platform`（dual）、`peerDependencies["@deepseek-ai/dsh"]`、`files`。
+- **期望值全部来自模板渲染产物**（`dsh.engines.dsh` 与 DSH peer 因此仍从
+  `scripts/dsh-baseline.mjs` 现取现派生）；`exports` 按子路径**并集**逐条比较（键序无关），
+  **多出的子路径同样失败**——这正是已删的 `"./src/*"` 不会被加回来的原因。
+- `files` 按**集合**比较（数组字面量集合相等），不断言 glob 命中的实体文件存在。
+
+### 不可推导键与三条 conditional（N11）
+
+模板无法代劳、只能按包事实条件断言的手工项：
+
+| 条件 | 断言 |
+| --- | --- |
+| `icon` 字段存在 | 它指向的文件在包内真实存在，且 `files` 含 `icon.svg` |
+| `dtsOwned`（有 `exports[*].types`，与 build-kit / AR3 同一推导） | `files` 含 `lib/**/*.d.ts`，且 `exports["./client"].types` = `./lib/types/client/index.d.ts`；非 dtsOwned 包不声明该 glob（模板里对它们是无害空集） |
+| `dual`（`dsh.client.platform === 'web'`） | `exports["./client"]` 存在；非 dual 却声明 `dsh.client` 同样失败 |
+
+- `icon` 是**条件事实**而不是白名单例外（见 D10 反例）：写成白名单会退化成「某些包允许没有
+  icon」，而实际规则是「有 icon 就必须可被 DSH 读到」——DSH 元数据读取要求 manifest 的 `icon`
+  指向包内真实文件，缺了会抛错，不只是丢图标。
+
+### 输出与退出码
+
+- **无白名单、fail-closed**：任何差异逐条报到 stderr，格式 `<包名>: <键路径> 期望 X，实际 Y`，
+  任一条即 exit 1；全过打印 `[gen-plugin] <N> 个软插件的 manifest 与模板形态一致` 并 exit 0。
+- 退出码：`0` 一致；`1` 发现差异（或模板缺 `package.json` 的 manifest 条目、包名无法渲染、
+  模板素材缺失）；`2` 用法错误（`--check` 带 `<name>` / `--kind`，或与 `--dry-run` 同给）。
 
 ## 新增模板步骤
 

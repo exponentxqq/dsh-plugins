@@ -9,7 +9,7 @@
  * grant list — which is what makes it a real cross-check rather than a mirror of
  * the implementation under test.
  *
- * @module tests/support/dialect-grants
+ * @module test/support/dialect-grants
  */
 
 import { spawnSync } from 'node:child_process'

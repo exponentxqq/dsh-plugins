@@ -1,0 +1,17 @@
+{
+  "package": "dsh-plugin-project-mcp",
+  "host": {
+    "words": [
+      "buffer",
+      "node:fs",
+      "node:path",
+      "node:url",
+      "process"
+    ],
+    "sha256": "c51f3a0eb9271380e03a63b1e1289a96473f45964bfc85e8e822898ac6b1f8e8"
+  },
+  "client": {
+    "words": [],
+    "sha256": null
+  }
+}

@@ -81,7 +81,7 @@ registry 行（`cordis.patch.yml` 的 `multi-root-registry`）新增一个键：
 ## 验证
 
 ```sh
-pnpm typecheck && pnpm test      # tests/registry-common.spec.ts 覆盖授予、去重、缺目录恢复、
+pnpm typecheck && pnpm test      # test/registry-common.spec.ts 覆盖授予、去重、缺目录恢复、
                                  # symlink 拦截、变更拒绝、contended 与接管、拆卸撤销
 ```
 

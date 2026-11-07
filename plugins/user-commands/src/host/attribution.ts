@@ -8,8 +8,8 @@
  *
  * 并发修复由内核免费获得：`RootAttributor` 先完整构建新索引、再一次引用赋值提交，重扫窗口内
  * in-flight 的 `attribute()` 仍读到旧索引的完整结果。本包迁移前的实现一进 `update()` 就
- * `owners.clear()`，窗口内的会话会瞬间 fail-closed（回归用例见
- * `test/attribution-concurrency.test.ts`）。
+ * `owners.clear()`，窗口内的会话会瞬间 fail-closed；该原子性由 host-kit 内核套件
+ * （`tooling/host-kit` 的 `attribution.test.ts`）的「并发原子性」两条用例钉住。
  * @module dsh-plugin-user-commands/host/attribution
  */
 

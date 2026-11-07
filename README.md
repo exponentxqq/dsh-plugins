@@ -18,11 +18,12 @@ scripts/dsh-baseline.mjs          # 唯一 DSH 基线常量（全部插件的软
 scripts/upgrade-dsh.mjs           # 根级 DSH 升级：重指 pin / 全部插件范围 / 运行时基线副本 / 豁免（--probe 加临时 overrides）
 scripts/gen-plugin.mjs            # 新插件脚手架：默认从 templates/default/ 生成 plugins/<name>/（--template 可选其他模板）
 scripts/check-dsh-baseline.mjs    # 检查 1/3：DSH 基线 / 范围 / 安装树 / 豁免 / 已移除插件
-scripts/check-architecture.mjs    # 检查 2/3：结构不变式 AR1–AR7（薄入口 / tsconfig / lint 唯一基准 / workspace 清单）
+scripts/check-architecture.mjs    # 检查 2/3：结构不变式 AR1–AR8（薄入口 / tsconfig / lint 唯一基准 / workspace 清单）
 scripts/check-artifacts.mjs       # 检查 3/3：产物契约 B1–B5（入口存在 / 自包含 / ModuleLoader 壳）
 scripts/dsh-check.mjs             # dsh:check 聚合入口：顺序跑上面三个检查脚本
 scripts/release.mjs   # 发布：dsh:check → 同步版本号 → 重建产物 → 发布提交 → annotated tag
-.github/workflows/ci.yml  # 最小 CI：install → lint → typecheck → build → test → docs:check → dsh:check
+.github/workflows/ci.yml  # 最小 CI：install → lint → typecheck → build → test → docs:check → spec:check → dsh:check
+docs/assessments/     # 评估档案（非 ADR）：现状差异与「暂不施工」依据，见 docs/assessments/README.md
 openspec/             # 规范工作区（spec-driven schema，zh-CN）
 ```
 
@@ -31,21 +32,25 @@ openspec/             # 规范工作区（spec-driven schema，zh-CN）
 ```bash
 pnpm install          # 装齐全部插件依赖（workspace 统一安装）
 pnpm gen:plugin <name> --kind host-only|dual   # 新插件脚手架（--help 看用法；只写文件，不跑 install/git）
+pnpm gen:plugin --check  # manifest 形态对账：全部软插件与模板逐键比对（按需；无白名单，任一差异 exit 1）
 pnpm build            # 全部插件构建（产物 lib/ 随仓库提交；release 时递归重建保证新鲜）
 pnpm typecheck        # 全部插件类型检查
 pnpm test             # 全部插件单测
 pnpm lint             # 全部插件 lint（无 lint 脚本的插件自动跳过）
 pnpm docs:check       # 文档检查（仅 multi-root-workspace 实现该脚本）
-pnpm dsh:check        # 聚合门禁：DSH 基线 + 结构不变式（AR1–AR7）+ 产物契约（B1–B5）；release 会自动执行
+pnpm spec:check       # 规范检查（OpenSpec strict 全量：openspec validate --all --strict）
+pnpm dsh:check        # 聚合门禁：DSH 基线 + 结构不变式（AR1–AR8）+ 产物契约（B1–B5）；release 会自动执行
 pnpm dsh:upgrade <version> [--probe]   # 根级升级：重指 DSH pin / 全部插件范围 / 运行时基线副本 / 豁免并同步基线常量
 pnpm release <version>  # 发布：dsh:check → 同步版本 → 重建产物 → 提交 → 打 tag v<version>（详见「发布与版本」）
 ```
+
+测试接线：三个双端插件（session-tool-toggle / web-ux / workspace-config）与 `templates/default/` 的 `vitest.config.ts` 都是 3 行薄声明——只从 `@dsh-plugins/test-kit/vitest` 取 `defineWebTestConfig` 并传 `root: import.meta.dirname`；include 双面（`.test.ts` / `.test.tsx`）与 primitives alias 接缝等配置知识在 [`tooling/test-kit/README.md`](tooling/test-kit/README.md)，`pnpm dsh:check` 的 AR8 门禁守住唯一 import 源。
 
 新增插件 = `pnpm gen:plugin <name> --kind host-only|dual [--template <name>]` 从 `templates/default/` 生成骨架（默认模板 `default`，多模板约定见 [`templates/README.md`](templates/README.md)；薄 `build.mjs`、extends 根基准的 tsconfig、`catalog:` 依赖、冒烟测试与 bundle patch），再按生成器打印的 5 步命令安装与验证；生成物开箱通过 lint / typecheck / build / test 与 `pnpm dsh:check`，模板素材本身不是包（件套表见 [`templates/default/README.md`](templates/default/README.md)）。
 
 当前 DSH 开发基线是 **`0.2.2-rc.1`**，由 `scripts/dsh-baseline.mjs` 单点声明：全部七个插件（含 multi-root）的 `engines.dsh` / DSH peer 统一按基线派生为 `>=0.2.2-rc.1 <0.3.0`；multi-root 运行时门持有的基线副本（`plugins/multi-root-workspace/src/compat/dsh-version.ts` 的 `DSH_BASELINE`）由 `pnpm dsh:upgrade` 同批重指，提升基线 = 改该常量后跑 `pnpm dsh:upgrade`。Node 工具链由根 `package.json#volta.node` 固定在 `24.21.0`（`engines` 仍兼容 22.19+）。升级流程见 [multi-root 开发工作流](plugins/multi-root-workspace/docs/development/plugin-development-workflow.md)。
 
-只跑单个插件：`pnpm --filter <包名> <脚本>`，例如 `pnpm --filter dsh-plugin-multi-root-workspace verify:all`（含 lint / typecheck / build / 内核探测 / 单测 / 冒烟，需运行中的 dsh 环境）。
+只跑单个插件：`pnpm --filter <包名> <脚本>`，例如 `pnpm --filter dsh-plugin-multi-root-workspace verify:all`（含 lint / 兼容门 / typecheck / build / 内核探测 / 单测 / 冒烟）。冒烟不依赖已启动的 dsh 服务（零容器、零真实凭证）：只需 `pnpm install` 后的 devDependency dsh CLI——journey 用本机 OpenAI 兼容假端点 + 隔离 scratch `$DSH_HOME`。
 
 ## 装入 profile
 
@@ -77,7 +82,8 @@ docker exec dsh dsh --profile web --dump-config          # 校验组合可加载
 
 ```bash
 pnpm dsh:check             # 0. 聚合门禁（DSH 基线 + 结构不变式 + 产物契约；release 会自动执行，也可单独跑）
-pnpm verify                # 1. 发布前自检（递归 verify:all；多根插件的 smoke 需运行中的 dsh）
+pnpm verify                # 1. 发布前自检（递归 verify:all；多根插件的 smoke 只需 `pnpm install` 后的 devDependency dsh CLI，
+                           #    零容器、零真实凭证——journey 用本机 OpenAI 兼容假端点 + 隔离 scratch `$DSH_HOME`）
 pnpm release <version>     # 2. dsh:check → 同步版本 → 重建产物 → 提交 chore(release): v<version> → 打 annotated tag
 git push origin main --tags   # 3. push（容器已挂载宿主 ~/.ssh，可直接执行）
 ```

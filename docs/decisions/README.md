@@ -22,8 +22,12 @@
 
 | 编号 | 决策 | 状态 |
 | --- | --- | --- |
-| [ADR-0001](./ADR-0001-shared-build-and-source-kits.md) | 共享构建与源码包（`tooling/` 四包）的落地边界：构建期内联与单装安全、四包职责、被否方案；含 **D-15 contracts 权威转移对归档 D4 的修订记录** | Accepted（2026-11-06） |
+| [ADR-0001](./ADR-0001-shared-build-and-source-kits.md) | 共享构建与源码包（`tooling/` 四包）的落地边界：构建期内联与单装安全、四包职责、被否方案；含 **D-15 contracts 权威转移对归档 D4 的修订记录**、**2026-11-07 测试接线底座修订（`/vitest` 工厂、vitest 仅 devDep）** | Accepted（2026-11-06） |
 | [ADR-0002](./ADR-0002-attribution-kernel.md) | 归属内核：`#3`（`roots[0] ≠ primaryRoot`）值语义裁定、索引原子替换纪律、未命中策略保留在调用方 | Accepted（2026-11-06） |
+
+## 评估档案（非 ADR）
+
+`docs/assessments/` 存放**评估档案**：记录某个仓级结构面的现状差异、不施工理由与未来通过标准，**不做决策、不约束实现**——决策与约束仍只看本目录的 ADR 与 `openspec/specs/`。评估结论若将来升级为决策，应新建 ADR 并从评估档案回链；当前索引见 [`docs/assessments/README.md`](../assessments/README.md)。
 
 ## 命名与维护
 

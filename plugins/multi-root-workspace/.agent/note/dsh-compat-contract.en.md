@@ -25,7 +25,7 @@ engines            package.json   dsh.engines.dsh        the derived range
 installed          node_modules   resolved versions      a single release (the runtime gate judges whether it is in range)
 ```
 
-`pnpm compat:check` asserts exactly those static facts: the 22 DSH peer ranges == `dsh.engines.dsh` == the range derived from the baseline; every `REQUIRED_CORE_PACKAGES` entry is declared as a peer and resolves; and the installed tree holds exactly one release. It does **not** recompute the range predicate (the runtime gate and `tests/compat.spec.ts` own it), and it does **not** check the exact development pin (`catalog:dsh` resolves to the baseline; the root `pnpm dsh:check` guards that).
+`pnpm compat:check` asserts exactly those static facts: the 22 DSH peer ranges == `dsh.engines.dsh` == the range derived from the baseline; every `REQUIRED_CORE_PACKAGES` entry is declared as a peer and resolves; and the installed tree holds exactly one release. It does **not** recompute the range predicate (the runtime gate and `test/compat.spec.ts` own it), and it does **not** check the exact development pin (`catalog:dsh` resolves to the baseline; the root `pnpm dsh:check` guards that).
 
 `scripts/check-dsh-compat.mjs` reads the `DSH_BASELINE` literal out of `src/compat/dsh-version.ts` as **text**, not by importing it. It must therefore stay an `export const NAME = '…'` single-quoted string constant: never assembled elsewhere, never an evaluated expression, and no earlier assignment of the same shape — not even one inside a comment — may appear in that file, or the upgrade script rewrites the wrong object. The reason is that this check must run before `pnpm build`, on a clean checkout with no `lib/`.
 
@@ -51,7 +51,7 @@ import { mountCompat } from './support/compat.ts'
 await mountCompat(ctx)
 ```
 
-Otherwise `ctx.get('fs')` / `ctx.get('sandbox')` are `undefined` and you will see errors like `Cannot read properties of undefined (reading 'confine')`. That is not a bug; it is the gate working (`tests/compat.spec.ts` asserts this behavior explicitly).
+Otherwise `ctx.get('fs')` / `ctx.get('sandbox')` are `undefined` and you will see errors like `Cannot read properties of undefined (reading 'confine')`. That is not a bug; it is the gate working (`test/compat.spec.ts` asserts this behavior explicitly).
 
 `mountCompat` mounts the **real** compat row, gate policy included. So the whole unit suite fails outright on an installation that is outside the derived range, missing a required package, or mixing releases — deliberately; see point 5.
 
@@ -73,7 +73,7 @@ Never "just wrap everything in a promise". On `0.1.5-rc.2` that would turn `ctx.
 
 When reading the result in tests and smokes:
 
-- unit tests use `confined(provider, argv, policy)` from `tests/support/confine.ts`;
+- unit tests use `confined(provider, argv, policy)` from `test/support/confine.ts`;
 - smoke scripts always `await ctx.sandbox.confine(...)`.
 
 **This is a quiet trap**: awaiting a plain value is a no-op, but reading `.argv` off a promise yields `undefined`, and the resulting `Cannot read properties of undefined (reading 'some')` looks nothing like a version problem.
@@ -104,7 +104,7 @@ Probe order: a non-empty `current` wins (the old shape), otherwise the first cat
 
 `agent-instructions` is an **optional peer**: a minimal composition legitimately has neither it nor an agent. `instructionsApi()` returns `undefined` when the package is absent (contributing nothing), but **throws** when the package is present and carries neither renderer name — that is a compatibility break to fix, not an optional seam.
 
-`@deepseek-ai/dsh-llm` is **also an optional peer, and it may only be loaded on demand**: the barrel (`src/index.ts`) is precisely the module the carrier loader row mounts, so its load-time dependency set must equal the required-package set, and any static value import would make a minimal composition — one that never builds a message at all — fail to load. Message construction goes through `createInstructionMessage()` in `src/compat/llm-message.ts`, which reaches `await import('@deepseek-ai/dsh-llm')` at the moment a message is actually built. `tests/optional-peers.spec.ts` pins this: loading `src/index.ts` and `src/instructions.ts` does not resolve the package.
+`@deepseek-ai/dsh-llm` is **also an optional peer, and it may only be loaded on demand**: the barrel (`src/index.ts`) is precisely the module the carrier loader row mounts, so its load-time dependency set must equal the required-package set, and any static value import would make a minimal composition — one that never builds a message at all — fail to load. Message construction goes through `createInstructionMessage()` in `src/compat/llm-message.ts`, which reaches `await import('@deepseek-ai/dsh-llm')` at the moment a message is actually built. `test/optional-peers.spec.ts` pins this: loading `src/index.ts` and `src/instructions.ts` does not resolve the package.
 
 `instructionsApi()` must also keep **"the package is absent"** and **"the package is present but fails to evaluate"** apart: `isPackageInstalled()` probes installation separately (`createRequire(import.meta.url).resolve`, the same pattern as `readInstalledVersion`), and only `MODULE_NOT_FOUND` / `ERR_MODULE_NOT_FOUND` counts as absence. Every other failure — a missing transitive dependency making the `import()` throw, say — must propagate rather than being cached as `undefined`, which would silently stop the whole process from delivering additional-root instructions.
 
@@ -120,7 +120,7 @@ If the gate refuses locally, **do not** hunt for a switch. Check whether your ho
 
 The upgrade probe (now the root `pnpm dsh:upgrade`; the upstream weekly lane was removed) neither commits nor pushes. It does not widen the supported range itself: the range is a function of the baseline, so **moving the baseline is moving the range**, and that is a human act. `pnpm dsh:upgrade <version>` first rewrites `scripts/dsh-baseline.mjs`, then in the same batch re-points `catalogs.dsh` (which every plugin's devDeps reference as `catalog:dsh`), `dsh.engines.dsh` and the DSH peer ranges, the cordis / schemastery pins, the runtime baseline copies (`plugins/*/src/compat/dsh-version.ts`, via `repointRuntimeBaselines()`) and the release-age allowances. A green run is **evidence**, not authorization — but under the new shape there is no second gate where someone "adds the release to a list": moving the baseline moves the range with it.
 
-`compat:check` is now part of upgrade regression: the candidate is the new baseline, so it sits at the lower bound of the new derived range by construction. It asserts that the 22 DSH peer ranges in `package.json` == `dsh.engines.dsh` == the range derived from the baseline, that every `REQUIRED_CORE_PACKAGES` entry is declared as a peer, and that the installed tree holds a single release; it does **not** recompute the range predicate (the runtime gate and `tests/compat.spec.ts` own it), nor does it check the exact development pin (the root `pnpm dsh:check` owns it).
+`compat:check` is now part of upgrade regression: the candidate is the new baseline, so it sits at the lower bound of the new derived range by construction. It asserts that the 22 DSH peer ranges in `package.json` == `dsh.engines.dsh` == the range derived from the baseline, that every `REQUIRED_CORE_PACKAGES` entry is declared as a peer, and that the installed tree holds a single release; it does **not** recompute the range predicate (the runtime gate and `test/compat.spec.ts` own it), nor does it check the exact development pin (the root `pnpm dsh:check` owns it).
 
 For upgrading and probing:
 
@@ -182,7 +182,7 @@ It **includes** `compat:check`, right after `lint`: the supported range and the 
 
 The development pin is `0.2.2-rc.1`, with cordis `~4.1.0`; the baseline constant lives in the root `scripts/dsh-baseline.mjs`. Restoring the baseline no longer means restoring `0.1.5-rc.2` / `4.0.2`; the earlier probes are historical records. Treat the plugin manifests, the workspace file, the lockfile, the baseline constant, and the runtime baseline copies separately when recovering from a probe, and never discard uncommitted support declarations by restoring HEAD.
 
-`0.2.0-rc.1` and `rc.2` retain the seams handled by the existing adapters. The 0.2 agent loop records conservative failure `tool/result` events before closing a failed step: `message.isError: true`, plain-text content, and `data.error`. These must never count as successful file touches. `tests/instructions.spec.ts` covers old block-level failures, message-level failures, and recovery events. The inherited Windows provider softly registers the new ACL diagnosis skill; this plugin still does not promise Windows kernel multi-root grants.
+`0.2.0-rc.1` and `rc.2` retain the seams handled by the existing adapters. The 0.2 agent loop records conservative failure `tool/result` events before closing a failed step: `message.isError: true`, plain-text content, and `data.error`. These must never count as successful file touches. `test/instructions.spec.ts` covers old block-level failures, message-level failures, and recovery events. The inherited Windows provider softly registers the new ACL diagnosis skill; this plugin still does not promise Windows kernel multi-root grants.
 
 `0.2.1-rc.2` added no new adapter branch: `dsh-fs` / `dsh-sandbox` / `dsh-sandbox-local` types are unchanged, session format is still 4, and `HostConnectionRpc.handle`, the slots in use, and the primitives exports all remain. The real work was the dependency tree: every internal package is exact-pinned, `zod` must align on `4.4.3`, and `dsh-invariants` is no longer published on this line (which is why the git-graph plugin was removed entirely). The `pnpm-workspace.yaml` allowances are kept exactly equal to the lockfile by `pnpm dsh:check`.
 

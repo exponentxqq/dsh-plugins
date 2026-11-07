@@ -11,7 +11,7 @@
  * selects a sole candidate and therefore skips probing — the assertions are
  * about the profile each dialect builds, not about running a sandbox. The
  * populated-scope half of the contract (each dialect widened, and still
- * transparent under `read-only`) lives in `tests/sandbox-multi-root.spec.ts`.
+ * transparent under `read-only`) lives in `test/sandbox-multi-root.spec.ts`.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'

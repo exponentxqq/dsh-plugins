@@ -1,10 +1,20 @@
-# 最小 CI（R5）：push / PR 上跑「安装 → lint → typecheck → build → test → docs:check → dsh:check」七步链。
+# 最小 CI（R5）：两个作业——`verify` 跑八步链「安装 → lint → typecheck → build → test → docs:check →
+# spec:check → dsh:check」；`scaffold` 跑脚手架冒烟「gen 双 kind → 基线 frozen 安装 → 补装新 importer →
+# 两包 verify:all → `pnpm dsh:check`」。
 #
-# 刻意不跑 `pnpm verify`：它递归 `verify:all`，其中 multi-root 的 smoke 需要运行中的 dsh 实例，
-# 在 CI 里必然失败；结构与产物门禁统一由 `pnpm dsh:check`（三脚本聚合）承担。
+# 为什么不跑 `pnpm verify`（递归 `verify:all`）：本机实测 smoke 全链耗时 11.196s 通过
+# （`[smoke:compose] 46/46` + `[smoke:behavior] 99/99` + `[smoke:journey] 60/60`，末行
+# `[smoke:journey] 60/60 checks passed`）——它要 `pnpm install` 后的 devDependency dsh CLI 自举完整
+# profile 并跑一条真实用户旅程（零容器、零真实凭证；journey 用本机 OpenAI 兼容假端点 + 隔离 scratch
+# `$DSH_HOME`），属发布前本地自检的职责；CI 只守可确定性复现的门禁面：结构与产物不变式（AR1–AR8 /
+# B1–B5）统一由 `pnpm dsh:check`（三脚本聚合）承担，脚手架「开箱通过」承诺由 `scaffold` 作业承担。
+#
+# `scaffold` 的 install 分层（Q1 裁决）：基线用 `--frozen-lockfile` 证明 lockfile 完整性，gen 出两个新
+# importer 后才用 `--no-frozen-lockfile` 补装——仅该作业内，lockfile 写盘即弃（不进仓库）。
 #
 # docs:check 是决策 #6 六步之外的分歧点②裁决（tasks.md 待决 Q2 → 选 a）：
 # 它只跑 multi-root 的双语文档一致性检查，不需要 dsh，是唯一能自动守住该门的位置。
+# spec:check 是 OpenSpec strict 校验（`openspec validate --all --strict`），与 docs:check 同属文档/规范面。
 name: CI
 
 on: [push, pull_request]
@@ -14,7 +24,7 @@ permissions:
 
 jobs:
   verify:
-    name: 验证（七步链）
+    name: 验证（八步链）
     runs-on: ubuntu-latest
     steps:
       - name: 检出代码
@@ -48,6 +58,48 @@ jobs:
 
       - name: 文档检查
         run: pnpm docs:check
+
+      - name: 规范校验（OpenSpec strict）
+        run: pnpm spec:check
+
+      - name: DSH 门禁（基线 / 结构 / 产物）
+        run: pnpm dsh:check
+
+  scaffold:
+    name: 脚手架冒烟（gen 双 kind）
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 pnpm（对齐根 package.json 的 packageManager）
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+
+      - name: 安装 Node.js（对齐 dsh 基线工具链）
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+          cache: pnpm
+
+      - name: 基线安装依赖（锁定件，证明 lockfile 完整）
+        run: pnpm install --frozen-lockfile
+
+      - name: 生成脚手架（host-only）
+        run: pnpm gen:plugin ci-smoke-host --kind host-only
+
+      - name: 生成脚手架（dual）
+        run: pnpm gen:plugin ci-smoke-dual --kind dual
+
+      - name: 补装两个新 importer（lockfile 写盘即弃）
+        run: pnpm install --no-frozen-lockfile
+
+      - name: 脚手架验证（host-only）
+        run: pnpm --filter dsh-plugin-ci-smoke-host verify:all
+
+      - name: 脚手架验证（dual）
+        run: pnpm --filter dsh-plugin-ci-smoke-dual verify:all
 
       - name: DSH 门禁（基线 / 结构 / 产物）
         run: pnpm dsh:check

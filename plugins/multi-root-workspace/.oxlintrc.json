@@ -14,8 +14,8 @@
       "files": [
         "src/**/*.ts",
         "src/**/*.tsx",
-        "tests/**/*.ts",
-        "tests/**/*.tsx",
+        "test/**/*.ts",
+        "test/**/*.tsx",
         "scripts/**/*.mjs"
       ],
       "rules": {

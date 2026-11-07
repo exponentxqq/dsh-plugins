@@ -11,7 +11,7 @@
  *
  * - what the in-process filesystem fence ACTUALLY does (a real write attempt), and
  * - what the kernel dialect profile ACTUALLY grants (parsed out of the wrapped
- *   argv by `tests/support/dialect-grants.ts`, an implementation independent of
+ *   argv by `test/support/dialect-grants.ts`, an implementation independent of
  *   the production widening code).
  *
  * Every dialect is exercised from any host by forcing the runner chain through
@@ -22,7 +22,7 @@
  * for Seatbelt — and skip explicitly, with the reason, where it cannot. A dialect
  * the PLATFORM provides is required, so its skip becomes a failure: macOS must run
  * the Seatbelt case, Linux must run bwrap or Landlock, and neither is asked for
- * the runner it does not have (see `tests/support/kernel-runner.ts`). Windows has
+ * the runner it does not have (see `test/support/kernel-runner.ts`). Windows has
  * no kernel rung here at all, so the suite skips there with that reason.
  */
 
@@ -233,7 +233,7 @@ describe('real confined execution of the widened profile', () => {
       const writeInside = runConfined(await confined(world.provider, ['bash', '-c', `echo payload > ${JSON.stringify(inside)}`], policy), fixture.workspace)
       if (writeInside.kind === 'unavailable' || writeInside.kind === 'runner-failed') {
         // Skipping is only allowed when this DIALECT is not required for this
-        // run (see tests/support/kernel-runner.ts): a host that can confine with
+        // run (see test/support/kernel-runner.ts): a host that can confine with
         // Seatbelt cannot necessarily run bwrap, and vice versa.
         context.skip(requireKernelRunner(dialect, writeInside.detail))
         return

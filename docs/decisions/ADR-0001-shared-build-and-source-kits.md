@@ -58,7 +58,7 @@ Accepted（2026-11-06）。
 | --- | --- | --- | --- |
 | `@dsh-plugins/build-kit` | 构建期纯 `.mjs` | 只有 `esbuild` | 六份 `build.mjs` 的骨架：宿主半、浏览器半、CSS modules、产物守卫；策略从包事实推导，薄入口只留不可推导的旋钮 |
 | `@dsh-plugins/host-kit` | 运行期 TS 源 | **零运行时依赖**，零 `@deepseek-ai/*` import | 归属内核、目录监听、触发器、根枚举、日志适配、真实 `node:fs` seam；以结构性端口（`RealpathPort` / `WatchIo` / `TriggerContext` / `RootEnumeratorContext` / `LogSink`）隔离宿主 |
-| `@dsh-plugins/test-kit` | 测试夹具纯 TS | `react` / `react-dom`（stub 运行时） | `ui-primitives` 并集底座 + `locale-parity` 纯函数；只放无分支的夹具，包行为断言留在包内，且不装 vitest |
+| `@dsh-plugins/test-kit` | 测试夹具 + 测试接线纯 TS | `react` / `react-dom`（stub 运行时）；`vitest` 仅 devDep（自测用），不是运行时依赖 | `ui-primitives` 并集底座 + `locale-parity` 纯函数 + `./vitest` 测试接线原语（`defineWebTestConfig({ root })` 返回裸对象、单 import、不包 `defineConfig`）；只放无分支的夹具与接线原语，包行为断言留在包内 |
 | `@dsh-plugins/contracts` | 纯类型包 | `dependencies: {}`，仅工具链 devDeps | 座位契约的类型权威（D-15）：Seat 字面量、owner 份额、`SlotMap` 条目形状、order 字面量类型；零运行时、零 DSH 依赖 |
 
 四包一律 `private: true`、`version: 0.0.0`、无 `files`、不发布、不进发布版本同步范围（`release.mjs` 只遍历 `plugins/*`）。`tooling/template` 是模板素材、不是包（清单文件叫 `package.json.tmpl`），因而不进 workspace；`pnpm-workspace.yaml` 用显式四行而不是 `tooling/*`，让「谁是包」可断言（AR7）。
@@ -130,6 +130,29 @@ Accepted（2026-11-06）。
 **未被修订的部分**：D2（贡献方仅 `import type`）、D3（座位字面量各包自持、不进 `dsh.client.inject`）、ADR-0013 决策 3（holder 仍是编译期类型依赖）、以及归档 D4 中「纯 esbuild 不产 d.ts」仍被否决的判断——holder 的 d.ts 产物义务保留，只是其**权威地位**被转移。spec 层无需 delta：`dsh-workspace-config` 的「降级与安装矩阵」requirement 中「贡献方对持有者的依赖仅限类型」在转移后更成立。
 
 **落地证据**：`tooling/contracts/src/index.ts` 模块头、holder `plugins/workspace-config/src/client/contract.ts` 的文档指针、四包 `import type` 直连（`grep -rn "from '@dsh-plugins/contracts'" plugins/*/src` 命中 holder + 三贡献方）、`pnpm -r typecheck` 与 `pnpm -r test` 全绿、贡献方产物模块词集合与迁移前逐字相等。
+
+### 修订记录：测试接线底座（2026-11-07，residual-convergence）
+
+**被修订的旧结论**：本文决策 1 的 test-kit 行——「只放无分支的夹具，包行为断言留在包内，且不装 vitest」。两处需要修订：其一，职责被限定为「夹具」，而三个双端插件各自持有的 `vitest.config.ts`（jsdom 环境 + `resolve.alias` 指向 stub + `esbuild.jsx` 接缝 + include 覆盖）是逐字同构的第二处复制-漂移区——形态与六份 `build.mjs` 完全一致，只是发生在测试期；其二，「不装 vitest」是 prose 层面的禁令：AR2 的 devDep 白名单本就含 `vitest`（`scripts/check-architecture.mjs:167-173`），机器从未区分「vitest 作为运行时依赖」与「vitest 作为自测工具链」，这条禁令因此从未被任何门禁守过。
+
+**修订后的结论（D1 / D13）**：
+
+| 面向 | 旧结论 | 新结论 |
+| --- | --- | --- |
+| test-kit 职责 | 只放无分支的夹具（`ui-primitives` 并集 + `locale-parity` 纯函数） | 夹具底座 **+ 测试接线原语**：`/vitest` 子路径导出工厂 `defineWebTestConfig({ root })` 与 `WEB_TEST_INCLUDE` 常量 |
+| 接线形态（D1） | 各包自持完整 `vitest.config.ts`（jsdom / alias / jsx 接缝三份同构） | 消费方收敛为 4 行薄声明：单 import 工厂，`export default defineWebTestConfig({ root: import.meta.dirname })`；工厂返回**裸对象**，内部不包 `defineConfig`（vitest 接受对象默认导出） |
+| vitest 依赖口径（D13） | 「不装 vitest」（无例外） | vitest **不作为 test-kit 的运行时依赖**，仅允许进 `devDependencies`（自测用）；test-kit 自测形态（devDep vitest + 自持 config）另批落地（本变更组 9），本节只记录口径修正 |
+| 断言边界 | 包行为断言留在包内 | **不变**：工厂与夹具都不上移任何包的行为断言；产物 / 结构契约断言落 `@dsh-plugins/build-kit` 的断言壳（另线），同样不进 test-kit |
+
+**被否方案**：
+
+- **保留 `defineConfig` 包裹**（`defineConfig(defineWebTestConfig({ … }))`）：多一条 `vitest/config` import，AR8 的「唯一 import 源」必须为它开例外；而 `vitest.config.ts` 不在任何 tsconfig 的 include 内，类型提示收益约等于 0。真正的代价在机制层面：一旦开了这个例外，「唯一 import 源」就从可逐字断言的机器事实退化为注释约定——下一个包照抄第三行 import（例如直连 stub）不会撞任何门禁。
+- **断言壳一并进 test-kit**（把包内 `bundle.test` 的结构层断言也上移）：撞「包行为断言留在包内」这条既有边界，且断言壳需要词法器，会把 `scripts/lib` 反向拉进 test-kit——与控制缺口的方向相反。
+- **test-kit 自测改用 `node:test`**：同一个仓里维护两套测试运行器，收益只是绕开一句 prose，代价是自测写法的第二套模板。
+
+**为什么边界没有松**：工厂只承载「三份 config 逐字相同的那几行」——环境、alias 目标、jsx 接缝、include 覆盖判据与 stub 位置；凡是依赖某个包契约字面量、某个包产物形态或「这条断言该在哪」的判断，仍留在该包自己的测试里。`/vitest` 是**接线**而不是**断言**，与 test-kit 既有章程（只放无分支夹具）是同一判据的延伸。D13 的口径修正也不放宽运行时面：`react` / `react-dom` 仍是它唯一的运行时依赖，vitest 只在自测时存在。
+
+**落地证据（本变更组落点）**：`tooling/test-kit/src/vitest.ts`（`defineWebTestConfig` / `WEB_TEST_INCLUDE`）与 `tooling/test-kit/package.json` 的 `exports['./vitest']`；三个双端包的 `vitest.config.ts` 收敛为 3 物理行薄声明（单 import，≤6 行断言通过），`pnpm -r test` 实测全绿（wsc 55 / web-ux 579 / stt 1086，jsdom 组件套件经 alias 接缝真实跑通）；AR8 四条规则（存在性 / 薄入口 ≤6 行单 import / stub 存在 / include 覆盖双面）把「唯一 import 源」钉成机器事实（六软插件判定通过，负向探针可红可恢复）；alias 接缝承重已由负向探针独立证明（指向换掉即 `Cannot find module`）；实测附注：当前 vitest/vite 组合下 automatic JSX 不依赖工厂的 `esbuild.jsx` 行（保留该行作接口契约与兜底，详见本变更 diff-matrix §7 R8）；`vitest` 只落 test-kit 的 `devDependencies`，运行时依赖仍为 `react` / `react-dom`（AR2 复核）。验收命令：`pnpm -r test`、`pnpm dsh:check`。
 
 ## Related Documents
 

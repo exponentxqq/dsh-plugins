@@ -60,11 +60,11 @@ session format 4（`0.1.7-alpha.1` 的 `SESSION_FORMAT_VERSION`）的编码器�
 - 目录考察的代价有上界：每一步考察的目录 = 根 ∪ 已投递 nested scope 所在目录 ∪ 本次触碰路径的父目录及其每个祖先目录（直到该附加根）（去重）；每 session 的投递 scope 上限 512、待用触碰上限 64，触顶即停发 nested 并只告警一次（“降级但正确”）。
 - 撤销与撤回语义使"根被移除 / 被替换"和"已投递的指令文件消失"都在模型侧可观测，而不是只撤了授权却留着指令。
 - **已知限制**：nested 文件只会在其目录**被考察到时**重新检查（根层每一步，nested 依赖已投递目录或新的触碰）；投递状态是进程内的，resume 之后可能把已给过的指令再给一次。
-- 验收判据落在需求文档 §5 的 7.8，回归测试在 `tests/instructions.spec.ts`，端到端证据是 `pnpm smoke:journey` 两条腿里"触碰后才注入 nested 文件"的断言。
+- 验收判据落在需求文档 §5 的 7.8，回归测试在 `test/instructions.spec.ts`，端到端证据是 `pnpm smoke:journey` 两条腿里"触碰后才注入 nested 文件"的断言。
 
 ## 返工补充（2026-09-15，PR #1 评审）
 
-PR #1（head `507c954`）的 P1-2 指出：`planRoot()` 只把**被触碰文件自己的目录**加入被考察目录集合，于是 `<root>/a/b/file` 的触碰虽然让上游 discovery 上报了 `<root>/a/AGENTS.md`，却被“候选必须精确位于本次考察目录”的过滤丢掉——中间目录的指令永远到不了模型。修复是让 `planRoot()` 沿父目录逐级上溯直到附加根（第 1 条已改写）。证据：`tests/instructions.spec.ts` 的新用例（触碰 `repo-b/src/deep/entry.mjs` 后，下一步同时含 `src/AGENTS.md` 与 `src/deep/AGENTS.md`），端到端证据是 `pnpm smoke:journey` 两条腿中“中间目录 + 更深目录”各两条断言。
+PR #1（head `507c954`）的 P1-2 指出：`planRoot()` 只把**被触碰文件自己的目录**加入被考察目录集合，于是 `<root>/a/b/file` 的触碰虽然让上游 discovery 上报了 `<root>/a/AGENTS.md`，却被“候选必须精确位于本次考察目录”的过滤丢掉——中间目录的指令永远到不了模型。修复是让 `planRoot()` 沿父目录逐级上溯直到附加根（第 1 条已改写）。证据：`test/instructions.spec.ts` 的新用例（触碰 `repo-b/src/deep/entry.mjs` 后，下一步同时含 `src/AGENTS.md` 与 `src/deep/AGENTS.md`），端到端证据是 `pnpm smoke:journey` 两条腿中“中间目录 + 更深目录”各两条断言。
 
 同时（P2-4）：消息构造收进 `src/compat/llm-message.ts`，`@deepseek-ai/dsh-llm` 按需加载（第 9 条）。
 

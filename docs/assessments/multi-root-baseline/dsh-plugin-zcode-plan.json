@@ -1,0 +1,14 @@
+{
+  "package": "dsh-plugin-zcode-plan",
+  "host": {
+    "words": [
+      "node:crypto",
+      "node:http"
+    ],
+    "sha256": "e615dcf74a899530f01ef364fb26ccffc6d94425d61aa338b4d672f92c1ecd9a"
+  },
+  "client": {
+    "words": [],
+    "sha256": null
+  }
+}

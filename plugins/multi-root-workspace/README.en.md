@@ -193,7 +193,7 @@ src/
   command.ts      the /workspace-folders command and the host half of the panel RPC
   contract.ts     the panel wire protocol (zod-validated on both ends, inlinable into the browser bundle)
   client/         the browser half: the workspace folders section (workspace-config.section), the Files-tab compact entry, bilingual dictionaries
-tests/            differential parity, real-execution dialect matrix, contract round-trips, component and locale gates, cross-process lease e2e, instruction injection
+test/            differential parity, real-execution dialect matrix, contract round-trips, component and locale gates, cross-process lease e2e, instruction injection
 scripts/          smoke batteries (compose / behavior / journey) plus the docs, kernel-runner, compatibility-contract and upgrade checks
 docs/             requirements, architecture, decision records (ADRs), plans, development workflow
 ```

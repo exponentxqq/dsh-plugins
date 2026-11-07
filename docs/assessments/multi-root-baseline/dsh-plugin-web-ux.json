@@ -1,0 +1,20 @@
+{
+  "package": "dsh-plugin-web-ux",
+  "host": {
+    "words": [
+      "node:fs/promises",
+      "node:os",
+      "node:path"
+    ],
+    "sha256": "547c626230cf0ef22b91ef3e20e9a0bde98ecd17b461cde3f7602b6ab9db1219"
+  },
+  "client": {
+    "words": [
+      "@deepseek-ai/dsh-client-ui-primitives",
+      "Session manager \\u2192 Migrated",
+      "react",
+      "react/jsx-runtime"
+    ],
+    "sha256": "ea0382a3b0fe60acf1d9aae8c9bbe543e8737857888f61edccdb2005043aae10"
+  }
+}

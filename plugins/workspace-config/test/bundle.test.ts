@@ -1,75 +1,53 @@
 /**
- * 构建产物的形状、座位标记与包声明（对照 `build.mjs` 与 `package.json`）。
- *
- * 这里断言的是**已构建的字节**，所以构建配置、external 列表、座位声明或包声明的回归
- * 会在本仓报错，而不是等到浏览器 / profile 里才发现：
- *
- * - 浏览器半必须是 `window.__ModuleLoader__.load({ id, factory })` 形态的 CJS 工厂，
- *   且只 require 浏览器壳能提供的模块词（`react` / `react/jsx-runtime` /
- *   ui-primitives）。**尤其不得** require `@deepseek-ai/dsh-client-ui-slots`：它没有
- *   `./client` 导出、也不是 loader 模块表里的词，运行时 require 它会命中
- *   「missed the module table」硬错，整个客户端模块（入口 + 弹窗）一起消失（D2）。
- * - 座位名 `workspace-config.section` 在产物里**至少出现两次**：`children` 声明侧
- *   （`index.ts`）与 `renderSlot` 渲染侧（`WorkspaceConfigDialog.tsx`）。两处都是字面量
- *   直写（见两个源文件的注释）——只靠共享常量时 esbuild 只保留一份字面量，断言会退化。
- * - 两个宿主座位名（`sidebar.footer.action` / `shell.overlay`）与两个 entry id 在产物里。
- * - 宿主半是 no-op 锚点：**零 import**（自包含，只有包声明让 client-module scan 找到它）。
- * - CSS modules 只有一份（入口与弹窗共用 `dialog.module.css`），因此恰一个样式注入器。
- * - 包声明：`exports['./client'].types` 指向 `lib/types/client/index.d.ts` 且文件存在
- *   （D4：holder 是贡献方的类型权威），`dsh.client` 声明 web 平台与四个座位声明方依赖。
- *
- * 依赖构建产物，故 `pnpm test` 之前必须先 `pnpm build`（`verify:all` 的顺序是
- * lint → typecheck → build → test）。
- *
+ * 构建产物的形状、座位标记与包声明：结构层三组（壳 / require 面 / 宿主自包含）由 build-kit 的
+ * 产物契约断言（③.3 / ④ D5）；本文件保留包独有事实——座名字面量与出现次数、注入器、
+ * `exports['./client'].types`、软插件基线范围（D2/D4/D13）。
+ * `pnpm test` 之前必须先 `pnpm build`（`verify:all` 的顺序是 lint → typecheck → build → test）。
  * @module dsh-plugin-workspace-config/test/bundle
  */
 
 import { existsSync, readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-// 产物词法器的单一实现（R9）：本套件不再持有本地副本，与仓级
-// `scripts/check-artifacts.mjs` 共用同一份正则与路径约定。声明见
-// `scripts/lib/artifacts.d.mts`；本套件当前不在 tsconfig 的 include 里。
+import { hostSelfContainmentIssues, loaderShellIssues, requireSurfaceIssues } from '@dsh-plugins/build-kit/artifact-contract'
+// 词法器仍是 `scripts/lib/artifacts.mjs` 的单一实现（R9）；声明见同目录 `artifacts.d.mts`。
 import { importedWords, readArtifact, requiredWords } from '../../../scripts/lib/artifacts.mjs'
-// 软插件基线范围从仓库根唯一版本常量派生（`SOFT_DSH_RANGE`）：基线提升
-// （`pnpm dsh:upgrade`）重写 scripts/dsh-baseline.mjs 与各 manifest 之后，
-// 本套件的版本断言自动对齐，不再逐次手改字面量。
-import { SOFT_DSH_RANGE } from '../../../scripts/dsh-baseline.mjs'
 
-/** 本包目录（`test/` 的上一级）。 */
+/**
+ * 软插件基线范围（R4③）：从仓库根唯一版本常量派生，`pnpm dsh:upgrade` 重指后本套件自动对齐。
+ * 用 `createRequire` 而非静态 import：`scripts/dsh-baseline.mjs` 没有配套 `.d.mts`，静态 import
+ * 会报 TS7016（同一模块实例）。失效条件：补上 `dsh-baseline.d.mts` 后改回静态 import。
+ */
+const { SOFT_DSH_RANGE } = createRequire(import.meta.url)('../../../scripts/dsh-baseline.mjs') as {
+  SOFT_DSH_RANGE: string
+}
+
+/** 本包目录（`test/` 的上一级）与浏览器 loader 期望的包身份。 */
 const ROOT = path.resolve(import.meta.dirname, '..')
-/** 浏览器 loader 期望的包身份。 */
 const PACKAGE_NAME = 'dsh-plugin-workspace-config'
-/** 允许出现在浏览器 bundle 里的模块词（与 build.mjs 的 CLIENT_EXTERNALS 对应）。 */
+/** 浏览器 bundle 模块词（`CLIENT_EXTERNALS` 里实际被用的三项）；三份词集是独立证据，不共享常量（D5）。 */
 const CLIENT_EXTERNALS = ['@deepseek-ai/dsh-client-ui-primitives', 'react', 'react/jsx-runtime']
 
 /** 包清单的形状（只取本套件断言到的字段）。 */
 interface Manifest {
   main?: string
   exports?: Record<string, { default?: string; types?: string } | undefined>
-  dsh?: {
-    engines?: { dsh?: string }
-    client?: { platform?: string; inject?: string[] }
-  }
+  dsh?: { engines?: { dsh?: string }; client?: { platform?: string; inject?: string[] } }
   peerDependencies?: Record<string, string>
 }
 
 describe('浏览器半产物', () => {
   it('按包名注册进模块加载器，且是 factory 形态', () => {
-    const source = readArtifact(ROOT, 'client.js')
-    expect(source).toContain('window.__ModuleLoader__.load({')
-    expect(source).toContain(`id: ${JSON.stringify(PACKAGE_NAME)}`)
-    expect(source).toContain('factory: (require) => {')
+    expect(loaderShellIssues({ packageName: PACKAGE_NAME, source: readArtifact(ROOT, 'client.js') })).toEqual([])
   })
 
   it('只 require 浏览器壳提供的模块词，且不 require slots 包（D2 硬错防线）', () => {
     const source = readArtifact(ROOT, 'client.js')
-    expect(requiredWords(source)).toEqual(CLIENT_EXTERNALS)
+    expect(requireSurfaceIssues({ packageName: PACKAGE_NAME, expected: CLIENT_EXTERNALS,
+      required: requiredWords(source), imported: importedWords(source) })).toEqual([])
+    // slots 没有 `./client` 导出、也不在 loader 模块表里，require 它命中「missed the module table」硬错（D2）。
     expect(requiredWords(source)).not.toContain('@deepseek-ai/dsh-client-ui-slots')
-    const imports = importedWords(source)
-    expect(imports.filter((word) => word.startsWith('node:'))).toEqual([])
-    // 自引用会变成对 holder 自己的运行时 require（模块表里没有这个包）。
-    expect(imports.filter((word) => word.includes(PACKAGE_NAME))).toEqual([])
   })
 
   it('座位名在产物里至少出现两次：children 声明 + renderSlot 渲染', () => {
@@ -92,11 +70,7 @@ describe('浏览器半产物', () => {
 
   it('不含三个贡献方包名：四包之间没有运行时反向依赖（D3）', () => {
     const source = readArtifact(ROOT, 'client.js')
-    for (const dependency of [
-      'dsh-plugin-multi-root-workspace',
-      'dsh-plugin-session-tool-toggle',
-      'dsh-plugin-web-ux',
-    ]) {
+    for (const dependency of ['dsh-plugin-multi-root-workspace', 'dsh-plugin-session-tool-toggle', 'dsh-plugin-web-ux']) {
       expect(source).not.toContain(dependency)
     }
   })
@@ -118,7 +92,10 @@ describe('浏览器半产物', () => {
 
 describe('宿主半产物', () => {
   it('完全自包含：零 import（no-op 锚点）', () => {
-    expect(importedWords(readArtifact(ROOT, 'index.js'))).toEqual([])
+    const words = importedWords(readArtifact(ROOT, 'index.js'))
+    // 契约管「无未声明外部词」（`node:*` 豁免）；host 半是 no-op 锚点，连内建也不许出现，故两条并存。
+    expect(hostSelfContainmentIssues({ packageName: PACKAGE_NAME, words })).toEqual([])
+    expect(words).toEqual([])
   })
 
   it('不内联浏览器半（两端产物各自独立）', () => {
@@ -145,10 +122,8 @@ describe('包声明', () => {
     expect(manifest.dsh?.client?.platform).toBe('web')
     const inject = manifest.dsh?.client?.inject ?? []
     for (const dependency of [
-      '@deepseek-ai/dsh-client-ui-renderer',
-      '@deepseek-ai/dsh-client-locale',
-      '@deepseek-ai/dsh-client-ui-sidebar',
-      '@deepseek-ai/dsh-client-ui-layout',
+      '@deepseek-ai/dsh-client-ui-renderer', '@deepseek-ai/dsh-client-locale',
+      '@deepseek-ai/dsh-client-ui-sidebar', '@deepseek-ai/dsh-client-ui-layout',
     ]) {
       expect(inject).toContain(dependency)
     }

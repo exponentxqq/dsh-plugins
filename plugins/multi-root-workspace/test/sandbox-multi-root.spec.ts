@@ -2,12 +2,12 @@
  * Multi-root widening at the provider boundary.
  *
  * The empty-root contract (element-for-element passthrough) is pinned by
- * `tests/sandbox-passthrough.spec.ts`. This suite pins what M2 adds: with a
+ * `test/sandbox-passthrough.spec.ts`. This suite pins what M2 adds: with a
  * non-empty scope, the additional roots are grafted onto the profile the
  * UPSTREAM provider actually produced — for every dialect, in scope order, with
  * the upstream flags — while the enforcement facts the bash executor classifies
  * denials with stay untouched. The independent re-parse of the widened argv
- * lives in `tests/support/dialect-grants.ts`.
+ * lives in `test/support/dialect-grants.ts`.
  */
 
 import { mkdirSync } from 'node:fs'

@@ -8,7 +8,7 @@
  * trailing sibling fiber would leave the first stack holding the lock and the
  * next restart would start contended.
  *
- * @module tests/support/registry-stack
+ * @module test/support/registry-stack
  */
 
 import { mkdirSync } from 'node:fs'

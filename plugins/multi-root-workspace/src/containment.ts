@@ -13,7 +13,7 @@
  * coupling policy — entry-point imports only — is recorded in
  * `docs/decisions/ADR-0002-upstream-coupling-policy.md`; behavioral equality
  * with the upstream fence is pinned by the differential suite in
- * `tests/fs-parity.spec.ts`.
+ * `test/fs-parity.spec.ts`.
  *
  * Canonical spellings take the fast lexical path; filesystem identity supplies
  * the conservative fallback for alias-equivalent roots such as Windows 8.3

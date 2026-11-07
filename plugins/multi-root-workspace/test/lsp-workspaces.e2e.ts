@@ -23,7 +23,7 @@ it('initializes and pools real stdio servers independently for the primary and a
     await ctx.plugin(MultiRootScope)
     await mountCompat(ctx)
     await ctx.plugin(Routing)
-    await ctx.plugin(LspStdio, { servers: { fixture: { command: process.execPath, args: [join(REPO_ROOT, 'tests/support/lsp-server.mjs')], extensionToLanguage: { '.ts': 'typescript' } } } })
+    await ctx.plugin(LspStdio, { servers: { fixture: { command: process.execPath, args: [join(REPO_ROOT, 'test/support/lsp-server.mjs')], extensionToLanguage: { '.ts': 'typescript' } } } })
     ctx.multiRootScope.setAdditionalRoots(fixture.workspace, [{ id: 'extra', path: fixture.outside, recordedPath: canonicalPath(fixture.outside) }])
     for (const root of [fixture.workspace, fixture.outside]) writeFileSync(join(root, 'same.ts'), `const value = ${JSON.stringify(root)};`)
     const query = (filePath: string) => ctx.lsp.query({ workspaceRoot: fixture.workspace, filePath, operation: 'hover', position: { line: 0, character: 6 } })

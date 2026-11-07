@@ -1,0 +1,15 @@
+{
+  "package": "dsh-plugin-workspace-config",
+  "host": {
+    "words": [],
+    "sha256": "d231a02344b0c59ba051ea581be7fc75f581da807adc7d07bec088b8c791aae2"
+  },
+  "client": {
+    "words": [
+      "@deepseek-ai/dsh-client-ui-primitives",
+      "react",
+      "react/jsx-runtime"
+    ],
+    "sha256": "6d30a03ba276ab294382b5350a869d6000016c5e1dfbdeb2d2934ec1950e35ce"
+  }
+}

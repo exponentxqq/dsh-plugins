@@ -64,7 +64,7 @@ M3 把附加根登记进 `dsh-storage-domain` 的 `multi_root_workspace` domain�
 - 两个 DSH 进程共用 `$DSH_HOME` 时，只有 authority 授予附加根；另一个进程的沙箱退化为「仅主根」，直到它 refresh 成功。这是安全方向。
 - `chains` 仍然只覆盖进程内、同一主根的 mutation；跨进程由 lease 负责。二者缺一不可。
 - 新增运行时依赖：`@deepseek-ai/node-addon-system`（POSIX flock）、`koffi`（Windows semaphore）。
-- 测试：`tests/registry-lease.spec.ts`（同进程双 stack 争用 / 接管）与 `tests/registry-multiprocess.e2e.ts`（两 OS 进程、干净退出、SIGKILL、durable 读回）。
+- 测试：`test/registry-lease.spec.ts`（同进程双 stack 争用 / 接管）与 `test/registry-multiprocess.e2e.ts`（两 OS 进程、干净退出、SIGKILL、durable 读回）。
 
 ## 返工补充（2026-09-15，PR #1 评审）
 
@@ -74,7 +74,7 @@ PR #1（head `507c954`）的 P1-1 指出：`releaseAuthority()` 先释放 lease�
 2. **顺序必须是「排空在飞 mutation → close domain → release lease」。** 先 fail closed（`table = undefined`、`authorityState = { kind: 'contended' }`）以拒绝新 mutation，再 `await this.drainMutations()`（`await Promise.allSettled([...this.chains.values()])`，等待每一条已入队/正在跑的每主根 mutation）→ `withdrawPublished()` → `domain.close()` → `lease.release()`。lease 必须比本进程最后一次写活得更久：继任者绝不会打开一份缺了最后一次写的快照。
 3. **disposer 一开始就置 `disposed`，之后不再 acquisition。** `releaseAuthority()` 第一件事是把新的 `private disposed` 字段设为 `true`；`ensureAuthority()` 的串行 job 首行是 `if (this.disposed) return`，因此已拆除的 fiber 不可能再打开一份新介质。
 
-两条新回归用例在 `tests/registry-lease.spec.ts` 的 `describe('authority teardown')`：一条用记录下的事件顺序断言 `put:end` 早于 `close`（且在拆除期间不发生 `close`），并确认拆除之后继任者能 acquire 到 lease；另一条让一次 acquisition 与 disposal 重叠，确认注册表停在 `contended`、store 可被继任者接管。
+两条新回归用例在 `test/registry-lease.spec.ts` 的 `describe('authority teardown')`：一条用记录下的事件顺序断言 `put:end` 早于 `close`（且在拆除期间不发生 `close`），并确认拆除之后继任者能 acquire 到 lease；另一条让一次 acquisition 与 disposal 重叠，确认注册表停在 `contended`、store 可被继任者接管。
 
 ## 第二轮返工补充（2026-09-16）
 

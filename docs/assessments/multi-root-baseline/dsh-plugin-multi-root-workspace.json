@@ -1,0 +1,24 @@
+{
+  "package": "dsh-plugin-multi-root-workspace",
+  "host": {
+    "words": [
+      "./command-xY2RrFLs.js",
+      "./compat-BzeLS253.js",
+      "./fs-D_Sw3o5z.js",
+      "./instructions-DH4AhIuZ.js",
+      "./registry-Br93ZNJk.js",
+      "./roots-DejK8QSE.js",
+      "./sandbox-SDtqJ4nT.js",
+      "./scope.js"
+    ],
+    "sha256": "606c36dae53c91c9e33be7feaa9362f69a7f88f8eeba2883b8096e991b248c9a"
+  },
+  "client": {
+    "words": [
+      "@deepseek-ai/dsh-client-ui-primitives",
+      "react",
+      "react/jsx-runtime"
+    ],
+    "sha256": "a19541ff7d6fde2fa88e9510ff8ffb00d887c9f3b78802395f7d4b002e834502"
+  }
+}

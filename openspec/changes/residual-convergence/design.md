@@ -62,6 +62,8 @@
 
 阶段 1.75 界面演示 gate：**未触发**——C1 不成立（纯工程收敛：测试接线/CI/manifest/门禁/文档，无任何界面产出），命中排除表「纯后端 / CLI / 配置 / 脚本」行（判定记录见 code-design.md 附录）。
 
+**执行环境（衔接点决策，2026-11-07）**：直用主工作区——判据零命中（工作树干净、仅 main 检出、无并行变更 worktree、单仓触达 dsh-plugins）；`/home/xuqinqin/develop/person/dsh-plugins` 主检出 @ main，装配复用既有 node_modules（无新建装配步骤）；环境错开不适用。执行模式 auto、引擎 subagent（映射文件预置）、apply 键 `opencode-go/deepseek-v4.1-flash`（兜底 `zcode-plan/glm-5.3-flash`）。
+
 ## Risks / Trade-offs
 
 - **共享判定单点出错 → 三包同假绿**（A2 固有）：缓解 = build-kit 自测负面用例 + gate 不 import 同一判定（check-artifacts B1–B5 保持独立交叉验证）+ 每包保留独立字节断言（标记/注入器数）。

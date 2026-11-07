@@ -1,0 +1,23 @@
+{
+  "package": "dsh-plugin-session-tool-toggle",
+  "host": {
+    "words": [
+      "node:crypto",
+      "node:fs/promises",
+      "node:module",
+      "node:os",
+      "node:path",
+      "node:timers/promises",
+      "node:url"
+    ],
+    "sha256": "7fb05e77b75b5e74a579eab08db1adb8f009ac2c571fb12399d5e95c2ad8ced9"
+  },
+  "client": {
+    "words": [
+      "@deepseek-ai/dsh-client-ui-primitives",
+      "react",
+      "react/jsx-runtime"
+    ],
+    "sha256": "c88dc81ad2241aa92f1ba2c64881c028c28b42edc8b645510edf40647496ab2d"
+  }
+}

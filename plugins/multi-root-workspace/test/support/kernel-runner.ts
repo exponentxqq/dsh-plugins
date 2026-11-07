@@ -24,7 +24,7 @@
  * - `DSH_REQUIRE_KERNEL_RUNNER=1` overrides everything and forces REQUIRE for
  *   every dialect — the switch for checking that the skips themselves are honest.
  *
- * @module tests/support/kernel-runner
+ * @module test/support/kernel-runner
  */
 
 /** What the probe recorded, when it ran. */

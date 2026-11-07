@@ -23,7 +23,7 @@
 | 类型检查与声明产出 | TypeScript `6.x` | `tsconfig.host.json`（strict、`exactOptionalPropertyTypes`、`noUncheckedIndexedAccess`、`verbatimModuleSyntax`、`rewriteRelativeImportExtensions`） |
 | 打包 | tsdown（rolldown） | `tsdown.config.ts`：逐入口 ESM bundle 到 `lib/`，`@deepseek-ai/*` 与 cordis 保持 external |
 | Lint | oxlint | `.oxlintrc.json`（与上游仓库同一选择） |
-| 测试 | vitest | `vitest.config.ts`（`tests/**/*.spec.ts`，`pool: forks`） |
+| 测试 | vitest | `vitest.config.ts`（`test/**/*.spec.ts`，`pool: forks`） |
 | 测试运行时 vite | `8.3.0`（`devDependencies` 显式精确 pin） | vitest 4 接受 vite `^6||^7||^8`，但同 workspace 的另一插件用 vitest 3（只接受 vite ≤7），pnpm 去重会把本包的 vite 降到 7.x——迁移前本包单独解析为 8.3.0，显式 pin 才能保住同一解析。改动前先跑 `pnpm --filter dsh-plugin-multi-root-workspace test` 确认 jsx 变换行为未变（vite 7 下 `.tsx` 测试因经典 jsx 变换而 `React is not defined`） |
 
 源码里的相对导入写 `.ts` 后缀（`./containment.ts`）：tsc 以 `rewriteRelativeImportExtensions` 重写为 `.js`，tsdown 在打包时直接解析。
@@ -50,7 +50,7 @@ pnpm docs:check         # 文档结构检查
 
 `pnpm verify:all` **包含** `compat:check`，位置在 `lint` 之后：支持范围与运行时门禁读的是同一个基线，静态契约不再是升级要绕开的障碍。根 `.github/workflows/ci.yml` 的七步链（`install → lint → typecheck → build → test → docs:check → dsh:check`）不含它，根 `pnpm dsh:check` 也不复制它——`compat:check` 随本包 `verify:all` 覆盖。
 
-**`pnpm test` 必须在 `pnpm build` 之后**：`tests/client-bundle.spec.ts` 断言的是**构建产物** `lib/client.js`（浏览器闭包工厂形态、模块表依赖清单）；`tests/windows-multi-root.spec.ts` 的原生执行用例加载 `lib/sandbox.js`，以便 provider 的 `import.meta.url` 定位同目录的 `lib/windows-runner.js`。从源码加载 provider 会指向不存在的 `src/windows-runner.js`，不能作为发布制品的执行验证。`lib/` 自 v1.1.1 起随仓库提交（release 时递归重建），完整类型产物仍需 `pnpm build`；CI 七步链与包内 `verify:all` 都按 `lint → typecheck → build → test` 排序（`compat:check` 在 `verify:all` 里紧跟 `lint`，不进 CI）。
+**`pnpm test` 必须在 `pnpm build` 之后**：`test/client-bundle.spec.ts` 断言的是**构建产物** `lib/client.js`（浏览器闭包工厂形态、模块表依赖清单）；`test/windows-multi-root.spec.ts` 的原生执行用例加载 `lib/sandbox.js`，以便 provider 的 `import.meta.url` 定位同目录的 `lib/windows-runner.js`。从源码加载 provider 会指向不存在的 `src/windows-runner.js`，不能作为发布制品的执行验证。`lib/` 自 v1.1.1 起随仓库提交（release 时递归重建），完整类型产物仍需 `pnpm build`；CI 七步链与包内 `verify:all` 都按 `lint → typecheck → build → test` 排序（`compat:check` 在 `verify:all` 里紧跟 `lint`，不进 CI）。
 
 ## 4. 冒烟机制
 
@@ -106,8 +106,8 @@ pnpm docs:check         # 文档结构检查
 
 - `smoke:behavior` 会把"受限 bash 实际执行"（含多根 battery 的两项）显式标记为 **skipped**（并在输出里说明原因），而不是静默通过或误报失败；
 - 两个 profile 面对的失败完全相同，因此"插件与未装插件行为一致"的比对仍然成立；
-- 内核方言的 argv 等价性由 `tests/sandbox-passthrough.spec.ts` / `tests/sandbox-multi-root.spec.ts` 在每个环境下覆盖（用 `internals.chain` 强制 seatbelt / bwrap / landlock 三种方言，不执行 runner）；
-- `tests/parity-matrix.spec.ts` 的"真实受限执行"用例同样按宿主能力 skip（`unavailable` / `runner-failed` 都算不可用），并且只有在 runner 真的跑起来、却仍然写不进附加根时才判失败。
+- 内核方言的 argv 等价性由 `test/sandbox-passthrough.spec.ts` / `test/sandbox-multi-root.spec.ts` 在每个环境下覆盖（用 `internals.chain` 强制 seatbelt / bwrap / landlock 三种方言，不执行 runner）；
+- `test/parity-matrix.spec.ts` 的"真实受限执行"用例同样按宿主能力 skip（`unavailable` / `runner-failed` 都算不可用），并且只有在 runner 真的跑起来、却仍然写不进附加根时才判失败。
 
 在没有外层约束的终端（或 CI runner）中，同样的冒烟与用例会真实执行受限 bash。
 
@@ -122,7 +122,7 @@ client 面**不能**复用上游的 `clientBundle` preset：它不在任何包�
 
 `bundle` 在调用 tsdown 之前先跑 `scripts/clean-lib.mjs`，删掉 `lib/` 里上一轮的 **JavaScript** 面。两个原因：两个 tsdown 配置共用 `lib/` 且都设 `clean: false`（整目录清理会让 host / client 两面互相删除，并把 `build:types` 先产出的 `lib/types/` 一起带走），而共享 chunk 的文件名带内容哈希、内容一变旧名字就永久留在原地。`files` 发布的是 `lib/*.js`，所以这一清理是"`pnpm pack` 绝不把历史 chunk 当死代码打进去"的保证——CI 在干净 checkout 上永远碰不到这个问题，**只有本地打包会**。`lib/types/**/*.d.ts` 不匹配该清理的扩展名，保持不动。
 
-client 测试分两层：`tests/client-bundle.spec.ts` 断言**制品字节**（banner、`exports.apply`/`exports.inject`、唯一 external 是 react、manifest 的 `./client` 与 `dsh.client` 声明）；`tests/client-panel.spec.tsx` 在 jsdom 里直接应用真实 client 入口、渲染注册的组件，并断言它对通道发出的 `(channel, endpoint, payload)` 三元组。
+client 测试分两层：`test/client-bundle.spec.ts` 断言**制品字节**（banner、`exports.apply`/`exports.inject`、唯一 external 是 react、manifest 的 `./client` 与 `dsh.client` 声明）；`test/client-panel.spec.tsx` 在 jsdom 里直接应用真实 client 入口、渲染注册的组件，并断言它对通道发出的 `(channel, endpoint, payload)` 三元组。
 
 ## 5. 安装到真实运行时
 
@@ -188,20 +188,20 @@ dsh plugin --profile web add <本仓库路径>
 
 ## 7. CI（上游基线；车道已随 fork 移除）
 
-> **本 fork 注记**：`.github/workflows/`（ci / upgrade / release）、`tests/workflows.spec.ts` 与 `scripts/list-dsh-releases.mjs` 已随 vendored 清理——本目录不是 GitHub 仓库根，这些车道不会运行。下文描述保留为上游基线的历史记录，用以理解各门禁的顺序与理由；本地等价：完整门禁 `pnpm --filter dsh-plugin-multi-root-workspace verify:all`（按需加 `kernel:probe`）、逐版本回归 `DSH_CLI=<版本> pnpm smoke`、重指 pin `pnpm dsh:upgrade`。
+> **本 fork 注记**：`.github/workflows/`（ci / upgrade / release）、`test/workflows.spec.ts` 与 `scripts/list-dsh-releases.mjs` 已随 vendored 清理——本目录不是 GitHub 仓库根，这些车道不会运行。下文描述保留为上游基线的历史记录，用以理解各门禁的顺序与理由；本地等价：完整门禁 `pnpm --filter dsh-plugin-multi-root-workspace verify:all`（按需加 `kernel:probe`）、逐版本回归 `DSH_CLI=<版本> pnpm smoke`、重指 pin `pnpm dsh:upgrade`。
 
 **历史（上游基线，已随 fork 移除，不再代表现行机制）**：`.github/workflows/ci.yml` 的 `releases` job 用 `scripts/list-dsh-releases.mjs` 从当时的精确版本支持矩阵读取版本轴，`verify` 将该轴与启用的 OS 做笛卡尔积。开发 pin 使用 frozen lockfile，其他版本先用当时的升级脚本重指 DSH / cordis 后重新安装；制品名同时含 OS 与 DSH 版本。主车道在 `ubuntu-latest` 与 `macos-latest` 上执行：**`compat:check`** → `lint` → `typecheck` → **`build`** → **`kernel:probe`** → `test` → `smoke:compose` → `smoke:behavior` → `smoke:journey` → `docs:check`。`compat:check` 放在最前，因为后续每一步的结果只有对"契约真正声明的版本"才算证据。探针必须先于单测，否则它导出的方言集无法约束本次单测的 skip。现行顺序见 §3：`compat:check` 在包内 `verify:all` 里紧跟 `lint`。
 
-**历史（上游基线，已随 fork 移除，不再代表现行机制）**：`.github/workflows/upgrade.yml` 是**按周**运行的升级车道（也可手动触发指定版本）：解析 `@deepseek-ai/dsh` 最新 pre-release → 重指 pin → 安装 → 与主车道同样顺序的完整矩阵，全程用当时的「警告档」开关放行候选（该开关与精确版本矩阵都已在 2026-11-07 的裁定中删除，现行升级流程见 §6）。它的权限是 `contents: read`，不提交、不推送、不碰支持矩阵；成功时只在 step summary 里写出当时的提升步骤。它**不**跑 `compat:check`（候选按设计不在精确版本矩阵上）。这些性质由 `tests/workflows.spec.ts` 钉住。 手动版本输入及 candidate output 只通过 step `env` 传入 shell，禁止把 GitHub 表达式直接嵌进 `run`；写入 `$GITHUB_OUTPUT` 前校验为单行版本，避免 shell 代码执行与多行输出注入。
+**历史（上游基线，已随 fork 移除，不再代表现行机制）**：`.github/workflows/upgrade.yml` 是**按周**运行的升级车道（也可手动触发指定版本）：解析 `@deepseek-ai/dsh` 最新 pre-release → 重指 pin → 安装 → 与主车道同样顺序的完整矩阵，全程用当时的「警告档」开关放行候选（该开关与精确版本矩阵都已在 2026-11-07 的裁定中删除，现行升级流程见 §6）。它的权限是 `contents: read`，不提交、不推送、不碰支持矩阵；成功时只在 step summary 里写出当时的提升步骤。它**不**跑 `compat:check`（候选按设计不在精确版本矩阵上）。这些性质由 `test/workflows.spec.ts` 钉住。 手动版本输入及 candidate output 只通过 step `env` 传入 shell，禁止把 GitHub 表达式直接嵌进 `run`；写入 `$GITHUB_OUTPUT` 前校验为单行版本，避免 shell 代码执行与多行输出注入。
 
 Linux 覆盖 bwrap / Landlock 的方言选择与 argv 等价，macOS 覆盖 Seatbelt。**"没跑"不会被记成通过**，机制分两层，而且**按方言**判定：
 
 1. `pnpm kernel:probe`（`scripts/check-kernel-runner.mjs`）用原始机制逐个探测本机能否受限执行（`sandbox-exec` + allow profile / `bwrap` 绑定 flags / Landlock launcher），把**确实跑通的那几个方言**写进 `$GITHUB_ENV` 的 `DSH_PROBE_VERIFIED_DIALECTS`；一个都跑不通时打印每条机制的原因。
-2. `tests/parity-matrix.spec.ts` 与 `smoke:behavior` 的内核断言：**探针证明本机跑得通的方言必须真跑**（runner 不可用即失败），本机没有的方言永不要求（在 macOS 上要求 bwrap、或在 Linux 上要求 Seatbelt，都只会制造与本插件无关的红灯），未跑探针时一律不要求（开发机照旧打印原因后 skip）。判定集中在 `tests/support/kernel-runner.ts`；`DSH_REQUIRE_KERNEL_RUNNER=1` 可强制要求全部方言，用来检查 skip 本身是否诚实。
+2. `test/parity-matrix.spec.ts` 与 `smoke:behavior` 的内核断言：**探针证明本机跑得通的方言必须真跑**（runner 不可用即失败），本机没有的方言永不要求（在 macOS 上要求 bwrap、或在 Linux 上要求 Seatbelt，都只会制造与本插件无关的红灯），未跑探针时一律不要求（开发机照旧打印原因后 skip）。判定集中在 `test/support/kernel-runner.ts`；`DSH_REQUIRE_KERNEL_RUNNER=1` 可强制要求全部方言，用来检查 skip 本身是否诚实。
 
 ### Windows 验证腿
 
-`ci.yml` 在仓库变量 `DSH_WINDOWS_CI=1` 时才把 `windows-latest` 加入动态矩阵，验证校验规则、注册表、命令与 RPC 通道、面板、client 制品，以及 B1 的真实 LSP stdio 和 B2 的原生 ACL 执行。`tests/windows-multi-root.spec.ts` 必须真实启动 restricted-token Node、PowerShell 与 ConPTY，覆盖两根可写、第三目录拒绝、read-only 拒绝、移除根后拒绝和 PTY 退出码保留；Windows 不按能力探针跳过该用例。它在 Windows 上**不跑**需要 POSIX shell 的冒烟（`smoke:compose/behavior/journey`）与只探测 POSIX 方言的 `kernel:probe`；POSIX 方言的真实执行断言在该平台显式 skip。目录 symlink 无权限时，仅省略矩阵中依赖该链接的行，workspace-write 与 read-only 使用同一条件，其余行继续验证。
+`ci.yml` 在仓库变量 `DSH_WINDOWS_CI=1` 时才把 `windows-latest` 加入动态矩阵，验证校验规则、注册表、命令与 RPC 通道、面板、client 制品，以及 B1 的真实 LSP stdio 和 B2 的原生 ACL 执行。`test/windows-multi-root.spec.ts` 必须真实启动 restricted-token Node、PowerShell 与 ConPTY，覆盖两根可写、第三目录拒绝、read-only 拒绝、移除根后拒绝和 PTY 退出码保留；Windows 不按能力探针跳过该用例。它在 Windows 上**不跑**需要 POSIX shell 的冒烟（`smoke:compose/behavior/journey`）与只探测 POSIX 方言的 `kernel:probe`；POSIX 方言的真实执行断言在该平台显式 skip。目录 symlink 无权限时，仅省略矩阵中依赖该链接的行，workspace-write 与 read-only 使用同一条件，其余行继续验证。
 
 该变量**当前已置 1**：本仓库是公开仓库，标准 runner 在公开仓库上不计费（计费的 2× 倍率只作用于私有仓库），因此这条腿没有理由停着。清掉变量即回到两 OS 矩阵。
 
@@ -215,15 +215,15 @@ LSP 源码回传断言应比较读盘得到的完整源码。夹具里的路径�
 
 | 症状 | 原因 | 处置 |
 | --- | --- | --- |
-| `smoke:compose` 报某行差异多于预期 | 上游 base patch 行 id 或名字变了 | 对照 `@deepseek-ai/dsh-base` 的 `cordis.patch.yml` 更新 `cordis.patch.yml`，并同步 `tests/patch.spec.ts` |
+| `smoke:compose` 报某行差异多于预期 | 上游 base patch 行 id 或名字变了 | 对照 `@deepseek-ai/dsh-base` 的 `cordis.patch.yml` 更新 `cordis.patch.yml`，并同步 `test/patch.spec.ts` |
 | boot 抛出 "service ... has been registered" | disable 行未生效（id 不匹配） | 同上；这是插件刻意的 fail-loud 设计 |
-| bash 报 `SANDBOX_UNAVAILABLE` 且文案含 "cannot grant the additional workspace roots" | 上游改了方言 profile 形状，插件拒绝静默降级 | 按调研 §10 核对新形状并更新 `src/dialects.ts` 的识别/克隆逻辑与 `tests/dialects.spec.ts` |
+| bash 报 `SANDBOX_UNAVAILABLE` 且文案含 "cannot grant the additional workspace roots" | 上游改了方言 profile 形状，插件拒绝静默降级 | 按调研 §10 核对新形状并更新 `src/dialects.ts` 的识别/克隆逻辑与 `test/dialects.spec.ts` |
 | 多根 session 里 fs 能写附加根、bash 不能 | win32 的 ACL rung 无法表达附加根（第一期限制） | 查看是否已输出一次性告警；这是已知限制，需求文档已明示 |
 | `smoke:*` 提示 `lib/ is missing` | 未构建 | 先跑 `pnpm build` |
-| 一批测试报 `Cannot read properties of undefined (reading 'confine')` / `ctx.get('fs')` 为 `undefined` | 该 spec mount 了被门禁保护的 provider，但没先 mount `multiRootCompat` | 在 mount provider 之前 `await mountCompat(ctx)`（`tests/support/compat.ts`）；这是门禁在工作，不是 bug |
+| 一批测试报 `Cannot read properties of undefined (reading 'confine')` / `ctx.get('fs')` 为 `undefined` | 该 spec mount 了被门禁保护的 provider，但没先 mount `multiRootCompat` | 在 mount provider 之前 `await mountCompat(ctx)`（`test/support/compat.ts`）；这是门禁在工作，不是 bug |
 | 插件装上但行为完全等同未安装，日志里有 `is outside the supported range` / `mixes several DSH releases` 的错误 | 宿主的 DSH 版本落在派生范围外，或多个 `@deepseek-ai/dsh-*` 混装 | 见[故障排查：DSH 版本在支持范围外](../troubleshooting/unsupported-dsh-release.md)；`mixed` 永远按宿主问题处理，没有放行开关——门禁只有拒绝启动一种反应 |
 | `pnpm compat:check` 失败 | 运行时基线副本派生的范围 / `dsh.engines.dsh` / DSH peer 范围 / 已安装树四者不一致 | 按报错逐条对齐；要移动基线就改 `scripts/dsh-baseline.mjs` 再跑 `pnpm dsh:upgrade <version>`，让四者同批重指（ADR-0009） |
-| 内核方言断言报 `Cannot read properties of undefined (reading 'some')` | 在返回 promise 的上游版本上同步读了 `confine()` 的结果 | 一律 `await ctx.sandbox.confine(...)`；单测走 `tests/support/confine.ts` |
+| 内核方言断言报 `Cannot read properties of undefined (reading 'some')` | 在返回 promise 的上游版本上同步读了 `confine()` 的结果 | 一律 `await ctx.sandbox.confine(...)`；单测走 `test/support/confine.ts` |
 | bash 断言整体 skipped | 当前进程已被内核沙箱约束，无法嵌套 | 在不被约束的终端或 CI 中运行以覆盖该项 |
 | `pnpm <script>` 报 `EPERM ... /Library/pnpm/.tools` | 仓库 pin 的 pnpm 版本需要写用户级 pnpm 目录 | 在可写该目录的终端（或提权）执行；仅跑门禁时可用 `sh node_modules/.bin/<tool>` 绕过 pnpm |
 | `pnpm <script>` 报 `ERR_PNPM_UNEXPECTED_STORE` 或 `ABORTED_REMOVE_MODULES_DIR_NO_TTY` | checkout 里存在一个陈旧的 `.pnpm-store/`（被 gitignore），而 `node_modules` 是从磁盘级 store（如 `<挂载点>/.pnpm-store/v11`）链接的；pnpm 运行脚本前的依赖自检因此想重装，而在没有 TTY 时无法确认删除 | 最快解除：`CI=true pnpm <script>`（pnpm 只在 CI 下继续而不交互确认）。根治：删掉陈旧的仓库内 `.pnpm-store/`；或 `pnpm config set store-dir <node_modules 实际链接的 store>`；或直接用 `sh node_modules/.bin/<tool>` / `node scripts/<smoke>.mjs` 跑门禁（CI 不受影响，它本来就有 `CI=true`） |

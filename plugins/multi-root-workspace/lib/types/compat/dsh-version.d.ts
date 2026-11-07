@@ -48,7 +48,7 @@ interface ParsedVersion {
  * 文法外的输入（`'0.9'`、`''`、`'latest'`、带 build metadata 的 `'1.2.3+build'`）
  * 返回 `undefined`，不抛——门禁对不可解析的版本一律按「不支持」处理。
  *
- * 导出仅供 `tests/` 直接钉住文法（不进 barrel）。
+ * 导出仅供 `test/` 直接钉住文法（不进 barrel）。
  * @param value - 待解析的版本字符串。
  * @returns 解析结果，或 `undefined`（文法外）。
  */
@@ -56,14 +56,14 @@ export declare function parseVersion(value: string): ParsedVersion | undefined;
 /**
  * semver 优先级比较：`<0` / `0` / `>0`。
  *
- * 规则（`tests/compat.spec.ts` 逐条钉住）：
+ * 规则（`test/compat.spec.ts` 逐条钉住）：
  * 1. `major` / `minor` / `patch` 数值比较；
  * 2. 同 triple 时，无 prerelease 的版本**大于**有 prerelease 的版本（`0.2.2 > 0.2.2-rc.1`）；
  * 3. prerelease 按 `.` 分段逐段比较：两段皆数字→数值比较；仅一方数字→数字段小；
  *    两段皆字母→ASCII 比较；
  * 4. 前缀全等时短者小（`0.2.2-rc < 0.2.2-rc.1`）。
  *
- * 导出仅供 `tests/` 直接钉住比较语义（不进 barrel）。
+ * 导出仅供 `test/` 直接钉住比较语义（不进 barrel）。
  * @param left - 左操作数（已解析）。
  * @param right - 右操作数（已解析）。
  * @returns 负数表示 `left` 优先级更低，正数更高，`0` 表示相等。

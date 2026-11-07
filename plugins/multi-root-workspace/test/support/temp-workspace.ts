@@ -7,7 +7,7 @@
  * containment denial. {@link assertOutsideTempGrants} pins that property so a
  * future move of the fixture root cannot silently weaken the suite.
  *
- * @module tests/support/temp-workspace
+ * @module test/support/temp-workspace
  */
 
 import { accessSync, constants, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
@@ -16,7 +16,7 @@ import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:p
 import { fileURLToPath } from 'node:url'
 import { canonicalPath, writableRoots } from '@deepseek-ai/dsh-sandbox'
 
-/** Repository root (this file lives in `tests/support/`). */
+/** Repository root (this file lives in `test/support/`). */
 export const REPO_ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)))
 
 function contains(root: string, path: string): boolean {

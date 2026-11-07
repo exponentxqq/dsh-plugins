@@ -6,12 +6,12 @@ export default defineConfig({
     alias: {
       // The host's published primitives barrel carries bare `.module.css`
       // imports and host-side dependencies the jsdom suite cannot resolve; the
-      // stand-in keeps the same DOM shape (see tests/stubs/ui-primitives.tsx).
-      '@deepseek-ai/dsh-client-ui-primitives': resolve(import.meta.dirname, 'tests/stubs/ui-primitives.tsx'),
+      // stand-in keeps the same DOM shape (see test/stubs/ui-primitives.tsx).
+      '@deepseek-ai/dsh-client-ui-primitives': resolve(import.meta.dirname, 'test/stubs/ui-primitives.tsx'),
     },
   },
   test: {
-    include: ['tests/**/*.spec.ts', 'tests/**/*.spec.tsx', 'tests/**/*.e2e.ts'],
+    include: ['test/**/*.spec.ts', 'test/**/*.spec.tsx', 'test/**/*.e2e.ts'],
     pool: 'forks',
     testTimeout: 30_000,
   },

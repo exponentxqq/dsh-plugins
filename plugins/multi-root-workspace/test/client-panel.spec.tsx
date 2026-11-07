@@ -7,7 +7,7 @@
  * The stub is deliberate — the panel's contract IS the channel, and asserting
  * the exact (channel, endpoint, payload) triples is what keeps the browser half
  * and the host half from drifting apart. The host side of each endpoint is
- * covered by `tests/command.spec.ts` and by the behavior smoke.
+ * covered by `test/command.spec.ts` and by the behavior smoke.
  */
 
 import { readFileSync } from 'node:fs'

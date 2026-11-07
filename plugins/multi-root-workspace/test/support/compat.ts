@@ -13,7 +13,7 @@
  * reaction — a release outside it is refused, never merely warned about
  * (ADR-0009).
  *
- * @module tests/support/compat
+ * @module test/support/compat
  */
 
 import type { Context } from '@deepseek-ai/cordis'

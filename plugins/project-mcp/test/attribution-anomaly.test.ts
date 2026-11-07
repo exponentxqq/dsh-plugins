@@ -1,12 +1,12 @@
 /**
  * Attribution wiring tests (spec: dsh-project-mcp — 工作区可见性隔离; G4).
  *
- * The walk-up rules themselves are pinned by `test/attribution.test.ts`
- * (unchanged, the oracle) and by the kernel's own suite. This file covers the
- * PACKAGE adapter: the thin re-export still exposes `Attributor` and
- * `RootAttributor`, the plugin's `{ onAnomaly: log.warn }` wiring receives the
- * #3 registry anomaly (`roots[0] !== primaryRoot`) and duplicate primary roots,
- * and no root is dropped when an anomaly is reported.
+ * The walk-up rules themselves are pinned by the host-kit kernel suite
+ * (`tooling/host-kit/test/attribution.test.ts`, its `CASES` table — the oracle).
+ * This file covers the PACKAGE adapter: the thin re-export still exposes
+ * `Attributor` and `RootAttributor`, the plugin's `{ onAnomaly: log.warn }`
+ * wiring receives the #3 registry anomaly (`roots[0] !== primaryRoot`) and
+ * duplicate primary roots, and no root is dropped when an anomaly is reported.
  */
 import { describe, expect, it } from 'vitest'
 import { Attributor, RootAttributor } from '../src/host/attribution.ts'

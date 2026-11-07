@@ -23,7 +23,7 @@
  *
  * What it deliberately does NOT do: recompute the range predicate ("is this
  * release inside the window?"). A second copy of that predicate would silently
- * fork from `isSupportedDshRelease`; the runtime gate and `tests/compat.spec.ts`
+ * fork from `isSupportedDshRelease`; the runtime gate and `test/compat.spec.ts`
  * own the predicate, and the root `pnpm dsh:check` owns "the installed tree is
  * the baseline". This script owns the static facts: the range strings the
  * manifest declares, and that the installed tree holds a single release.

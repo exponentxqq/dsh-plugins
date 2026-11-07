@@ -220,5 +220,5 @@ export async function buildPlugin(options = {}) {
 
 export { DEFAULT_CLIENT_EXTERNALS, indentBlock, moduleLoaderShell } from './client.mjs'
 export { cssModuleContents, cssModulesPlugin } from './css.mjs'
-export { assertNoDynamicRequire, assertNoInternalWord, assertSelfContained } from './guards.mjs'
+export { assertNoDynamicRequire, assertNoInternalWord } from './guards.mjs'
 export { CJS_REQUIRE_BANNER, HOST_BASE_EXTERNALS } from './host.mjs'

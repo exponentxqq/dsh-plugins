@@ -5,8 +5,8 @@
  * provider actually produced (see `docs/reference/multi-root-workspace-research.md`
  * §10), so the module is pinned against the upstream spelling without deriving
  * its own expectations from the code under test. The provider-level integration
- * (real `super.confine` output) lives in `tests/sandbox-multi-root.spec.ts`, and
- * the cross-provider allow-matrix in `tests/parity-matrix.spec.ts`.
+ * (real `super.confine` output) lives in `test/sandbox-multi-root.spec.ts`, and
+ * the cross-provider allow-matrix in `test/parity-matrix.spec.ts`.
  */
 
 import { describe, expect, it } from 'vitest'

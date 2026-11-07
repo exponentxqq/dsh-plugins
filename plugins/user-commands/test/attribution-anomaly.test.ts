@@ -1,9 +1,11 @@
 /**
  * 归属内核接线的异常用例（规范：dsh-user-commands —— 三层优先级与会话遮蔽；G4）。
  *
- * 归属走法本身由 `test/attribution.test.ts`（oracle，零改动）与内核自己的套件钉住；
- * 本文件覆盖**包级适配**：薄导出仍叫 `Attributor`，`{ onAnomaly: log.warn }` 的接线能收到
- * #3 登记异常（`roots[0] !== primaryRoot`）与重复主根，且异常不会丢根。
+ * 归属走法本身由 host-kit 内核套件（`tooling/host-kit` 的 `attribution.test.ts`）的 `CASES`
+ * 表与「并发原子性」两条用例钉住，插件侧的规则 / 并发套件已随去重删除；包级适配的 wiring
+ * 由本文件自证。本文件覆盖：薄导出仍叫 `Attributor`（与 `RootAttributor` 指向同一个类），
+ * `{ onAnomaly: log.warn }` 的接线能收到 #3 登记异常（`roots[0] !== primaryRoot`）与重复主根，
+ * 且异常不会丢根。
  */
 import { describe, expect, it } from 'vitest'
 import { Attributor, RootAttributor } from '../src/host/attribution.ts'

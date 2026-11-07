@@ -46,7 +46,7 @@ registry 行（`cordis.patch.yml` 的 `multi-root-registry`）新增两个键：
 ## 验证
 
 ```sh
-pnpm typecheck && pnpm test        # tests/registry-seed.spec.ts 覆盖播种、跳过、一次性、关闭
+pnpm typecheck && pnpm test        # test/registry-seed.spec.ts 覆盖播种、跳过、一次性、关闭
 # 启动后（主根尚无登记记录的 store）：
 #   /workspace-folders list                      -> 应列出播种的根
 #   $DSH_HOME/storages/multi_root_workspace.json -> 应出现对应记录

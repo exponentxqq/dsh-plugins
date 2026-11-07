@@ -1,49 +1,33 @@
 /**
- * 构建产物的形状与纯度（对照 `build.mjs` 与 `package.json` 的声明）。
- *
- * 这里断言的是**已构建的字节**，所以构建配置、external 列表或包声明的回归会在本仓
- * 报错，而不是等到浏览器或 profile 里才发现：
- *
- * - 浏览器半必须是 `window.__ModuleLoader__.load({ id, factory })` 形态的 CJS 工厂，
- *   且只 require 浏览器壳能提供的模块词（`react` / `react/jsx-runtime` /
- *   ui-primitives）——多出一个裸包名就意味着它被意外打进/漏进 external。
- * - 宿主半必须自包含：只允许 `node:*` 内建 import，任何 `@deepseek-ai/*` 运行时
- *   依赖都会让 profile 侧的 bare 安装失败。
- *
- * 依赖构建产物，故 `verify:all` 的顺序（lint → typecheck → build → test）是前提。
- *
+ * 构建产物的形状与纯度（对照 `build.mjs` 与 `package.json`）：结构层三组（壳 / require 面 /
+ * 宿主自包含）由 build-kit 的产物契约断言（③.3 / ④ D5）；本文件只留包独有事实——内联标记、
+ * css 注入器（四个模块）、宿主 channel 与端点、包声明（inject / 无 sidebar / contracts devDep）。
+ * `verify:all` 的顺序（lint → typecheck → build → test）是前提。
  * @module dsh-plugin-web-ux/test/bundle
  */
 
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-// 产物词法器的单一实现（R9）：本套件不再持有本地副本，与仓级
-// `scripts/check-artifacts.mjs` 共用同一份正则与路径约定。声明见
-// `scripts/lib/artifacts.d.mts`（不再需要抑制「无声明文件」）。
+import { hostSelfContainmentIssues, loaderShellIssues, requireSurfaceIssues } from '@dsh-plugins/build-kit/artifact-contract'
+// 词法器仍是 `scripts/lib/artifacts.mjs` 的单一实现（R9），本套件不持有本地副本。
 import { importedWords, readArtifact, requiredWords } from '../../../scripts/lib/artifacts.mjs'
 
-/** 本包目录（`test/` 的上一级）。 */
+/** 本包目录（`test/` 的上一级）与浏览器 loader 期望的包身份。 */
 const ROOT = path.resolve(import.meta.dirname, '..')
-/** 浏览器 loader 期望的包身份。 */
 const PACKAGE_NAME = 'dsh-plugin-web-ux'
-/** 允许出现在浏览器 bundle 里的模块词（与 build.mjs 的 CLIENT_EXTERNALS 对应）。 */
+/** 浏览器 bundle 模块词（`CLIENT_EXTERNALS` 里实际被用的三项）；三份词集是独立证据，不共享常量（D5）。 */
 const CLIENT_EXTERNALS = ['@deepseek-ai/dsh-client-ui-primitives', 'react', 'react/jsx-runtime']
 
 describe('浏览器半产物', () => {
   it('按包名注册进模块加载器，且是 factory 形态', () => {
-    const source = readArtifact(ROOT, 'client.js')
-    expect(source).toContain('window.__ModuleLoader__.load({')
-    expect(source).toContain(`id: ${JSON.stringify(PACKAGE_NAME)}`)
-    expect(source).toContain('factory: (require) => {')
+    expect(loaderShellIssues({ packageName: PACKAGE_NAME, source: readArtifact(ROOT, 'client.js') })).toEqual([])
   })
 
   it('只 require 浏览器壳提供的模块词，宿主半与 node 内建都不出现', () => {
     const source = readArtifact(ROOT, 'client.js')
-    expect(requiredWords(source)).toEqual(CLIENT_EXTERNALS)
-    const imports = importedWords(source)
-    expect(imports.filter((word: string) => word.startsWith('node:'))).toEqual([])
-    expect(imports.filter((word: string) => word.includes(PACKAGE_NAME))).toEqual([])
+    expect(requireSurfaceIssues({ packageName: PACKAGE_NAME, expected: CLIENT_EXTERNALS,
+      required: requiredWords(source), imported: importedWords(source) })).toEqual([])
   })
 
   it('内联了删除与会话管理能力的契约，而不是引用宿主半', () => {
@@ -53,19 +37,15 @@ describe('浏览器半产物', () => {
     expect(source).toContain('delete-session')
     expect(source).toContain('sidebar.workspaces.session.menu.item')
     expect(source).toContain('shell.overlay')
-    // 会话管理面：统一「工作区配置」弹窗的分节座位（holder 声明、本包软注册），
-    // 以及管理面调用的五个新端点（批量 2 个、迁移域 3 个）。
     expect(source).toContain('workspace-config.section')
     // 加引号是为了区分分节 id 与文案/端点里出现的同名前缀。
     expect(source).toContain(JSON.stringify('web-ux-session-manager'))
     // D3：holder 只以 `import type` 消费，产物里不得出现它的包名。
     expect(source).not.toContain('dsh-plugin-workspace-config')
+    // 会话管理面调用的五个新端点（批量 2 个、迁移域 3 个）。
     for (const endpoint of [
-      'preview-delete-batch',
-      'delete-session-batch',
-      'list-migrated',
-      'delete-migrated',
-      'restore-migrated',
+      'preview-delete-batch', 'delete-session-batch', 'list-migrated',
+      'delete-migrated', 'restore-migrated',
     ]) {
       expect(source).toContain(endpoint)
     }
@@ -80,9 +60,8 @@ describe('浏览器半产物', () => {
 
   it('每个 css 模块都注入自己的样式表（防重护栏按包+模块，而非只按包）', () => {
     const source = readArtifact(ROOT, 'client.js')
-    // 四个 css 模块（badge / delete / notice / session-manager）各自携带一个
-    // data-dsh-css 注入器；只按包名防重会让第一个模块之后的样式永远被跳过
-    // （v1.4.0 的 delete 样式即因此从未生效）。
+    // 四个 css 模块（badge / delete / notice / session-manager）各一个 data-dsh-css 注入器；
+    // 只按包名防重会让第一个模块之后的样式永远被跳过（v1.4.0 的 delete 样式即因此从未生效）。
     const injectors = source.match(/style\.setAttribute\((["'])data-dsh-css\1/g) ?? []
     expect(injectors).toHaveLength(4)
     // 通知卡的样式确实内联（不透明背景变量来自 notice.module.css）。
@@ -92,24 +71,16 @@ describe('浏览器半产物', () => {
 
 describe('宿主半产物', () => {
   it('完全自包含：除 node 内建外没有任何模块依赖', () => {
-    const imports = importedWords(readArtifact(ROOT, 'index.js'))
-    const foreign = imports.filter((word: string) => !word.startsWith('node:'))
-    expect(foreign).toEqual([])
+    expect(hostSelfContainmentIssues({ packageName: PACKAGE_NAME,
+      words: importedWords(readArtifact(ROOT, 'index.js')) })).toEqual([])
   })
 
   it('带有 channel、七个端点与两个会话事件名', () => {
     const source = readArtifact(ROOT, 'index.js')
     for (const marker of [
-      '/web-ux',
-      'preview-delete',
-      'delete-session',
-      'preview-delete-batch',
-      'delete-session-batch',
-      'list-migrated',
-      'delete-migrated',
-      'restore-migrated',
-      'api-session/removed',
-      'api-session/added',
+      '/web-ux', 'preview-delete', 'delete-session', 'preview-delete-batch',
+      'delete-session-batch', 'list-migrated', 'delete-migrated', 'restore-migrated',
+      'api-session/removed', 'api-session/added',
     ]) {
       expect(source).toContain(marker)
     }
@@ -123,6 +94,7 @@ describe('包声明', () => {
     dsh?: { client?: { platform?: string; inject?: string[] } }
   }
 
+
   it('导出面同时提供宿主半与浏览器半', () => {
     expect(manifest.main).toBe('lib/index.js')
     expect(manifest.exports?.['.']?.default).toBe('./lib/index.js')
@@ -133,12 +105,9 @@ describe('包声明', () => {
     expect(manifest.dsh?.client?.platform).toBe('web')
     const inject = manifest.dsh?.client?.inject ?? []
     for (const dependency of [
-      '@deepseek-ai/dsh-client-ui-workspace',
-      '@deepseek-ai/dsh-client-ui-layout',
-      '@deepseek-ai/dsh-client-connection',
-      '@deepseek-ai/dsh-client-locale',
-      '@deepseek-ai/dsh-client-ui-session',
-      '@deepseek-ai/dsh-client-ui-commands',
+      '@deepseek-ai/dsh-client-ui-workspace', '@deepseek-ai/dsh-client-ui-layout',
+      '@deepseek-ai/dsh-client-connection', '@deepseek-ai/dsh-client-locale',
+      '@deepseek-ai/dsh-client-ui-session', '@deepseek-ai/dsh-client-ui-commands',
     ]) {
       expect(inject).toContain(dependency)
     }

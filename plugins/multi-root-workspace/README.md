@@ -193,7 +193,7 @@ src/
   command.ts      /workspace-folders 命令与面板 RPC 的 host 半部
   contract.ts     面板线协议（zod 双端校验，可内联进浏览器 bundle）
   client/         浏览器半部：工作区文件夹分节（workspace-config.section）、Files tab 紧凑入口、双语词典
-tests/            差分 parity、方言真实执行矩阵、契约往返、组件与 locale 门禁、跨进程 lease e2e、指令注入
+test/            差分 parity、方言真实执行矩阵、契约往返、组件与 locale 门禁、跨进程 lease e2e、指令注入
 scripts/          冒烟（compose / behavior / journey）、文档与内核 runner 检查、兼容性契约检查、升级流程
 docs/             需求、架构、决策记录（ADR）、计划、开发工作流
 ```

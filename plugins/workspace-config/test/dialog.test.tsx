@@ -92,6 +92,24 @@ interface RenderDialogOptions {
 }
 
 /**
+ * 造统一弹窗的 props。
+ *
+ * 组件的 props 类型还含框架**运行时注入**的全局标准面（`GlobalStandardProps`：9 个
+ * `use*` Hook，由真 renderer 在座位装配时补齐）。本套件直接渲染组件、不装 renderer，
+ * 因此只造它真正消费的四个 share（`open` / `sections` / `t` / `renderSlot`），再由本函数
+ * 用一次 `as unknown as` 补齐注入面——这是**运行时装配缺口**，不是对 props 形状的抑制：
+ * 四个 share 的入参类型仍取自 `WorkspaceConfigDialogProps`（`t` 是 `PropsLocale` 的
+ * `TranslateNS`、`renderSlot` 是 `sectionPanelMock` 的替身），传错形状仍会在这里报错。
+ * @param shares - 组件消费的四个 props share。
+ * @returns 组件可接受的完整 props。
+ */
+function dialogProps(
+  shares: Pick<WorkspaceConfigDialogProps, 'open' | 'sections' | 't' | 'renderSlot'>,
+): WorkspaceConfigDialogProps {
+  return shares as unknown as WorkspaceConfigDialogProps
+}
+
+/**
  * 渲染统一弹窗。
  * @param options - 初始开合与 nav 行。
  * @returns render 结果 + 打开桥 + 投影源 + 断言用的 `renderSlot` / `t` 替身。
@@ -100,29 +118,9 @@ function renderDialog({ open: initiallyOpen = false, rows = [] }: RenderDialogOp
   const open = createOpenStore()
   if (initiallyOpen) open.open()
   const sections = createSections(rows)
-  const t = vi.fn((key: Key) => zh[key as Key])
-  const renderSlot = vi.fn(
-    (
-      key: string,
-      owner: { close: () => void },
-      opts?: { only?: string },
-    ) => (
-      <div
-        data-testid="section-panel"
-        data-key={key}
-        data-only={opts?.only}
-        data-close-type={typeof owner.close}
-      >
-        {`分节：${opts?.only ?? '未过滤'}`}
-      </div>
-    ),
-  )
-  const props = {
-    open,
-    sections: sections.source,
-    t,
-    renderSlot,
-  } as unknown as WorkspaceConfigDialogProps
+  const t: WorkspaceConfigDialogProps['t'] = (key) => zh[key as Key]
+  const renderSlot = sectionPanelMock()
+  const props = dialogProps({ open, sections: sections.source, t, renderSlot })
 
   return { ...render(<WorkspaceConfigDialog {...props} />), open, sections, t, renderSlot: renderSlot as RenderSlotMock }
 }
@@ -482,23 +480,36 @@ function createComposition(declaredSeats: readonly string[] = HOST_SEATS): Compo
   }
 }
 
-/** holder 命名空间的翻译（真实运行时由 locale 服务合成）。 */
-const holderT = (key: Key): string => zh[key]
+/**
+ * holder 命名空间的翻译（真实运行时由 locale 服务合成）。
+ *
+ * 形参类型取组件的 `PropsLocale<'workspaceConfig'>`（框架的键空间含基础键，如 `ok`），
+ * 查表时收窄回本包字典的 7 个键——弹窗与入口只会请求自有键。
+ */
+const holderT: WorkspaceConfigDialogProps['t'] = (key) => zh[key as Key]
 
-/** 统一弹窗 `renderSlot` 的替身：只把 `only` 渲染成一个标记节点（真语义由 PoC 守护）。 */
+/**
+ * 统一弹窗 `renderSlot` 的替身：只把 `only` 渲染成一个标记节点（真语义由 PoC 守护）。
+ *
+ * `owner` 声明为 `object` 而不是座位的 owner 份额 `{ close }`：`RenderSlotFn` 是泛型签名，
+ * 赋值检查时它的 owner 形参被还原成 `{}`（泛型位置上的 `OwnerOf<K> & KeyPropsOf<K, …>`），
+ * 因此替身必须接受任意 owner 形状；真实份额在下面按 `in` 收窄读取（只用于给节点打标，
+ * 不参与断言）。
+ */
 function sectionPanelMock() {
-  return vi.fn(
-    (key: string, owner: { close: () => void }, opts?: { only?: string }) => (
+  return vi.fn((key: string, owner: object, opts?: { only?: string }) => {
+    const close = 'close' in owner ? owner.close : undefined
+    return (
       <div
         data-testid="section-panel"
         data-key={key}
         data-only={opts?.only}
-        data-close-type={typeof owner.close}
+        data-close-type={typeof close}
       >
         {`分节：${opts?.only ?? '未过滤'}`}
       </div>
-    ),
-  )
+    )
+  })
 }
 
 /** 渲染统一入口 + 弹窗（共享同一个打开桥，与真实 `shell.overlay` 组合一致）。 */
@@ -513,15 +524,16 @@ function renderComposed(world: Composition) {
     throw new Error('组合矩阵：入口或弹窗的注入面缺席')
   }
   const renderSlot = sectionPanelMock()
+  const props = dialogProps({
+    open: dialogInjected.open,
+    sections: dialogInjected.sections,
+    t: holderT,
+    renderSlot,
+  })
   const view = render(
     <>
       <WorkspaceConfigTrigger wide open={footerInjected.open} t={holderT} />
-      <WorkspaceConfigDialog
-        open={dialogInjected.open}
-        sections={dialogInjected.sections}
-        t={holderT}
-        renderSlot={renderSlot}
-      />
+      <WorkspaceConfigDialog {...props} />
     </>,
   )
   return { ...view, open: footerInjected.open, sections: dialogInjected.sections, renderSlot }

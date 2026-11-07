@@ -28,4 +28,4 @@
 2. `cordis.patch.yml` 追加一行 `id: multi-root-client`、`name: 'dsh-plugin-multi-root-workspace'`，作为 client 扫描锚点；
 3. `pnpm build` 后重启 web 运行时，确认 `__DSH_BOOT__` 出现插件条目、`/plugins/??…client.js` 返回 200、「工作区配置」弹窗里的工作区文件夹分节恢复显示。
 
-回归防护：`tests/patch.spec.ts` 钉住锚点行的存在与裸包名形态；`scripts/smoke-compose.mjs` 在真实安装链上断言六行插入；`scripts/smoke-journey.mjs` web 腿断言组成的 boot graph 确实包含插件 client 条目。
+回归防护：`test/patch.spec.ts` 钉住锚点行的存在与裸包名形态；`scripts/smoke-compose.mjs` 在真实安装链上断言六行插入；`scripts/smoke-journey.mjs` web 腿断言组成的 boot graph 确实包含插件 client 条目。

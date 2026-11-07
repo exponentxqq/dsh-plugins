@@ -1,4 +1,10 @@
 {
   "extends": "../../tsconfig.plugin.base.json",
-  "include": ["src/index.ts"]
+  "include": [
+    "src/index.ts",
+    "src/css-modules.d.ts",
+    "test/**/*.test.ts",
+    "test/**/*.test.tsx",
+    "test/stubs/**/*.tsx"
+  ]
 }

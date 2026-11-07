@@ -15,10 +15,11 @@ DSH（DeepSeek Harness）自定义插件仓库：pnpm workspace 单仓多包，�
 - `templates/default/` — `pnpm gen:plugin` 的默认模板素材（**不是包**：清单叫 `template.json`；件套表见 `templates/default/README.md`，多模板约定见 `templates/README.md`）
 - `plugins/<name>/` — 一个插件一个目录（清单与结构见下文）
 - `scripts/gen-plugin.mjs` — 新插件脚手架：从 `templates/default/` 生成骨架，`--template <name>` 可选其他模板（只写文件，不跑 git / pnpm）
-- `scripts/check-{dsh-baseline,architecture,artifacts}.mjs` — 三组门禁（基线 / 结构不变式 AR1–AR7 / 产物契约 B1–B5）；`scripts/dsh-check.mjs` 是它们的聚合入口
+- `scripts/check-{dsh-baseline,architecture,artifacts}.mjs` — 三组门禁（基线 / 结构不变式 AR1–AR8 / 产物契约 B1–B5）；`scripts/dsh-check.mjs` 是它们的聚合入口
 - `scripts/release.mjs` — 发布：dsh:check → 同步版本号 → 重建产物 → 发布提交 → annotated tag
 - `docs/decisions/` — 仓级 ADR（见「仓级 ADR」）
-- `.github/workflows/ci.yml` — 最小 CI：install → lint → typecheck → build → test → docs:check → dsh:check
+- `docs/assessments/` — 评估档案（**非 ADR**）：现状差异与「暂不施工」依据，索引见 `docs/assessments/README.md`
+- `.github/workflows/ci.yml` — 最小 CI：install → lint → typecheck → build → test → docs:check → spec:check → dsh:check
 - `README.md` — 仓库说明与常用命令；`openspec/` — OpenSpec 规范工作区（spec-driven，zh-CN）
 - `.dsh/skills/` — OpenSpec 安装的 DSH skill（本地生成，勿手改，不入库）
 
@@ -38,7 +39,7 @@ DSH（DeepSeek Harness）自定义插件仓库：pnpm workspace 单仓多包，�
 - 源码在 `src/`（TypeScript，入口 `src/index.ts`，导出 `name` / `inject` / `apply`），构建产物在 `lib/`（`main` 指向 `lib/index.js`，随仓库提交）
 - 构建：除 multi-root 外的六个插件用 `@dsh-plugins/build-kit` 的薄入口——`build.mjs` 只声明不可推导的旋钮（`hostExternals` / `cjsRequireShim` / `cssClassPrefix`），esbuild 策略在 kit 里从包事实推导；multi-root-workspace 仍走自己的 tsc + tsdown
 - 编译基准统一 `tsconfig.plugin.base.json`：各包 tsconfig 只 `extends` + `include`（不重声明编译选项、不带 `composite`），`typecheck` 用 `tsc -p` 非 emit 调用（双端包 host + client 两段）；lint 唯一基准是根 `.oxlintrc.json`
-- 测试：vitest（multi-root 在 `tests/`，其余在 `test/`）；lint 用 oxlint
+- 测试：vitest（全部包统一 `test/` 目录——multi-root 原为 `tests/`，2026-11-07 统一），三个双端插件与模板的 `vitest.config.ts` 是 3 行薄声明（`defineWebTestConfig({ root: import.meta.dirname })`，配置知识在 `tooling/test-kit/README.md`，AR8 守住唯一 import 源）；lint 用 oxlint
 - web 侧插件（multi-root-workspace、workspace-config、web-ux、session-tool-toggle）在 `dsh.client` 声明 `platform: web` 与 `inject` 列表；四包须同装（安装矩阵见 README）
 - 新增插件用 `pnpm gen:plugin <name> --kind host-only|dual [--template <name>]` 从 `templates/default/` 生成骨架（默认 `default`，开箱通过 lint / typecheck / build / test 与 `pnpm dsh:check`），不要手工复制件套
 
@@ -57,14 +58,17 @@ node 族命令走 volta/pnpm 包装脚本（见 dotfiles `CLAUDE.md`）；dsh �
 # 仓库根执行（递归全部插件）
 pnpm install             # 装齐依赖
 pnpm gen:plugin <name> --kind host-only|dual   # 新插件脚手架（--help 看用法；生成后按打印的 5 步执行）
+pnpm gen:plugin --check  # manifest 形态对账（按需；全部软插件与模板逐键对账，无白名单 fail-closed）
 pnpm build               # 构建全部插件（产物 lib/ 随仓库提交，release 时递归重建）
 pnpm typecheck           # 递归类型检查
 pnpm test                # 递归单测
 pnpm lint                # 递归 lint（无该脚本的插件自动跳过）
 pnpm docs:check          # 递归文档检查（仅 multi-root-workspace 实现该脚本）
-pnpm dsh:check           # 聚合门禁：DSH 基线 + 结构不变式（AR1–AR7）+ 产物契约（B1–B5）
+pnpm spec:check          # 规范检查（OpenSpec strict 全量：openspec validate --all --strict）
+pnpm dsh:check           # 聚合门禁：DSH 基线 + 结构不变式（AR1–AR8）+ 产物契约（B1–B5）
 pnpm dsh:upgrade <version> [--probe]   # 根级 DSH 升级（重指 pin / 全部插件范围 / 运行时基线副本 / 豁免）
-pnpm verify              # 发布前自检（递归 verify:all；multi-root 的 smoke 需运行中的 dsh）
+pnpm verify              # 发布前自检（递归 verify:all；multi-root 的 smoke 只需 `pnpm install` 后的 devDependency dsh CLI，
+                         # 零容器、零真实凭证——journey 用本机 OpenAI 兼容假端点 + 隔离 scratch `$DSH_HOME`）
 pnpm release <version>   # 发布（--dry-run 只打印；会先跑 dsh:check）
 
 # 只跑单个插件

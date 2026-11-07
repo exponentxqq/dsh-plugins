@@ -113,7 +113,7 @@ compat 失败  →  该行抛错               →  四个 provider 永不启动
 
 **`warn` 只放宽 `unsupported` 一个判定**：即“版本一致、只是 allowlist 还没列名”的树——升级车道探测的正是这一种形状。`mixed` 与 `incomplete` 在两种模式下都拒绝：它们描述的是契约**根本无法评判**的安装（围栏的两半可能各自对着不同的上游语义工作，或某个必需包缺失），放宽它们等于让 `apply()` 在这类树上发布 `multiRootCompat`、让授权放宽行在一棵没人能判定的树上启动。`assertSupportedInstallation()` 因此是 `if (enforcement === 'enforce' || report.verdict !== 'unsupported') throw new DshCompatUnsupportedError(report)`。
 
-单元套件也遵守同一条线：`tests/support/compat.ts` 挂载的是**真实的** compat 行（含门禁策略），因此在未列入的版本上 enforce 模式会直接让整个套件失败，而不是悄悄产出“对一个没人验证过的宿主”的证据。
+单元套件也遵守同一条线：`test/support/compat.ts` 挂载的是**真实的** compat 行（含门禁策略），因此在未列入的版本上 enforce 模式会直接让整个套件失败，而不是悄悄产出“对一个没人验证过的宿主”的证据。
 
 ### 6. 静态门禁与运行时门禁分工
 
@@ -136,7 +136,7 @@ node_modules                resolved versions        本地实际装的
 
 `upgrade.yml` 从纯手动扩展为 `schedule` + `workflow_dispatch`：解析 `@deepseek-ai/dsh` 最新 pre-release → `scripts/upgrade-dsh.mjs` 重指 pin → 安装 → lint / typecheck / build / kernel probe / unit / compose / behavior / journey。
 
-**“CI 通过”不等于“支持该版本”。** 该 workflow 的权限是 `contents: read`，不提交、不推送、不碰 `SUPPORTED_DSH_RELEASES`；成功时只在 step summary 里写出人工提升的三步。`tests/workflows.spec.ts` 把这些性质钉住。
+**“CI 通过”不等于“支持该版本”。** 该 workflow 的权限是 `contents: read`，不提交、不推送、不碰 `SUPPORTED_DSH_RELEASES`；成功时只在 step summary 里写出人工提升的三步。`test/workflows.spec.ts` 把这些性质钉住。
 
 `compat:check` **不**在升级车道里运行：候选版本按设计就不在 allowlist 上，静态门禁会拒绝这个车道存在的意义所在的那棵树。
 
@@ -180,8 +180,8 @@ PR #1（head `507c954`）的 P2-3 / P2-4 / P2-5 收紧了两条规则（内容�
 
 | 规则 | 落点 | 钉住它的测试 |
 | --- | --- | --- |
-| `warn` 只放宽 `unsupported`，`mixed` / `incomplete` 两种模式都拒绝 | `src/compat.ts` 的 `assertSupportedInstallation()` | `tests/compat.spec.ts` 的 `describe('the gate policy')` 两条新用例（混装 / 缺包在 `warn` 下仍抛 `DshCompatUnsupportedError`） |
-| 可选 peer 不得被静态值导入；“包没装”与“包装了但求值失败”必须区分 | `src/compat/llm-message.ts`（`createInstructionMessage()` 按需 `import`）、`src/compat/agent-instructions.ts`（`isPackageInstalled()` + `instructionsApi()` 只在真缺失时返回 `undefined`） | `tests/optional-peers.spec.ts`（barrel 与指令行加载时 `@deepseek-ai/dsh-llm` 未被解析；抛错的 mock peer 必须以 rejection 浮出而非被当成缺失） |
+| `warn` 只放宽 `unsupported`，`mixed` / `incomplete` 两种模式都拒绝 | `src/compat.ts` 的 `assertSupportedInstallation()` | `test/compat.spec.ts` 的 `describe('the gate policy')` 两条新用例（混装 / 缺包在 `warn` 下仍抛 `DshCompatUnsupportedError`） |
+| 可选 peer 不得被静态值导入；“包没装”与“包装了但求值失败”必须区分 | `src/compat/llm-message.ts`（`createInstructionMessage()` 按需 `import`）、`src/compat/agent-instructions.ts`（`isPackageInstalled()` + `instructionsApi()` 只在真缺失时返回 `undefined`） | `test/optional-peers.spec.ts`（barrel 与指令行加载时 `@deepseek-ai/dsh-llm` 未被解析；抛错的 mock peer 必须以 rejection 浮出而非被当成缺失） |
 
 `src/index.ts` 因此 export `createInstructionMessage` 与 `InstructionMessageInput`；`src/instructions.ts` 只保留 `import type { UserMessage }`（类型导入被擦除，不构成加载期依赖）。
 
@@ -191,7 +191,7 @@ PR #1（head `507c954`）的 P2-3 / P2-4 / P2-5 收紧了两条规则（内容�
 
 实测：该版本的 `confine` 仍是 `Promise<ConfinedArgv>`（可选 `signal`），instruction renderer 仍是 `renderAgentInstructions`，journey 的 Messages 协议端点无需改动。完整矩阵在 warn（纳入前）与 enforce（纳入后）下都全绿。基线 `0.1.5-rc.2` 在同一份 allowlist 上回归全绿。
 
-**后续修正（2026-09-22）**：host 矩阵全绿不等于客户端形状没变。`0.1.6-alpha.2` 删除了 `SessionListState.current`，面板读这个字段时把已打开的会话显示成「当前没有活动会话」。结构探测落在 `src/compat/client-session.ts`：先认非空 `current`，否则取 `retainedBy.mainView > 0` 的目录行；禁止回退 `ids[0]`。`tests/client-session.spec.ts` 与 `tests/client-panel.spec.tsx` 钉住两种快照。升级车道的 journey smoke 不打开 Web 面板，这类客户端形状变化不会被 `pnpm verify:all` 抓住——纳入新版本时必须对照客户端 Session 快照，不能只看 host 矩阵。
+**后续修正（2026-09-22）**：host 矩阵全绿不等于客户端形状没变。`0.1.6-alpha.2` 删除了 `SessionListState.current`，面板读这个字段时把已打开的会话显示成「当前没有活动会话」。结构探测落在 `src/compat/client-session.ts`：先认非空 `current`，否则取 `retainedBy.mainView > 0` 的目录行；禁止回退 `ids[0]`。`test/client-session.spec.ts` 与 `test/client-panel.spec.tsx` 钉住两种快照。升级车道的 journey smoke 不打开 Web 面板，这类客户端形状变化不会被 `pnpm verify:all` 抓住——纳入新版本时必须对照客户端 Session 快照，不能只看 host 矩阵。
 
 ## 后续提升（2026-09-22）：纳入 `0.1.7-alpha.1`
 

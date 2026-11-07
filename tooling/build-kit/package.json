@@ -5,7 +5,11 @@
   "description": "DSH 软插件共用的构建期骨架（esbuild 宿主半 / 浏览器半、CSS modules 编译、产物守卫）；仅本仓 tooling 使用，不发布",
   "type": "module",
   "exports": {
-    ".": "./src/index.mjs"
+    ".": "./src/index.mjs",
+    "./artifact-contract": {
+      "types": "./src/artifact-contract.d.mts",
+      "default": "./src/artifact-contract.mjs"
+    }
   },
   "scripts": {
     "lint": "oxlint",

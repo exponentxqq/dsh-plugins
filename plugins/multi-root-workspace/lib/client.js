@@ -4343,7 +4343,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		* Flat `Record<string, string>` dictionaries keyed by a bare key (never
 		* `ns.key`), `zh` as the canonical shape and `en` pinned to it by `satisfies`,
 		* so a missing translation is a type error and a divergence is caught by
-		* `tests/locale-parity.spec.ts` as well.
+		* `test/locale-parity.spec.ts` as well.
 		*
 		* @module dsh-plugin-multi-root-workspace/client/locales
 		*/

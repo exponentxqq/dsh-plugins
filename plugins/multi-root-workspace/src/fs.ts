@@ -12,7 +12,7 @@
  * cross-package subclass can neither reuse nor override it in a type-safe way.
  * Why the fence is implemented here rather than delegated: with zero additional
  * roots this class must behave exactly like the upstream provider, and the
- * differential suite in `tests/fs-parity.spec.ts` pins that equality against the
+ * differential suite in `test/fs-parity.spec.ts` pins that equality against the
  * real upstream class for every mode and path class.
  *
  * Reads are untouched: no mode confines reading, upstream or here.

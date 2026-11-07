@@ -25,7 +25,7 @@ engines            package.json   dsh.engines.dsh        派生范围
 installed          node_modules   实际解析到的版本        单一 release（是否在范围内由运行时门判定）
 ```
 
-`pnpm compat:check` 断言的就是这些静态事实：22 条 DSH peer 范围 == `dsh.engines.dsh` == 由基线派生的范围；`REQUIRED_CORE_PACKAGES` 都在 peer 里且解析得到；安装树只持有一个 release。它**不**重算范围谓词（运行时门与 `tests/compat.spec.ts` 拥有谓词），也**不**核对开发 pin 的精确值（`catalog:dsh` 解析到基线，由根 `pnpm dsh:check` 守）。
+`pnpm compat:check` 断言的就是这些静态事实：22 条 DSH peer 范围 == `dsh.engines.dsh` == 由基线派生的范围；`REQUIRED_CORE_PACKAGES` 都在 peer 里且解析得到；安装树只持有一个 release。它**不**重算范围谓词（运行时门与 `test/compat.spec.ts` 拥有谓词），也**不**核对开发 pin 的精确值（`catalog:dsh` 解析到基线，由根 `pnpm dsh:check` 守）。
 
 `scripts/check-dsh-compat.mjs` 是**文本读取** `src/compat/dsh-version.ts` 里的 `DSH_BASELINE` 字面量，不是 import。所以它必须保持 `export const NAME = '…'` 的单引号字符串常量形状：不要从别处拼出来，也不要用表达式求值；文件里任何更早的同形状赋值（哪怕是注释里的示例）都会让升级脚本改错对象。原因是这个检查必须能在 `pnpm build` 之前、在没有 `lib/` 的干净 checkout 上跑。
 
@@ -51,7 +51,7 @@ import { mountCompat } from './support/compat.ts'
 await mountCompat(ctx)
 ```
 
-否则 `ctx.get('fs')` / `ctx.get('sandbox')` 是 `undefined`，你会看到 `Cannot read properties of undefined (reading 'confine')` 这类报错。这不是 bug，是门禁在工作（`tests/compat.spec.ts` 里有一条专门断言这个行为）。
+否则 `ctx.get('fs')` / `ctx.get('sandbox')` 是 `undefined`，你会看到 `Cannot read properties of undefined (reading 'confine')` 这类报错。这不是 bug，是门禁在工作（`test/compat.spec.ts` 里有一条专门断言这个行为）。
 
 `mountCompat` 挂载的是**真实的** compat 行，含门禁策略。所以整个单元套件在一个落在派生范围外、或缺必需包、或混装了不同 release 的安装树上会直接失败——这是刻意的，见下面第 5 条。
 
@@ -73,7 +73,7 @@ await mountCompat(ctx)
 
 测试和 smoke 里读结果时：
 
-- 单元测试用 `tests/support/confine.ts` 的 `confined(provider, argv, policy)`；
+- 单元测试用 `test/support/confine.ts` 的 `confined(provider, argv, policy)`；
 - smoke 脚本一律 `await ctx.sandbox.confine(...)`。
 
 **这是一个安静的坑**：`await` 一个普通值是 no-op，但直接读 promise 的 `.argv` 会得到 `undefined`，报错形如 `Cannot read properties of undefined (reading 'some')`，看起来完全不像版本问题。
@@ -104,7 +104,7 @@ await mountCompat(ctx)
 
 `agent-instructions` 是**可选 peer**：最小组合里可能既没有它也没有 agent。`instructionsApi()` 在包不存在时返回 `undefined`（贡献为空），但包存在却两个 renderer 名字都没有时**抛错**——那是需要修适配器的兼容性破坏，不是可选接缝。
 
-`@deepseek-ai/dsh-llm` **同样是可选 peer，且只能按需加载**：barrel（`src/index.ts`）正是 carrier loader 行挂载的模块，它的加载期依赖集合必须等于必需包集合，所以任何静态值导入都会让一个根本不构造消息的最小组合加载失败。消息构造统一走 `src/compat/llm-message.ts` 的 `createInstructionMessage()`，它在真正要构造消息时才 `await import('@deepseek-ai/dsh-llm')`。`tests/optional-peers.spec.ts` 钉住了这一点：加载 `src/index.ts` 与 `src/instructions.ts` 时该包不会被 resolve。
+`@deepseek-ai/dsh-llm` **同样是可选 peer，且只能按需加载**：barrel（`src/index.ts`）正是 carrier loader 行挂载的模块，它的加载期依赖集合必须等于必需包集合，所以任何静态值导入都会让一个根本不构造消息的最小组合加载失败。消息构造统一走 `src/compat/llm-message.ts` 的 `createInstructionMessage()`，它在真正要构造消息时才 `await import('@deepseek-ai/dsh-llm')`。`test/optional-peers.spec.ts` 钉住了这一点：加载 `src/index.ts` 与 `src/instructions.ts` 时该包不会被 resolve。
 
 `instructionsApi()` 还要把**包不存在**与**包在但求值失败**分开：先用 `isPackageInstalled()` 单独探测安装情况（`createRequire(import.meta.url).resolve`，与 `readInstalledVersion` 同一模式），只有 `MODULE_NOT_FOUND` / `ERR_MODULE_NOT_FOUND` 算"不存在"；其余失败（例如传递依赖缺失导致 `import()` 抛错）必须向上抛，绝不缓存成 `undefined`——那会让整个进程静默停止投递附加根指令。
 
@@ -120,7 +120,7 @@ await mountCompat(ctx)
 
 升级探测（现为仓库根 `pnpm dsh:upgrade`；上游按周车道已移除）不提交不推送。它不改支持范围本身：范围是基线的函数，**移动基线就是移动范围**，这是人工动作。`pnpm dsh:upgrade <version>` 先改 `scripts/dsh-baseline.mjs`，再在同一批里重指 `catalogs.dsh`（各插件的 devDeps 经 `catalog:dsh` 引用它）、`dsh.engines.dsh` 与 DSH peer 范围、cordis / schemastery pin、运行时基线副本（`plugins/*/src/compat/dsh-version.ts`，`repointRuntimeBaselines()`）与 release-age 豁免。绿灯是**证据**，不是授权——但新形态下不存在「还要人工加入清单」的第二道门：基线一动，派生范围自动跟上。
 
-`compat:check` 现在是升级回归的一部分：候选版本就是新基线，必然落在新派生范围的下界上。它断言 `package.json` 里 22 条 DSH peer 范围 == `dsh.engines.dsh` == 由基线派生的范围，`REQUIRED_CORE_PACKAGES` 都在 peer 里，安装树只持有一个 release；它**不**重算范围谓词（运行时门与 `tests/compat.spec.ts` 拥有它），也**不**校验开发 pin 的精确值（根 `pnpm dsh:check` 拥有它）。
+`compat:check` 现在是升级回归的一部分：候选版本就是新基线，必然落在新派生范围的下界上。它断言 `package.json` 里 22 条 DSH peer 范围 == `dsh.engines.dsh` == 由基线派生的范围，`REQUIRED_CORE_PACKAGES` 都在 peer 里，安装树只持有一个 release；它**不**重算范围谓词（运行时门与 `test/compat.spec.ts` 拥有它），也**不**校验开发 pin 的精确值（根 `pnpm dsh:check` 拥有它）。
 
 升级/探测用：
 
@@ -182,7 +182,7 @@ pnpm verify:all   # lint → compat:check → typecheck → build → kernel:pro
 
 开发 pin 是 `0.2.2-rc.1`，cordis 是 `~4.1.0`；基线常量在仓库根 `scripts/dsh-baseline.mjs`。回到开发基线不再表示回到 `0.1.5-rc.2` / `4.0.2`；前文的旧版探测记录是历史事实。恢复探测时按 manifest / workspace / lockfile / 基线常量 / 运行时基线副本五处分步处理，绝不把未提交的支持声明退回 HEAD。
 
-`0.2.0-rc.1` / `rc.2` 保留了现有适配器的接缝。0.2 的 agent-loop 异常恢复会在关闭 step 前补保守的失败 `tool/result`：`message.isError: true`、纯文本 content，并带 `data.error`。它绝不能算成功文件 touch；`tests/instructions.spec.ts` 同时钉住旧 content block、新 message 与恢复事件三种失败形状。Windows 新增 ACL diagnosis skill 由继承的上游 provider 自动软注册，本插件仍不承诺 Windows 内核多根授权。
+`0.2.0-rc.1` / `rc.2` 保留了现有适配器的接缝。0.2 的 agent-loop 异常恢复会在关闭 step 前补保守的失败 `tool/result`：`message.isError: true`、纯文本 content，并带 `data.error`。它绝不能算成功文件 touch；`test/instructions.spec.ts` 同时钉住旧 content block、新 message 与恢复事件三种失败形状。Windows 新增 ACL diagnosis skill 由继承的上游 provider 自动软注册，本插件仍不承诺 Windows 内核多根授权。
 
 `0.2.1-rc.2` 没有引入新的适配器分支：`dsh-fs` / `dsh-sandbox` / `dsh-sandbox-local` 的类型零变化，session format 仍为 4，`HostConnectionRpc.handle` 与所用槽位 / primitives 导出保留。真正需要处理的是依赖树：内部子包全部精确 pin，`zod` 对齐 `4.4.3`，`dsh-invariants` 在该线不再发布（git-graph 插件因此整体移除）。`pnpm-workspace.yaml` 的豁免清单由 `pnpm dsh:check` 与 lockfile 精确对齐。
 
