@@ -7,21 +7,14 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { hostSelfContainmentIssues, loaderShellIssues, requireSurfaceIssues } from '@dsh-plugins/build-kit/artifact-contract'
 // 词法器仍是 `scripts/lib/artifacts.mjs` 的单一实现（R9）；声明见同目录 `artifacts.d.mts`。
 import { importedWords, readArtifact, requiredWords } from '../../../scripts/lib/artifacts.mjs'
-
-/**
- * 软插件基线范围（R4③）：从仓库根唯一版本常量派生，`pnpm dsh:upgrade` 重指后本套件自动对齐。
- * 用 `createRequire` 而非静态 import：`scripts/dsh-baseline.mjs` 没有配套 `.d.mts`，静态 import
- * 会报 TS7016（同一模块实例）。失效条件：补上 `dsh-baseline.d.mts` 后改回静态 import。
- */
-const { SOFT_DSH_RANGE } = createRequire(import.meta.url)('../../../scripts/dsh-baseline.mjs') as {
-  SOFT_DSH_RANGE: string
-}
+// 软插件基线范围（R4③ 收口）：从仓库根唯一版本常量派生，`pnpm dsh:upgrade` 重指后本套件自动对齐；
+// 声明见同目录 `dsh-baseline.d.mts`。
+import { SOFT_DSH_RANGE } from '../../../scripts/dsh-baseline.mjs'
 
 /** 本包目录（`test/` 的上一级）与浏览器 loader 期望的包身份。 */
 const ROOT = path.resolve(import.meta.dirname, '..')

@@ -70,4 +70,4 @@
 
 - 执行期运行规则 R1–R9 全文见本变更 `diff-matrix.md` §7（R1 porcelain 计数 / R2 store-dir flag / R3 smoke 实测 11.196s / R4 测试类型检查事实与挂起项 / R5 悬空引用口径 / R6 子路径探针 cwd 口径 / R7 ci.yml AR 残留归 8.4 已收 / R8 负向 A 判据修正与接缝承重证明 / R9 用户审核意见——multi-root 测试目录统一 `tests/`→`test/`，B6 基线随重冻结）。改造对照工件：`artifacts/a3-attribution-coverage-map.md`（23 行删除凭证）、`artifacts/a2-bundle-test-remap.md`（77 条逐条处置）、`artifacts/n2-tsconfig-inventory.md`（51 文件盘点）。
 - **沉淀回流清单**：本次执行未改动工作流仓（dotfiles spec-workflow）任何文件——无已提交去向、无未提交待决。
-- 挂起待用户裁定项：`scripts/dsh-baseline.d.mts` 是否补声明（R4③；不补则 wsc bundle.test 维持 createRequire 桥，已文档化失效条件）。
+- 挂起项已全部裁定：`scripts/dsh-baseline.d.mts` 补声明（R4③）——2026-11-07 用户审核后批准收口（提交 `f2db389`：声明文件 + wsc bundle.test 桥退役改静态 import，wsc typecheck/test 55/55、根 dsh:check 全绿）。
