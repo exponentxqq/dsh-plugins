@@ -20,7 +20,7 @@ The core test:
 
 ## Current State
 
-- [dsh-compat-contract.en.md](./dsh-compat-contract.en.md) — the DSH compatibility contract: the allowlist's single source of truth, how the `multiRootCompat` gate affects tests, `confine`'s shape-preserving sync/async adapter, the rules for `src/compat/`, how to use the upgrade lane, and two quiet traps already stepped in.
+- [dsh-compat-contract.en.md](./dsh-compat-contract.en.md) — the DSH compatibility contract: the baseline-derived supported range (a runtime copy plus a derived range), how the `multiRootCompat` gate affects tests, `confine`'s shape-preserving sync/async adapter, the rules for `src/compat/`, the upgrade regression flow, and two quiet traps already stepped in.
 
 ## What Does Not Belong Here
 

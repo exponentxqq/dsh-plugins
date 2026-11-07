@@ -22,8 +22,8 @@
  * @module dsh-plugin-multi-root-workspace
  */
 export { DshCompatUnsupportedError, MultiRootCompatService, assertSupportedInstallation } from './compat.ts';
-export { classifyInstallation, compatEnforcement, CORE_PACKAGES, OPTIONAL_CORE_PACKAGES, readInstalledVersion, REQUIRED_CORE_PACKAGES, SUPPORTED_DSH_RELEASES, } from './compat/dsh-version.ts';
-export type { CompatEnforcement, CompatReport, CompatVerdict, InspectedPackage, SupportedDshRelease, VersionReader, } from './compat/dsh-version.ts';
+export { classifyInstallation, CORE_PACKAGES, DSH_BASELINE, isSupportedDshRelease, OPTIONAL_CORE_PACKAGES, readInstalledVersion, REQUIRED_CORE_PACKAGES, SUPPORTED_DSH_RANGE, } from './compat/dsh-version.ts';
+export type { CompatReport, CompatVerdict, InspectedPackage, VersionReader, } from './compat/dsh-version.ts';
 export { instructionsApi, renderInstructions } from './compat/agent-instructions.ts';
 export type { InstructionsApi, RenderedInstructions } from './compat/agent-instructions.ts';
 export { createInstructionMessage } from './compat/llm-message.ts';

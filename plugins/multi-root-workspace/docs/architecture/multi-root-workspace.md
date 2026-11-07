@@ -87,7 +87,7 @@ multi-root-workspace/
     name: 'dsh-plugin-multi-root-workspace/command'
 ```
 
-`multi-root-compat` 是第一行，而且是**启动门禁而不只是诊断服务**：安全相关的行（`multi-root-fs`、`multi-root-sandbox`、`multi-root-registry`、`multi-root-instructions`，以及 B1–B3 的 `multi-root-lsp` / `multi-root-workspace-files`、G1 的 `multi-root-file-references`）都 inject `multiRootCompat`，而 cordis 不会启动 injected service 缺失的行。所以当宿主的 DSH 版本不在精确 allowlist 上（或多个 `@deepseek-ai/dsh-*` 混装）时，这些行**根本不启动**，组合退化成"未安装本插件"，而不是"围栏可疑"。理由与判定顺序见 [ADR-0009](../decisions/ADR-0009-dsh-compat-contract.md)。
+`multi-root-compat` 是第一行，而且是**启动门禁而不只是诊断服务**：安全相关的行（`multi-root-fs`、`multi-root-sandbox`、`multi-root-registry`、`multi-root-instructions`，以及 B1–B3 的 `multi-root-lsp` / `multi-root-workspace-files`、G1 的 `multi-root-file-references`）都 inject `multiRootCompat`，而 cordis 不会启动 injected service 缺失的行。支持范围由基线派生（`DSH_BASELINE`，当前 `0.2.2-rc.1`；语义为「与基线同 major.minor 且 ≥ 基线」，即 `>=0.2.2-rc.1 <0.3.0`）：当宿主的 DSH 版本落在派生范围之外（低于基线，或 minor 不同，如 `0.3.0`），或者多个 `@deepseek-ai/dsh-*` 混装时，门禁直接抛错拒绝启动，这些行**根本不启动**，而不是"围栏可疑"；没有警告档，也没有降级路径。理由与判定顺序见 [ADR-0009](../decisions/ADR-0009-dsh-compat-contract.md)。
 
 要点：上游 `sandbox-policy`、`bash-sandbox`、`tool-fs`、`tool-bash`、`terminal-bash` 行**全部不动**——它们继续向 `ctx.fs`/`ctx.shell`/`ctx.sandbox` 要能力。同 key 重复 provide 会抛错（调研 §8.2），所以 disable 必须先于 insert 生效（同一 patch 文档内顺序保证；并在插件 apply 期断言 `ctx.fs`/`ctx.sandbox` 是自己的实例，否则 fail loud）。`inject` 既可写在 patch 行上（patch 的任意键都会覆盖目标行），也可由子类的 `static inject` 提供——实现期二选一，不重复声明。
 

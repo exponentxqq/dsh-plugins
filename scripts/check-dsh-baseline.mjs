@@ -1,28 +1,26 @@
 /**
  * dsh:check — 仓库级 DSH 基线一致性检查。
  *
- * 这是「统一管理」的静态门禁，和 multi-root 自己的 `compat:check` 分工：
- * 后者守它的精确 allowlist / 精确 peer / 安装树（单点在插件内，本脚本不复制），
- * 本脚本守整个 workspace 的其余事实：
+ * 这是「统一管理」的静态门禁。multi-root 自己的 `compat:check` 守它自身
+ * manifest 与源码的一致性（挂在它的 `verify:all` 上），本脚本不复制它的逻辑，
+ * 只守整个 workspace 的事实：
  *
  * 1. `scripts/dsh-baseline.mjs` 的基线是唯一版本常量；
  * 2. `pnpm-workspace.yaml` 的 `catalog:` 工具链册与 `catalogs.dsh` 基线册成形，
  *    且后者的 DSH 家族等于基线、cordis 与 schemastery 等于基线派生值；
  * 3. 根与全部插件的 DSH devDependencies 归一化 catalog 引用后等于基线；
- * 4. 六个软插件的 DSH 家族、cordis、schemastery devDependencies 必须引用
- *    `catalog:dsh`，残留字面量即失败（精确契约插件按 upgrade-dsh 同口径豁免）；
- * 5. 六个软插件的 `dsh.engines.dsh` 与全部 DSH peer 都等于派生范围；
- * 6. multi-root 的 `compat:check` 通过，且 allowlist 含基线；
- * 7. 每个插件实际解析到的 DSH 版本都等于基线（不允许混装）；
- * 8. `pnpm-workspace.yaml` 的发布年龄豁免与 lockfile 实际解析集合精确相等；
- * 9. 仓库里没有残留的 git-graph 活引用。
+ * 4. 全部插件的 DSH 家族、cordis、schemastery devDependencies 必须引用
+ *    `catalog:dsh`，残留字面量即失败；
+ * 5. 全部插件的 `dsh.engines.dsh` 与全部 DSH peer 都等于派生范围；
+ * 6. 每个插件实际解析到的 DSH 版本都等于基线（不允许混装）；
+ * 7. `pnpm-workspace.yaml` 的发布年龄豁免与 lockfile 实际解析集合精确相等；
+ * 8. 仓库里没有残留的 git-graph 活引用。
  *
  * 全部失败会一次列出，而不是遇到第一个就退出；这样一次运行就能修完。
  *
  * @module scripts/check-dsh-baseline
  */
 
-import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
@@ -187,9 +185,10 @@ function readCatalog(source) {
 /**
  * Resolve a `catalog:` / `catalog:dsh` reference to the shelf's actual version.
  *
- * A literal version is returned untouched — literals stay legal for the
- * exact-contract plugin (multi-root never joins the catalogs), while the six
- * soft plugins are expected to reference the shelves.
+ * A literal version is returned untouched: the value assertion (section 3)
+ * accepts any declaration that resolves to the baseline, while the shape
+ * assertion (section 4) separately requires the baseline family to reference
+ * `catalog:dsh` by name instead of a literal.
  * @param name - the dependency name the reference belongs to.
  * @param value - the declared devDependency value.
  * @param catalog - the parsed shelves from `readCatalog`.
@@ -257,12 +256,8 @@ function resolvedByPlugin(plugin) {
 }
 
 const plugins = listPlugins()
-const hardPlugins = plugins.filter(plugin => existsSync(join(plugin.dir, 'src', 'compat', 'dsh-version.ts')))
-const softPlugins = plugins.filter(plugin => !hardPlugins.includes(plugin))
 
 if (plugins.length === 0) fail('no workspace plugins were discovered')
-if (hardPlugins.length !== 1) fail(`expected exactly one exact-contract plugin, found ${hardPlugins.length}`)
-if (softPlugins.length === 0) fail('expected at least one soft plugin')
 
 // 1. The baseline itself is one exact version, and the derived range is sane.
 if (!/^\d+\.\d+\.\d+(?:-[\w.]+)?$/u.test(DSH_BASELINE)) {
@@ -341,12 +336,12 @@ for (const plugin of plugins) {
 if (pins.size !== 1) fail(`DSH devDependencies span several versions: ${[...pins].sort().join(', ')}`)
 if (cordisVersions.size !== 1) fail(`cordis devDependencies span several versions: ${[...cordisVersions].sort().join(', ')}`)
 
-// 4. Soft plugins must reference the named catalog, not a literal version: a
+// 4. Every plugin must reference the named catalog, not a literal version: a
 //    literal equal to today's baseline would pass the value assertion above and
-//    silently drift on the next upgrade. Same exemption and family scope as
-//    `residualLiterals` in scripts/upgrade-dsh.mjs — the exact-contract plugin
-//    keeps its literal pins (ADR-0009), and toolchain keys are out of scope.
-for (const plugin of softPlugins) {
+//    silently drift on the next upgrade. Same family scope as `residualLiterals`
+//    in scripts/upgrade-dsh.mjs; toolchain keys stay out of scope (that shelf is
+//    raised by hand).
+for (const plugin of plugins) {
   const devs = plugin.manifest.devDependencies ?? {}
   for (const [name, version] of Object.entries(devs)) {
     if (!isBaselineFamily(name) || version === 'catalog:dsh') continue
@@ -354,8 +349,8 @@ for (const plugin of softPlugins) {
   }
 }
 
-// 5. Soft plugins declare the derived range everywhere they advertise DSH.
-for (const plugin of softPlugins) {
+// 5. Every plugin declares the derived range everywhere it advertises DSH.
+for (const plugin of plugins) {
   const name = plugin.manifest.name
   const declared = plugin.manifest.dsh?.engines?.dsh
   if (declared === undefined) fail(`${name}: dsh.engines.dsh is missing`)
@@ -369,24 +364,7 @@ for (const plugin of softPlugins) {
   }
 }
 
-// 6. The exact-contract plugin's own gate, and the allowlist entry behind it.
-for (const plugin of hardPlugins) {
-  const contract = join(plugin.dir, 'src', 'compat', 'dsh-version.ts')
-  const source = readFileSync(contract, 'utf8')
-  const match = /export const SUPPORTED_DSH_RELEASES = \[([^\]]*)\]/u.exec(source)
-  const listed = match === null ? [] : [...match[1].matchAll(/'([^']+)'/gu)].map(token => token[1])
-  if (!listed.includes(DSH_BASELINE)) fail(`${plugin.manifest.name}: SUPPORTED_DSH_RELEASES does not include ${DSH_BASELINE}`)
-  try {
-    execFileSync(process.execPath, [join(plugin.dir, 'scripts', 'check-dsh-compat.mjs')], {
-      cwd: plugin.dir,
-      stdio: 'inherit',
-    })
-  } catch {
-    fail(`${plugin.manifest.name}: compat:check failed (see its output above)`)
-  }
-}
-
-// 7. What is installed here is the baseline everywhere, and nowhere mixed.
+// 6. What is installed here is the baseline everywhere, and nowhere mixed.
 const installed = new Map()
 for (const plugin of plugins) {
   for (const [name, version] of Object.entries(resolvedByPlugin(plugin))) {
@@ -402,7 +380,7 @@ for (const [name, versions] of installed) {
 }
 note(`installed DSH packages: ${installed.size} names, all ${DSH_BASELINE}`)
 
-// 8. The release-age allowlist and the lockfile agree exactly.
+// 7. The release-age allowlist and the lockfile agree exactly.
 const allowances = readAllowances(workspaceSource)
 const allowanceSet = new Set(allowances)
 if (allowanceSet.size !== allowances.length) fail('pnpm-workspace.yaml contains duplicate release-age entries')
@@ -414,7 +392,7 @@ for (const entry of missing) fail(`release-age allowlist is missing ${entry}`)
 for (const entry of stale) fail(`release-age allowlist has stale ${entry}`)
 note(`release-age allowlist: ${allowances.length} entries, lockfile ${locked.size} relevant packages`)
 
-// 9. The removed plugin stays removed.
+// 8. The removed plugin stays removed.
 if (existsSync(join(PLUGINS_ROOT, 'git-graph-multi'))) fail('plugins/git-graph-multi still exists')
 const suspect = ['README.md', 'AGENTS.md']
 for (const entry of readdirSync(join(REPO_ROOT, 'scripts'), { withFileTypes: true })) {

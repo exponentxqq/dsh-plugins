@@ -4,13 +4,20 @@
  * Three properties are pinned here, because each of them is a way the contract
  * could quietly stop being a contract:
  *
- * 1. the allowlist is a list of EXACT versions, and the release this suite runs
- *    against is on it — a suite passing against an unverified release is the
- *    exact failure this whole mechanism exists to prevent;
- * 2. `package.json`'s `peerDependencies` say the same thing as the allowlist —
- *    npm metadata that over-promises is what started this work;
+ * 1. the contract is a RANGE derived from one verified baseline (same
+ *    `major.minor`, at or above it), and the release this suite runs against
+ *    falls inside that range — a suite passing against an unverified release is
+ *    the exact failure this whole mechanism exists to prevent;
+ * 2. `package.json`'s `dsh.engines.dsh` and `peerDependencies` say the same
+ *    thing as that range — npm metadata that over-promises is what started this
+ *    work;
  * 3. incomplete, mixed and unsupported installations are each refused, loudly,
- *    with the offending versions named.
+ *    with the offending versions named, and there is no relaxed mode: the gate
+ *    has exactly one reaction.
+ *
+ * The boundary table in the middle is the eight-row table from
+ * `openspec/changes/unify-deps-and-templates/code-design.md` §3.1, one case per
+ * row, so a red row says which boundary moved.
  */
 
 import { readFileSync } from 'node:fs'
@@ -22,12 +29,15 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { assertSupportedInstallation, DshCompatUnsupportedError } from '../src/compat.ts'
 import {
   classifyInstallation,
-  compatEnforcement,
+  compareVersions,
   CORE_PACKAGES,
+  DSH_BASELINE,
+  isSupportedDshRelease,
   OPTIONAL_CORE_PACKAGES,
+  parseVersion,
   readInstalledVersion,
   REQUIRED_CORE_PACKAGES,
-  SUPPORTED_DSH_RELEASES,
+  SUPPORTED_DSH_RANGE,
   type VersionReader,
 } from '../src/compat/dsh-version.ts'
 import { MultiRootFileSystem } from '../src/fs.ts'
@@ -43,23 +53,41 @@ function reader(base: string | undefined, overrides: Record<string, string | und
   return name => (name in overrides ? overrides[name] : base)
 }
 
+/** Parse a version literal, failing the calling case when the grammar rejects it. */
+function parsed(value: string): NonNullable<ReturnType<typeof parseVersion>> {
+  const result = parseVersion(value)
+  if (result === undefined) throw new Error(`${value} must be inside the version grammar`)
+  return result
+}
+
+/** The comparator's sign for two version literals (`-1` / `0` / `1`). */
+function rank(left: string, right: string): number {
+  return Math.sign(compareVersions(parsed(left), parsed(right)))
+}
+
 const manifest = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')) as {
   peerDependencies: Record<string, string>
   devDependencies: Record<string, string>
+  dsh?: { engines?: { dsh?: string } }
 }
 
-describe('the supported release list', () => {
-  it('is a non-empty list of exact versions, not ranges', () => {
-    expect(SUPPORTED_DSH_RELEASES.length).toBeGreaterThan(0)
-    for (const release of SUPPORTED_DSH_RELEASES) {
-      expect(release, `${release} must be an exact version`).toMatch(/^\d+\.\d+\.\d+(?:-[\w.]+)?$/)
-    }
+describe('the supported-release range', () => {
+  it('is derived from the baseline: lower bound included, the next minor excluded', () => {
+    const baseline = parsed(DSH_BASELINE)
+    expect(SUPPORTED_DSH_RANGE).toBe(`>=${DSH_BASELINE} <${baseline.major}.${baseline.minor + 1}.0`)
   })
 
-  it('has no duplicate entries', () => {
-    expect([...new Set(SUPPORTED_DSH_RELEASES)]).toEqual([...SUPPORTED_DSH_RELEASES])
+  it('is pinned to 0.2.2-rc.1, which is what makes the boundary table below concrete', () => {
+    // The eight rows below are literal versions: they only mean what they say
+    // against this baseline. When the baseline moves, re-derive the table
+    // (code-design §3.1) and update this pin with it — this failure is the
+    // reminder, never drift to be papered over.
+    expect(DSH_BASELINE).toBe('0.2.2-rc.1')
+    expect(SUPPORTED_DSH_RANGE).toBe('>=0.2.2-rc.1 <0.3.0')
   })
+})
 
+describe("the contract's package inventory", () => {
   it('inspects every package this plugin couples to, required before optional', () => {
     expect(CORE_PACKAGES).toEqual([...REQUIRED_CORE_PACKAGES, ...OPTIONAL_CORE_PACKAGES])
     expect(new Set(CORE_PACKAGES).size).toBe(CORE_PACKAGES.length)
@@ -67,40 +95,110 @@ describe('the supported release list', () => {
 })
 
 /**
- * Whether this run is an upgrade probe.
+ * The boundary table from `code-design.md` §3.1, baseline `0.2.2-rc.1`, one
+ * case per row:
  *
- * The two lanes ask different questions of the installed release, so exactly one
- * of the two cases below applies:
- *
- * - the normal lane asserts the installation IS supported, which is what makes
- *   the rest of the suite valid evidence for the allowlist;
- * - the upgrade lane runs against a candidate that is deliberately not on the
- *   allowlist yet, so it asserts only that warn mode let it through — and that
- *   even warn mode still refuses a tree that mixes releases.
+ * | # | input(s)                          | expected | why                                        |
+ * |---|-----------------------------------|----------|--------------------------------------------|
+ * | 1 | `0.2.2-rc.1`                      | true     | the lower bound is inclusive               |
+ * | 2 | `0.2.2-rc.2`, `0.2.2-rc.10`       | true     | same minor, ≥ baseline; `rc.10 > rc.2`     |
+ * | 3 | `0.2.2`                           | true     | a final release outranks its prerelease    |
+ * | 4 | `0.2.3-alpha.1`                   | true     | same minor, later patch: prereleases pass  |
+ * | 5 | `0.2.1-rc.5`                      | false    | same minor but below the baseline          |
+ * | 6 | `0.1.7-rc.2`, `0.2.0`             | false    | below the baseline                         |
+ * | 7 | `0.3.0`, `0.3.0-alpha.1`          | false    | different minor (upper bound is exclusive) |
+ * | 8 | `1.0.0`, `0.9.9`, `''`, `latest`  | false    | out of domain / outside the grammar        |
  */
-const upgradeLane = compatEnforcement() === 'warn'
+describe('the supported-range boundary table', () => {
+  it('accepts the baseline itself: the lower bound is inclusive', () => {
+    expect(isSupportedDshRelease('0.2.2-rc.1')).toBe(true)
+    expect(isSupportedDshRelease(DSH_BASELINE)).toBe(true)
+  })
+
+  it('accepts later prereleases on the same minor, ranking rc.10 above rc.2 by value', () => {
+    for (const release of ['0.2.2-rc.2', '0.2.2-rc.10']) {
+      expect(isSupportedDshRelease(release), release).toBe(true)
+    }
+    expect(rank('0.2.2-rc.10', '0.2.2-rc.2')).toBe(1)
+  })
+
+  it('accepts the final release above its own prerelease', () => {
+    expect(isSupportedDshRelease('0.2.2')).toBe(true)
+    expect(rank('0.2.2', '0.2.2-rc.1')).toBe(1)
+  })
+
+  it('accepts a prerelease of a later patch on the same minor', () => {
+    expect(isSupportedDshRelease('0.2.3-alpha.1')).toBe(true)
+  })
+
+  it('rejects a prerelease below the baseline on the same minor', () => {
+    expect(isSupportedDshRelease('0.2.1-rc.5')).toBe(false)
+  })
+
+  it('rejects releases below the baseline, including a lower minor', () => {
+    for (const release of ['0.1.7-rc.2', '0.2.0']) {
+      expect(isSupportedDshRelease(release), release).toBe(false)
+    }
+  })
+
+  it('rejects the next minor, even when it is numerically below the upper bound', () => {
+    for (const release of ['0.3.0', '0.3.0-alpha.1']) {
+      expect(isSupportedDshRelease(release), release).toBe(false)
+    }
+  })
+
+  it('rejects out-of-domain and unparsable input without throwing', () => {
+    for (const release of ['1.0.0', '0.9.9', '', 'latest']) {
+      expect(isSupportedDshRelease(release), release).toBe(false)
+    }
+  })
+})
+
+describe('the handwritten comparator', () => {
+  it('ranks major, minor and patch numerically (rule 1)', () => {
+    expect(rank('0.3.0', '0.2.9')).toBe(1)
+    expect(rank('0.2.10', '0.2.9')).toBe(1)
+    expect(rank('1.0.0', '0.9.9')).toBe(1)
+    expect(rank('0.2.2-rc.1', '0.2.2-rc.1')).toBe(0)
+  })
+
+  it('ranks a final release above its own prerelease (rule 2)', () => {
+    expect(rank('0.2.2', '0.2.2-rc.1')).toBe(1)
+    expect(rank('0.2.2-rc.1', '0.2.2')).toBe(-1)
+  })
+
+  it('compares prerelease identifiers by value, a numeric segment below any letter one (rule 3)', () => {
+    expect(rank('0.2.2-rc.10', '0.2.2-rc.2')).toBe(1)
+    expect(rank('0.2.2-2', '0.2.2-rc.1')).toBe(-1)
+    expect(rank('0.2.2-alpha.1', '0.2.2-beta.1')).toBe(-1)
+  })
+
+  it('ranks a shorter prerelease below its own extension (rule 4)', () => {
+    expect(rank('0.2.2-rc', '0.2.2-rc.1')).toBe(-1)
+  })
+})
+
+describe('the version grammar', () => {
+  it('accepts <major>.<minor>.<patch> with an optional dotted prerelease', () => {
+    expect(parseVersion('0.2.2-rc.1')).toEqual({ major: 0, minor: 2, patch: 2, prerelease: ['rc', 1] })
+    expect(parseVersion('0.2.2')).toEqual({ major: 0, minor: 2, patch: 2, prerelease: [] })
+  })
+
+  it('returns undefined — never throws — outside the grammar', () => {
+    for (const value of ['0.9', '1.2.3+build', '', 'latest']) {
+      expect(parseVersion(value), value).toBeUndefined()
+    }
+  })
+})
 
 describe('the release this suite runs against', () => {
-  it.skipIf(upgradeLane)('is on the allowlist, with every core package agreeing on it', () => {
+  it('is inside the supported range, with every core package agreeing on it', () => {
     const report = classifyInstallation()
-    expect(report.message).toContain('supported')
+    expect(report.message).toContain('is a supported release')
     expect(report.verdict).toBe('supported')
-    expect(SUPPORTED_DSH_RELEASES).toContain(report.release)
-  })
-
-  it.runIf(upgradeLane)('is a candidate warn mode lets through, on one coherent release', () => {
-    const report = classifyInstallation()
-    // Even the upgrade lane has a floor: an incomplete or mixed tree tells us
-    // nothing about the candidate, so it is refused in either mode.
-    expect(report.verdict, report.message).not.toBe('incomplete')
-    expect(report.verdict, report.message).not.toBe('mixed')
-    expect(report.release).toBeTypeOf('string')
-    expect(() => assertSupportedInstallation(report, 'warn')).not.toThrow()
-  })
-
-  it('is the version the manifest pins for development', () => {
-    const report = classifyInstallation()
-    expect(manifest.devDependencies['@deepseek-ai/dsh-sandbox-local']).toBe(report.release)
+    const release = report.release
+    if (release === undefined) throw new Error('the installation must resolve to one release')
+    expect(isSupportedDshRelease(release), release).toBe(true)
   })
 
   it('resolves through the same peer copy the providers will subclass', () => {
@@ -110,15 +208,19 @@ describe('the release this suite runs against', () => {
   })
 })
 
-describe('peerDependencies and the allowlist agree', () => {
-  const expected = SUPPORTED_DSH_RELEASES.join(' || ')
+describe('the manifest agrees with the supported range', () => {
+  it('requires the derived range through dsh.engines.dsh', () => {
+    expect(manifest.dsh?.engines?.dsh).toBe(SUPPORTED_DSH_RANGE)
+  })
 
-  it('declares exactly the allowlisted releases for every dsh peer', () => {
+  it('declares the same range for every one of the DSH peers', () => {
     const dshPeers = Object.entries(manifest.peerDependencies)
       .filter(([name]) => name === '@deepseek-ai/dsh' || name.startsWith('@deepseek-ai/dsh-'))
-    expect(dshPeers.length).toBeGreaterThan(0)
+    // The umbrella package plus the 21 packages this plugin couples to: a
+    // missing peer would be resolved from whatever the host happens to hoist.
+    expect(dshPeers.length, 'the DSH peer set is the umbrella plus 21 coupled packages').toBe(22)
     for (const [name, range] of dshPeers) {
-      expect(range, `${name} must promise exactly the allowlist`).toBe(expected)
+      expect(range, `${name} must promise exactly the derived range`).toBe(SUPPORTED_DSH_RANGE)
     }
   })
 
@@ -127,42 +229,56 @@ describe('peerDependencies and the allowlist agree', () => {
       expect(Object.keys(manifest.peerDependencies), `${name} must be a peer`).toContain(name)
     }
   })
+
+  it('pins every @deepseek-ai dependency for development through the shared catalog', () => {
+    const pinned = Object.entries(manifest.devDependencies).filter(([name]) => name.startsWith('@deepseek-ai/'))
+    expect(pinned.length).toBeGreaterThan(0)
+    for (const [name, spec] of pinned) {
+      expect(spec, `${name} must be pinned through the dsh catalog`).toBe('catalog:dsh')
+    }
+  })
 })
 
 describe('an installation that cannot be judged', () => {
   it('is incomplete when a required package is absent, and names it', () => {
-    const report = classifyInstallation(reader('0.1.5-rc.2', { '@deepseek-ai/dsh-sandbox-local': undefined }))
+    const report = classifyInstallation(reader(DSH_BASELINE, { '@deepseek-ai/dsh-sandbox-local': undefined }))
     expect(report.verdict).toBe('incomplete')
     expect(report.release).toBeUndefined()
     expect(report.message).toContain('@deepseek-ai/dsh-sandbox-local')
   })
 
   it('stays supported when only an optional package is absent', () => {
-    const release = SUPPORTED_DSH_RELEASES[0]
-    const report = classifyInstallation(reader(release, { '@deepseek-ai/dsh-client-connection': undefined }))
+    const report = classifyInstallation(reader(DSH_BASELINE, { '@deepseek-ai/dsh-client-connection': undefined }))
     expect(report.verdict).toBe('supported')
-    expect(report.release).toBe(release)
+    expect(report.release).toBe(DSH_BASELINE)
   })
 })
 
 describe('a mixed installation', () => {
   it('is refused when two required packages disagree, and both releases are named', () => {
-    const report = classifyInstallation(reader('0.1.5-rc.2', { '@deepseek-ai/dsh-fs-local': '0.1.6-alpha.1' }))
+    const report = classifyInstallation(reader(DSH_BASELINE, { '@deepseek-ai/dsh-fs-local': '0.2.3-alpha.1' }))
     expect(report.verdict).toBe('mixed')
     expect(report.release).toBeUndefined()
-    expect(report.message).toContain('0.1.5-rc.2')
-    expect(report.message).toContain('0.1.6-alpha.1')
+    expect(report.message).toContain(DSH_BASELINE)
+    expect(report.message).toContain('0.2.3-alpha.1')
   })
 
   it('is refused when an OPTIONAL package disagrees, not just a required one', () => {
-    const report = classifyInstallation(reader('0.1.5-rc.2', { '@deepseek-ai/dsh-agent-instructions': '0.1.6-alpha.1' }))
+    const report = classifyInstallation(reader(DSH_BASELINE, { '@deepseek-ai/dsh-agent-instructions': '0.2.3-alpha.1' }))
+    expect(report.verdict).toBe('mixed')
+  })
+
+  it('is refused even when both releases are inside the supported range', () => {
+    const report = classifyInstallation(reader(DSH_BASELINE, { '@deepseek-ai/dsh-fs-local': '0.2.3-alpha.1' }))
+    expect(isSupportedDshRelease(DSH_BASELINE)).toBe(true)
+    expect(isSupportedDshRelease('0.2.3-alpha.1')).toBe(true)
     expect(report.verdict).toBe('mixed')
   })
 
   it('reports the inspected inventory so the odd package out is visible', () => {
-    const report = classifyInstallation(reader('0.1.5-rc.2', { '@deepseek-ai/dsh-fs-local': '0.1.6-alpha.1' }))
-    expect(report.message).toContain('@deepseek-ai/dsh-fs-local 0.1.6-alpha.1')
-    expect(report.message).toContain('@deepseek-ai/dsh-sandbox-local 0.1.5-rc.2')
+    const report = classifyInstallation(reader(DSH_BASELINE, { '@deepseek-ai/dsh-fs-local': '0.2.3-alpha.1' }))
+    expect(report.message).toContain('@deepseek-ai/dsh-fs-local 0.2.3-alpha.1')
+    expect(report.message).toContain(`@deepseek-ai/dsh-sandbox-local ${DSH_BASELINE}`)
   })
 })
 
@@ -173,28 +289,33 @@ describe('an unsupported release', () => {
     expect(report.release).toBe('0.9.9')
   })
 
-  it('names the installed release, the allowlist, and where to recover', () => {
+  it('names the installed release, the supported range, and where to recover', () => {
     const report = classifyInstallation(reader('0.9.9'))
-    expect(report.message).toContain('0.9.9')
-    expect(report.message).toContain(SUPPORTED_DSH_RELEASES.join(', '))
+    expect(report.message).toContain('outside the supported range')
+    expect(report.message).toContain(`supported: ${SUPPORTED_DSH_RANGE}`)
+    expect(report.message).toContain('installed: 0.9.9')
     expect(report.message).toContain('docs/troubleshooting/unsupported-dsh-release.md')
   })
 
-  it('is refused for a release BELOW the allowlist too, not just above it', () => {
-    expect(classifyInstallation(reader('0.1.2-alpha.4')).verdict).toBe('unsupported')
+  it('is refused BELOW the baseline and on the next minor too, not just far above it', () => {
+    for (const release of ['0.2.1-rc.5', '0.1.7-rc.2', '0.3.0', '0.3.0-alpha.1']) {
+      const report = classifyInstallation(reader(release))
+      expect(report.verdict, release).toBe('unsupported')
+      expect(report.release).toBe(release)
+    }
   })
 })
 
 describe('the gate policy', () => {
-  it('lets a supported installation through without a warning', () => {
-    const report = classifyInstallation(reader(SUPPORTED_DSH_RELEASES[0]))
-    expect(assertSupportedInstallation(report, 'enforce')).toBeUndefined()
+  it('lets a supported installation through', () => {
+    const report = classifyInstallation(reader(DSH_BASELINE))
+    expect(assertSupportedInstallation(report)).toBeUndefined()
   })
 
-  it('refuses an unsupported installation under enforce, carrying the report', () => {
+  it('refuses an unsupported installation, carrying the report', () => {
     const report = classifyInstallation(reader('0.9.9'))
     try {
-      assertSupportedInstallation(report, 'enforce')
+      assertSupportedInstallation(report)
       expect.unreachable('the gate must refuse an unsupported installation')
     } catch (error: unknown) {
       expect(error).toBeInstanceOf(DshCompatUnsupportedError)
@@ -203,36 +324,15 @@ describe('the gate policy', () => {
     }
   })
 
-  it('refuses a mixed installation under enforce', () => {
-    const report = classifyInstallation(reader('0.1.5-rc.2', { '@deepseek-ai/dsh-fs-local': '0.1.6-alpha.1' }))
-    expect(() => assertSupportedInstallation(report, 'enforce')).toThrow(DshCompatUnsupportedError)
+  it('refuses a mixed installation', () => {
+    const report = classifyInstallation(reader(DSH_BASELINE, { '@deepseek-ai/dsh-fs-local': '0.2.3-alpha.1' }))
+    expect(() => assertSupportedInstallation(report)).toThrow(DshCompatUnsupportedError)
   })
 
-  it('still refuses a mixed installation under warn', () => {
-    const report = classifyInstallation(reader('0.1.5-rc.2', { '@deepseek-ai/dsh-fs-local': '0.1.6-alpha.1' }))
-    expect(report.verdict).toBe('mixed')
-    try {
-      assertSupportedInstallation(report, 'warn')
-      expect.unreachable('warn must not relax a mixed installation')
-    } catch (error: unknown) {
-      expect(error).toBeInstanceOf(DshCompatUnsupportedError)
-      expect((error as DshCompatUnsupportedError).report).toBe(report)
-    }
-  })
-
-  it('still refuses an incomplete installation under warn', () => {
-    const report = classifyInstallation(reader('0.1.5-rc.2', { '@deepseek-ai/dsh-sandbox-local': undefined }))
+  it('refuses an incomplete installation', () => {
+    const report = classifyInstallation(reader(DSH_BASELINE, { '@deepseek-ai/dsh-sandbox-local': undefined }))
     expect(report.verdict).toBe('incomplete')
-    expect(() => assertSupportedInstallation(report, 'warn')).toThrow(DshCompatUnsupportedError)
-  })
-
-  it('warns instead of refusing under warn, and says the roots are unverified', () => {
-    const report = classifyInstallation(reader('0.9.9'))
-    const warning = assertSupportedInstallation(report, 'warn')
-    expect(warning).toBeTypeOf('string')
-    expect(warning).toContain('0.9.9')
-    expect(warning).toContain('has not been verified')
-    expect(warning).toContain('DSH_MULTI_ROOT_COMPAT=warn')
+    expect(() => assertSupportedInstallation(report)).toThrow(DshCompatUnsupportedError)
   })
 })
 
@@ -276,18 +376,5 @@ describe('the gate is what the providers actually wait on', () => {
     const report = classifyInstallation()
     expect(ctx.multiRootCompat.release).toBe(report.release)
     expect(ctx.multiRootCompat.supported).toBe(report.verdict === 'supported')
-  })
-})
-
-describe('enforcement mode', () => {
-  it('enforces by default', () => {
-    expect(compatEnforcement({})).toBe('enforce')
-  })
-
-  it('relaxes only on the exact opt-in value', () => {
-    expect(compatEnforcement({ DSH_MULTI_ROOT_COMPAT: 'warn' })).toBe('warn')
-    for (const value of ['enforce', '', '1', 'true', 'WARN', 'warn ']) {
-      expect(compatEnforcement({ DSH_MULTI_ROOT_COMPAT: value }), value).toBe('enforce')
-    }
   })
 })

@@ -17,7 +17,7 @@
  * `Service` constructor has already run `super(ctx, name)` — and therefore
  * already claimed the service key — by the time it could inspect anything.
  *
- * The verdict itself, and the allowlist it is judged against, live in
+ * The verdict itself, and the supported range it is judged against, live in
  * `./compat/dsh-version.ts`. This module owns only the reaction to it.
  *
  * @module dsh-plugin-multi-root-workspace/compat
@@ -26,10 +26,6 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import {
   classifyInstallation,
-  compatEnforcement,
-  COMPAT_ENFORCEMENT_ENV,
-  SUPPORTED_DSH_RELEASES,
-  type CompatEnforcement,
   type CompatReport,
 } from './compat/dsh-version.ts'
 
@@ -40,9 +36,10 @@ declare module '@deepseek-ai/cordis' {
 }
 
 /**
- * Raised when the installed DSH release is not one this plugin is verified
- * against. It is thrown from `apply`, so it surfaces as a plugin load failure
- * with the full diagnosis attached — never as a silently degraded sandbox.
+ * Raised when the installation fails the compatibility contract — an
+ * `unsupported` release, an `incomplete` installation or a `mixed` one. It is
+ * thrown from `apply`, so it surfaces as a plugin load failure with the full
+ * diagnosis attached — never as a silently degraded sandbox.
  */
 export class DshCompatUnsupportedError extends Error {
   /** The report that produced the refusal. */
@@ -80,7 +77,7 @@ export class MultiRootCompatService extends Service {
     return this.report.release
   }
 
-  /** Whether the installation is on the allowlist. */
+  /** Whether the installation is within the supported range. */
   get supported(): boolean {
     return this.report.verdict === 'supported'
   }
@@ -92,34 +89,17 @@ export const inject: string[] = []
 /**
  * Apply the gate policy to one report.
  *
- * Under `DSH_MULTI_ROOT_COMPAT=warn` exactly one verdict is relaxed: an
- * `unsupported` release that every inspected package agrees on. That is the
- * only shape the upgrade smoke probes — a coherent tree on a release the
- * allowlist does not name yet, which is how a release earns its place there.
- * `mixed` and `incomplete` describe an installation the contract cannot judge
- * at all, so they are refused in either mode; production deployments leave the
- * variable unset and get the refusal for everything.
+ * `supported` is the only verdict that lets the service mount. `unsupported`,
+ * `incomplete` and `mixed` all describe an installation whose sandbox shape
+ * this plugin cannot vouch for, so every one of them is refused: the gate has
+ * exactly one reaction and there is no degraded path. `report.message` already
+ * carries the verdict's diagnosis, the inspected package inventory and the
+ * recovery pointer, so the thrown error needs no wording of its own.
  * @param report - the verdict to act on.
- * @param enforcement - how to react to a non-`supported` verdict.
- * @returns the warning to log, or `undefined` when there is nothing to say.
- * @throws {DshCompatUnsupportedError} when refusing to run.
+ * @throws {DshCompatUnsupportedError} when the verdict is not `supported`.
  */
-export function assertSupportedInstallation(
-  report: CompatReport,
-  enforcement: CompatEnforcement,
-): string | undefined {
-  if (report.verdict === 'supported') return undefined
-  // `warn` relaxes exactly one verdict: a coherent installation on a release
-  // the allowlist does not name yet — the only thing the upgrade lane probes.
-  // `mixed` and `incomplete` describe an installation the contract cannot judge
-  // at all (one half of the sandbox may have been verified against a shape the
-  // other half no longer produces, or a required package is absent), so they
-  // are refused in either mode.
-  if (enforcement === 'enforce' || report.verdict !== 'unsupported') throw new DshCompatUnsupportedError(report)
-  return `${report.message}\n\nProceeding anyway because ${COMPAT_ENFORCEMENT_ENV}=warn. `
-    + 'This is an upgrade-smoke mode: additional workspace roots are about to be granted through a '
-    + 'sandbox profile shape that has not been verified on this release. Supported releases: '
-    + `${SUPPORTED_DSH_RELEASES.join(', ')}.`
+export function assertSupportedInstallation(report: CompatReport): void {
+  if (report.verdict !== 'supported') throw new DshCompatUnsupportedError(report)
 }
 
 /**
@@ -129,7 +109,6 @@ export function assertSupportedInstallation(
  */
 export function apply(ctx: Context): void {
   const report = classifyInstallation()
-  const warning = assertSupportedInstallation(report, compatEnforcement())
-  if (warning !== undefined) ctx.logger.warn(warning)
+  assertSupportedInstallation(report)
   ctx.plugin(MultiRootCompatService, report)
 }

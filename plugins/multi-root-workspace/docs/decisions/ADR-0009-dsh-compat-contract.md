@@ -7,6 +7,10 @@ Accepted
 > 本地 fork 注（2026-10-10）：本文决策不变；其依赖的上游升级车道（`upgrade.yml`）与 CI 矩阵已随 vendored 清理，版本探测/重指能力保留在 `scripts/upgrade-dsh.mjs`，本地等价回归是 `DSH_CLI=<版本> pnpm smoke`。
 >
 > 本地 fork 注（2026-10-17）：升级入口已统一到仓库根 `pnpm dsh:upgrade`（`scripts/upgrade-dsh.mjs`，插件内旧路径保留为委托 shim）；`0.2.1-rc.2` 通过完整探测后由人工加入 `SUPPORTED_DSH_RELEASES`，静态契约检查仍由插件内 `pnpm compat:check` 承担。
+>
+> 本地 fork 注（2026-11-07）：本 ADR 的支持矩阵形态已由基线派生软范围裁定取代，见下文「支持矩阵范围化」修订节（2026-11-07）；第 1 节「范围是预测」的论证被推翻，原论证保留作历史记录。
+>
+> 本地 fork 注（2026-11-07）：插件内的委托 shim 已删除（`scripts/upgrade-dsh.mjs`），升级入口唯一化为仓库根 `pnpm dsh:upgrade`（其 `repointRuntimeBaselines` 在同批重指运行时基线副本，机制见「支持矩阵范围化」修订节）；上文 2026-10-17 fork 注中「插件内旧路径保留为委托 shim」的叙述随之过期，以本注为准。
 
 ## Date
 
@@ -256,10 +260,43 @@ PR #1（head `507c954`）的 P2-3 / P2-4 / P2-5 收紧了两条规则（内容�
 
 零适配结论（2026-11-06 勘误）：静态面（lint/typecheck/build）确未引入 `src/compat/` 适配分支；但执行期全量验证暴露 **cordis 4.0.5→4.1.0 的 traceable shadow 断裂**——4.1.0 属性访问经 `createShadow` 携带定义点切片，`dsh-client-connection` 的 `get rpc()` 以 `this.ctx`（= connection 定义点 ctx）解析 `webServer` 失败，旧挂载写法在运行时整通道失效（journey 5/60 暴露）。三处挂载点（multi-root `src/command.ts`、web-ux、session-tool-toggle 的宿主半通道）以 `callerConnectionOf` 模式做**结构探测式适配**（cordis `symbols.original` 解包 + 只读 Proxy 重定向 ctx；无版本号分支，兼容 4.0.5/4.1.0 双形状）；session-tool-toggle 另随 `dsh-session-projection` rc.1 类型面（`ProjectionDefinition<K,S>` 双泛型、`register` 异步化、`stateOf(session,key)` 废弃）适配投影注册区。此教训：**cordis 次版本的 traceable 语义变化发生在运行时解析层，静态形状 gate 探不到——升级探测必须覆盖真实挂载路径（journey/探针），且 `tsc -b` 增量缓存对依赖类型面变化不敏感，核对前必须清 `tsconfig.*.tsbuildinfo` 强制重查。**
 
+## 支持矩阵范围化（2026-11-07）
+
+本节是 append-only 修订留痕：第 1 节「支持矩阵是精确版本 allowlist，不是范围」与第 5 节「`DSH_MULTI_ROOT_COMPAT=warn` 只为升级车道存在」所记录的形态，已被 2026-11-07 的用户裁定取代；第 2 / 3 / 4 条（启动门禁、混装优先、`src/compat/` 结构探测）不变，原论证保留作历史记录。
+
+### 新裁定：基线派生软范围
+
+支持矩阵从「精确版本 allowlist」改为「基线派生软范围」：`>=<基线> <<主>.<次+1>.0`，语义为**与基线同 `major.minor` 且不低于基线**；当前基线 `0.2.2-rc.1`，派生范围 `>=0.2.2-rc.1 <0.3.0`。范围内的宿主版本放行并完整加载，范围外拒绝启动并输出受支持范围与实际安装版本；范围内版本不再要求逐版本登记。运行时持有 `DSH_BASELINE` 字面量并派生 `SUPPORTED_DSH_RANGE`，`classifyInstallation` 的判定顺序与 `CompatReport` 形状不变，只有 `unsupported` 的判据与文案改为范围判定。
+
+「范围是预测」的旧论证被推翻。新裁定**接受**范围作为预测——同 minor 线内的后续 rc / patch 视为同质；推翻的理由不是「预测变得安全」，而是预测的失败面已被三道兜底覆盖：
+
+1. **运行时门**（第 2 条不变）：范围外与混装一律在启动期拒绝，全部注入 `multiRootCompat` 的授权放宽行不启动；
+2. **安装树单一 release 断言**：`mixed` 判定仍优先于版本判定，围栏的两半不会各自对着不同的上游语义工作；
+3. **包测试边界表**：`isSupportedDshRelease` 的域内 / 域外 / 文法外边界逐行钉住，范围语义漂移会让套件变红。
+
+**这是用户知情裁定**：未被逐一探测的 `0.2.x` 预发布将自动获得放行，其中包括沙箱根授予语义（additional root 的 grant 拼接）在未探测版本上的行为。接受该风险的依据是上述三道兜底把「静默放宽」压成「启动期 fail loud」；「先探测后放行」不再是对外承诺的成立条件。
+
+### `warn` 机制整体删除，探测车道降级为回归验证
+
+`DSH_MULTI_ROOT_COMPAT=warn` 这一 enforcement 档整体删除（否决「降级为日志开关」），门禁只有一种反应：不支持即拒绝启动。`mixed` / `incomplete` / `unsupported` 三者的拒绝行为不变，区别只在于 `unsupported` 的判据从「不在 allowlist 上」变成「不满足派生软范围」。同时否决「保留精确台账、只把它收窄为安全闸」：那会让「支持承诺」与「运行判定」继续分叉，正是本 ADR 起因要消除的结构。
+
+升级探测车道随之不再需要特殊形态：升级不再需要「绕过精确矩阵」的开关——候选版本若落在同 minor 范围内即被运行时门放行，跨 minor 的候选版本本就不该冒充支持。探测车道**降级为普通回归验证**：照常跑测试与门禁，没有特殊 lane、没有特殊环境变量；绿灯仍然只是证据，不是授权。
+
+### 与 `pnpm dsh:upgrade` 的新契约
+
+升级脚本在同一批重指运行时基线副本（`repointRuntimeBaselines()`）：`scripts/dsh-baseline.mjs` 的 `DSH_BASELINE`、`src/compat/dsh-version.ts` 的运行时副本、各插件的 DSH peers 与 `dsh.engines.dsh` 一起对齐到新基线，避免「升级后运行时门仍钉旧基线」的红灯。第 6 节的「四处一致」在新形态下对应为：仓库基线常量 → 运行时副本 → manifest 的 peers / engines → 安装树实际解析版本；前三者由 `dsh:upgrade` 同批重指，安装树的单一 release 由 `compat:check` 的既有断言守住，开发 pin 的精确值归根 `dsh:check`，静态契约检查与插件单测以同一派生范围断言。
+
+### 保留项与已知代价
+
+- 保留：第 2 条启动门禁、第 3 条混装优先、第 4 条结构探测与 `src/compat/` 边界全部不变。
+- 保留：精确 pin 仍存在于开发 pin（devDependencies / lockfile）与基线常量，只是不再作为**支持承诺**的载体；22 条 DSH `peerDependencies` 与 `dsh.engines.dsh` 由基线机械派生为 `>=0.2.2-rc.1 <0.3.0`。
+- 代价：`0.2.1-rc.2` / `0.2.1-rc.5` 失去 peer 声明，支持面随基线滚动收敛到当前 minor 线。
+- 已知差异（不修）：运行时范围谓词在**上界**比安装期 peer 门禁更严——安装期 `semver.satisfies(..., { includePrerelease: true })` 认为 `0.3.0-alpha.1 < 0.3.0`，运行时按「同 `major.minor`」直接拒绝；这是运行期 fail-closed 的刻意选择。
+
 ## Related Documents
 
 - [ADR-0002：上游耦合策略](./ADR-0002-upstream-coupling-policy.md)（本 ADR 收紧了其中第 4 条关于 `peerDependencies` 范围的部分）
 - [ADR-0003：方言 grant 拼接策略](./ADR-0003-dialect-grant-widening.md)（argv 形状识别，也是本契约存在的根本原因）
 - [Agent Note：DSH 兼容性契约](../../.agent/note/dsh-compat-contract.md)
-- [故障排查：不支持的 DSH 版本](../troubleshooting/unsupported-dsh-release.md)
+- [故障排查：DSH 版本在支持范围外](../troubleshooting/unsupported-dsh-release.md)
 - [开发工作流](../development/plugin-development-workflow.md)

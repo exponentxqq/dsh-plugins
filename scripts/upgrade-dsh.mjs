@@ -2,18 +2,19 @@
  * 根级 DSH 升级引擎：把整个 workspace 重指到一个上游精确版本。
  *
  * 升级车道只回答一个问题：如果 harness 换成版本 X，这套插件是否仍然正确？
- * 回答它需要把**整个仓库**钉到 X：七个插件的 devDependencies、`pnpm-workspace.yaml`
- * 的发布年龄豁免，以及随后由 pnpm 重写的 lockfile。围栏与内核沙箱的方言是针对
- * 实际安装的那份副本验证的，不是针对一个范围。
+ * 回答它需要把**整个仓库**钉到 X：七个插件的 devDependencies、
+ * `pnpm-workspace.yaml` 的发布年龄豁免、各插件 `dsh.engines.dsh` 与 DSH peer
+ * 的派生软范围、运行时基线副本，以及随后由 pnpm 重写的 lockfile。围栏与内核
+ * 沙箱的方言是针对实际安装的那份副本验证的，不是针对一个范围。
  *
- * 本脚本**不碰** multi-root 的 `SUPPORTED_DSH_RELEASES` 与精确 peer 枚举：
- * 升级车道绿灯只是「有可能支持」的证据，提升是之后人工做的事（ADR-0009）。
- * 这条分离是契约的全部意义——自动放宽支持矩阵会重新引入它要消除的过度承诺。
+ * 全部插件统一由 `scripts/dsh-baseline.mjs` 的基线派生软范围：升级脚本在同一个
+ * 批次里重写 engines / DSH peer 与 `plugins/<name>/src/compat/dsh-version.ts` 的
+ * `DSH_BASELINE` 字面量，绿灯是回归证据，不再有人工提升支持矩阵的动作。
  *
- * 默认模式是永久的：重写 `catalogs.dsh` 基线册（六个软插件的 `catalog:dsh`
- * 引用因而随单点移动）、精确契约插件的字面量 devDeps、六个软插件的 engines 与
- * DSH peer 范围、workspace 豁免，并同步 `scripts/dsh-baseline.mjs`。值为
- * `catalog:`/`catalog:dsh` 的 manifest 条目一律跳过，重写结束后断言六个软插件的
+ * 默认模式是永久的：重写 `catalogs.dsh` 基线册（各插件的 `catalog:dsh` 引用
+ * 因而随单点移动）、字面量 devDeps、全部插件的 engines 与 DSH peer 范围、
+ * 运行时基线副本、workspace 豁免，并同步 `scripts/dsh-baseline.mjs`。值为
+ * `catalog:`/`catalog:dsh` 的 manifest 条目一律跳过，重写结束后断言各插件的
  * devDependencies 不残留 DSH 家族、cordis 与 schemastery 的字面量版本。
  * `--probe` 额外追加 workspace-only 的 `overrides:` 块，避免预发布范围在探测
  * 期间解析出混装树；探测结束后用 `git checkout` 恢复，或重跑一次不带 `--probe`
@@ -22,7 +23,7 @@
  * ```bash
  * pnpm dsh:upgrade 0.2.1-rc.2 --probe
  * pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0
- * DSH_MULTI_ROOT_COMPAT=warn pnpm --filter dsh-plugin-multi-root-workspace verify:all
+ * pnpm --filter dsh-plugin-multi-root-workspace verify:all
  * pnpm dsh:upgrade 0.2.1-rc.2          # 探测通过后移除 overrides
  * ```
  *
@@ -65,18 +66,6 @@ function listPlugins() {
       return { dir, manifest: JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) }
     })
     .sort((left, right) => left.manifest.name.localeCompare(right.manifest.name))
-}
-
-/**
- * Whether a plugin carries the exact-allowlist contract instead of a soft range.
- *
- * The contract file is the marker, not a hardcoded package name: a future plugin
- * that grows a version allowlist opts into the same "peers untouched" treatment.
- * @param dir - the plugin directory.
- * @returns true when the plugin owns `src/compat/dsh-version.ts`.
- */
-function hasExactContract(dir) {
-  return existsSync(join(dir, 'src', 'compat', 'dsh-version.ts'))
 }
 
 /**
@@ -159,13 +148,48 @@ function repointBaseline(target) {
 }
 
 /**
+ * Repoint every plugin's runtime copy of the DSH baseline.
+ *
+ * The runtime gate keeps a local baseline literal so it stays pure (no manifest
+ * read at module load); this rewrite is what keeps that copy in step with
+ * `scripts/dsh-baseline.mjs`. Doing it in the same run as the manifests is the
+ * point — a separate human step would let a green upgrade leave the runtime copy
+ * behind. The pattern matches `repointBaseline`, and the rewrite is idempotent:
+ * a literal that already equals the target is left untouched.
+ *
+ * A plugin without `src/compat/dsh-version.ts` has no runtime copy and is
+ * skipped. A plugin that owns the file but lost the literal is a template defect
+ * and throws, rather than silently skipping the rewrite.
+ * @param plugins - discovered plugins.
+ * @param target - the release being pinned.
+ * @returns human-readable change descriptions.
+ */
+function repointRuntimeBaselines(plugins, target) {
+  const changes = []
+  for (const plugin of plugins) {
+    const file = join(plugin.dir, 'src', 'compat', 'dsh-version.ts')
+    if (!existsSync(file)) continue
+    const source = readFileSync(file, 'utf8')
+    const match = /(export const DSH_BASELINE = ')([^']+)(')/u.exec(source)
+    if (match === null) {
+      throw new Error(`[upgrade] ${plugin.manifest.name}: src/compat/dsh-version.ts has no DSH_BASELINE literal`)
+    }
+    const previous = match[2]
+    if (previous === target) continue
+    writeFileSync(file, source.replace(match[0], `${match[1]}${target}${match[3]}`))
+    changes.push(`${plugin.manifest.name}: runtime DSH baseline ${previous} → ${target}`)
+  }
+  return changes
+}
+
+/**
  * Rewrite the `catalogs.dsh` shelf, leaving the default toolchain shelf alone.
  *
- * The six soft plugins reference `catalog:dsh`, so this block — not their
- * manifests — is what an upgrade has to move. It is rewritten line by line
- * because the file's comments explain the two-shelf split; a parse-and-dump
- * round trip would drop them. The default `catalog:` (toolchain) shelf is
- * deliberately out of scope: those versions are raised by hand.
+ * Every plugin references `catalog:dsh`, so this block — not their manifests —
+ * is what an upgrade has to move. It is rewritten line by line because the
+ * file's comments explain the two-shelf split; a parse-and-dump round trip
+ * would drop them. The default `catalog:` (toolchain) shelf is deliberately out
+ * of scope: those versions are raised by hand.
  * @param source - the workspace file's text.
  * @param target - the release to pin into the DSH family.
  * @param cordisVersion - the exact cordis version to write.
@@ -209,19 +233,19 @@ function repointCatalog(source, target, cordisVersion, schemasteryVersion) {
 }
 
 /**
- * Repoint one plugin's devDependencies, and — for soft plugins only — its
- * declared install contract.
+ * Repoint one plugin's devDependencies and its declared install contract.
  *
- * The exact-contract plugin keeps its peer enum and allowlist: those are edited
- * by a human after a green probe (ADR-0009). Only its development pin moves.
- * Values that reference a catalog are left untouched: the catalog shelf is the
- * single point the upgrade rewrites, so materializing a literal here would both
- * drift on the next upgrade and trip the post-rewrite assertion.
+ * Every plugin derives `dsh.engines.dsh` and the DSH peers from the same
+ * baseline soft range, so both move here; keeping any plugin exempt would leave
+ * a hand-maintained copy that drifts on the next upgrade. Values that reference
+ * a catalog are left untouched: the catalog shelf is the single point the
+ * upgrade rewrites, so materializing a literal here would both drift on the
+ * next upgrade and trip the post-rewrite assertion.
  * @param plugin - the discovered plugin.
  * @param target - the release to pin.
  * @param cordisVersion - the exact cordis version the release requires.
  * @param schemasteryVersion - the exact schemastery version the release requires.
- * @param softRange - the range to write into soft plugins.
+ * @param softRange - the derived range to write into every plugin.
  * @returns human-readable change descriptions.
  */
 function repointPlugin(plugin, target, cordisVersion, schemasteryVersion, softRange) {
@@ -242,17 +266,15 @@ function repointPlugin(plugin, target, cordisVersion, schemasteryVersion, softRa
       devs[name] = schemasteryVersion
     }
   }
-  if (!hasExactContract(plugin.dir)) {
-    if (manifest.dsh?.engines?.dsh !== undefined && manifest.dsh.engines.dsh !== softRange) {
-      changed.push(`dsh.engines.dsh: ${manifest.dsh.engines.dsh} → ${softRange}`)
-      manifest.dsh.engines.dsh = softRange
-    }
-    const peers = manifest.peerDependencies ?? {}
-    for (const [name, range] of Object.entries(peers)) {
-      if (!isDshPackage(name) || range === softRange) continue
-      changed.push(`peerDependencies["${name}"]: ${range} → ${softRange}`)
-      peers[name] = softRange
-    }
+  if (manifest.dsh?.engines?.dsh !== undefined && manifest.dsh.engines.dsh !== softRange) {
+    changed.push(`dsh.engines.dsh: ${manifest.dsh.engines.dsh} → ${softRange}`)
+    manifest.dsh.engines.dsh = softRange
+  }
+  const peers = manifest.peerDependencies ?? {}
+  for (const [name, range] of Object.entries(peers)) {
+    if (!isDshPackage(name) || range === softRange) continue
+    changed.push(`peerDependencies["${name}"]: ${range} → ${softRange}`)
+    peers[name] = softRange
   }
   if (changed.length > 0) {
     writeFileSync(join(plugin.dir, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`)
@@ -261,19 +283,16 @@ function repointPlugin(plugin, target, cordisVersion, schemasteryVersion, softRa
 }
 
 /**
- * List the soft plugins that still declare a literal DSH/cordis/schemastery pin.
+ * List the plugins that still declare a literal DSH/cordis/schemastery pin.
  *
  * Catalog references are the invariant that lets `catalogs.dsh` describe the
- * whole tree; a literal in a soft plugin silently drifts on the next upgrade.
- * The exact-contract plugin is exempt on purpose — its exact devDeps are part of
- * its supported-release matrix, which upgrades by hand (ADR-0009).
+ * whole tree; a literal in any plugin silently drifts on the next upgrade.
  * @param plugins - discovered plugins after the rewrite.
  * @returns one description per residual literal, empty when the invariant holds.
  */
 function residualLiterals(plugins) {
   const residual = []
   for (const plugin of plugins) {
-    if (hasExactContract(plugin.dir)) continue
     const devs = plugin.manifest.devDependencies ?? {}
     for (const [name, version] of Object.entries(devs)) {
       if (!isDshPackage(name) && name !== CORDIS && name !== SCHEMASTERY) continue
@@ -420,6 +439,7 @@ for (const plugin of plugins) {
     changes.push(`${plugin.manifest.name}: ${entry}`)
   }
 }
+const runtimeBaselineChanges = repointRuntimeBaselines(plugins, target)
 const catalogRewrite = repointCatalog(readFileSync(WORKSPACE, 'utf8'), target, cordisVersion, schemasteryVersion)
 const { allowances, probeEntries } = repointWorkspace(
   catalogRewrite.source,
@@ -431,18 +451,20 @@ const { allowances, probeEntries } = repointWorkspace(
 )
 
 console.log(`[upgrade] baseline: ${previousBaseline} → ${target}`)
-console.log(`[upgrade] soft plugin range: ${softRange}`)
+console.log(`[upgrade] plugin range: ${softRange}`)
 console.log(`[upgrade] cordis pin: ${cordisVersion}`)
 console.log(`[upgrade] schemastery pin: ${schemasteryVersion}`)
 console.log(`[upgrade] manifest entries rewritten: ${changes.length}`)
 for (const entry of changes) console.log(`           ${entry}`)
+console.log(`[upgrade] runtime baselines rewritten: ${runtimeBaselineChanges.length}`)
+for (const entry of runtimeBaselineChanges) console.log(`           ${entry}`)
 console.log(`[upgrade] catalogs.dsh entries rewritten: ${catalogRewrite.changes.length}`)
 for (const entry of catalogRewrite.changes) console.log(`           ${entry}`)
 console.log(`[upgrade] release-age allowances rewritten: ${allowances}`)
 
 const residual = residualLiterals(plugins)
 if (residual.length > 0) {
-  console.error('\n[upgrade] soft plugins must reference "catalog:dsh", not literal versions:\n')
+  console.error('\n[upgrade] plugins must reference "catalog:dsh", not literal versions:\n')
   for (const entry of residual) console.error(`  - ${entry}`)
   console.error('\nReplace those devDependencies with "catalog:dsh" and rerun.\n')
   process.exit(1)
@@ -453,7 +475,6 @@ if (probe) {
   console.log('[upgrade] probe overrides: absent')
 }
 console.log('[upgrade] next: pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0')
-console.log('[upgrade] probe: DSH_MULTI_ROOT_COMPAT=warn pnpm --filter dsh-plugin-multi-root-workspace verify:all')
-console.log(`[upgrade] after green (human): append '${target}' to SUPPORTED_DSH_RELEASES and every multi-root peerDependency,`)
-console.log('[upgrade]                    then pnpm --filter dsh-plugin-multi-root-workspace compat:check')
+console.log('[upgrade] probe: pnpm --filter dsh-plugin-multi-root-workspace verify:all')
+console.log('[upgrade] 全部插件统一由基线派生软范围；运行时基线副本已同批重指')
 console.log('[upgrade] remove probe overrides by rerunning without --probe (or git checkout -- pnpm-workspace.yaml)')

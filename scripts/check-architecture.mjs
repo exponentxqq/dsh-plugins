@@ -19,7 +19,7 @@
  * - AR6：六个软插件目录不得有本地 `.oxlintrc.json`；根 `.oxlintrc.json` 的 `plugins`
  *   为空数组、`ignorePatterns` 恰为 R4 三条（执行期 R11①②）；
  * - AR7：workspace `packages` 恰为 `plugins/*` + 四个显式 tooling 包
- *   （执行期 R12①），`tooling/template` 不是包。
+ *   （执行期 R12①），`templates/` 不是包（禁止 `templates` / `templates/*` 进 `packages`）。
  *
  * 全部失败一次列出，不遇到第一个就退出；退出码 0 通过 / 1 断言失败 / 2 用法错误。
  *
@@ -67,7 +67,7 @@ function note(message) {
 /**
  * 读取一个目录下的全部包（有 `package.json` 的目录）。
  *
- * `tooling/template` 的清单叫 `package.json.tmpl`，因此天然不会被当成包。
+ * 模板素材在顶层 `templates/`（不在 `plugins/` / `tooling/` 两个扫描根内），不会被当成包。
  * @param root - 包根目录（`plugins/` 或 `tooling/`）。
  * @param label - 失败信息里的目录前缀。
  * @returns `{ dir, dirName, manifest }`，按包名排序；清单解析失败的目录已被记录并跳过。
@@ -637,11 +637,36 @@ function inspectLintConfig(softPluginList) {
  */
 const REQUIRED_PACKAGES = ['plugins/*', 'tooling/build-kit', 'tooling/contracts', 'tooling/host-kit', 'tooling/test-kit']
 
-/** 明确禁止出现在 `packages` 里的条目。 */
+/**
+ * 明确禁止出现在 `packages` 里的条目。
+ *
+ * 精确值之外还接受 `templates/*` 这种尾缀通配：模板素材在顶层 `templates/`，
+ * 其下任何目录都不是 workspace 包。
+ */
 const FORBIDDEN_PACKAGES = new Map([
-  ['tooling/*', 'tooling 包必须逐个显式列出（通配会把 template 当成包）'],
-  ['tooling/template', '模板目录不是包（清单文件名必须是 package.json.tmpl）'],
+  ['tooling/*', 'tooling 包必须逐个显式列出（通配会让「谁是包」不可断言）'],
+  ['templates', '模板素材不是包（模板在顶层 templates/，清单是 template.json + *.tmpl）'],
+  ['templates/*', '模板素材不是包（templates/<name>/ 不得作为 workspace 包递归）'],
 ])
+
+/**
+ * 判断一条 `packages` 条目是否命中 `FORBIDDEN_PACKAGES`。
+ *
+ * 精确值直接命中；尾缀通配按前缀命中，但先排除 `REQUIRED_PACKAGES` 里的显式
+ * tooling 包，避免 `tooling/*` 误伤四个 kit。返回值里的 `entry` 始终是文件里
+ * 实际列入的条目（如 `templates/default`），失败信息据此点名具体包。
+ * @param entry - `packages` 列表中的一条原值。
+ * @returns `{ entry, reason }`；未命中返回 `null`。
+ */
+function findForbiddenPackage(entry) {
+  const exact = FORBIDDEN_PACKAGES.get(entry)
+  if (exact !== undefined) return { entry, reason: exact }
+  if (REQUIRED_PACKAGES.includes(entry)) return null
+  for (const [pattern, reason] of FORBIDDEN_PACKAGES) {
+    if (pattern.endsWith('/*') && entry.startsWith(pattern.slice(0, -1))) return { entry, reason }
+  }
+  return null
+}
 
 /**
  * 文本级解析 `pnpm-workspace.yaml` 的 `packages` 列表。
@@ -691,8 +716,9 @@ function inspectWorkspacePackages() {
     seen.add(entry)
   }
 
-  for (const [entry, reason] of FORBIDDEN_PACKAGES) {
-    if (seen.has(entry)) fail(`AR7 packages 里出现 "${entry}"：${reason}`)
+  for (const entry of seen) {
+    const forbidden = findForbiddenPackage(entry)
+    if (forbidden !== null) fail(`AR7 packages 里出现 "${forbidden.entry}"：${forbidden.reason}`)
   }
 
   for (const entry of REQUIRED_PACKAGES) {
@@ -707,7 +733,7 @@ function inspectWorkspacePackages() {
 
   for (const entry of listed) {
     // 明确禁止的条目已经单独报过，不再重复报「多余条目」。
-    if (FORBIDDEN_PACKAGES.has(entry)) continue
+    if (findForbiddenPackage(entry) !== null) continue
     if (!REQUIRED_PACKAGES.includes(entry)) {
       fail(`AR7 packages 出现多余条目 "${entry}"：只允许 ${REQUIRED_PACKAGES.join(' / ')}`)
       continue
@@ -791,7 +817,7 @@ note('AR6: 根 .oxlintrc.json 为唯一基准（plugins: []，ignorePatterns 三
 
 // AR7
 inspectWorkspacePackages()
-note('AR7: packages 恰为 plugins/* + 四个显式 tooling 包，tooling/template 不是包')
+note('AR7: packages 恰为 plugins/* + 四个显式 tooling 包，templates/ 不是包（禁止 templates / templates/*）')
 
 if (failures.length > 0) {
   console.error('\n[architecture] 结构不变式不成立：\n')

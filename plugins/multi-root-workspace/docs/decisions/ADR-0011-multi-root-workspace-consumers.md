@@ -68,3 +68,7 @@ LSP 测试启动真实 stdio 协议进程并确认 root/cwd/URI、源码和进�
 - [ADR-0003：方言扩展](./ADR-0003-dialect-grant-widening.md)
 - [ADR-0005：客户端传输](./ADR-0005-out-of-tree-client-transport.md)
 - [ADR-0009：兼容合同](./ADR-0009-dsh-compat-contract.md)
+
+---
+
+> **注记（2026-11-07）**：本 ADR 中涉及「multi-root 精确版本契约 / 精确 allowlist」的表述——「兼容与验证」节的「新增可选 peer 均按既有 exact allowlist 声明，并纳入混装检查」——已被 2026-11-07 的**基线派生软范围**裁定取代：`peerDependencies` 与 `dsh.engines.dsh` 统一为由基线派生的范围（`>=<基线> <下一 minor>`，当前 `>=0.2.2-rc.1 <0.3.0`），升级由仓库根 `pnpm dsh:upgrade` 同批重指；混装检查与行级门禁不变。详见 [ADR-0009：DSH 兼容性代码契约](./ADR-0009-dsh-compat-contract.md) 的「支持矩阵范围化（2026-11-07）」节。上述描述保留作历史记录，正文不回改。

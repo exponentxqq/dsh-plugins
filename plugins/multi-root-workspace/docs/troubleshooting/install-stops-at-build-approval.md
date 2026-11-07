@@ -85,4 +85,4 @@ onlyBuiltDependencies:
 ## 相关
 
 - [README §安装](../../README.md)（四种安装来源与构建授权说明）
-- [故障排查：DSH 版本不在支持矩阵上](./unsupported-dsh-release.md)（装完之后插件仍不生效的另一种原因）
+- [故障排查：DSH 版本在支持范围外](./unsupported-dsh-release.md)（装完之后插件仍不生效的另一种原因）

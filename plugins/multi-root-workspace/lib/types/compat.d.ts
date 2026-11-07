@@ -17,22 +17,23 @@
  * `Service` constructor has already run `super(ctx, name)` — and therefore
  * already claimed the service key — by the time it could inspect anything.
  *
- * The verdict itself, and the allowlist it is judged against, live in
+ * The verdict itself, and the supported range it is judged against, live in
  * `./compat/dsh-version.ts`. This module owns only the reaction to it.
  *
  * @module dsh-plugin-multi-root-workspace/compat
  */
 import { Context, Service } from '@deepseek-ai/cordis';
-import { type CompatEnforcement, type CompatReport } from './compat/dsh-version.ts';
+import { type CompatReport } from './compat/dsh-version.ts';
 declare module '@deepseek-ai/cordis' {
     interface Context {
         multiRootCompat: MultiRootCompatService;
     }
 }
 /**
- * Raised when the installed DSH release is not one this plugin is verified
- * against. It is thrown from `apply`, so it surfaces as a plugin load failure
- * with the full diagnosis attached — never as a silently degraded sandbox.
+ * Raised when the installation fails the compatibility contract — an
+ * `unsupported` release, an `incomplete` installation or a `mixed` one. It is
+ * thrown from `apply`, so it surfaces as a plugin load failure with the full
+ * diagnosis attached — never as a silently degraded sandbox.
  */
 export declare class DshCompatUnsupportedError extends Error {
     /** The report that produced the refusal. */
@@ -56,7 +57,7 @@ export declare class MultiRootCompatService extends Service {
     constructor(ctx: Context, report: CompatReport);
     /** The single DSH release every inspected core package agreed on. */
     get release(): string | undefined;
-    /** Whether the installation is on the allowlist. */
+    /** Whether the installation is within the supported range. */
     get supported(): boolean;
 }
 /** This row needs nothing: it is the thing everything else waits for. */
@@ -64,19 +65,16 @@ export declare const inject: string[];
 /**
  * Apply the gate policy to one report.
  *
- * Under `DSH_MULTI_ROOT_COMPAT=warn` exactly one verdict is relaxed: an
- * `unsupported` release that every inspected package agrees on. That is the
- * only shape the upgrade smoke probes — a coherent tree on a release the
- * allowlist does not name yet, which is how a release earns its place there.
- * `mixed` and `incomplete` describe an installation the contract cannot judge
- * at all, so they are refused in either mode; production deployments leave the
- * variable unset and get the refusal for everything.
+ * `supported` is the only verdict that lets the service mount. `unsupported`,
+ * `incomplete` and `mixed` all describe an installation whose sandbox shape
+ * this plugin cannot vouch for, so every one of them is refused: the gate has
+ * exactly one reaction and there is no degraded path. `report.message` already
+ * carries the verdict's diagnosis, the inspected package inventory and the
+ * recovery pointer, so the thrown error needs no wording of its own.
  * @param report - the verdict to act on.
- * @param enforcement - how to react to a non-`supported` verdict.
- * @returns the warning to log, or `undefined` when there is nothing to say.
- * @throws {DshCompatUnsupportedError} when refusing to run.
+ * @throws {DshCompatUnsupportedError} when the verdict is not `supported`.
  */
-export declare function assertSupportedInstallation(report: CompatReport, enforcement: CompatEnforcement): string | undefined;
+export declare function assertSupportedInstallation(report: CompatReport): void;
 /**
  * Judge the installation, then either refuse to provide the service or provide
  * it.

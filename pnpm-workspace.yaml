@@ -2,8 +2,9 @@
 # 下面的 allowBuilds 与 minimumReleaseAgeExclude 原样上移自
 # plugins/multi-root-workspace（该插件此前自持一份 pnpm-workspace.yaml，
 # 嵌套 workspace 会被 pnpm 拒绝，故统一收归根）。
-# tooling 包逐条显式列出而非 tooling/*：tooling/template 不是包（清单叫
-# package.json.tmpl），显式列表使「谁是包」可断言，也避免 pnpm -r 递归到模板。
+# tooling 包逐条显式列出而非 tooling/*：模板素材在顶层 templates/default/（不是包，
+# 多模板约定见 templates/README.md，也不进 packages——AR7 禁止 templates / templates/*），
+# 显式列表使「谁是包」可断言，也避免 pnpm -r 递归到模板。
 packages:
   - "plugins/*"
   - "tooling/build-kit"
@@ -32,10 +33,14 @@ catalogs:
     '@deepseek-ai/schemastery': '3.19.0'
     '@deepseek-ai/dsh': '0.2.2-rc.1'
     '@deepseek-ai/dsh-agent': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-agent-instructions': '0.2.2-rc.1'
     '@deepseek-ai/dsh-api-session-controller': '0.2.2-rc.1'
     '@deepseek-ai/dsh-api-workspace-controller': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-api-workspace-files': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-app-boot': '0.2.2-rc.1'
     '@deepseek-ai/dsh-atomic-write': '0.2.2-rc.1'
     '@deepseek-ai/dsh-authorization': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-base': '0.2.2-rc.1'
     '@deepseek-ai/dsh-client-connection': '0.2.2-rc.1'
     '@deepseek-ai/dsh-client-locale': '0.2.2-rc.1'
     '@deepseek-ai/dsh-client-store': '0.2.2-rc.1'
@@ -51,13 +56,31 @@ catalogs:
     '@deepseek-ai/dsh-client-ui-workspace': '0.2.2-rc.1'
     '@deepseek-ai/dsh-commands': '0.2.2-rc.1'
     '@deepseek-ai/dsh-credentials': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-file-reference': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-file-reference-local': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-fs': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-fs-local': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-fs-sandbox': '0.2.2-rc.1'
     '@deepseek-ai/dsh-home-paths': '0.2.2-rc.1'
     '@deepseek-ai/dsh-llm': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-lsp': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-lsp-stdio': '0.2.2-rc.1'
     '@deepseek-ai/dsh-mcp-client': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-sandbox': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-sandbox-local': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-sandbox-policy': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-sandbox-windows-acl': '0.2.2-rc.1'
     '@deepseek-ai/dsh-session': '0.2.2-rc.1'
     '@deepseek-ai/dsh-session-persistence': '0.2.2-rc.1'
     '@deepseek-ai/dsh-session-projection': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-storage': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-storage-domain': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-storage-json': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-subprocess': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-subprocess-local': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-system-prompt': '0.2.2-rc.1'
     '@deepseek-ai/dsh-tools': '0.2.2-rc.1'
+    '@deepseek-ai/dsh-typert-protocol': '0.2.2-rc.1'
     '@deepseek-ai/dsh-workspace': '0.2.2-rc.1'
 
 # Native dependency build scripts this repository's toolchain needs to run.

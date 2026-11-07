@@ -111,3 +111,7 @@ query 归一化（`\` → `/`）后为绝对路径时，两种命中：
 - [ADR-0011：多根 scope 消费方扩展](./ADR-0011-multi-root-workspace-consumers.md)（wrapMethod 公共方法包装与卸载恢复的先例）
 - [Agent Note：DSH 兼容性契约](../../.agent/note/dsh-compat-contract.md)
 - [架构文档](../architecture/multi-root-workspace.md)
+
+---
+
+> **注记（2026-11-07）**：本 ADR 中涉及「multi-root 精确版本契约 / 精确 allowlist」的表述——决策 7 的「`peerDependencies` 逐字等于 allowlist 的精确版本」与 Consequences 的「allowlist 其余版本的 `WorkspaceFileSearch` 形状未逐一实测」——已被 2026-11-07 的**基线派生软范围**裁定取代：`peerDependencies` 与 `dsh.engines.dsh` 统一为由基线派生的范围（`>=<基线> <下一 minor>`，当前 `>=0.2.2-rc.1 <0.3.0`），升级由仓库根 `pnpm dsh:upgrade` 同批重指；三处同步的其余两处（`peerDependenciesMeta` 标 optional、`devDependencies` pin 基线）不变，上句在新口径下应读作「范围内其余版本」。详见 [ADR-0009：DSH 兼容性代码契约](./ADR-0009-dsh-compat-contract.md) 的「支持矩阵范围化（2026-11-07）」节。上述描述保留作历史记录，正文不回改。

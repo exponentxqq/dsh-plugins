@@ -57,12 +57,13 @@
 | 根仓 `plugins/multi-root-workspace/docs/decisions/ADR-0009-dsh-compat-contract.md` | **append-only** 修订留痕 | Status 块在现有两条之后追加一条范围化 `> 本地 fork 注（2026-11-07）`（warn 删除 + 探测车道降级为回归验证；明确「第 1 节『范围是预测』论证在 2026-11-07 被用户裁定推翻」）；`## Related Documents` 之前新增 `## 支持矩阵范围化（2026-11-07）` 节（保留第 2/3/4 条不变，说明代价与保留项）；**不改写** `:43-57` / `:106-112` / `:240-257` 历史正文 |
 | 根仓 `plugins/multi-root-workspace/docs/decisions/ADR-0002-upstream-coupling-policy.md` | 注记式追加 | `:28` 与 `:30` 末尾加「（2026-11-07：该『精确版本或』已被基线派生软范围取代，见 ADR-0009 范围化节；本条的『范围声明承诺过大』结论对当时的动机仍成立）」 |
 | 根仓 `plugins/multi-root-workspace/docs/decisions/ADR-0011-…consumers.md`、`ADR-0012-…file-references.md` | 注记式追加 | `:49` / `:71` 的「exact allowlist / 逐字等于 allowlist 精确版本或」加同批注记；决策正文不改 |
-| 根仓 `plugins/multi-root-workspace/docs/decisions/README.md` | 索引描述 | `:28` 的「精确版本 allowlist…按周升级车道」→「基线派生软范围…探测降级为回归验证」（该文件无 `.en.md`，不涉及双语） |
+| 根仓 `plugins/multi-root-workspace/docs/decisions/README.md` + `README.en.md` | 索引描述（双语对） | `:28` 的「精确版本 allowlist…按周升级车道」→「基线派生软范围…探测降级为回归验证」；双语两行同口径（§0 校正：执行期实测 `.en.md` 存在，规划断言「无 `.en.md`」失真——3.2 执行期已纳英文行入写面） |
 | 根仓 `plugins/multi-root-workspace/AGENTS.md` | 仓库级规则 | `:96`（H3 段）与 `:107`（不变量 7）去掉 allowlist / warn / 「提升是人工动作」旧语义，改为「运行时副本 + 派生范围」「升级脚本重指范围、绿灯是回归证据」；保留「适配层只做结构探测」 |
 | 根仓 `plugins/multi-root-workspace/README.md` + `README.en.md` | 用户可见口径（双语同步） | 中文 `:47`、`:191`、`:215`；英文 `:45`、`:191`、`:215`：exact list → baseline-derived range；unsupported 的定义改「在范围外」；warn 相关删除 |
 | 根仓 `plugins/multi-root-workspace/docs/architecture/multi-root-workspace.md` | 架构描述 | `:90`「不在精确 allowlist 上」→「不在派生软范围（`>=<基线> <下一 minor>.0`）内」；判定顺序不变 |
 | 根仓 `plugins/multi-root-workspace/docs/development/plugin-development-workflow.md` | 工作流 | `:11-13` 表格三行（支持矩阵 / 实测证据 / 运行时门禁）；`:35` 命令说明；`:51`「verify:all 故意不含 compat:check」随 D-8 反转；`:167` 支持矩阵段；`:173-183` 升级流程（去 warn、去「人工加入 allowlist」四步、加「升级脚本同批重写运行时基线」）；`:224-225` 排障表两行；`:191-195` 为已声明的上游历史，不改 |
 | 根仓 `plugins/multi-root-workspace/docs/troubleshooting/unsupported-dsh-release.md` | 用户侧排障整篇改口 | `:29-54` 根因段（含七行门禁）、`:56-71` 判定表与诊断、`:73-105` 解决方案、`:107-111` 删除整个 warn 小节；`:88` 的 shim 路径改根 `pnpm dsh:upgrade`（G-B 的改口实际落点，见 §0-4） |
+| 根仓 `plugins/multi-root-workspace/docs/troubleshooting/README.md` + `README.en.md` | 索引行同步（§0 执行期校正：规划清单漏列，3.5 接续补） | `:25` 链接文字「不在支持矩阵上」→「在支持范围外」+ 描述尾「人工提升」→「pnpm dsh:upgrade 同批重指」（双语同口径）；`install-stops-at-build-approval.md:88` 链接文字同步新标题 |
 | 根仓 `plugins/multi-root-workspace/.agent/note/dsh-compat-contract.md` + `.en.md` | Agent 耐久知识（双语成对） | §1（唯一真源 → 运行时副本 + 派生范围；四行一致性表改「baseline → range / peers / engines / installed」）、§5（warn 整节删除，改为「没有放宽开关」）、§6（升级流程去 warn、compat:check 语义）、§8（verify:all 现含 compat:check）；历史测量段（0.1.x/0.2.x 各节）保留 |
 | 根仓 `plugins/multi-root-workspace/.agent/note/README.md` + `.en.md` | 索引描述 | `:23` 的「allowlist 的唯一真源…升级车道用法」改「基线派生的支持范围…升级回归」 |
 | 根仓 `AGENTS.md` | 仓级规则 | `:48`「六个软插件」→「全部插件」；`:49` multi-root 例外条删除并替换为「运行时基线副本由基线派生，升级脚本同批重指」；`:50` `dsh:upgrade` 描述去「软插件范围」歧义（改「全部插件范围」） |
@@ -173,7 +174,7 @@
 | ADR-0009 | `docs/decisions/ADR-0009-…md:7`、`:9` 两条历史 fork 注；`:43-57` 第 1 节精确 allowlist；`:106-112` 第 5 节 warn；`:240-257` 最新修订节；`:259` Related Documents | 三条追加（Status 两行 + Related 前新节）的落点与「不改写历史」 |
 | ADR 交叉引用 | `ADR-0002:28`（「范围承诺过大，现在只列确切版本」）、`:30`（「矩阵等于 SUPPORTED_DSH_RELEASES」） | 注记追加 |
 | ADR 交叉引用 | `ADR-0011:49`、`ADR-0012:71`（「按既有 exact allowlist 声明」） | 注记追加 |
-| 索引 | `docs/decisions/README.md:28` | 描述更新 |
+| 索引 | `docs/decisions/README.md:28` + `README.en.md:28`（双语，§0 执行期校正） | 描述更新（两行同口径） |
 | 仓库规则 | `plugins/multi-root-workspace/AGENTS.md:96`（H3 段）、`:107`（不变量 7） | 规则改写 |
 | 用户文档 | `plugins/multi-root-workspace/README.md:47`、`:191`、`:215`；`README.en.md:45`、`:191`、`:215` | 双语同步 |
 | 架构 | `docs/architecture/multi-root-workspace.md:90` | 门禁语义句 |
@@ -659,6 +660,12 @@ console.log('ok: 53 entries, all 36 @deepseek-ai devDeps catalogued')
 "
 ```
 
+**组 1 终形态（执行期 2026-11-07 实测，R1/R2 见 tasks.md 附录）**
+
+- 全部 7 任务通过，组 GATE `pnpm dsh:check` exit 0（末行 `3 组门禁全部通过`）。
+- 实测事实：①门禁预期红形态 = 59 条失败行全部 `dsh-plugin-multi-root-workspace:` 前缀（36 devDeps + 1 engines missing + 22 peer），六软插件零失败——1.3 落地后转绿（agree 行）。②lockfile diff 的合法变化 = 三类：specifier 改写删除侧（36 行）+ catalogs 段新条目定义三行组（22×3=66 行）+ 新增侧 `specifier: catalog:dsh`；原验证句只白名单第三类（102≠0），已按 R1 修订为等价替代句（实测 0），解析结果零漂移（version 删除 0）。③pnpm 11.25 依赖状态门（R2）：manifest 被改的失败态下朴素 `pnpm dsh:check` 触发 auto-install 中止（`ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`）而**不执行门禁脚本**——红队配方必须 `pnpm --config.verify-deps-before-run=false dsh:check`；GATE 绿态不受影响。④upgrade-dsh `repointPlugin` 保留「engines.dsh 已声明才重指」守卫（缺失字段不自动补写）——1.3 落地后七插件均声明，效果等同；块注释中 `plugins/*/src` 的 `*/` 会提前闭合注释，须写 `plugins/<name>/src`。
+- 被否/边界：install 未产生任何依赖版本漂移（downloaded 0、`--frozen-lockfile --lockfile-only --offline` 复核 md5 一致）；`check-architecture.mjs:745` 自有的 softPlugins 分裂（AR3/AR4/AR5 非 multi-root 判定）语义不同、不在触达面，未动。
+
 ### 组 2 — G-C 运行时门（写面：`src/compat/dsh-version.ts`、`src/compat.ts`、`src/index.ts`、`tests/compat.spec.ts`、`tests/support/compat.ts`、`scripts/check-dsh-compat.mjs`）
 
 | # | 任务 | 局部验证 |
@@ -683,6 +690,12 @@ pnpm dsh:check
 #   → compat:check exit 1（peers/engines 与派生范围不等）且 pnpm --filter … test 失败；恢复
 # 红队二（warn 残留）：grep -rn "DSH_MULTI_ROOT_COMPAT" plugins/multi-root-workspace/{src,tests,scripts} → 0
 ```
+
+**组 2 终形态（执行期 2026-11-07 实测，R3 见 tasks.md 附录；含微任务 2.8）**
+
+- 全部 8 任务（2.1–2.7 + 微任务 2.8）通过；GATE 六连 exit 0（包 typecheck/build/test/compat:check + 全仓 typecheck + dsh:check，末行 `3 组门禁全部通过`；包测试 423 passed / 4 既有环境 skip，compat.spec 39 tests 0 skip）。
+- 实测事实：①红队一精准红 = compat:check 23 条 expected（engines + 22 peers）+ 包测试 5 用例红（tripwire `is pinned to 0.2.2-rc.1` + boundary 3 条 + manifest 2 条），cp 恢复双绿；②红队二唯一命中是 2.1 写入的 docblock 历史叙述（「删除了 `DSH_MULTI_ROOT_COMPAT=warn`…」），经裁定 A 由 2.8 一行改写收口（「删除了按环境变量放行的警告档」），src/tests/scripts/lib 四处全零——历史叙述归 ADR-0009（组 3），源码注释保留环境变量字符串会干扰未来 grep 排查；③lib 产物 chunk 因内容哈希改名 `compat-lYI8x_n7.js`→`compat-CZl_gQYV.js`→`compat-BoLaK7du.js`（两次重建），clean-lib 删旧名、引用零孤儿；lib 变化面恒 7 项（compat.js/index.js/types 3 项/新 chunk/D 旧 chunk）。④2.1 实现细节：`VERSION_PATTERN`/`NUMERIC_IDENTIFIER` 须前置（`SUPPORTED_DSH_RANGE` 装载期调用 parseVersion，后置触发 TDZ）；docblock 不得复写 `export const DSH_BASELINE = '…'` 完整赋值形状（R3：upgrade 脚本按首个文本出现重写）；`ParsedVersion` 保持非导出；比较器 4 规则与 8 行边界表全部被 tests 钉住。⑤2.4 engines 断言对 `SUPPORTED_DSH_RANGE` 变量（tripwire 钉基线字面量）传递等价于字面量断言；基线换 minor 时边界表人工重导（tripwire 红提示，不静默过期）。
+- 被否/边界：无源码降级路径（D1 warn 整体删除，无日志开关中间态）；2.3 顺带删悬空 `compatEnforcement` re-export（2.1 已删其源，保留必红）；tests 的旧名 import 直连 dsh-version.ts 不经 barrel（2.3 不替它们解红，2.4 负责）。
 
 ### 组 3 — G-C 文档与 spec delta（写面：ADR-0009/0002/0011/0012、decisions README、multi-root AGENTS/README(.en)/docs、根 README/AGENTS；`openspec/changes/unify-deps-and-templates/` **只读校验**）
 
@@ -709,6 +722,14 @@ grep -rn "SUPPORTED_DSH_RELEASES\|DSH_MULTI_ROOT_COMPAT" \
   plugins/multi-root-workspace/docs/troubleshooting
 # 期望：0 命中（ADR 正文与 .agent/note 历史测量段不在此 grep 面内）
 ```
+
+**组 3 终形态（执行期 2026-11-07 实测，R4 见 tasks.md 附录；含 3.2/3.5 接续与 3.6 扩面）**
+
+- 全部 8 任务通过（3.2、3.5 各含一次接续重派；3.6 扩面三处）；组收口 validate `--strict` valid、`openspec/specs/` 0 行（R4 例外口径）、`pnpm docs:check` 绿（check-docs.mjs 10 项全 PASS）、工作区 43 文件全部归入既有任务写面、无计划外文件。
+- 规划材料清单遗漏共四处，执行期以「连锁残留纳入对应任务写面」收口：①`docs/decisions/README.en.md` 存在（规划断言「无 .en.md」失真）→ 3.2 接续同步英文索引行；②`docs/troubleshooting/README.md`/`README.en.md`:25 索引行与 `install-stops-at-build-approval.md`:88 链接文字（规划未列）→ 3.5 接续同步；③`README.md`:47 / `README.en.md`:45 / ADR-0009:299 旧标题链接文字 → 3.6 扩面。**规律：改标题/改口径的任务，其交叉引用面（链接文字、索引行、双语行）是隐式连锁面，后续任务（含组 4）派发前应先全仓 grep 旧标题/旧口径词。**
+- 历史段处理先例（组 4/后续沿用）：旧机制叙述保留时以「**历史（…不再代表现行机制）**：」或「当时的…」限定词开头，段内禁用字符串（`SUPPORTED_DSH_RELEASES`/`DSH_MULTI_ROOT_COMPAT`）改用描述性说法（「精确版本支持矩阵」「『警告档』开关」），段尾指回现行机制章节。
+- 语义统一：「组合退化成未安装本插件」旧表述与现门禁（apply 抛错拒绝启动）矛盾——全部文档已统一为「抛错拒绝启动 / 七行不启动 / 无警告档无降级路径」；unsupported 定义统一为「落在派生范围外（低于基线或跨 minor）或混装」。
+- docs:check 边界：multi-root `check-docs.mjs`（10 项）只查配对存在/链接可解析等，不校验链接**文字**与目标标题匹配——文字失配须人工 grep 审计（本轮已全量：指向 unsupported-dsh-release.md 的引用 12 行全部新口径）。
 
 ### 组 4 — G-A 模板外迁（写面：`templates/**`、`tooling/template/**`(删)、`scripts/gen-plugin.mjs`、`scripts/check-architecture.mjs`、`pnpm-workspace.yaml` 注释、根 README/AGENTS 模板段、dotfiles 6 处）
 
@@ -742,6 +763,12 @@ pnpm gen:plugin demo-host --kind host-only && pnpm install --no-frozen-lockfile 
 #   → git status --porcelain 与生成前快照 diff 为空（host-only / dual 各一轮）
 ```
 
+**组 4 终形态（执行期 2026-11-07 实测）**
+
+- 全部 8 任务通过（4.7 两笔 dotfiles commit：`aca27aa` 6 处路径同步 + `df0630b` SKILL.md 2 行补 `--template` 与多模板约定引用——「文档不可超前于代码」先例：代码任务未落地时只做纯路径替换，完整形态待依赖落地后接续补笔）；组 GATE `pnpm dsh:check` exit 0；双 kind 全链演练回环干净（host-only 9 文件 / dual 11 文件：生成→install→lint/typecheck/build/test→dsh:check→删→install→快照 59 行逐行一致，dual 清理后 lockfile 与 host-only 清理后 **字节级 cmp 一致**，`node_modules` 零残留）。
+- 实测事实：①`git mv` 需先 `mkdir templates`（git 2.39.5 不自动建目标父目录）；12 文件全部 100% 相似度 R、零内容改动。②AR7 的 `templates/*` 条目在原 Set 精确匹配实现下是死条目——新增 `findForbiddenPackage()` helper（尾缀 `/*` 前缀匹配、先排除 REQUIRED_PACKAGES 防 `tooling/*` 误伤）使红队信息 `AR7 packages 里出现 "templates/default"` 可达；AR1–AR6/AR2 逻辑零改动（裁定：D-6「只改禁止条目」的意图是 glob 语义生效，helper 是其必要最小实现）。③`--dry-run` 首行回显生成器自身 argv——「显式与默认 diff 为空」的验收口径 = 剥离回显行后清单段 diff 空 + md5 一致（既有行为不改）。④gen-plugin `loadTemplate()` 12 项 fail-closed（含 name==目录名、output 不重复、素材文件存在、路径穿越拒绝），退出码契约 0/1/2 与 templates/README.md 一致；`--template` 缺值在解析期 exit 2、未知值在 loadTemplate exit 1。⑤`templates/default/README.md` 从原 README 拆分改写后，全仓 `tooling/template` 字样零残留（scripts/templates/根文档/workspace 注释全量 grep 过）。⑥规划触达面 1.4 的「AR7 三处文案」实测为四处（`tooling/*` 条目的 reason 原文引用已失真，一并改口）。
+- 被否/边界：gen-plugin 命令代码块（README:33/AGENTS:62）未补 `--template`（code-design 1.4 精确落点不含，约定段 :44/:43 已有完整说明，默认用法不受影响）。
+
 ### 组 5 — G-B 清理（写面：9 个 `*.tsbuildinfo`、`plugins/multi-root-workspace/scripts/upgrade-dsh.mjs`、ADR-0009 Status 追加的第二条 fork 注）
 
 | # | 任务 | 局部验证 |
@@ -771,6 +798,19 @@ pnpm dsh:check
 | 6.6 | 结构门禁红队 | `pnpm-workspace.yaml` 临时加 `templates/*` → `node scripts/check-architecture.mjs` exit 1 且点名 `AR7 packages 里出现`；恢复 |
 | 6.7 | 产物与提交面复核 | `pnpm --filter dsh-plugin-multi-root-workspace build`；`git status --porcelain` 逐条归类（src/tests/docs/templates/lib/lockfile，无意外文件）；`node scripts/check-artifacts.mjs` exit 0（B1–B5） |
 | 6.8 | 规范收口 | `openspec validate unify-deps-and-templates --strict` exit 0；`openspec doctor` 无 error（若有既有 warning 需记录「与本次无关」） |
+
+**组 6 终形态（执行期 2026-11-07 实测）**
+
+- 全部 8 任务通过；43/43 全勾。七链全绿（frozen install 未触 lockfile、2806 passed / 4 既有 skip、唯一 lint warning 为 web-ux 基线既有非修改集）；verify:all 七环节全绿（smoke 46+99+60 checks）；红队二连/负例三连/双复核全过（R2 配方、cp 字节级恢复、工作区 60 行零漂移）；check-artifacts 7 包 B1–B5 全绿；strict valid + doctor 零 error 零 warning。
+- 事实更正（留收口裁定，未改文案）：multi-root **包内 smoke** 不依赖运行中 dsh 容器——`scripts/lib/dsh-runtime.mjs` 从本仓 devDependency 解析 dsh 二进制以子进程驱动 + 隔离 scratch `$DSH_HOME`；根 README/AGENTS「multi-root 的 smoke 需运行中的 dsh」一行是基线既有口径且现已失真（该描述原指安装冒烟 `docker exec dsh plugin add`，两者是不同环节），是否顺带改口由用户裁定。
+- B6 词集差异 = 预期（design 执行约束预声明）：multi-root host.words 仅 chunk 名 1 词（`compat-lYI8x_n7` → `compat-BoLaK7du`）；未重冻 `/tmp/arch-baseline`。
+- `openspec validate --all --strict` 退出码 1 = 既有基线问题（dsh-project-mcp / dsh-session-tool-toggle 两 requirement 文本 >500 字符，两文件本次零改动），与本变更无关，未纳入清理。
+- 提交面终态：47 unstaged 文件（1412+/1096−）+ 12 staged R100 改名 + 3 未跟踪新件（lib 新 chunk 362 行 / templates/README.md 106 行 / template.json 17 行）；密钥/日志/临时文件扫描零命中；specs/ 与 archive/ 0 改动。**提交纪律：根仓单 commit 须精确 add 全部产物（含 3 个 ?? 与 2 个 D），不得 `git add -A`；dotfiles 已单独两笔（aca27aa / df0630b）。**
+
+**组 5 终形态（执行期 2026-11-07 实测，R5 见 tasks.md 附录）**
+
+- 全部 5 任务通过；组收口 grep 0 命中 + `pnpm dsh:check` exit 0；工作区 60 行全归类（3 ?? = lib 新 chunk 与 templates 两新文件的待提交产物、2 D = lib 旧 chunk 与 shim、43 M+10 R+2 RM 前序任务）。
+- 实测事实：①tsbuildinfo 9 个全为 gitignore 忽略项，删除后 build/typecheck 复跑不复现（node_modules 内 10 个属第三方 npm 包自带，非本次产物）；②shim 删除无活引用（package.json 未挂入口；插件 docs 的 `upgrade-dsh.mjs` 字样均为叙述性非活引用，5.5 的带前缀 grep 面外）；③5.3「只增不删」验证句因 3.6 扩面对 ADR-0009:299 链接文字的成对改写而字面不可满足——快照法证明本次纯追加，R5 落痕（后触达 append-only 任务须主动检查前序成对改写；3.1 当时侥幸通过因该行尚未被改）。
 
 组 6 收口命令（一次跑完）：
 

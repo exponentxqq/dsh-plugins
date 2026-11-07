@@ -59,3 +59,8 @@ code-design.md ⑥ 载 A-1..A-13（关键：`dsh.engines.dsh` 对 cordis.patch.y
 - 红队纪律：独占窗口 + cp 备份恢复（禁 git checkout/stash，R13 先例）；install 一律 `--store-dir /home/xuqinqin/develop/.pnpm-store/v11`（R5 先例）。
 - multi-root 目录自带 AGENTS.md（「改动前先读」）与 `.agent/note/` 耐久知识——组 2/3 执行子代理派发时须在提示中要求先读。
 - 基线快照：`check-artifacts` 的 multi-root 模块词集将因导出面删除而变化（预期差异，B6 比对时说明，不属回归）。
+
+## 执行环境与衔接裁定（衔接点写入，2026-11-07）
+
+- 执行环境：**直用主工作区**。布局：根仓 → `/home/xuqinqin/develop/person/dsh-plugins` @ main（全部六组在此执行）；dotfiles → `/home/xuqinqin/develop/dotfiles` @ master（仅组 4.7 触达，单独 commit）；装配：主检出既有装配直用（node 栈，pnpm store 共享，install 一律 `--store-dir /home/xuqinqin/develop/.pnpm-store/v11`）；环境错开：无（直用主工作区，端口/库名段省略）；已知无关脏改动：dotfiles `dsh/profiles/web/cordis.patch.yml`（用户路由白名单，不在触达路径，组 4.7 以精确路径 add 隔离，不得混入提交）。
+- 衔接裁定：执行模式 **auto**（用户确认）；引擎 **subagent**（映射文件 `engine` 预置）；模型覆盖 apply=`opencode-go/deepseek-v4.1-flash`、fallback `zcode-plan/glm-5.3-flash`（映射文件 `apply` 键预置，未用 `--model` 覆盖）。

@@ -4,28 +4,30 @@
 
 This note records the compatibility machinery you must understand **before changing this repository**, because it is easy to trip over. The reasoning lives in [ADR-0009](../../docs/decisions/ADR-0009-dsh-compat-contract.md) and the operator-facing diagnosis in [the troubleshooting entry](../../docs/troubleshooting/unsupported-dsh-release.md). This note only covers what you, as an Agent, will run into.
 
-## 1. One source of truth for the support matrix
+## 1. The supported range: a runtime copy plus a derived range
 
 ```text
-src/compat/dsh-version.ts  →  SUPPORTED_DSH_RELEASES
+scripts/dsh-baseline.mjs    →  DSH_BASELINE          (the repository baseline; authoritative)
+src/compat/dsh-version.ts   →  DSH_BASELINE          (runtime copy; same value, a literal)
+src/compat/dsh-version.ts   →  SUPPORTED_DSH_RANGE   (derived from the copy)
 ```
 
-It is an array of **exact versions**, not a semver range. Currently:
+The supported surface is no longer a per-release list but a soft range — "the baseline's major.minor, at or above the baseline" — written `>=<baseline> <major>.<minor+1>.0`. The baseline is `0.2.2-rc.1` today and the derived range is `>=0.2.2-rc.1 <0.3.0`. A new prerelease on that minor line (say `0.2.3-alpha.1`) is admitted with no repository edit at all; anything below the baseline, or on the next minor (`0.3.0`, `0.3.0-alpha.1`), is refused.
 
-```ts
-export const SUPPORTED_DSH_RELEASES = ['0.1.5-rc.2', '0.1.6-alpha.1', '0.1.6-alpha.2', '0.1.7-alpha.1', '0.1.7-alpha.2', '0.1.7-rc.1', '0.1.7-rc.2', '0.2.0-rc.1', '0.2.0-rc.2', '0.2.1-rc.2', '0.2.1-rc.5', '0.2.2-rc.1'] as const
-```
+Why a copy instead of reading the root file: `src/` must ship and load on its own, so the runtime cannot depend on a repository-root script. `pnpm dsh:upgrade`'s `repointRuntimeBaselines()` rewrites the copy in the **same batch** as the root baseline, and the four rows below pin it transitively. The range predicate is that module's own hand-written comparator (no `semver` dependency): the library's default prerelease rules would judge `0.2.3-alpha.1` out of range, while a plain numeric comparison would admit `0.3.0-alpha.1` — so the same-minor guard is separate.
 
-When you change it, these four must agree or `pnpm compat:check` fails:
+When the baseline moves, these four rows must agree or `pnpm compat:check` fails:
 
 ```text
-src/compat/dsh-version.ts   SUPPORTED_DSH_RELEASES   the allowlist
-package.json                peerDependencies         "0.1.5-rc.2 || 0.1.6-alpha.1 || 0.1.6-alpha.2 || 0.1.7-alpha.1 || 0.1.7-alpha.2 || 0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-rc.2 || 0.2.1-rc.5 || 0.2.2-rc.1"
-package.json                devDependencies          one entry of the allowlist (currently 0.2.2-rc.1)
-node_modules                resolved versions        one entry of the allowlist
+baseline → range   scripts/dsh-baseline.mjs (authoritative) → src/compat/dsh-version.ts (same-value copy) → SUPPORTED_DSH_RANGE (derived)   0.2.2-rc.1 → >=0.2.2-rc.1 <0.3.0
+peers              package.json   peerDependencies       all 22 DSH entries carry the derived range (cordis is separate)
+engines            package.json   dsh.engines.dsh        the derived range
+installed          node_modules   resolved versions      a single release (the runtime gate judges whether it is in range)
 ```
 
-`scripts/check-dsh-compat.mjs` reads that array out of the TypeScript source as **text**, not by importing it. So: **do not rewrite it into anything other than an `export const NAME = [...]` literal** (assembled from elsewhere, wrapped in an expression other than the type assertion, and so on) — the static checker throws outright. The reason is that this check must run before `pnpm build`, on a clean checkout with no `lib/`.
+`pnpm compat:check` asserts exactly those static facts: the 22 DSH peer ranges == `dsh.engines.dsh` == the range derived from the baseline; every `REQUIRED_CORE_PACKAGES` entry is declared as a peer and resolves; and the installed tree holds exactly one release. It does **not** recompute the range predicate (the runtime gate and `tests/compat.spec.ts` own it), and it does **not** check the exact development pin (`catalog:dsh` resolves to the baseline; the root `pnpm dsh:check` guards that).
+
+`scripts/check-dsh-compat.mjs` reads the `DSH_BASELINE` literal out of `src/compat/dsh-version.ts` as **text**, not by importing it. It must therefore stay an `export const NAME = '…'` single-quoted string constant: never assembled elsewhere, never an evaluated expression, and no earlier assignment of the same shape — not even one inside a comment — may appear in that file, or the upgrade script rewrites the wrong object. The reason is that this check must run before `pnpm build`, on a clean checkout with no `lib/`.
 
 ## 2. Your tests may fail because of the gate — and that is correct
 
@@ -51,7 +53,7 @@ await mountCompat(ctx)
 
 Otherwise `ctx.get('fs')` / `ctx.get('sandbox')` are `undefined` and you will see errors like `Cannot read properties of undefined (reading 'confine')`. That is not a bug; it is the gate working (`tests/compat.spec.ts` asserts this behavior explicitly).
 
-`mountCompat` mounts the **real** compat row, gate policy included. So the whole unit suite fails outright on a release that is not on the allowlist — deliberately; see point 5.
+`mountCompat` mounts the **real** compat row, gate policy included. So the whole unit suite fails outright on an installation that is outside the derived range, missing a required package, or mixing releases — deliberately; see point 5.
 
 ## 3. `confine` is synchronous on one release and asynchronous on another
 
@@ -94,7 +96,7 @@ Business code contains no version checks. The adapters today:
 
 Always probe **structurally** (is the value a thenable, which export name exists, does the snapshot carry `current`) rather than comparing version strings. Upstream is pre-stable and reshapes things within a release; a structural probe copes with that, a version comparison does not.
 
-`0.1.7-alpha.2`, `0.1.7-rc.1`, and `0.1.7-rc.2` keep every shape in the table above relative to `0.1.7-alpha.1` (measured 2026-09-24 against `alpha.1` / `alpha.2` / `rc.1`, and 2026-09-25 against `rc.1` → `rc.2`). `rc.1` adds an **install-time** gate that does not live in `src/compat/`: `dsh plugin add` and `loadProfile` run `semver.satisfies(runtime, peerRange, { includePrerelease: true })` on every `@deepseek-ai/dsh*` peer, and refuse the install or skip the bundle when it fails. Promoting a `0.1.7-rc.1`-or-later release therefore has to widen `peerDependencies` in the same change, or the smoke's `dsh plugin add` fails before this plugin's runtime gate runs. `DSH_MULTI_ROOT_COMPAT=warn` does not relax that gate.
+`0.1.7-alpha.2`, `0.1.7-rc.1`, and `0.1.7-rc.2` keep every shape in the table above relative to `0.1.7-alpha.1` (measured 2026-09-24 against `alpha.1` / `alpha.2` / `rc.1`, and 2026-09-25 against `rc.1` → `rc.2`). `rc.1` adds an **install-time** gate that does not live in `src/compat/`: `dsh plugin add` and `loadProfile` run `semver.satisfies(runtime, peerRange, { includePrerelease: true })` on every `@deepseek-ai/dsh*` peer, and refuse the install or skip the bundle when it fails. Promoting a `0.1.7-rc.1`-or-later release back then therefore had to widen `peerDependencies` in the same change, or the smoke's `dsh plugin add` failed before this plugin's runtime gate ran. The warning level of that era did not relax that gate either.
 
 **This is a quiet trap**: `0.1.6-alpha.2`'s host matrix (`confine`, the instruction renderer, the journey Messages endpoint) matches alpha.1, so it was promoted with "no adapter change". The client Session Controller still dropped `SessionListState.current` in `6830e1460d` and moved navigation onto the main view's `retain(..., { source: 'mainView' })`. A panel that still reads `list.current` then shows "No active session" for an open conversation and **does not call the host**.
 
@@ -106,34 +108,32 @@ Probe order: a non-empty `current` wins (the old shape), otherwise the first cat
 
 `instructionsApi()` must also keep **"the package is absent"** and **"the package is present but fails to evaluate"** apart: `isPackageInstalled()` probes installation separately (`createRequire(import.meta.url).resolve`, the same pattern as `readInstalledVersion`), and only `MODULE_NOT_FOUND` / `ERR_MODULE_NOT_FOUND` counts as absence. Every other failure — a missing transitive dependency making the `import()` throw, say — must propagate rather than being cached as `undefined`, which would silently stop the whole process from delivering additional-root instructions.
 
-## 5. `DSH_MULTI_ROOT_COMPAT=warn` is not a debugging switch for you
+## 5. There is no relaxation switch: anything but supported refuses to start
 
-It exists for the upgrade lane only: to let the full matrix run against a release that is not on the allowlist yet.
+The gate has exactly one reaction: `unsupported` (a coherent tree outside the derived range), `incomplete` (a required package does not resolve) and `mixed` (the core packages disagree about their release) all refuse to start — no environment variable, no warning level, no degraded path. The seven rows that inject `multiRootCompat` simply never start, and the composition degrades to "the plugin is not installed" — deliberately fail-closed.
 
-It relaxes exactly **one** verdict: `unsupported` (a coherent tree on a release the allowlist simply has not named yet — the only shape the upgrade lane probes). `mixed` and `incomplete` are refused under **both** `enforce` and `warn`.
+Upgrading no longer needs a switch either: once a candidate is written into the baseline, the derived range's lower bound is the candidate itself, so releases on that minor line are in range by construction; a candidate on another minor line was never entitled to pass itself off as supported. The upgrade lane therefore degrades to **ordinary regression verification**: run the tests and gates as usual, with no special lane and no special environment variable, and a green run is still evidence only.
 
-If the gate refuses locally, **do not** use it to carry on developing. The right move is to check whether your host / `node_modules` really is on the allowlist (`pnpm compat:check`). Use it only when you are genuinely promoting a new upstream release; that process is written down in [the troubleshooting entry](../../docs/troubleshooting/unsupported-dsh-release.md).
+If the gate refuses locally, **do not** hunt for a switch. Check whether your host / `node_modules` really is inside the derived range (`pnpm compat:check`, and the `supported:` / `installed:` lines in the error message); to move the boundary, move the baseline as described in §6.
 
-The local upgrade tool (`pnpm dsh:upgrade`, backed by the root `scripts/upgrade-dsh.mjs`) sets it during its probe flow; everyday gates do not.
+## 6. The upgrade flow: move the baseline, re-point the derived surface in the same batch
 
-## 6. The upgrade flow never widens the support matrix
+The upgrade probe (now the root `pnpm dsh:upgrade`; the upstream weekly lane was removed) neither commits nor pushes. It does not widen the supported range itself: the range is a function of the baseline, so **moving the baseline is moving the range**, and that is a human act. `pnpm dsh:upgrade <version>` first rewrites `scripts/dsh-baseline.mjs`, then in the same batch re-points `catalogs.dsh` (which every plugin's devDeps reference as `catalog:dsh`), `dsh.engines.dsh` and the DSH peer ranges, the cordis / schemastery pins, the runtime baseline copies (`plugins/*/src/compat/dsh-version.ts`, via `repointRuntimeBaselines()`) and the release-age allowances. A green run is **evidence**, not authorization — but under the new shape there is no second gate where someone "adds the release to a list": moving the baseline moves the range with it.
 
-The upgrade probe (now the root `pnpm dsh:upgrade`; the upstream weekly lane was removed) neither commits nor pushes, and does not touch `SUPPORTED_DSH_RELEASES`. A green run is **evidence**, not authorization. Promotion is a human act.
-
-`compat:check` does **not** run inside the upgrade probe: the candidate is by design not on the allowlist. After promotion and before release, the root `pnpm dsh:check` and an enforce-mode `verify:all` guard the result.
+`compat:check` is now part of upgrade regression: the candidate is the new baseline, so it sits at the lower bound of the new derived range by construction. It asserts that the 22 DSH peer ranges in `package.json` == `dsh.engines.dsh` == the range derived from the baseline, that every `REQUIRED_CORE_PACKAGES` entry is declared as a peer, and that the installed tree holds a single release; it does **not** recompute the range predicate (the runtime gate and `tests/compat.spec.ts` own it), nor does it check the exact development pin (the root `pnpm dsh:check` owns it).
 
 For upgrading and probing:
 
 ```bash
-pnpm dsh:upgrade 0.2.2-rc.1 --probe     # repoint pin / soft ranges / allowances, add probe overrides
+pnpm dsh:upgrade 0.2.2-rc.1 --probe     # move the baseline, re-point the derived surface, add probe overrides
 pnpm dsh:upgrade --latest-prerelease --probe   # pin the newest pre-release
 pnpm dsh:upgrade --print-latest-prerelease
 pnpm dsh:upgrade --print-installed      # what each plugin actually resolved
 pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0
-# Inside the container, set warn on the inner command; host env vars are not forwarded into docker:
-docker-run node 'DSH_MULTI_ROOT_COMPAT=warn pnpm --filter dsh-plugin-multi-root-workspace verify:all'
+pnpm --filter dsh-plugin-multi-root-workspace verify:all   # includes compat:check, right after lint
 pnpm dsh:upgrade 0.2.2-rc.1             # remove the probe overrides
 pnpm install --frozen-lockfile
+pnpm dsh:check
 ```
 
 Installing a candidate **requires** `--config.minimumReleaseAge=0`. Without it pnpm's release-age gate rejects the lockfile. After the probe, the root `pnpm dsh:check` compares `minimumReleaseAgeExclude` with the exact lockfile resolution set; fix the missing/stale entries it lists.
@@ -142,7 +142,7 @@ Installing a candidate **requires** `--config.minimumReleaseAge=0`. Without it p
 
 Two traps that only bite locally (CI always starts from a clean checkout):
 
-- A `git checkout --` of the four manifests / workspace / lockfile / baseline file discards uncommitted edits with them; commit or stash first. The current flow does not need that revert: rerunning without `--probe` only removes the overrides.
+- A `git checkout --` of the plugin manifests / workspace / lockfile / the baseline constant / the runtime baseline copies discards uncommitted edits with them; commit or stash first. The current flow does not need that revert: rerunning without `--probe` only removes the overrides.
 - After a candidate install, pnpm's **pre-run dependency check** still runs a `pnpm install` against the release-age policy. Once the allowances exactly match the lockfile (`pnpm dsh:check`), that check passes. If you see `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` before reconciling, fix the allowances rather than bypassing the policy.
 
 ## 7. The journey smoke's model endpoint speaks both wire dialects
@@ -173,14 +173,14 @@ DSH_SMOKE_KEEP=1 pnpm smoke:journey
 ## 8. One command for the whole matrix
 
 ```bash
-pnpm verify:all   # lint → typecheck → build → test → kernel:probe → smoke
+pnpm verify:all   # lint → compat:check → typecheck → build → kernel:probe → test → smoke
 ```
 
-It **deliberately excludes** `compat:check`, because the upgrade lane runs it against an unlisted release. The main CI lane runs `compat:check` separately, before lint.
+It **includes** `compat:check`, right after `lint`: the supported range and the runtime gate read the same baseline, so the static contract is no longer an obstacle the upgrade lane has to sidestep — a candidate is written into the baseline and sits at the lower bound of the derived range. The root `.github/workflows/ci.yml` seven-step chain (install → lint → typecheck → build → test → docs:check → dsh:check) does not carry it, and neither does the root `pnpm dsh:check`; the package's `verify:all` owns it.
 
 ## 9. DSH 0.2 and the new development baseline
 
-The development pin is `0.2.2-rc.1`, with cordis `~4.1.0`; the baseline constant lives in the root `scripts/dsh-baseline.mjs`. Restoring the baseline no longer means restoring `0.1.5-rc.2` / `4.0.2`; the earlier probes are historical records. Treat the four manifests, the workspace file, the lockfile, and the baseline file separately when recovering from a probe, and never discard uncommitted support declarations by restoring HEAD.
+The development pin is `0.2.2-rc.1`, with cordis `~4.1.0`; the baseline constant lives in the root `scripts/dsh-baseline.mjs`. Restoring the baseline no longer means restoring `0.1.5-rc.2` / `4.0.2`; the earlier probes are historical records. Treat the plugin manifests, the workspace file, the lockfile, the baseline constant, and the runtime baseline copies separately when recovering from a probe, and never discard uncommitted support declarations by restoring HEAD.
 
 `0.2.0-rc.1` and `rc.2` retain the seams handled by the existing adapters. The 0.2 agent loop records conservative failure `tool/result` events before closing a failed step: `message.isError: true`, plain-text content, and `data.error`. These must never count as successful file touches. `tests/instructions.spec.ts` covers old block-level failures, message-level failures, and recovery events. The inherited Windows provider softly registers the new ACL diagnosis skill; this plugin still does not promise Windows kernel multi-root grants.
 
@@ -190,7 +190,7 @@ The development pin is `0.2.2-rc.1`, with cordis `~4.1.0`; the baseline constant
 
 `0.2.2-rc.1`'s shape conclusion (measured 2026-11-06, final): cordis moved to `~4.1.0`, where the traceable shadow breaks — property access carries the definition-site slice, so the `get rpc()` registration is bound to the connection's definition-site ctx instead of the calling connection; mounting goes through the structural probe of `callerConnectionOf` (unwrap with `symbols.original` plus a Proxy redirect of ctx), with no version branch anywhere — the same code covers `~4.0.5` and `~4.1.0`, and the implementation lives in `src/compat/caller-connection.ts`. `dsh-session-projection` reached rc.1: `ProjectionDefinition<K, S>` gained its second type parameter, `register` became async and returns `Promise<ProjectionHandle<S>>`, the registry-level `stateOf(session, key)` is retired in favor of `handle.stateOf(session)`, and `SessionProjectionStateMap` was renamed to `SessionProjectionMap` as the client wire table (host-only keys are no longer merged). schemastery is a single tree on `3.19.0`; `zod` stays `4.4.3`, session format stays 4; upstream declares `engines.node >=24.9.0` for the first time, and this repo's Node toolchain stays 24.21.0. Verification discipline: the `tsc -b` incremental cache is insensitive to dependency type-surface changes — clear `tsconfig.*.tsbuildinfo` before re-checking any type conclusion.
 
-The root `scripts/check-dsh-baseline.mjs` (`pnpm dsh:check`) guards the baseline constant, the four plugins' dev pins, the three soft plugins' unified range, multi-root's `compat:check`, the installed tree, and the allowances before a release; `scripts/release.mjs` runs it as a precondition. The candidate-repoint script's overrides block still belongs to the probe only; rerunning without `--probe` removes it.
+The root `scripts/check-dsh-baseline.mjs` (`pnpm dsh:check`) guards the baseline constant, the `catalogs.dsh` baseline shelf, the root's and every plugin's `catalog:dsh` devDeps, the unified derived range (`dsh.engines.dsh` and the DSH peers), the installed tree version, and the exact equality of the release-age allowances with the lockfile before a release; `scripts/release.mjs` runs it as a precondition. Multi-root's own `compat:check` hangs off its `verify:all` and is not copied into `dsh:check`. The candidate-repoint script's overrides block still belongs to the probe only; rerunning without `--probe` removes it.
 
 On Windows, Node cannot start `npm.cmd` with `execFileSync('npm')`; old-version matrix jobs fail before repointing with `spawnSync npm ENOENT`. The upgrade script uses `scripts/lib/npm-cli.mjs`: Windows runs the installation’s `node_modules/npm/bin/npm-cli.js` through the current Node executable, while POSIX still executes npm directly. No shell command is assembled; regression tests cover paths with spaces and argument boundaries.
 

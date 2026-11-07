@@ -25,7 +25,7 @@ Architecture Decision Records（ADR），用于记录重要架构与工程决策
 - [ADR-0006-client-ui-host-tokens.md](./ADR-0006-client-ui-host-tokens.md) — 客户端 UI 复刻宿主原生样式：注入样式表消费宿主 `--dsw-*` token，插件零硬编码颜色（Accepted）。
 - [ADR-0007-registry-authority-lease.md](./ADR-0007-registry-authority-lease.md) — 跨进程 Registry Authority：store-wide 内核 lease、争用 fail-closed、`refresh()` 接管（Accepted）。
 - [ADR-0008-panel-session-derived-authority.md](./ADR-0008-panel-session-derived-authority.md) — 面板主根由 host session cwd 推导：删除客户端 `primaryRoot`，每个端点要求有效 `sessionId`（Accepted）。
-- [ADR-0009-dsh-compat-contract.md](./ADR-0009-dsh-compat-contract.md) — DSH 兼容性代码契约：精确版本 allowlist、`multi-root-compat` 启动门禁、混装 fail loud、`src/compat/` 适配层、按周升级车道不自动扩大矩阵（Accepted）。
+- [ADR-0009-dsh-compat-contract.md](./ADR-0009-dsh-compat-contract.md) — DSH 兼容性代码契约：2026-11-07 范围化——基线派生软范围（`>=0.2.2-rc.1 <0.3.0`，与基线同 major.minor 且不低于基线）、`multi-root-compat` 启动门禁、混装 fail loud、`src/compat/` 适配层、升级由 `pnpm dsh:upgrade` 同批重指、探测车道降级为回归验证（Accepted）。
 - [ADR-0010-additional-root-instruction-scope.md](./ADR-0010-additional-root-instruction-scope.md) — 附加根指令注入：顶层 + 本会话工作过的子目录、以 user-role 的 `form=instructions` 经 `agent/pre-step` 投递、预算全局共享、根离场显式撤销、文件消失显式撤回（Accepted）。
 - [ADR-0011-multi-root-workspace-consumers.md](./ADR-0011-multi-root-workspace-consumers.md) — LSP 公共查询路由、Windows root-set SID runner、workspace-files 隔离与附加根文件树（Accepted）。
 - [ADR-0012-additional-root-file-references.md](./ADR-0012-additional-root-file-references.md) — 附加根进入 `@` 文件提及补全：additive 包装 `fileReferences.list`、主根取不可变 session cwd、动态导入复用 `WorkspaceFileSearch`、空 query 每根一条绝对候选、绝对钻入与前缀匹配、裸模糊不跨根、optional peer 降级不抛（Accepted）。

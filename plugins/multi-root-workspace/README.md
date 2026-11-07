@@ -38,13 +38,13 @@ dsh --profile web
 
 ## 环境要求
 
-- **使用本源码构建的插件**：需要一个受支持的 DSH 运行时 —— 当前是 **`0.2.1-rc.2`、`0.2.1-rc.5` 与 `0.2.2-rc.1`**，别的版本装不上也不会跑（见下）。`dsh plugin` 会把包装进对应 profile，无需本地 Node 工具链
+- **使用本源码构建的插件**：需要一个受支持的 DSH 运行时 —— 当前基线是 **`0.2.2-rc.1`**，支持范围是 **`>=0.2.2-rc.1 <0.3.0`**（与基线同 major.minor 且不低于基线），范围外的版本装不上也不会跑（见下）。`dsh plugin` 会把包装进对应 profile，无需本地 Node 工具链
 - **从源码构建 / 参与**：**Node.js** `^22.19.0 || >=24`（仓库 `engines` 钉住）、**Git**、**pnpm 11**（`packageManager` 钉 `pnpm@11.25.0`，建议经 corepack 启用）
-- **DSH 运行时**：开发依赖精确 pin 在 `0.2.2-rc.1`（受支持版本里的基线）；自该版本起 DSH 自身要求 **Node `>=24.9.0`**（上游 `engines.node` 收紧，运行 DSH 的宿主需满足）。升级流程见[开发工作流](./docs/development/plugin-development-workflow.md)
+- **DSH 运行时**：开发依赖精确 pin 在 `0.2.2-rc.1`（支持范围的下界）；自该版本起 DSH 自身要求 **Node `>=24.9.0`**（上游 `engines.node` 收紧，运行 DSH 的宿主需满足）。升级流程见[开发工作流](./docs/development/plugin-development-workflow.md)
 - **平台支持**：macOS Seatbelt / Linux bwrap、Landlock；另实现 Windows root-set ACL runner（覆盖 fs 写路径与 ACL 授予，受限 bash/PTY 的多根不在其范围）。
 - 运行冒烟测试**不需要模型凭据**：e2e 的模型轮次由内联的脚本化模型端点提供
 
-**受支持的 DSH 版本是一份精确清单，不是一个范围。** 因为本插件替换的是 `ctx.fs` 与 `ctx.sandbox`——安全边界本身——而它识别内核沙箱方言靠的是对具体上游版本实测出来的 argv 形状。所以 `peerDependencies` 只列真正跑过全套验证的版本，启动时也会再查一遍：宿主的版本不在清单上，或者若干个 `@deepseek-ai/dsh-*` 混装了不同版本，那么 fs / sandbox / registry / instructions / lsp / workspace-files / file-references 七行**不启动**，组合退化成"没装这个插件"，并打印一条说明。诊断办法见[故障排查：DSH 版本不在支持矩阵上](./docs/troubleshooting/unsupported-dsh-release.md)，理由见 [ADR-0009](./docs/decisions/ADR-0009-dsh-compat-contract.md)。
+**受支持的 DSH 版本是一条基线派生的范围，不是逐版本清单。** 因为本插件替换的是 `ctx.fs` 与 `ctx.sandbox`——安全边界本身——而它识别内核沙箱方言靠的是对上游版本实测出来的 argv 形状。所以支持范围由基线派生：`DSH_BASELINE`（当前 `0.2.2-rc.1`）是范围下界，语义为「与基线同 major.minor 且 ≥ 基线」（当前即 `>=0.2.2-rc.1 <0.3.0`），`peerDependencies` 与 `dsh.engines.dsh` 都声明这条范围；启动时还会再查一遍：宿主的版本落在派生范围之外（低于基线，或换了 minor，例如 `0.3.0`），或者若干个 `@deepseek-ai/dsh-*` 混装了不同版本，`multi-root-compat` 门禁就直接抛错拒绝启动（错误里带完整诊断）——fs / sandbox / registry / instructions / lsp / workspace-files / file-references 七行**根本不启动**，没有警告档，也没有降级路径。诊断办法见[故障排查：DSH 版本在支持范围外](./docs/troubleshooting/unsupported-dsh-release.md)，理由见 [ADR-0009](./docs/decisions/ADR-0009-dsh-compat-contract.md)。
 
 ## 安装
 
@@ -188,7 +188,7 @@ src/
   containment.ts  路径包含判定（词法快速路径 + dev/ino 别名回退）
   instructions.ts 附加根 AGENTS.md / CLAUDE.md 的发现、增量投递、预算与撤回（顶层 + 本会话触碰过的子目录，经 agent/pre-step 注入）
   file-references.ts multi-root-file-references 行：additive 包装 ctx.fileReferences.list，让附加根进入 @ 补全候选（空 query 每根一条、绝对路径钻入与前缀匹配；裸模糊不跨根）
-  compat.ts       multi-root-compat 启动门禁（版本 allowlist 与混装判定）
+  compat.ts       multi-root-compat 启动门禁（基线派生范围与混装判定）
   compat/         适配层：版本差异（dsh-version / sandbox-confine / agent-instructions / llm-message）与 @ 检索载体（file-reference-search），可选 peer 均按需加载
   command.ts      /workspace-folders 命令与面板 RPC 的 host 半部
   contract.ts     面板线协议（zod 双端校验，可内联进浏览器 bundle）
@@ -212,7 +212,7 @@ docs/             需求、架构、决策记录（ADR）、计划、开发工�
 
 - 附加根的指令文件按需到达模型：根目录顶层的那一份在会话第一步之前注入，子目录里的那一份在本会话**成功**触碰过该目录之后注入；nested 文件只会在其目录被考察到时重新检查（根层每一步，子目录依赖已投递或有新触碰），投递状态是进程内的（resume 后可能再告知一次），也只识别 `read` / `write` / `edit` 三个工具名。主根与 user-global 的指令链仍由上游负责，本插件不重复注入（[ADR-0010](./docs/decisions/ADR-0010-additional-root-instruction-scope.md)）。
 - 跨进程单写者：同一 `$DSH_HOME` 上同时只允许一个 DSH 进程持有根登记表；另一个进程显示登记表不可用（`registry-contended`），持锁者退出或崩溃后刷新即接管——这是刻意的 fail-closed，不是待修的竞态（[ADR-0007](./docs/decisions/ADR-0007-registry-authority-lease.md)）。
-- 支持矩阵是精确版本 allowlist：宿主版本不在清单上、或核心包混装了不同版本时，`fs` / `sandbox` / `registry` / `instructions` / `lsp` / `workspace-files` / `file-references` 七行**不启动**，组合退化为"没装这个插件"（[ADR-0009](./docs/decisions/ADR-0009-dsh-compat-contract.md)）。
+- 支持矩阵是基线派生的范围（当前 `>=0.2.2-rc.1 <0.3.0`，语义为「与基线同 major.minor 且 ≥ 基线」）：宿主版本在范围外、或核心包混装了不同版本时，启动门禁直接拒绝启动，`fs` / `sandbox` / `registry` / `instructions` / `lsp` / `workspace-files` / `file-references` 七行**不启动**，没有警告档或降级路径（[ADR-0009](./docs/decisions/ADR-0009-dsh-compat-contract.md)）。
 - Windows 多根 runner 继承上游 partial enforcement、caller-owned 目录及 private temp 分离条件；已启动进程保留启动时根集合，后续进程使用更新后的集合（[ADR-0011](./docs/decisions/ADR-0011-multi-root-workspace-consumers.md)）。
 - 附加根与主根同权（无 per-root read-only）；附加根不能作为 bash/PTY 的默认工作目录（session cwd 语义不变）。
 - 附加根文件树位于「工作区文件夹」分节（统一「工作区配置」弹窗内），采用手动刷新；可展开目录和预览前 200 行文本。主根原生 Files tab 保留，存在 `sidebar.right.tab.files.actions` 时提供就地展开同一分节的紧凑入口。LSP 按附加文件所在根初始化独立 workspace；需要宿主配置对应语言服务器（[ADR-0011](./docs/decisions/ADR-0011-multi-root-workspace-consumers.md)）。

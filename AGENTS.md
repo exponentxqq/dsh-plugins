@@ -10,11 +10,11 @@ DSH（DeepSeek Harness）自定义插件仓库：pnpm workspace 单仓多包，�
 
 - `pnpm-workspace.yaml` — workspace 定义（packages: `plugins/*` + 四个显式 tooling 包）+ allowBuilds 构建白名单 + minimumReleaseAgeExclude 发布年龄豁免
 - `package.json` — workspace 根：pnpm 版本 pin（packageManager: pnpm@11.25.0）与递归脚本
-- `tsconfig.plugin.base.json` — 六个软插件共用的根编译基准（各包 tsconfig 只 `extends` 它 + `include` 差异）
+- `tsconfig.plugin.base.json` — 除 multi-root 外的六个插件共用的根编译基准（各包 tsconfig 只 `extends` 它 + `include` 差异）
 - `tooling/build-kit` — 构建期骨架（esbuild 宿主半 / 浏览器半 / CSS modules / 产物守卫）；`tooling/host-kit` — 运行期共享内核（归属 / 监听 / 触发器 / 根枚举 / 日志，零依赖、被内联进产物）；`tooling/test-kit` — 测试夹具底座（ui-primitives 并集 / locale-parity）；`tooling/contracts` — 座位契约纯类型包
-- `tooling/template/` — `pnpm gen:plugin` 的模板素材（**不是包**：清单叫 `package.json.tmpl`）
+- `templates/default/` — `pnpm gen:plugin` 的默认模板素材（**不是包**：清单叫 `template.json`；件套表见 `templates/default/README.md`，多模板约定见 `templates/README.md`）
 - `plugins/<name>/` — 一个插件一个目录（清单与结构见下文）
-- `scripts/gen-plugin.mjs` — 新插件脚手架：从 `tooling/template/` 生成骨架（只写文件，不跑 git / pnpm）
+- `scripts/gen-plugin.mjs` — 新插件脚手架：从 `templates/default/` 生成骨架，`--template <name>` 可选其他模板（只写文件，不跑 git / pnpm）
 - `scripts/check-{dsh-baseline,architecture,artifacts}.mjs` — 三组门禁（基线 / 结构不变式 AR1–AR7 / 产物契约 B1–B5）；`scripts/dsh-check.mjs` 是它们的聚合入口
 - `scripts/release.mjs` — 发布：dsh:check → 同步版本号 → 重建产物 → 发布提交 → annotated tag
 - `docs/decisions/` — 仓级 ADR（见「仓级 ADR」）
@@ -36,18 +36,18 @@ DSH（DeepSeek Harness）自定义插件仓库：pnpm workspace 单仓多包，�
 
 - 包名一律 `dsh-plugin-<目录名>`；`package.json` 以 `dsh.bundle.patch` 声明 `cordis.patch.yml`（insert 本包注册行）
 - 源码在 `src/`（TypeScript，入口 `src/index.ts`，导出 `name` / `inject` / `apply`），构建产物在 `lib/`（`main` 指向 `lib/index.js`，随仓库提交）
-- 构建：六个软插件用 `@dsh-plugins/build-kit` 的薄入口——`build.mjs` 只声明不可推导的旋钮（`hostExternals` / `cjsRequireShim` / `cssClassPrefix`），esbuild 策略在 kit 里从包事实推导；multi-root-workspace 仍走自己的 tsc + tsdown
+- 构建：除 multi-root 外的六个插件用 `@dsh-plugins/build-kit` 的薄入口——`build.mjs` 只声明不可推导的旋钮（`hostExternals` / `cjsRequireShim` / `cssClassPrefix`），esbuild 策略在 kit 里从包事实推导；multi-root-workspace 仍走自己的 tsc + tsdown
 - 编译基准统一 `tsconfig.plugin.base.json`：各包 tsconfig 只 `extends` + `include`（不重声明编译选项、不带 `composite`），`typecheck` 用 `tsc -p` 非 emit 调用（双端包 host + client 两段）；lint 唯一基准是根 `.oxlintrc.json`
 - 测试：vitest（multi-root 在 `tests/`，其余在 `test/`）；lint 用 oxlint
 - web 侧插件（multi-root-workspace、workspace-config、web-ux、session-tool-toggle）在 `dsh.client` 声明 `platform: web` 与 `inject` 列表；四包须同装（安装矩阵见 README）
-- 新增插件用 `pnpm gen:plugin <name> --kind host-only|dual` 从 `tooling/template/` 生成骨架（开箱通过 lint / typecheck / build / test 与 `pnpm dsh:check`），不要手工复制件套
+- 新增插件用 `pnpm gen:plugin <name> --kind host-only|dual [--template <name>]` 从 `templates/default/` 生成骨架（默认 `default`，开箱通过 lint / typecheck / build / test 与 `pnpm dsh:check`），不要手工复制件套
 
 ## DSH 基线
 
 - 唯一版本常量在 `scripts/dsh-baseline.mjs`（当前 `0.2.2-rc.1`，Node 工具链 `24.21.0`）。
-- 六个软插件（project-mcp / user-commands / web-ux / session-tool-toggle / zcode-plan / workspace-config）的 `engines.dsh` 与 DSH peer 由基线派生为 `>=0.2.2-rc.1 <0.3.0`。
-- multi-root 保留精确 `SUPPORTED_DSH_RELEASES` 与精确 peer 枚举；提升新版本是绿灯后的人工动作（ADR-0009）。
-- `pnpm dsh:upgrade <version> [--probe]` 统一重指 devDeps / cordis / 软插件范围 / 豁免；`pnpm dsh:check` 在发布前守住这些事实，`release` 已自动调用。
+- 全部七个插件（含 multi-root）的 `engines.dsh` 与 DSH peer 统一由基线派生为 `>=0.2.2-rc.1 <0.3.0`，无例外。
+- multi-root 运行时门持有的基线副本（`plugins/multi-root-workspace/src/compat/dsh-version.ts` 的 `DSH_BASELINE`）与派生范围同源，由升级脚本同批重指；基线提升 = 改 `scripts/dsh-baseline.mjs` 后跑 `pnpm dsh:upgrade`，绿灯是回归证据。
+- `pnpm dsh:upgrade <version> [--probe]` 统一重指 devDeps / cordis / 全部插件的 engines 与 DSH peer 范围 / 运行时基线副本 / 豁免；`pnpm dsh:check` 在发布前守住这些事实，`release` 已自动调用。
 
 ## 开发与验证命令
 
@@ -63,7 +63,7 @@ pnpm test                # 递归单测
 pnpm lint                # 递归 lint（无该脚本的插件自动跳过）
 pnpm docs:check          # 递归文档检查（仅 multi-root-workspace 实现该脚本）
 pnpm dsh:check           # 聚合门禁：DSH 基线 + 结构不变式（AR1–AR7）+ 产物契约（B1–B5）
-pnpm dsh:upgrade <version> [--probe]   # 根级 DSH 升级（重指 pin / 软插件范围 / 豁免）
+pnpm dsh:upgrade <version> [--probe]   # 根级 DSH 升级（重指 pin / 全部插件范围 / 运行时基线副本 / 豁免）
 pnpm verify              # 发布前自检（递归 verify:all；multi-root 的 smoke 需运行中的 dsh）
 pnpm release <version>   # 发布（--dry-run 只打印；会先跑 dsh:check）
 

@@ -20,7 +20,7 @@ English: [README.en.md](./README.en.md)
 
 ## 当前状态
 
-- [dsh-compat-contract.md](./dsh-compat-contract.md) — DSH 兼容性契约：allowlist 的唯一真源、`multiRootCompat` 门禁对测试的影响、`confine` 同步/异步保形、`src/compat/` 适配层规则、升级车道用法与两处曾踩过的安静坑。
+- [dsh-compat-contract.md](./dsh-compat-contract.md) — DSH 兼容性契约：基线派生的支持范围（运行时副本 + 派生范围）、`multiRootCompat` 门禁对测试的影响、`confine` 同步/异步保形、`src/compat/` 适配层规则、升级回归流程与两处曾踩过的安静坑。
 
 ## 不应该存放什么
 

@@ -3,7 +3,7 @@
 {{DESCRIPTION}}
 
 本目录由 `pnpm gen:plugin {{NAME}} --kind {{KIND}}` 生成（模板素材见
-[`tooling/template/`](../../tooling/template/README.md)），形态对齐六个软插件的终态：
+[`templates/default/`](../../templates/default/README.md)），形态对齐六个软插件的终态：
 
 - 薄 `build.mjs`：构建策略全部在 `@dsh-plugins/build-kit`，本包只声明不可推导的旋钮；
 - `tsconfig.host.json`{{CLIENT_TSCONFIG_NOTE}}：只 `extends` 根基准 `../../tsconfig.plugin.base.json`，
