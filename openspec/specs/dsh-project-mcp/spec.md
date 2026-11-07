@@ -138,6 +138,20 @@
 - **WHEN** 同一目录被工作区 B1、B2 都授予为附加根，且该目录不是任何工作区的主根，B1 登记更早
 - **THEN** 该会话归属 B1
 
+根集合契约 SHALL 以 `primaryRoot` 为工作区主根的唯一权威，`roots` 是扫描顺序集合（首项约定为主根）。当 `roots[0] !== primaryRoot`（契约被违反）时，实现 MUST 以 `primaryRoot` 进主根层、并将 `roots` 中所有不等于 `primaryRoot` 的项按原顺序进附加根层，并 MUST 记录一条诊断日志；MUST NOT 因位置假设丢弃任何根。同一 `primaryRoot` 被多个工作区登记时，主根层 MUST 先到先得，返回的根集合 MUST 取自胜出工作区。
+
+归属索引的重建 MUST 是原子的：实现 MUST 先完整构造新索引再一次性替换；进行中的归属判定 MUST 使用替换前的完整快照，MUST NOT 观察到「已清空」或「半填充」的索引。
+
+#### Scenario: 根集合首项不是主根
+
+- **WHEN** 某工作区的 `roots[0]` 不等于它的 `primaryRoot`
+- **THEN** 该 `primaryRoot` 仍以主根身份参与认领，`roots` 中其余项按附加根认领，无任何根被丢弃，且记录一条诊断
+
+#### Scenario: 重扫期间创建会话
+
+- **WHEN** 一次根集合重建正在进行，同时某会话创建并做归属判定
+- **THEN** 该判定使用重建前的完整索引，结果与重建前一致；MUST NOT 因重建而退回 fail-closed
+
 #### Scenario: 无归属 fail-closed
 
 - **WHEN** 会话 cwd 向上找不到任何已登记根
