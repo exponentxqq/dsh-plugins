@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2026-11-08-workspace-config-page · L2 · 界面演示</title>
+<style>
+  :root{
+    --brand:#2563eb; --accent:#0d9488; --danger:#dc2626; --ink:#111827; --ink2:#4b5563; --line:#e5e7eb; --bg:#f8fafc; --card:#fff; --soft:#eff6ff;
+    --fs1:22px; --fs2:16px; --fs3:13px; --sp:8px; --sp2:16px; --sp3:24px; --r:10px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:var(--fs2)/1.6 system-ui,"PingFang SC","Microsoft YaHei",sans-serif}
+  .bar{position:sticky;top:0;z-index:9;padding:10px var(--sp3);background:#0f172a;color:#fff;font-size:var(--fs3)}
+  .bar p{margin:2px 0}
+  .wrap{max-width:1200px;margin:0 auto;padding:var(--sp3) var(--sp2)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:var(--sp2)}
+  h1,h2,h3{margin:0 0 var(--sp);line-height:1.3} h1{font-size:var(--fs1)} h2{font-size:18px}
+  .muted{color:var(--ink2)} .row{display:flex;flex-wrap:wrap;gap:var(--sp);align-items:center}
+  .btn{padding:8px 14px;border:1px solid var(--brand);border-radius:8px;background:var(--brand);color:#fff;font:inherit;cursor:pointer}
+  .btn:hover{filter:brightness(1.08)} .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn.ghost{background:transparent;color:var(--brand)}
+  .err{color:var(--danger);font-size:var(--fs3);margin:4px 0 0}
+  /* ===== 模拟 GUI 外框：侧栏 + 主区域 ===== */
+  .gui{display:grid;grid-template-columns:220px 1fr;gap:0;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--card)}
+  .side{background:#f1f5f9;border-right:1px solid var(--line);padding:12px 8px;font-size:var(--fs3)}
+  .side .cap{color:var(--ink2);padding:6px 8px 2px;font-size:12px}
+  .side .item{display:flex;gap:8px;align-items:center;padding:7px 10px;border-radius:8px;color:var(--ink2)}
+  .side .item.on{background:var(--soft);color:var(--brand);font-weight:600}
+  .side .ico{width:16px;height:16px;border-radius:4px;background:currentColor;opacity:.55}
+  .main{min-width:0;display:flex;flex-direction:column}
+  /* ===== 页面骨架（参照插件页） ===== */
+  .pageBody{padding:20px 24px;max-width:860px}
+  .pageBar{display:flex;flex-direction:column;gap:12px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+  .pageHeading{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .pageTitle{font-size:var(--fs1);margin:0}
+  .pageIntro{color:var(--ink2);font-size:var(--fs3)}
+  .toolbar{display:flex;align-items:center;gap:var(--sp);flex-wrap:wrap}
+  /* 统一工作区选择框（新增控件：Menu + 锚点按钮形态） */
+  .picker{position:relative}
+  .picker>button{display:flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);font:inherit;font-size:var(--fs3);cursor:pointer;min-width:200px}
+  .picker>button:hover{border-color:var(--brand)}
+  .picker>button .chev{margin-left:auto;color:var(--ink2);font-size:11px}
+  .picker>button:disabled{opacity:.5;cursor:not-allowed}
+  .menu{position:absolute;top:calc(100% + 6px);left:0;min-width:240px;background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(15,23,42,.14);padding:6px;display:none;z-index:5}
+  .picker.open .menu{display:block}
+  .menu .mi{display:flex;gap:8px;align-items:center;width:100%;padding:8px 10px;border:0;background:none;font:inherit;font-size:var(--fs3);text-align:left;border-radius:7px;cursor:pointer}
+  .menu .mi:hover{background:var(--soft)}
+  .menu .mi[aria-checked="true"]{color:var(--brand);font-weight:600}
+  .menu .mi.sep{border-top:1px solid var(--line);border-radius:0;margin-top:5px;padding-top:10px}
+  .menu .mi .path{color:var(--ink2);font-size:12px;margin-left:auto}
+  /* 页级 tab pills */
+  .pageTabs{display:flex;gap:6px}
+  .pill{padding:7px 14px;border-radius:999px;border:1px solid transparent;background:none;font:inherit;font-size:var(--fs3);color:var(--ink2);cursor:pointer}
+  .pill:hover{color:var(--ink)}
+  .pill[aria-selected="true"]{background:var(--soft);color:var(--brand);font-weight:600}
+  /* tabpanel 内容 */
+  .tabpanel{padding-top:var(--sp2)}
+  .group{margin-bottom:var(--sp2)}
+  .groupTitle{font-size:var(--fs3);color:var(--ink2);margin:0 0 8px}
+  .cards{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+  .fcard{border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;gap:10px;align-items:center;justify-content:space-between}
+  .fcard .nm{font-weight:600}
+  .fcard .pth{color:var(--ink2);font-size:12px}
+  .chip{font-size:12px;border:1px solid var(--line);border-radius:999px;padding:2px 10px;color:var(--ink2)}
+  .sw{position:relative;width:36px;height:20px;border-radius:999px;background:#cbd5e1;cursor:pointer}
+  .sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .15s}
+  .sw[aria-checked="true"]{background:var(--brand)}
+  .sw[aria-checked="true"]::after{left:18px}
+  /* 会话管理（域内二级 tab + 行 + 底部动作） */
+  .subTabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:10px}
+  .subTab{padding:6px 12px;font-size:var(--fs3);color:var(--ink2);background:none;border:0;border-bottom:2px solid transparent;cursor:pointer;font-family:inherit}
+  .subTab[aria-selected="true"]{color:var(--brand);border-color:var(--brand)}
+  .srow{display:flex;gap:10px;align-items:center;padding:9px 12px;border:1px solid var(--line);border-radius:9px;margin-bottom:7px;font-size:var(--fs3)}
+  .srow .cb{width:15px;height:15px;border:1.5px solid var(--line);border-radius:4px}
+  .srow.sel .cb{background:var(--brand);border-color:var(--brand)}
+  .srow .when{color:var(--ink2);margin-left:auto;font-size:12px}
+  .footerBar{display:flex;gap:var(--sp);align-items:center;justify-content:flex-end;border-top:1px solid var(--line);padding-top:12px;margin-top:6px}
+  /* 空态 */
+  .empty{border:1px dashed var(--line);border-radius:10px;padding:28px 16px;text-align:center;color:var(--ink2)}
+  .empty b{display:block;color:var(--ink);font-size:15px;margin-bottom:4px}
+  /* 状态导航（L2 演示导航） */
+  .flow{display:flex;gap:var(--sp);flex-wrap:wrap;margin:0 0 var(--sp2)}
+  .flow button{padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card);font:inherit;font-size:var(--fs3);cursor:pointer}
+  .flow button.on{border-color:var(--brand);color:var(--brand);font-weight:600}
+  .hint{background:var(--soft);border:1px solid #bfdbfe;border-radius:8px;padding:8px 12px;font-size:var(--fs3);color:#1e40af;margin:0 0 var(--sp2)}
+  @media (max-width:480px){
+    .wrap{padding:16px 8px}
+    .gui{grid-template-columns:1fr}
+    .side{display:flex;gap:6px;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line)}
+    .side .cap{display:none}
+    .pageBody{padding:14px 12px}
+    .picker>button{min-width:0;width:100%}
+  }
+</style>
+</head>
+<body>
+<header class="bar">
+  <p>变更名 <b>2026-11-08-workspace-config-page</b> · 分档 <b>L2</b> · 生成 <b>2026-11-08 18:10</b> · <b>界面演示，非最终实现</b></p>
+  <p class="bar-note">示意数据：工作区、会话、计数均为虚构，仅用于确认布局与视觉；实现以 code-design.md 为准。</p>
+</header>
+<main class="wrap">
+  <p class="hint">下方模拟 GUI：左为侧栏「Global panels」面板列表（入口形式 = 与插件/自动化任务/任务看板一致的面板行）；右侧为「工作区配置」独立页面骨架（参照插件页：标题 + 简介 + 工具栏[统一工作区选择框] + 页级 tab pills + 内容区）。用顶部状态按钮或直接点 tab / 选择框体验交互。</p>
+  <nav class="flow" id="flow" aria-label="状态演示导航">
+    <button type="button" data-st="normal" class="on">① 常规态</button>
+    <button type="button" data-st="unassigned">② 未分配工作区</button>
+    <button type="button" data-st="pending">③ 清单未就绪</button>
+    <button type="button" data-st="nosec">④ 无分节空态</button>
+  </nav>
+
+  <div class="gui">
+    <nav class="side" aria-label="Global panels（示意）">
+      <p class="cap">Global panels</p>
+      <div class="item"><span class="ico"></span>插件</div>
+      <div class="item"><span class="ico"></span>自动化任务</div>
+      <div class="item"><span class="ico"></span>任务看板</div>
+      <div class="item on"><span class="ico"></span>工作区配置</div>
+    </nav>
+    <section class="main" aria-label="工作区配置页面">
+      <div class="pageBody">
+        <div class="pageBar">
+          <div class="pageHeading">
+            <div>
+              <h1 class="pageTitle">工作区配置</h1>
+              <p class="pageIntro">管理当前工作区的文件夹、默认工具面与会话</p>
+            </div>
+          </div>
+          <div class="toolbar">
+            <div class="picker" id="picker">
+              <button type="button" id="pickerBtn" aria-haspopup="listbox" aria-expanded="false">
+                <span aria-hidden="true">🗂</span><span id="pickerLabel">dsh-plugins</span><span class="chev">▼</span>
+              </button>
+              <div class="menu" role="listbox" id="menu">
+                <button type="button" class="mi" role="option" aria-checked="true" data-ws="dsh-plugins">dsh-plugins <span class="path">~/develop/person/dsh-plugins</span></button>
+                <button type="button" class="mi" role="option" aria-checked="false" data-ws="dotfiles">dotfiles <span class="path">~/develop/dotfiles</span></button>
+                <button type="button" class="mi" role="option" aria-checked="false" data-ws="ship-v2">ship-v2 <span class="path">~/develop/company/web/ship-v2</span></button>
+                <button type="button" class="mi sep" role="option" aria-checked="false" data-ws="__unassigned__">未分配</button>
+              </div>
+            </div>
+            <button type="button" class="btn ghost" style="font-size:13px" id="refreshBtn" title="分节内自刷新入口被统一选择框取代；本按钮为示意占位">⟳ 刷新</button>
+          </div>
+          <div class="pageTabs" id="pageTabs" role="tablist" aria-label="工作区配置分节">
+            <button type="button" class="pill" role="tab" aria-selected="true" data-tab="folders">工作区文件夹</button>
+            <button type="button" class="pill" role="tab" aria-selected="false" data-tab="defaults">工作区默认档</button>
+            <button type="button" class="pill" role="tab" aria-selected="false" data-tab="sessions">会话管理</button>
+          </div>
+        </div>
+
+        <div class="tabpanel" id="panel">
+          <!-- ① 常规：工作区文件夹 -->
+          <div data-sec="folders">
+            <p class="groupTitle">附加工作区根（示意数据）</p>
+            <ul class="cards">
+              <li class="fcard"><div><div class="nm">dotfiles</div><div class="pth">/home/xuqinqin/develop/dotfiles</div></div><span class="chip">别名 · 复制 · 移除</span></li>
+              <li class="fcard"><div><div class="nm">/data</div><div class="pth">/data</div></div><span class="chip">别名 · 复制 · 移除</span></li>
+            </ul>
+            <div class="row" style="margin-top:12px"><button class="btn ghost" style="font-size:13px">＋ 添加工作区根</button></div>
+            <p class="muted" style="font-size:13px;margin-top:8px">本节不感知页面级选择框（管理的是根清单本身）。</p>
+          </div>
+          <!-- ① 常规：工作区默认档（节内无下拉） -->
+          <div data-sec="defaults" hidden>
+            <p class="groupTitle">当前读取目标：<b id="defTarget">dsh-plugins</b>（来自页面选择框 · 切换工作区 = 本节重挂重读）</p>
+            <div class="cards">
+              <div class="fcard"><div><div class="nm">mcp：project-mcp</div><div class="pth">整组 · 3 工具</div></div><div class="sw" role="switch" aria-checked="true" tabindex="0"></div></div>
+              <div class="fcard"><div><div class="nm">tool：bash</div><div class="pth">内置工具</div></div><div class="sw" role="switch" aria-checked="false" tabindex="0"></div></div>
+              <div class="fcard"><div><div class="nm">skill：spec-plan</div><div class="pth">技能级开关</div></div><div class="sw" role="switch" aria-checked="true" tabindex="0"></div></div>
+            </div>
+            <div class="footerBar"><span class="muted" style="font-size:13px;margin-right:auto">未保存修改 1 · 会话播种不追溯</span><button class="btn" style="font-size:13px">保存默认档</button></div>
+          </div>
+          <!-- ① 常规：会话管理（域内二级 tab + 无取消按钮） -->
+          <div data-sec="sessions" hidden>
+            <div class="subTabs" role="tablist" aria-label="会话域（分节内二级 tab）">
+              <button type="button" class="subTab" role="tab" aria-selected="true">进行中 · 2</button>
+              <button type="button" class="subTab" role="tab" aria-selected="false">已归档 · 5</button>
+              <button type="button" class="subTab" role="tab" aria-selected="false">已迁移 · 3</button>
+            </div>
+            <p class="groupTitle">范围：<b id="sessTarget">dsh-plugins</b>（来自页面选择框）</p>
+            <div class="srow sel"><span class="cb" aria-hidden="true"></span>工作区配置改为独立页面重构规划<span class="when">今天 15:42</span></div>
+            <div class="srow"><span class="cb" aria-hidden="true"></span>架构优化评估与测试接线收敛规划<span class="when">昨天 20:11</span></div>
+            <div class="footerBar">
+              <span class="muted" style="font-size:13px;margin-right:auto">已选 1 / 2</span>
+              <button class="btn ghost" style="font-size:13px" id="finishDemo" hidden>完成（重置选择）</button>
+              <button class="btn" style="font-size:13px" data-danger>归档所选…</button>
+            </div>
+            <p class="muted" style="font-size:13px;margin-top:8px">旧「取消/关闭弹窗」按钮随 close 契约删除：select 阶段无取消按钮，done 阶段改「完成」重置回选择态。</p>
+          </div>
+          <!-- ② 未分配：会话管理可列、另两节空态 -->
+          <div data-sec="folders-un" hidden>
+            <div class="empty"><b>未分配范围没有工作区文件夹</b>本节需要一个已登记的工作区作为目标。请在顶部选择框选择工作区。</div>
+          </div>
+          <div data-sec="defaults-un" hidden>
+            <div class="empty"><b>未分配范围没有默认档</b>工作区默认档按已登记工作区寻址（{workspacePath}）。未分配时不发请求。</div>
+          </div>
+          <div data-sec="sessions-un" hidden>
+            <p class="groupTitle">范围：<b>未分配</b></p>
+            <div class="srow sel"><span class="cb" aria-hidden="true"></span>（未归入任何工作区的会话 · 示意）<span class="when">11/06 09:30</span></div>
+            <div class="footerBar"><span class="muted" style="font-size:13px;margin-right:auto">已选 1 / 1</span><button class="btn" style="font-size:13px" data-danger>归档所选…</button></div>
+          </div>
+          <!-- ③ 清单未就绪 -->
+          <div data-sec="pending" hidden>
+            <div class="empty"><b>工作区清单尚未就绪</b>选择框暂时禁用，分节按无有效目标呈现空态；服务到场后自动恢复。</div>
+          </div>
+          <!-- ④ 无分节空态 -->
+          <div data-sec="nosec" hidden>
+            <div class="empty"><b>还没有可配置的分节</b>安装 multi-root-workspace / session-tool-toggle / web-ux 后，这里会出现对应分节。</div>
+          </div>
+          <!-- 校验失败文案位（L2 要求） -->
+          <p class="err" id="errSlot" role="alert" hidden>读取默认档失败：连接未就绪（示意文案位）</p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <h2 style="margin-top:24px">配色与基调</h2>
+  <p class="muted">主色 #2563eb · 辅色 #0d9488 · 中性阶 #f8fafc→#111827 · 字号 22/16/13 · 间距 8/16/24 · 圆角 10（与宿主插件页同构：pageBar 吸顶、pills tab、卡片分组）</p>
+</main>
+<script>
+(function(){
+  var picker=document.getElementById('picker'),btn=document.getElementById('pickerBtn'),
+      label=document.getElementById('pickerLabel'),menu=document.getElementById('menu'),
+      tabs=document.getElementById('pageTabs').querySelectorAll('[role=tab]'),
+      secs=document.querySelectorAll('[data-sec]'),flow=document.getElementById('flow'),
+      defT=document.getElementById('defTarget'),sessT=document.getElementById('sessTarget'),
+      errSlot=document.getElementById('errSlot');
+  var ws='dsh-plugins',tab='folders',st='normal';
+  btn.addEventListener('click',function(){picker.classList.toggle('open');btn.setAttribute('aria-expanded',picker.classList.contains('open'))});
+  document.addEventListener('click',function(e){if(!picker.contains(e.target)){picker.classList.remove('open');btn.setAttribute('aria-expanded','false')}});
+  menu.querySelectorAll('.mi').forEach(function(mi){mi.addEventListener('click',function(){
+    menu.querySelectorAll('.mi').forEach(function(m){m.setAttribute('aria-checked','false')});
+    mi.setAttribute('aria-checked','true');ws=mi.dataset.ws;picker.classList.remove('open');
+    label.textContent=ws==='__unassigned__'?'未分配':ws;
+    setSt(ws==='__unassigned__'?'unassigned':'normal',true);
+  })});
+  tabs.forEach(function(t){t.addEventListener('click',function(){
+    tabs.forEach(function(x){x.setAttribute('aria-selected','false')});
+    t.setAttribute('aria-selected','true');tab=t.dataset.tab;render();
+  })});
+  flow.querySelectorAll('button').forEach(function(b){b.addEventListener('click',function(){
+    flow.querySelectorAll('button').forEach(function(x){x.classList.remove('on')});
+    b.classList.add('on');st=b.dataset.st;
+    if(st==='unassigned'){menu.querySelectorAll('.mi').forEach(function(m){m.setAttribute('aria-checked',m.dataset.ws==='__unassigned__')});ws='__unassigned__';label.textContent='未分配'}
+    else{var first=menu.querySelector('.mi');if(st==='normal'){menu.querySelectorAll('.mi').forEach(function(m){m.setAttribute('aria-checked',m===first)});ws='dsh-plugins';label.textContent='dsh-plugins'}}
+    render();
+  })});
+  function setSt(s,resetFlow){st=s;if(resetFlow){flow.querySelectorAll('button').forEach(function(x){x.classList.toggle('on',x.dataset.st===s)})}render()}
+  function render(){
+    errSlot.hidden=!(st==='pending');
+    btn.disabled=(st==='pending');
+    document.getElementById('pageTabs').style.display=(st==='nosec')?'none':'';
+    secs.forEach(function(s){s.hidden=true});
+    if(st==='pending'){show('pending');return}
+    if(st==='nosec'){show('nosec');return}
+    var suffix=(st==='unassigned')?'-un':'';
+    if(tab==='sessions'&&suffix){show('sessions-un')}
+    else{show(tab+suffix)}
+    defT.textContent=ws;sessT.textContent=ws==='__unassigned__'?'未分配':ws;
+  }
+  function show(name){secs.forEach(function(s){if(s.dataset.sec===name)s.hidden=false})}
+  document.querySelectorAll('.sw').forEach(function(sw){sw.addEventListener('click',function(){sw.setAttribute('aria-checked',sw.getAttribute('aria-checked')!=='true')})});
+  var danger=document.querySelector('[data-danger]');
+  if(danger){danger.addEventListener('click',function(){
+    var f=document.getElementById('finishDemo');f.hidden=false;
+    f.addEventListener('click',function(){f.hidden=true;danger.hidden=false},{once:true});
+    danger.hidden=true;f.textContent='完成（重置选择）';
+  })}
+})();
+</script>
+</body>
+</html>
