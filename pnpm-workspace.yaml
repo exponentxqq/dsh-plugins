@@ -99,7 +99,7 @@ allowBuilds:
   protobufjs: false
 
 # The pinned runtime is a pre-release published minutes before use; the release
-# age gate must not reject it (see docs/decisions/ADR-0002-upstream-coupling-policy.md).
+# age gate must not reject it (see plugins/multi-root-workspace/docs/decisions/ADR-0002-upstream-coupling-policy.md).
 minimumReleaseAgeExclude:
   - '@deepseek-ai/cordis@4.1.0'
   - '@deepseek-ai/dsh@0.2.2-rc.1'

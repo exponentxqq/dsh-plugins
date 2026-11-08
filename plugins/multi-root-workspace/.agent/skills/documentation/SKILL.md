@@ -59,48 +59,15 @@
 
 创建新文档前，必须先检查是否已有文档拥有该信息。
 
-## 4. 中英文文档规则
+## 4. 单语规则
 
-项目采用 **中文主文档 + 英文副文档**：
-
-```text
-foo.md       canonical Chinese document
-foo.en.md    English counterpart
-```
-
-规则：
-
-1. 中文版本是主要维护版本；
-2. 英文版本保持相同的信息结构；
-3. 不要求逐句直译；
-4. 但不能存在重要的信息差异；
-5. 中英文冲突时，以中文版本为准；
-6. 发现冲突时应同步修复英文版本。
-
-当前必须双语的文档：
-
-```text
-所有 README
-.agent/note/ 下的正式 Markdown
-```
-
-暂时不强制双语的文档：ADR、Plan、Design、Reference、Troubleshooting Entry（除非未来规则改变）。
+项目文档一律使用简体中文（中文唯一）：只维护一份中文文档，不维护英文版本，不创建成对的双语副本，也不设置语言导航。
 
 ## 5. README Rules
 
 README 的职责是 orientation、navigation、entry point：这个目录是什么、这里有什么、重要内容在哪里、如何进入更详细的文档。
 
 README 不应逐渐变成完整的 Architecture Book、PRD、ADR 集合、Development Log 或巨型 Implementation Plan。
-
-任何 `README.md` 必须有对应的 `README.en.md`，反之亦然，且必须互相导航：
-
-```markdown
-English: [README.en.md](./README.en.md)
-```
-
-```markdown
-中文：[README.md](./README.md)
-```
 
 ## 6. Current State 与 Future State
 
@@ -126,7 +93,7 @@ ADR number 必须唯一，不允许重复使用。已经 Accepted 的 ADR 不应
 
 ## 8. Plan Lifecycle
 
-本 fork 已移除 `docs/plans/` 目录与 Plan 生命周期规则（上游基线的历史计划已清理）。大型任务的上下文直接以 ADR 或开发工作流文档记录。
+`docs/plans/` 目录与 Plan 生命周期规则已移除；大型任务的上下文直接以 ADR 或开发工作流文档记录。
 
 ## 9. 文件命名规范
 
@@ -137,7 +104,7 @@ plugin-system.md
 release-process.md
 ```
 
-特殊文件遵循自身约定：`README.md`、`README.en.md`、`AGENTS.md`、`ADR-0001-short-title.md`、`SKILL.md`。
+特殊文件遵循自身约定：`README.md`、`AGENTS.md`、`ADR-0001-short-title.md`、`SKILL.md`。
 
 长期文档避免 `new.md`、`notes2.md`、`temp.md`、`final.md`、`final-final.md`、`test.md`、`draft2.md` 这类临时命名。
 
@@ -167,11 +134,10 @@ file://...
 1. 判断当前变更影响哪些文档；
 2. 找到 canonical documentation；
 3. 更新文档；
-4. 检查是否需要同步英文版本；
-5. 检查内部链接；
-6. 检查移动或重命名产生的失效链接；
-7. 如果使用了 Plan，检查 Plan Lifecycle；
-8. 运行 Documentation Check：
+4. 检查内部链接；
+5. 检查移动或重命名产生的失效链接；
+6. 如果使用了 Plan，检查 Plan Lifecycle；
+7. 运行 Documentation Check：
 
 ```bash
 pnpm docs:check
@@ -183,4 +149,4 @@ pnpm docs:check
 
 本 Skill 负责"应该怎么维护文档，以及为什么"。
 
-`scripts/check-docs.mjs` 负责机器可判定的结构不变量（双语配对、链接有效性、命名规范等）是否被破坏。它不评价文档质量、架构正确性、翻译自然度或 Plan 是否真的完成——这些属于 semantic review，由 Coding Agent 和开发者判断。
+`docs:check` 的检查逻辑由仓根共享内核 `scripts/lib/doc-checks.mjs` 唯一实现，包内 `scripts/check-docs.mjs` 与仓级入口都只是构造配置、转退出码的薄入口。本包启用其中 7 项（原「README 双语成对」「Agent note 双语成对」「README 语言导航」三项随单语化退役），负责机器可判定的结构不变量（链接有效性、命名规范、空文档等）是否被破坏。内核不评价文档质量、架构正确性或 Plan 是否真的完成——这些属于 semantic review，由 Coding Agent 和开发者判断。

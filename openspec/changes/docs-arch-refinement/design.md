@@ -39,6 +39,7 @@
 - **D-ADR 骨架（子集校验）**：七节子集 + 不查顺序——ADR-0001 有 8 个 H2（多「修订记录」）且 Related Documents 在后，等集/顺序断言会让存量先红。
 - **D-复核（真机重放）**：zcode-plan 迁移指南按用户裁定真机复测（登录→路由→扣费），新读数另立 artifacts；版本声明改来源常量表述 + 落档日期。被否：静态对账（用户升级为真机）；仅改版本行（同文档自相矛盾 :3/:62 留雷）。
 - **阶段 1.75 界面演示 gate：未触发**——本次变更触达面为纯文档/规范/门禁脚本/模板面（C1 不成立，命中排除表「纯后端 / CLI / 数据迁移 / 配置 / 脚本」行）；判定留痕见随档 `code-design.md` 末尾附录。
+- **执行环境**：直用主工作区（衔接点裁定，隔离判据零命中：工作区无脏改动、仅 main 检出、无并行变更 worktree；引擎 subagent 映射预置，模式 auto 用户裁定）。创建于 2026-11-07
 
 ## 触达面与逐任务组（与 tasks.md 分组一一对应）
 
@@ -60,7 +61,10 @@
 
 - `runDocChecks(config: DocCheckConfig): DocCheckReport`——内核唯一入口；`DocCheckConfig`：`{ scanRoot, dirs: { agentNote?, plansActive?, plansCompleted?, decisions? }, checks: Record<CheckId, boolean>, exemptions: { absolutePathSubstrings, bareAdrFiles, evidenceDirs } , pluginPackages: { include, exclude } }`（七包统一后 `exclude` 为空集）。
 - 薄入口约定：multi-root `scripts/check-docs.mjs`（构造 PKG_CONFIG + 自检 + exit code）与根 `scripts/check-docs.mjs`（构造 REPO_CONFIG + exit code 0/1/2，与 `dsh-check.mjs` 同约定）均不打印、不持逻辑。
+
+```
 - 证据行文法：`验证证据：[标题](artifacts/<file>.md)——结论：<一句话>`；证据文件首行元信息：`证据类型 / 采集时点 / 结论`。
+```
 
 ## 假设与未决项
 

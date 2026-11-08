@@ -22,7 +22,7 @@ scripts/check-architecture.mjs    # 检查 2/3：结构不变式 AR1–AR8（薄
 scripts/check-artifacts.mjs       # 检查 3/3：产物契约 B1–B5（入口存在 / 自包含 / ModuleLoader 壳）
 scripts/dsh-check.mjs             # dsh:check 聚合入口：顺序跑上面三个检查脚本
 scripts/release.mjs   # 发布：dsh:check → 同步版本号 → 重建产物 → 发布提交 → annotated tag
-.github/workflows/ci.yml  # 最小 CI：install → lint → typecheck → build → test → docs:check → spec:check → dsh:check
+.github/workflows/ci.yml  # 最小 CI：install → lint → typecheck → build → test → docs:check（仓级 + 递归）→ spec:check → dsh:check
 docs/assessments/     # 评估档案（非 ADR）：现状差异与「暂不施工」依据，见 docs/assessments/README.md
 openspec/             # 规范工作区（spec-driven schema，zh-CN）
 ```
@@ -37,7 +37,7 @@ pnpm build            # 全部插件构建（产物 lib/ 随仓库提交；relea
 pnpm typecheck        # 全部插件类型检查
 pnpm test             # 全部插件单测
 pnpm lint             # 全部插件 lint（无 lint 脚本的插件自动跳过）
-pnpm docs:check       # 文档检查（仅 multi-root-workspace 实现该脚本）
+pnpm docs:check       # 文档检查：仓级 node scripts/check-docs.mjs + pnpm -r 递归（multi-root dual 入口）
 pnpm spec:check       # 规范检查（OpenSpec strict 全量：openspec validate --all --strict）
 pnpm dsh:check        # 聚合门禁：DSH 基线 + 结构不变式（AR1–AR8）+ 产物契约（B1–B5）；release 会自动执行
 pnpm dsh:upgrade <version> [--probe]   # 根级升级：重指 DSH pin / 全部插件范围 / 运行时基线副本 / 豁免并同步基线常量
@@ -74,7 +74,7 @@ docker exec dsh dsh --profile web --dump-config          # 校验组合可加载
 
 升级 = 改 profile `package.json` 里的 tag 后重装（`pnpm install` + 重启 profile）；想自动跟进同主版本也可用范围写法 `#semver:^<major>.0.0&path:plugins/<目录>`。multi-root-workspace 是个例外：自 v1.3.0 起其目录改名为 `plugins/multi-root-workspace`（包名不变），而 pnpm 的 git 依赖锚点含 `&path:`、不随 tag 自动切换，已装旧版的 profile 需按新 path 重新 `add`（旧 tag 配旧 path 仍可装回旧版本，详见[插件 README](plugins/multi-root-workspace/README.md)）。
 
-本地开发调试仍可 `link:` 安装（改源码重启即生效，无需发布）：`dsh plugin --profile web add /home/xuqinqin/develop/person/dsh-plugins/plugins/<name>`。
+本地开发调试仍可 `link:` 安装（改源码重启即生效，无需发布）：`dsh plugin --profile web add <本仓>/plugins/<name>`（`<本仓>` 指本仓库检出的绝对路径）。
 
 ## 发布与版本
 
@@ -102,7 +102,7 @@ git push origin main --tags   # 3. push（容器已挂载宿主 ~/.ssh，可直�
 | [`dsh-plugin-session-tool-toggle`](plugins/session-tool-toggle/README.md) | 会话级工具面开关（双端）：在单个会话内关掉不需要的工具面——`mcp:<server>` 整组（工具 schema 与服务器指令段一并移除）、`mcp:<server>::<tool>` 单工具与尾部通配（仅移除 schema）、`tool:<name>` 内置工具（硬保护名单拒关）、`skill:<name>` 技能级开关（只对模型隐身：模型技能目录与 `skill` 工具加载一并移除，用户 `/name` 调用保留，不进工具掩码），下一次模型步骤生效，`tools.restrict` 掩码 + dispatch guard 双层强制；入口为 `/tools` 命令面与会话头部工具区的 Web 面板（共用同一状态与同一持久化，通道 `/session-tool-toggle`），用户级默认档在 `$DSH_HOME/session-tool-toggle/defaults.json`、工作区级默认档在 `$DSH_HOME/session-tool-toggle/workspaces.json`（按工作区规范路径为键），新会话按两者并集播种且只在会话创建时快照、不追溯；宿主半任何 profile 可装，无 Web 组合时命令面独立可用。 |
 | [`dsh-plugin-zcode-plan`](plugins/zcode-plan/README.md) | bigmodel.cn GLM Coding Plan 的 ZCode 折扣桥接（host-only，任何 profile 可单独安装）：`/zcode-plan` 五子命令（login / logout / status / route / refresh），org/project 必填；profile 层注册 `llm-pi-ai.providers['zcode-plan']`，不改 `agent-default-model`。折扣 = 凭证链（usageScene=1 Key + clientType=zcode 换发的 PAT）**+ 官方客户端请求签名体系**（get_sign_key 握手 → 账户私钥 → 每请求 Ed25519 签名 + PoW，零官方机密）；实测签名刻度 0.952 vs 无签名 1.543（比值 0.617，等效 ~1.62x 额度）。 |
 
-各插件的长文档留在插件目录内：多根插件的 `docs/` 含架构、ADR、参考与排障全文；其余插件的行为说明见各自 README。OpenSpec 规范在 `openspec/specs/`，规划工件归档在 [`openspec/changes/archive/`](openspec/changes/archive/)。
+仓内文档地图见 [`docs/README.md`](docs/README.md)。各插件的长文档留在插件目录内：多根插件的 `docs/` 含架构、ADR、参考与排障全文；其余插件的行为说明见各自 README。OpenSpec 规范在 `openspec/specs/`，规划工件归档在 [`openspec/changes/archive/`](openspec/changes/archive/)。
 
 ## 插件开发文档（官方）
 

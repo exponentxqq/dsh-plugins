@@ -6,6 +6,8 @@ DSH Web GUI 的**统一「工作区配置」入口**（holder，**零业务逻�
 
 ## 定位
 
+端性：双端
+
 - **入口唯一**：`sidebar.footer.action` 只剩这一枚入口（旧的三颗 footer 入口由贡献方在本次变更里硬移除，不做共存探测，也没有配置开关）。入口**恒在**——即使一个分节都没有，footer 也仍然显示它，空态在弹窗内解释（D5）。
 - **分节可扩展**：新增分节只需要贡献方在自己的包里注册一次（`slots.inject` 软注册），holder 不与任何贡献方建立运行时依赖。
 - **类型权威**：`workspace-config.section` 的座位条目形状（座位名、owner 份额、order 类型）由 `@dsh-plugins/contracts` 统一定义（`WorkspaceConfigSectionSlot`，D-15 权威转移）；本包 `src/client/contract.ts` 退化为文档指针与过渡 re-export，各消费包仍各持一份本地 `declare module` 增补；贡献方通过 `exports["./client"].types`（`lib/types/client/index.d.ts`）取兼容类型。
@@ -116,7 +118,7 @@ docker exec dsh dsh --profile web --dump-config          # 校验组合可加载
 
 `dsh plugin add` 会把包追加进 profile `package.json` 的 `dsh.profile.bundles`，从而激活本包的 `cordis.patch.yml`（插入 `id: workspace-config` 的**裸包名**行——这一形态是 REQUIRED，client-module scan 只从裸包名行读取 `dsh.client` 声明）。holder 不带 `config:` 段，也没有任何可选配置键。
 
-## 构建与类型
+## 构建与测试
 
 ```bash
 pnpm install       # 仓库根一次装齐 workspace 依赖

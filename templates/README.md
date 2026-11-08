@@ -153,5 +153,5 @@ pnpm gen:plugin --check <name>       # 不接受 <name>（同理不接受 --kind
 ## 与 `plugin-README.md.tmpl` 的分工
 
 模板目录自己的 README（本文件与 `templates/default/README.md`）说明「模板怎么用」，**不复用**为
-插件 README；插件 README 由件套里的 `plugin-README.md.tmpl`（显式占位）渲染生成。两者职责不同：
+插件 README；插件 README 由件套里的 `plugin-README.md.tmpl`（骨架全集：4 必备节 + 端性声明 + 如适用注释与 `{{DUAL_SECTION}}` 占位）渲染生成。两者职责不同：
 一个是模板约定与件套表，一个是「插件长什么样」。

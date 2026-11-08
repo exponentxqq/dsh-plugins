@@ -1,7 +1,5 @@
 # 架构文档（Architecture）
 
-English: [README.en.md](./README.en.md)
-
 ## 这里存放什么
 
 - Current Architecture（当前架构）；

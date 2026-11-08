@@ -30,7 +30,7 @@
 | 产物清理 | kit `clean: 'auto'`（按 `dtsOwned` 推导 `full` / `js-only`） | tsdown `clean: false` + `scripts/clean-lib.mjs`（只删上一轮 `lib/*.js` 与 `.map`，保住 `lib/types/`） |
 | 门禁现状 | B1–B5 通过 | B1–B5 通过；B6 比对：7 个包与基线逐字相等（2026-11-07 实测 exit 0） |
 
-这些不是风格差异：多入口对应文件引用 / LSP / workspace-files 等子路径消费者，双段 d.ts 对应多入口的类型消费，原生依赖对应 Windows runner 与注册表租约，精确 peer allowlist 对应运行时兼容门，三段冒烟对应安装 / 行为 / journey 验证面。ADR-0001 因此把 multi-root 列为 **C2 硬边界**（独立 fork），而不是「待迁移的历史遗留」；根 `AGENTS.md` 与 `README.md` 也同口径——`tsconfig.plugin.base.json` 只覆盖除 multi-root 外的六个插件。
+这些不是风格差异：多入口对应文件引用 / LSP / workspace-files 等子路径消费者，双段 d.ts 对应多入口的类型消费，原生依赖对应 Windows runner 与注册表租约，精确 peer allowlist 对应运行时兼容门，三段冒烟对应安装 / 行为 / journey 验证面。[`ADR-0001`](../decisions/ADR-0001-shared-build-and-source-kits.md) 因此把 multi-root 列为 **C2 硬边界**（独立 fork），而不是「待迁移的历史遗留」；根 `AGENTS.md` 与 `README.md` 也同口径——`tsconfig.plugin.base.json` 只覆盖除 multi-root 外的六个插件。
 
 ## 不迁移理由
 
@@ -45,7 +45,7 @@
 | 产物形态与字节 | 浏览器面的 banner / footer / `define` 替换由 tsdown 自持，与 kit 的 `moduleLoaderShell` 输出形状不同；迁移必然重算产物字节，B6 基线整体失效，需要重新冻结并全链对账 |
 | 测试执行语义 | multi-root 的 `tests/` 与 18 行配置（`pool: 'forks'`、30 s 超时、`.e2e.ts`）在测试接线底座（A1）里被**显式排除**：并入 test-kit 工厂会改变其测试执行语义 |
 | 验证面溢出 | 三段 smoke、`kernel:probe`、`compat:check` 都不在 build-kit 职责内；迁移后这些面需要重新接线与回归 |
-| 工具链回退 | 统一构建会把 multi-root 拖回 kit 的 esbuild 工具链，ADR-0001 已把该风险写成 C2 硬边界 |
+| 工具链回退 | 统一构建会把 multi-root 拖回 kit 的 esbuild 工具链，[`ADR-0001`](../decisions/ADR-0001-shared-build-and-source-kits.md) 已把该风险写成 C2 硬边界 |
 
 ### 工作量与风险小结
 
@@ -110,7 +110,7 @@
 ## 结论
 
 - **暂不施工**：multi-root 保留自有 `tsc + tsdown` 双面构建链；本变更只冻结 B6 基线、落这份档案，不动其任何代码与产物（C9 边界）。
-- **定性**：这是**可接受的约束**，不是待还的债——ADR-0001 C2 已把「不纳入统一构建」写成硬边界，本档案把理由与未来门槛落成可引用的形式。
+- **定性**：这是**可接受的约束**，不是待还的债——[`ADR-0001`](../decisions/ADR-0001-shared-build-and-source-kits.md) C2 已把「不纳入统一构建」写成硬边界，本档案把理由与未来门槛落成可引用的形式。
 - **不建 ADR**：结论是「暂不施工 + 立评估框架」，没有新决策；按 [`docs/decisions/README.md`](../decisions/README.md) 的维护纪律（未决讨论与提案不建 ADR），不为评估盖决策章。
 - **迁移窗口**：multi-root 下一次功能性重构（构建面 / 发布形态 / 入口形态变化）时再评估统一化；届时以本档案「迁移通过标准」为验收面，并为真实决策新建 ADR，而不是修订本档案。
 - **档案维护**：multi-root 构建链、依赖面或基线变化时同批更新本档案；基线重冻用 `node scripts/check-artifacts.mjs --write-baseline docs/assessments/multi-root-baseline`，并在「现状差异清单」记录重冻原因。

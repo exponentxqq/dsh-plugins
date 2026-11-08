@@ -1,7 +1,5 @@
 # DSH 兼容性契约：Agent 需要先知道的事
 
-English: [dsh-compat-contract.en.md](./dsh-compat-contract.en.md)
-
 这份笔记记录的是**改动本仓库之前必须知道、否则很容易踩坑**的兼容性机制。决策理由在 [ADR-0009](../../docs/decisions/ADR-0009-dsh-compat-contract.md)，用户侧排查在 [故障排查条目](../../docs/troubleshooting/unsupported-dsh-release.md)。这里只写"作为 Agent 你会撞到什么"。
 
 ## 1. 支持范围：运行时副本 + 派生范围

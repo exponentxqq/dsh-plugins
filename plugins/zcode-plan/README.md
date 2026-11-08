@@ -2,13 +2,19 @@
 
 DSH 插件（**host-only，`exports "."`**）：把 bigmodel.cn GLM Coding Plan 的 ZCode 折扣凭证桥接进 dsh 路由——浏览器登录 BigModel 后，插件在服务端 find-or-create 一把 `usageScene:1` 的桥接 Key，用 `clientType:"zcode"` 换发短期 PAT（Project Access Token）作为路由凭证并自动续期，`/zcode-plan` 五子命令（login / logout / status / route / refresh）管理全流程。
 
-**原理一句话：插件维护官方客户端等价的凭证链，并把官方客户端的请求签名体系原样带进路由**——凭证链 = 「`usageScene:1` 的 Key + `clientType:"zcode"` 换发的那张 PAT」；签名体系 = **官方公开的请求认证协议**：login 完成后即时握手 `get_sign_key`（服务端按账户下发 Ed25519 私钥密文，解密密钥由你自己的凭证派生），此后每个发往 coding 端点的模型请求自动附加 Ed25519 签名 + 8-bit PoW 头组。**零官方机密**：密钥材料要么是你自己的凭证（PAT / Key）、要么是服务端按账户下发的私钥——插件不内嵌任何官方秘密，也不做 TLS / 指纹层伪装（签名通道启用时随请求发送的 UA 与 `X-Zcode-*` 观察头均为官方客户端公开常量，为复刻实验验证生效配置的逐字保留；关闭签名或 fail-open 降级时按基线直连、无这些头）。实测刻度（2026-11-04，5h 窗 / 周额度双池一致）：**签名 0.952 vs 同 PAT 无签名 1.543，比值 0.617 ≈ 官方 0.67 折算字面值，等效 ~1.62x 额度**——折扣判定键就是这个每请求签名体系（全部读数见 [docs/acceptance.md](docs/acceptance.md) §四，复测方法见[折扣复测口径](#折扣复测口径)）。签名通道两级降级（无签名直发按 ~1.5 刻度扣池、比直连更贵，止损优先）：瞬时故障**请求级 fail-open**（该请求无签名直发 + 60s 冷却窗自动自愈）；连续 3 次握手失败进入**状态级止损**——拒绝新请求，`/zcode-plan refresh` 或重登录恢复。
+**原理一句话：插件维护官方客户端等价的凭证链，并把官方客户端的请求签名体系原样带进路由**——凭证链 = 「`usageScene:1` 的 Key + `clientType:"zcode"` 换发的那张 PAT」；签名体系 = **官方公开的请求认证协议**：login 完成后即时握手 `get_sign_key`（服务端按账户下发 Ed25519 私钥密文，解密密钥由你自己的凭证派生），此后每个发往 coding 端点的模型请求自动附加 Ed25519 签名 + 8-bit PoW 头组。**零官方机密**：密钥材料要么是你自己的凭证（PAT / Key）、要么是服务端按账户下发的私钥——插件不内嵌任何官方秘密，也不做 TLS / 指纹层伪装（签名通道启用时随请求发送的 UA 与 `X-Zcode-*` 观察头均为官方客户端公开常量，为复刻实验验证生效配置的逐字保留；关闭签名或 fail-open 降级时按基线直连、无这些头）。实测刻度（2026-11-04，5h 窗 / 周额度双池一致）：**签名 0.952 vs 同 PAT 无签名 1.543，比值 0.617 ≈ 官方 0.67 折算字面值，等效 ~1.62x 额度**——折扣判定键就是这个每请求签名体系（全部读数见 [artifacts/acceptance.md](artifacts/acceptance.md) §四，复测方法见[折扣复测口径](#折扣复测口径)）。签名通道两级降级（无签名直发按 ~1.5 刻度扣池、比直连更贵，止损优先）：瞬时故障**请求级 fail-open**（该请求无签名直发 + 60s 冷却窗自动自愈）；连续 3 次握手失败进入**状态级止损**——拒绝新请求，`/zcode-plan refresh` 或重登录恢复。
 
 路由注册写在 profile 层 `llm-pi-ai.providers['zcode-plan']` 键上，**不改 `agent-default-model`**——是否切默认路由是你的决策，本插件不代劳。
 
+## 定位
+
+端性：host-only
+
+bigmodel.cn GLM Coding Plan 的 **ZCode 折扣凭证桥接**：插件维护官方客户端等价的凭证链（`usageScene:1` 的 Key + `clientType:"zcode"` 换发的 PAT）并原样带进路由，`/zcode-plan` 五子命令（login / logout / status / route / refresh）管理登录、登录态与自动续期。路由注册写在 profile 层 `llm-pi-ai.providers['zcode-plan']` 键上，**不改 `agent-default-model`**。
+
 ## 前置条件
 
-- **dsh ≥ 0.2.1-rc.2**（本包 `engines.dsh` 为 `>=0.2.1-rc.2 <0.3.0`）。
+- **dsh ≥ 0.2.2-rc.1**（本包 `engines.dsh` 为 `>=0.2.2-rc.1 <0.3.0`，读自仓库根 `scripts/dsh-baseline.mjs` 派生）。
 - **已订阅 GLM Coding Plan** 并能用浏览器登录 bigmodel.cn。
 - **拿到 `organization` / `project` 两个 id**：平台没有可依赖的程序化发现接口（实测管理面无此路由，见变更 artifacts 的 spike-org-project），这两个值是**必填配置**。从控制台或用量页（`https://www.bigmodel.cn/coding-plan/personal/usage`）的 URL 里取。
 - **headless profile 不适用**：headless 部署禁用凭据存储，登录态与 PAT 无处落盘，本插件的登录/续期能力整体不装配（软注入零注册、零报错，但功能不可用）。装在 web / acp 等带凭据存储的 profile 上。
@@ -101,7 +107,7 @@ docker exec dsh dsh --profile web --dump-config | grep -B2 -A8 'id: zcode-plan'
 
 ## 签名通道（折扣计费）
 
-`signing` 配置（默认 `true`）开启官方 ZCode 折扣计费通道：login 完成 → PAT 发布即**预握手**（fire-and-forget 不阻塞续期，失败由下次请求懒重握手兜底）→ 私钥缓存（内存单槽 + credential record 落盘，指纹绑定凭证——更换凭证即失效，重启 profile 免重握手）→ 此后所有发往 coding 端点的模型请求自动附加签名头组（`X-Client-Sig` / `X-Client-Ts` / `X-Client-Version` / `X-Client-Nonce` / `X-Client-Pow` / `X-App-Id` / `X-Session-Id` + 官方客户端 UA）。签名消息与 PoW 构造、协议常量出处见 [docs/acceptance.md](docs/acceptance.md) §四与 `src/host/bigmodel/signing.ts`。实测刻度 0.952 vs 无签名 1.543（比值 0.617，2026-11-04 双池一致）。
+`signing` 配置（默认 `true`）开启官方 ZCode 折扣计费通道：login 完成 → PAT 发布即**预握手**（fire-and-forget 不阻塞续期，失败由下次请求懒重握手兜底）→ 私钥缓存（内存单槽 + credential record 落盘，指纹绑定凭证——更换凭证即失效，重启 profile 免重握手）→ 此后所有发往 coding 端点的模型请求自动附加签名头组（`X-Client-Sig` / `X-Client-Ts` / `X-Client-Version` / `X-Client-Nonce` / `X-Client-Pow` / `X-App-Id` / `X-Session-Id` + 官方客户端 UA）。签名消息与 PoW 构造、协议常量出处见 [artifacts/acceptance.md](artifacts/acceptance.md) §四与 `src/host/bigmodel/signing.ts`。实测刻度 0.952 vs 无签名 1.543（比值 0.617，2026-11-04 双池一致）。
 
 **两级降级**（无签名直发按 ~1.5 刻度扣池，比直连更贵——止损优先于可用性）：
 
@@ -244,7 +250,7 @@ dsh 官方对短期 token 的立场是**仅内存**（short-lived token 不落�
 
 ## 折扣复测口径
 
-折扣是否生效用**同款请求对拍**验证：两臂同用一张 PAT、各发一份互异全新体，唯一变量 = 是否带插件线签名头组；**比值 A/B（签名/无签名刻度）落 0.50–0.75（官方 0.67 折算系数邻域）→ 折扣命中**。脚本正本与完整手册在本包内：`scripts/` 五件套（refresh-snap / gen / replicate-sign-pat / read-pools / verify-discount）+ [docs/discount-verify.md](docs/discount-verify.md)（原理、流程、判读表、方法论与纪律）。
+折扣是否生效用**同款请求对拍**验证：两臂同用一张 PAT、各发一份互异全新体，唯一变量 = 是否带插件线签名头组；**比值 A/B（签名/无签名刻度）落 0.50–0.75（官方 0.67 折算系数邻域）→ 折扣命中**。脚本正本与完整手册在本包内：`scripts/` 五件套（refresh-snap / gen / replicate-sign-pat / read-pools / verify-discount）+ [artifacts/discount-verify.md](artifacts/discount-verify.md)（原理、流程、判读表、方法论与纪律）。
 
 ```bash
 pnpm discount:snap     # 从凭据存储刷新快照（JWT/org/proj/PAT → 仓外缓存目录，0600）
@@ -278,7 +284,7 @@ pnpm discount:verify   # 交错双对 + 平台期轮询 + 本底窗对拍（~16 
 - **`config-editor` / `llm` 缺席**：`route install` / `remove` 报服务不可用，`route status` 按「未安装」渲染。
 - 各能力缺席时插件**零注册零报错**，不影响 profile 加载。
 
-## 构建
+## 构建与测试
 
 ```bash
 cd /home/xuqinqin/develop/person/dsh-plugins/plugins/zcode-plan   # dsh-plugins workspace 成员

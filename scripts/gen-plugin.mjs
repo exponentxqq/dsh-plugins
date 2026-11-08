@@ -12,7 +12,11 @@
  *   `scripts/dsh-baseline.mjs` 的 `softDshRange()` **现取现派生**（模板里不写版本字面量）；
  * - `--kind dual` 在上面的基础上补 `exports["./client"]`、`dsh.client`、
  *   `@dsh-plugins/test-kit` devDep 与双 `tsc -p` 的 `typecheck`；
- * - 构建入口是 `@dsh-plugins/build-kit` 的薄入口，tsconfig 只 `extends` 根基准。
+ * - 构建入口是 `@dsh-plugins/build-kit` 的薄入口，tsconfig 只 `extends` 根基准；
+ * - 插件 README 是骨架全集（4 必备实节 + 5 类「如适用」HTML 注释 + `## 结构` 自由节）：
+ *   端性声明行与 `## 双端结构` 节分别由 `ENDNESS` / `DUAL_SECTION` 两个 token 按 `--kind`
+ *   **无条件**注入（`render()` 是逐 token 字面替换、没有 fail-closed，host-only 的
+ *   `DUAL_SECTION` 必须是空串，否则生成物残留占位符字面量）。
  *
  * 本脚本**只写文件，不跑 git / pnpm**；写完打印 5 步后续命令。目标目录必须不存在，
  * 避免覆盖任何已有插件。
@@ -357,6 +361,28 @@ function structureTree(dual) {
 }
 
 /**
+ * `{{DUAL_SECTION}}` 的 dual 取值：`## 双端结构` 整节（标题 + 占位正文）。
+ *
+ * 骨架全集的端性闭环（`docs/decisions/ADR-0003-doc-system-layers-and-gates.md` §2、
+ * residual-convergence code-design ③.5 细则 3）：声明 `双端` 时本节必备，声明
+ * `host-only` 时不得出现。模板里只留一行占位符，节内容由生成器按 kind 注入：
+ * `render()` 是逐 token 字面替换、没有 fail-closed，故 host-only 必须传空串，
+ * 否则生成物会残留 `{{DUAL_SECTION}}` 字面量。
+ * @type {string}
+ */
+const DUAL_SECTION_TEXT = [
+  '## 双端结构',
+  '',
+  '本包为**双端**形态：宿主半（`src/`，Node 侧服务 / 事件 / 命令）与浏览器半（`src/client/`，',
+  'Web 侧座位与渲染）分目录实现，两半由 `package.json` 的 `dsh.client.platform: web` 声明与',
+  '同一行裸包名 insert 行同装（丢裸包名行 = 浏览器半静默消失）。',
+  '',
+  '- 宿主半入口 `src/index.ts`：导出 `name` / `inject` / `apply`，承载宿主侧逻辑；',
+  '- 浏览器半入口 `src/client/index.ts`：座位注册与事件桥，产物为 `lib/client.js`；',
+  '- 两半的分工、座位契约与事件桥细节写在这里（占位，按真实实现补全）。',
+].join('\n')
+
+/**
  * 由插件名派生 CSS 作用域类名前缀（取各中划线分段的首字母，最多 4 位）。
  *
  * `build-kit` 要求双端插件必须传 `cssClassPrefix`（它决定作用域类名前缀，是保产物
@@ -374,6 +400,10 @@ function cssClassPrefix(name) {
 
 /**
  * 构造模板占位符取值。
+ *
+ * `ENDNESS` / `DUAL_SECTION` 是骨架全集的端性闭环，**无条件**出现在返回值里：`render()`
+ * 是逐 token 字面替换、未提供的 token 不报错而原样残留，故 host-only 也必须拿到
+ * `DUAL_SECTION: ''`（空串渲染后该行消失）而不是缺键。
  * @param {string} name - 插件名（不含包名前缀）。
  * @param {'host-only' | 'dual'} kind - 插件形态。
  * @param {object} rootManifest - 仓库根清单。
@@ -386,6 +416,7 @@ function buildTokens(name, kind, rootManifest) {
     NAME: name,
     PACKAGE_NAME: `${PACKAGE_PREFIX}${name}`,
     KIND: kind,
+    ENDNESS: kindLabel,
     DESCRIPTION: `DSH 插件（${kindLabel}）：${name} —— 请替换为定位与能力的一句话说明。`,
     VERSION: rootManifest.version,
     NODE_RANGE: rootManifest.engines.node,
@@ -395,6 +426,7 @@ function buildTokens(name, kind, rootManifest) {
     TYPECHECK_CLIENT: dual ? ' && tsc -p tsconfig.client.json --pretty false' : '',
     BUILD_CLIENT: dual ? ' + lib/client.js' : '',
     STRUCTURE_TREE: structureTree(dual),
+    DUAL_SECTION: dual ? DUAL_SECTION_TEXT : '',
   }
 }
 

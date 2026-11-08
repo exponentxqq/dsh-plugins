@@ -1,8 +1,8 @@
 # dsh-plugin-multi-root-workspace
 
-中文 | [English](./README.en.md)
+## 定位
 
-## 项目简介（What & Why）
+端性：双端
 
 DSH（DeepSeek Harness）的外部插件 bundle：把 Workspace 的可写范围从"一个 canonical 目录"扩展为"**一个主根 + N 个附加根**"，且**不修改上游仓库任何包**。
 
@@ -14,11 +14,9 @@ DSH（DeepSeek Harness）的外部插件 bundle：把 Workspace 的可写范围�
 - **安全不降级**：多根授权走上游同款机制——进程内 fs fence + 内核级 runner（macOS Seatbelt / Linux bwrap / Landlock），fs 与 bash/PTY 共享同一条 scope；绝不退化为 danger-full-access 或提示词约束。
 - **不装就当不存在**：以 bundle patch 替换上游 `fs-sandbox` 与 `sandbox` 两行 provider；未配置附加根时行为与未装插件逐项一致，misconfiguration 一律响亮报错，从不静默降级。
 
-**上游基线与本地 fork**：本仓库是 [`cherrchen/dsh-plugin-multi-root-workspace`](https://github.com/cherrchen/dsh-plugin-multi-root-workspace) 的本地 fork（vendored，包名已去 `@dsh-electron` 作用域），基线 `f149fa4`（`v0.1.5` 之后一个提交）。上游的 MVP（里程碑 M1–M3）、硬化批次（H1–H4）与 `v0.1.2`–`v0.1.5` 支持矩阵扩展均已包含在基线中。本 fork 的增量（附加根一次性播种、对所有主根生效的通用附加根 `commonRoots`、包名去 scope、清理上游发布机器与项目管理文档）记录在本仓库（`dsh-plugins`）的提交历史、本 README 与 `docs/reference/` 参考文档；上游式 CHANGELOG、路线图与计划文档已随 fork 移除。
-
 ## 快速开始
 
-已有 DSH 运行时（web / Electron 桌面 / headless 均可）时，最短路径是两步——本仓库是**本地 fork**：包名已去掉 `@dsh-electron` 作用域（现为 `dsh-plugin-multi-root-workspace`），不随上游发布到 npm，而是按 tag 从本仓库的 GitHub 源安装：
+已有 DSH 运行时（web / Electron 桌面 / headless 均可）时，最短路径是两步——按 tag 从 GitHub 源安装：
 
 ```sh
 TAG=$(git describe --tags --abbrev=0)   # 当前 tag（也可填任意历史 tag 复现旧版本）
@@ -26,7 +24,7 @@ dsh plugin --profile web add "github:exponentxqq/dsh-plugins#${TAG}&path:plugins
 dsh --profile web
 ```
 
-其他安装来源（npm 注册表上的上游包 / GitHub 仓库 / tarball）与源码方式运行 DSH 的命令差异，见[安装](#安装)。
+其他安装来源（GitHub 仓库 / tarball / 本地路径）与源码方式运行 DSH 的命令差异，见[安装到 profile](#安装到-profile)。
 
 启动后，点击侧栏底部的统一入口 **工作区配置**，其弹窗内的 **工作区文件夹** 分节就是本插件的面板；或直接在会话里：
 
@@ -46,18 +44,17 @@ dsh --profile web
 
 **受支持的 DSH 版本是一条基线派生的范围，不是逐版本清单。** 因为本插件替换的是 `ctx.fs` 与 `ctx.sandbox`——安全边界本身——而它识别内核沙箱方言靠的是对上游版本实测出来的 argv 形状。所以支持范围由基线派生：`DSH_BASELINE`（当前 `0.2.2-rc.1`）是范围下界，语义为「与基线同 major.minor 且 ≥ 基线」（当前即 `>=0.2.2-rc.1 <0.3.0`），`peerDependencies` 与 `dsh.engines.dsh` 都声明这条范围；启动时还会再查一遍：宿主的版本落在派生范围之外（低于基线，或换了 minor，例如 `0.3.0`），或者若干个 `@deepseek-ai/dsh-*` 混装了不同版本，`multi-root-compat` 门禁就直接抛错拒绝启动（错误里带完整诊断）——fs / sandbox / registry / instructions / lsp / workspace-files / file-references 七行**根本不启动**，没有警告档，也没有降级路径。诊断办法见[故障排查：DSH 版本在支持范围外](./docs/troubleshooting/unsupported-dsh-release.md)，理由见 [ADR-0009](./docs/decisions/ADR-0009-dsh-compat-contract.md)。
 
-## 安装
+## 安装到 profile
 
-`dsh plugin` 支持四种安装来源。以下均以 web profile 为例；桌面端（Electron）把 `--profile web` 换成 `--profile desktop`，安装方式同源。
+`dsh plugin` 支持三种安装来源。以下均以 web profile 为例；桌面端（Electron）把 `--profile web` 换成 `--profile desktop`，安装方式同源。
 
 | 来源 | 命令 | 说明 |
 | --- | --- | --- |
-| GitHub（本 fork 的用法） | `dsh plugin --profile web add "github:exponentxqq/dsh-plugins#<tag>&path:plugins/multi-root-workspace"` | 本 fork 的发布通道：产物 `lib/` 随 tag 提交、无 `prepare`，即装即用（`&path:` 指定单仓子目录，`<tag>` 换成当前 tag）；仅需 `koffi` 一次 `allowBuilds` 表态，务必锁定 tag |
-| npm 注册表（上游包） | `dsh plugin --profile web add @dsh-electron/dsh-plugin-multi-root-workspace` | 上游已发布的预构建产物，即装即用；**本 fork 改名后未发布**，这条命令装到的是上游版本 |
+| GitHub（本仓发布通道） | `dsh plugin --profile web add "github:exponentxqq/dsh-plugins#<tag>&path:plugins/multi-root-workspace"` | 本仓的发布通道：产物 `lib/` 随 tag 提交、无 `prepare`，即装即用（`&path:` 指定单仓子目录，`<tag>` 换成当前 tag）；仅需 `koffi` 一次 `allowBuilds` 表态，务必锁定 tag |
 | tarball | `dsh plugin --profile web add ./dsh-plugin-multi-root-workspace-<version>.tgz` | 预构建离线包，适合内网/离线；同样需要那一次 `allowBuilds` 回答 |
 | 本地路径（开发调试） | `dsh plugin --profile web add /path/to/multi-root-workspace` | pnpm `link:` 链接本地 checkout（依赖已在本仓库装好），改源码重启 profile 即生效，适合调试 |
 
-**首次安装需要回答一次 `allowBuilds`，四种来源皆然。** 本插件带一个需要构建的原生依赖 `koffi`（Windows 上 Registry Authority 用的 FFI 封装；其他平台装了不用），而 pnpm ≥10 默认不运行任何依赖的生命周期脚本。所以第一次 `dsh plugin add` 会以 `[ERR_PNPM_IGNORED_BUILDS]` 失败，并把待决项写进该 profile 的 `pnpm-workspace.yaml`：
+**首次安装需要回答一次 `allowBuilds`，三种来源皆然。** 本插件带一个需要构建的原生依赖 `koffi`（Windows 上 Registry Authority 用的 FFI 封装；其他平台装了不用），而 pnpm ≥10 默认不运行任何依赖的生命周期脚本。所以第一次 `dsh plugin add` 会以 `[ERR_PNPM_IGNORED_BUILDS]` 失败，并把待决项写进该 profile 的 `pnpm-workspace.yaml`：
 
 ```yaml
 allowBuilds:
@@ -66,28 +63,20 @@ allowBuilds:
 
 把它改成 `true` 再执行一次 `add` 即可。把这一行理解为**允许该依赖的安装脚本在你的机器上执行**（不在 agent 运行的任何沙箱之内）——`koffi` 的脚本只做本地预编译。诊断步骤见[故障排查：安装停在构建授权](./docs/troubleshooting/install-stops-at-build-approval.md)。
 
-### 从 npm 注册表安装（上游包）
-
-```sh
-dsh plugin --profile web add @dsh-electron/dsh-plugin-multi-root-workspace
-```
-
-装到的是**上游**发布的预构建产物（不需要编译插件本身），首次仍要回答上面那一次 `allowBuilds`。本 fork 改了包名、不发布到 npm，要跑本 fork 的代码请走上面的 GitHub 安装。
-
 ### 从 tarball 安装
 
+在 `plugins/multi-root-workspace` 目录内执行无参的 `pnpm pack`（pnpm 从当前包的清单取包名与版本，产出 `<包名>-<版本>.tgz`）：
+
 ```sh
-pnpm pack dsh-plugin-multi-root-workspace
-# 或从上游 GitHub Release 资产下载（上游资产名仍带 scope），例如：
-# https://github.com/cherrchen/dsh-plugin-multi-root-workspace/releases/download/v0.1.5/dsh-electron-dsh-plugin-multi-root-workspace-0.1.5.tgz
-dsh plugin --profile web add ./dsh-plugin-multi-root-workspace-0.1.5.tgz
+pnpm pack
+dsh plugin --profile web add ./dsh-plugin-multi-root-workspace-<version>.tgz
 ```
 
-同样是预构建产物（不需要编译本插件本身），适合内网或离线环境交付；首次 `add` 同样要回答那一次 `allowBuilds`。
+这是预构建产物（不需要编译本插件本身），适合内网或离线环境交付；首次 `add` 同样要回答那一次 `allowBuilds`。
 
 ### 从 GitHub 安装
 
-本 fork 的发布通道就在 `dsh-plugins` 单仓里，用 `#<tag>&path:<目录>` 同时锁定版本与子目录：
+本仓的发布通道就在 `dsh-plugins` 单仓里，用 `#<tag>&path:<目录>` 同时锁定版本与子目录：
 
 ```sh
 TAG=$(git describe --tags --abbrev=0)   # 当前 tag（也可填任意历史 tag）
@@ -107,25 +96,26 @@ dsh plugin --profile web add "github:exponentxqq/dsh-plugins#v1.3.0&path:plugins
 旧 tag 配旧 path（`#v1.2.1&path:plugins/dsh-plugin-multi-root-workspace`）仍可安装旧版本，两套锚点互不影响。
 
 > 若宿主 `~/.gitconfig` 把 `https://github.com/` 改写成了 ssh（`insteadOf`）——dsh 容器现已挂载宿主 `~/.ssh`，钥匙对 GitHub 可用时 ssh 直连正常；仅当认证不可用时 `git ls-remote` 才会失败，届时给命令加 `-e GIT_CONFIG_GLOBAL=/dev/null`（`docker exec -e GIT_CONFIG_GLOBAL=/dev/null dsh …`），或按 dotfiles 说明把该段拆到宿主专属的 include 文件。
->
-> 想跑**上游**源码则是另一条命令（包名仍带 scope，且需自行 clone tag）：`dsh plugin --profile web add github:cherrchen/dsh-plugin-multi-root-workspace#v0.1.5`。
 
 ### 从本地源码安装（开发调试）
 
-本 fork 以 vendored 形式存放在 `dsh-plugins` 仓库（`plugins/multi-root-workspace`），profile 用 `link:` 指向该目录——构建出 `lib/` 后直接 `dsh plugin --profile web add <该目录>` 即可。通用的源码路径（含从上游 clone）：
+本插件存放在本仓库的 `plugins/multi-root-workspace`，profile 用 `link:` 指向该目录——先在该包目录内构建出 `lib/`（`pnpm install` / `pnpm build`，命令与预期见[构建与测试](#构建与测试)），再执行：
 
 ```sh
-git clone https://github.com/cherrchen/dsh-plugin-multi-root-workspace.git
-cd dsh-plugin-multi-root-workspace
-export CI=true    # 无 TTY 时 pnpm 的依赖自检会中止，见开发工作流 §8
-pnpm install
-pnpm build        # 生成 lib/（未纳入 Git），制品测试与安装都依赖它
 dsh plugin --profile web add "$PWD"
 ```
 
 > **提示**：如果你的 DSH 是 clone 源码方式使用（而非 `npm install -g @deepseek-ai/deepseek-harness`），`dsh` 不在全局 PATH 里，请把上述命令中的 `dsh` 换成 `pnpm dsh`——例如 `pnpm dsh plugin --profile web add ...`、`pnpm dsh --profile web`。
 
-## 运行方法
+## 构建与测试
+
+在本包目录（`plugins/multi-root-workspace`）内构建：
+
+```sh
+export CI=true                # 无 TTY 时 pnpm 的依赖自检会中止，见开发工作流 §8
+pnpm install
+pnpm build                    # 生成 lib/，制品测试与安装都依赖它
+```
 
 开发自检（每步的预期结果）：
 
@@ -137,10 +127,11 @@ pnpm smoke                    # 预期：compose 46/46、behavior 99/99、journe
 pnpm docs:check               # 预期：0 errors, 0 warnings
 ```
 
-安装进 DSH 运行时并验证组合：
+全量命令表、排序约束（`pnpm test` 必须在 `pnpm build` 之后）与一条命令的完整链路 `pnpm verify:all`（lint → compat:check → typecheck → build → kernel:probe → test → smoke）见[开发工作流](./docs/development/plugin-development-workflow.md) §3。
+
+装进 profile 后验证组合（安装命令见[安装到 profile](#安装到-profile)）：
 
 ```sh
-dsh plugin --profile web add "$PWD"
 dsh --profile web --dump-config
 ```
 
@@ -198,6 +189,12 @@ scripts/          冒烟（compose / behavior / journey）、文档与内核 run
 docs/             需求、架构、决策记录（ADR）、计划、开发工作流
 ```
 
+## 双端结构
+
+宿主半（`exports "."` → `lib/index.js`）承载全部能力：根注册表与 `ctx.multiRootScope`、多根 fs 与内核 sandbox、附加根指令投递、LSP / 工作区文件等消费方，以及 `/workspace-folders` 命令与面板 RPC 的 host 半部；浏览器半（`exports "./client"` → `lib/client.js`，源码在 `src/client/`）只负责「工作区文件夹」分节与 Files tab 紧凑入口，经 Connection RPC 通道 `/multi-root-workspace` 与宿主半通信，样式只走宿主 `var(--dsw-*)` 令牌。
+
+两端共享的线上契约在 `src/contract.ts`（zod 双端校验，可内联进浏览器 bundle）；逐文件清单见[项目结构](#项目结构)。`cordis.patch.yml` 的 `multi-root-client` 行以**裸包名**挂载宿主半：web 组合只从裸包名行读取 `dsh.client`，去掉该行浏览器半即静默消失（面板分节随之不见），宿主半与命令面照常。
+
 ## 贡献指南
 
 欢迎 Issue 与 PR：
@@ -205,7 +202,7 @@ docs/             需求、架构、决策记录（ADR）、计划、开发工�
 1. 先读 [`AGENTS.md`](./AGENTS.md)（仓库级规则）与[开发工作流](./docs/development/plugin-development-workflow.md)（环境、命令、运行时支持矩阵、升级流程）。
 2. 从 `main` 拉分支；提交信息遵循 conventional commits（`feat` / `fix` / `perf` / `refactor` + scope），参见现有历史。
 3. PR 前本地必须全部通过：`pnpm lint`、`pnpm typecheck`、`pnpm build`、`pnpm test`、`pnpm docs:check`、`pnpm smoke`（CI 按同序执行，先 build 后 test）。
-4. 影响行为的变更需同批更新 `docs/` 下的对应文档；README 保持中英双语同步；有取舍的工程决策请新增 ADR。
+4. 影响行为的变更需同批更新 `docs/` 下的对应文档；有取舍的工程决策请新增 ADR。
 5. 硬约束：**不修改上游仓库（deepseek-harness）任何包**；插件只做 out-of-tree 扩展。
 
 ## 已知限制
@@ -234,6 +231,6 @@ docs/             需求、架构、决策记录（ADR）、计划、开发工�
 
 Coding Agent 的仓库级规则定义于 [`AGENTS.md`](./AGENTS.md)。
 
-## 许可证
+## 许可
 
 [MIT](./LICENSE)

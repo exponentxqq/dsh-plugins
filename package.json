@@ -19,7 +19,7 @@
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck",
     "lint": "pnpm -r run lint",
-    "docs:check": "pnpm -r run docs:check",
+    "docs:check": "node scripts/check-docs.mjs && pnpm -r run docs:check",
     "spec:check": "openspec validate --all --strict",
     "gen:plugin": "node scripts/gen-plugin.mjs",
     "release": "node scripts/release.mjs",

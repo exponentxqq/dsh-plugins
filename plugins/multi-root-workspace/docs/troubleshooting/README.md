@@ -1,7 +1,5 @@
 # 故障排查（Troubleshooting）
 
-English: [README.en.md](./README.en.md)
-
 ## 这里存放什么
 
 已经验证、具有重复价值的问题处理经验，每条记录通常包括：

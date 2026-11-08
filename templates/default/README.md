@@ -24,8 +24,23 @@
 | `src/client/index.ts` | `src/client/index.ts` | 浏览器半入口；仅 `dual` 生成 |
 | `test/smoke.test.ts` | `test/smoke.test.ts` | 包形状 + 产物形状（ModuleLoader 壳 / 自包含）；产物断言需先 build |
 | `test/stubs/ui-primitives.tsx` | `test/stubs/ui-primitives.tsx` | `@deepseek-ai/dsh-client-ui-primitives` 的测试替身薄入口：一行 `export * from '@dsh-plugins/test-kit/ui-primitives'`（并集实现在 test-kit；本包独有形状用 re-export + 具名覆盖）；仅 `dual` 生成 |
-| `plugin-README.md.tmpl` | `README.md` | 插件 README 骨架（显式占位；模板自述不复用为插件 README） |
+| `plugin-README.md.tmpl` | `README.md` | 插件 README **骨架全集**：4 必备实节（`## 定位` 首行 `端性：…` / `## 安装到 profile` / `## 构建与测试` / `## 许可`）+ 5 类「如适用」HTML 注释 + `## 结构` 自由节；两个端性 token 由 `buildTokens()` 无条件注入（见下节）。「如适用」只以注释承载、不生成空节——空壳节会被文档门禁判红（模板自述不复用为插件 README） |
 | `README.md` | —（本文件） | 模板自述：件套表与两条硬约束，不进入生成物 |
+
+## README 骨架的两个 token
+
+`plugin-README.md.tmpl` 里的端性部分由 `scripts/gen-plugin.mjs` 的 `buildTokens()` **无条件**注入
+（`render()` 是逐 token 字面替换、没有 fail-closed：缺键不会报错，只会把占位符原样留在生成物里）：
+
+| token | `--kind dual` | `--kind host-only` |
+| --- | --- | --- |
+| `{{ENDNESS}}` | `双端` | `host-only` |
+| `{{DUAL_SECTION}}` | `## 双端结构` 整节（标题 + 双端说明占位正文），落在 `## 结构` 之后 | 空串——整行消失，生成物无 `## 双端结构` 节（端性闭环） |
+
+骨架形态 = 4 个必备实节（`## 定位` 首行 `端性：…` / `## 安装到 profile` / `## 构建与测试` /
+`## 许可`）+ 5 类「如适用」HTML 注释（`## 配置` / `## 双端结构` / `## 已知限制`·`## 排障` /
+`## 非目标` / `## 与其他插件的关系`）+ 1 个自由节（`## 结构`）；注释对人可见、对文档门禁不可见，
+所以「提醒但不强制」不会产出空壳节。
 
 ## 两条硬约束
 
@@ -33,5 +48,6 @@
    与真实写入因此逐条一致；新增 / 改名 / 删除模板文件必须同批改清单，缺文件或未知键由
    `loadTemplate()` fail-closed 拒绝。
 2. **生成物开箱即绿**：本模板生成的骨架开箱通过 `lint / typecheck / build / test` 与
-   `pnpm dsh:check`；改动件套后须用 `host-only` 与 `dual` 两种 kind 各演练一次
+   `pnpm dsh:check`，插件 README 生成即符合文档骨架（4 必备节 + 端性声明闭环）；改动件套后
+   须用 `host-only` 与 `dual` 两种 kind 各演练一次，并让生成物过 `pnpm docs:check`
    （`--dry-run` 看文件表 + 真实生成跑一遍全链）。

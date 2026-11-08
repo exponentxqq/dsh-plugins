@@ -4,13 +4,13 @@
 
 Accepted
 
-> 本地 fork 注（2026-10-10）：本文决策不变；其依赖的上游升级车道（`upgrade.yml`）与 CI 矩阵已随 vendored 清理，版本探测/重指能力保留在 `scripts/upgrade-dsh.mjs`，本地等价回归是 `DSH_CLI=<版本> pnpm smoke`。
+> 修订注（2026-10-10）：本文决策不变；其依赖的旧升级车道（`upgrade.yml`）与 CI 矩阵已随本仓清理，版本探测/重指能力保留在 `scripts/upgrade-dsh.mjs`，本地等价回归是 `DSH_CLI=<版本> pnpm smoke`。
 >
-> 本地 fork 注（2026-10-17）：升级入口已统一到仓库根 `pnpm dsh:upgrade`（`scripts/upgrade-dsh.mjs`，插件内旧路径保留为委托 shim）；`0.2.1-rc.2` 通过完整探测后由人工加入 `SUPPORTED_DSH_RELEASES`，静态契约检查仍由插件内 `pnpm compat:check` 承担。
+> 修订注（2026-10-17）：升级入口已统一到仓库根 `pnpm dsh:upgrade`（`scripts/upgrade-dsh.mjs`，插件内旧路径保留为委托 shim）；`0.2.1-rc.2` 通过完整探测后由人工加入 `SUPPORTED_DSH_RELEASES`，静态契约检查仍由插件内 `pnpm compat:check` 承担。
 >
-> 本地 fork 注（2026-11-07）：本 ADR 的支持矩阵形态已由基线派生软范围裁定取代，见下文「支持矩阵范围化」修订节（2026-11-07）；第 1 节「范围是预测」的论证被推翻，原论证保留作历史记录。
+> 修订注（2026-11-07）：本 ADR 的支持矩阵形态已由基线派生软范围裁定取代，见下文「支持矩阵范围化」修订节（2026-11-07）；第 1 节「范围是预测」的论证被推翻，原论证保留作历史记录。
 >
-> 本地 fork 注（2026-11-07）：插件内的委托 shim 已删除（`scripts/upgrade-dsh.mjs`），升级入口唯一化为仓库根 `pnpm dsh:upgrade`（其 `repointRuntimeBaselines` 在同批重指运行时基线副本，机制见「支持矩阵范围化」修订节）；上文 2026-10-17 fork 注中「插件内旧路径保留为委托 shim」的叙述随之过期，以本注为准。
+> 修订注（2026-11-07）：插件内的委托 shim 已删除（`scripts/upgrade-dsh.mjs`），升级入口唯一化为仓库根 `pnpm dsh:upgrade`（其 `repointRuntimeBaselines` 在同批重指运行时基线副本，机制见「支持矩阵范围化」修订节）；上文 2026-10-17 修订注中「插件内旧路径保留为委托 shim」的叙述随之过期，以本注为准。
 
 ## Date
 

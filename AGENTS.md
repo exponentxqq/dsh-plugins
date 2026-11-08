@@ -17,9 +17,10 @@ DSH（DeepSeek Harness）自定义插件仓库：pnpm workspace 单仓多包，�
 - `scripts/gen-plugin.mjs` — 新插件脚手架：从 `templates/default/` 生成骨架，`--template <name>` 可选其他模板（只写文件，不跑 git / pnpm）
 - `scripts/check-{dsh-baseline,architecture,artifacts}.mjs` — 三组门禁（基线 / 结构不变式 AR1–AR8 / 产物契约 B1–B5）；`scripts/dsh-check.mjs` 是它们的聚合入口
 - `scripts/release.mjs` — 发布：dsh:check → 同步版本号 → 重建产物 → 发布提交 → annotated tag
+- [`docs/README.md`](docs/README.md) — 仓级文档索引页（只链接，不复制摘要）
 - `docs/decisions/` — 仓级 ADR（见「仓级 ADR」）
 - `docs/assessments/` — 评估档案（**非 ADR**）：现状差异与「暂不施工」依据，索引见 `docs/assessments/README.md`
-- `.github/workflows/ci.yml` — 最小 CI：install → lint → typecheck → build → test → docs:check → spec:check → dsh:check
+- `.github/workflows/ci.yml` — 最小 CI：install → lint → typecheck → build → test → docs:check（仓级 + 递归）→ spec:check → dsh:check
 - `README.md` — 仓库说明与常用命令；`openspec/` — OpenSpec 规范工作区（spec-driven，zh-CN）
 - `.dsh/skills/` — OpenSpec 安装的 DSH skill（本地生成，勿手改，不入库）
 
@@ -63,7 +64,7 @@ pnpm build               # 构建全部插件（产物 lib/ 随仓库提交，re
 pnpm typecheck           # 递归类型检查
 pnpm test                # 递归单测
 pnpm lint                # 递归 lint（无该脚本的插件自动跳过）
-pnpm docs:check          # 递归文档检查（仅 multi-root-workspace 实现该脚本）
+pnpm docs:check          # 文档检查：仓级 node scripts/check-docs.mjs + pnpm -r 递归（multi-root dual 入口）
 pnpm spec:check          # 规范检查（OpenSpec strict 全量：openspec validate --all --strict）
 pnpm dsh:check           # 聚合门禁：DSH 基线 + 结构不变式（AR1–AR8）+ 产物契约（B1–B5）
 pnpm dsh:upgrade <version> [--probe]   # 根级 DSH 升级（重指 pin / 全部插件范围 / 运行时基线副本 / 豁免）
@@ -99,6 +100,7 @@ DSH 源码与 API 参考位于 `/usr/local/lib/node_modules/@deepseek-ai/dsh/`�
 ## 仓级 ADR
 
 - 结构性决策记录在 `docs/decisions/`：`ADR-0001`（共享构建与源码包 `tooling/` 四包的落地边界）与 `ADR-0002`（归属内核与 `#3` 值语义），索引见 [`docs/decisions/README.md`](docs/decisions/README.md)。
+- `ADR-0003`（文档体系分层与门禁）见 [`docs/decisions/ADR-0003-doc-system-layers-and-gates.md`](docs/decisions/ADR-0003-doc-system-layers-and-gates.md)。
 - 仓级 ADR 与 `plugins/multi-root-workspace/docs/decisions/` 的插件级 ADR 是**两套独立编号**；引用时必须带路径——裸写「ADR-0009」有歧义（仓级没有 0009，multi-root 的 0009 是 DSH 兼容契约）。
 - 插件业务规格仍以 `openspec/specs/` 为准；ADR 只约束仓级结构与工程约定。
 

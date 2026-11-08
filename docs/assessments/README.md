@@ -11,6 +11,7 @@
 | 档案 | 主题 | 结论 | 状态 |
 | --- | --- | --- | --- |
 | [multi-root 构建统一化评估](./multi-root-build-unification.md) | `multi-root-workspace` 的 `tsc + tsdown` 自有构建链是否并入 `@dsh-plugins/build-kit` | 暂不施工（可接受约束）；迁移窗口 = 该插件下一次功能性重构 | 现行（2026-11-07） |
+| [文档统一与最优架构收尾评估](./docs-unification.md) | 仓内文档相对统一规范与最优架构收尾的现状差异清单、不施工项与 D-12 豁免盘点 | 三项不施工（详见档案）；其余差异由 `docs-arch-refinement` 施工 | 现行（2026-11-07） |
 
 ## 附属数据
 

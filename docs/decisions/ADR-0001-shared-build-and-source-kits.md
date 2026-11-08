@@ -33,7 +33,7 @@ Accepted（2026-11-06）。
 - 六个软插件的 `build.mjs` 是六份同构的 esbuild 骨架，tsconfig / oxlint / catalog / 测试夹具也各持一份；
 - `multi-root-workspace` 是独立 fork，tsc + tsdown、精确 peer/allowlist，**不纳入**本次统一构建（C2 硬边界）。
 
-这份「独立」并没有换来等价的可靠性：归属规则的实现分叉最终以两个真实缺陷暴露——user-commands 的 `update()` 在重建窗口内先 `clear()` 再逐条填，in-flight 的 `attribute()` 会看到空表/半表（详见 ADR-0002）；project-mcp 的 `roots.slice(1)` 假设 `roots[0]` 就是主根，契约被违反时静默丢掉一个真实根。同构实现越多的位置，修复越难同步。
+这份「独立」并没有换来等价的可靠性：归属规则的实现分叉最终以两个真实缺陷暴露——user-commands 的 `update()` 在重建窗口内先 `clear()` 再逐条填，in-flight 的 `attribute()` 会看到空表/半表（详见 [ADR-0002](./ADR-0002-attribution-kernel.md)）；project-mcp 的 `roots.slice(1)` 假设 `roots[0]` 就是主根，契约被违反时静默丢掉一个真实根。同构实现越多的位置，修复越难同步。
 
 ### 机制探针：唯一可行的共享形态
 
@@ -127,7 +127,7 @@ Accepted（2026-11-06）。
 
 **为什么 `declare module` 仍留在消费方（R15①）**：模块增补要求目标模块能从**声明文件所在包**解析（否则 TS2664）；而 contracts 按 AR2 是零 `@deepseek-ai/*` 依赖的纯类型包，不能自己安装 UI slots 包。于是落地形态是「contracts 定条目形状权威 + holder 与三贡献方各一行本地 `declare module` 引用该形状」——权威单点在形状/座位名/owner 份额/order 层面达成，AR2 与「缺 holder 自动降级」的安装矩阵语义都不动。
 
-**未被修订的部分**：D2（贡献方仅 `import type`）、D3（座位字面量各包自持、不进 `dsh.client.inject`）、ADR-0013 决策 3（holder 仍是编译期类型依赖）、以及归档 D4 中「纯 esbuild 不产 d.ts」仍被否决的判断——holder 的 d.ts 产物义务保留，只是其**权威地位**被转移。spec 层无需 delta：`dsh-workspace-config` 的「降级与安装矩阵」requirement 中「贡献方对持有者的依赖仅限类型」在转移后更成立。
+**未被修订的部分**：D2（贡献方仅 `import type`）、D3（座位字面量各包自持、不进 `dsh.client.inject`）、`plugins/multi-root-workspace/docs/decisions/ADR-0013-workspace-config-section-mount.md` 决策 3（holder 仍是编译期类型依赖）、以及归档 D4 中「纯 esbuild 不产 d.ts」仍被否决的判断——holder 的 d.ts 产物义务保留，只是其**权威地位**被转移。spec 层无需 delta：`dsh-workspace-config` 的「降级与安装矩阵」requirement 中「贡献方对持有者的依赖仅限类型」在转移后更成立。
 
 **落地证据**：`tooling/contracts/src/index.ts` 模块头、holder `plugins/workspace-config/src/client/contract.ts` 的文档指针、四包 `import type` 直连（`grep -rn "from '@dsh-plugins/contracts'" plugins/*/src` 命中 holder + 三贡献方）、`pnpm -r typecheck` 与 `pnpm -r test` 全绿、贡献方产物模块词集合与迁移前逐字相等。
 
@@ -158,7 +158,7 @@ Accepted（2026-11-06）。
 
 - [ADR-0002：归属内核（`#3` 裁定与原子索引纪律）](./ADR-0002-attribution-kernel.md)
 - [仓级 ADR 索引](./README.md)（两套编号与引用路径纪律）
-- [optimize-architecture 代码蓝图](../../openspec/changes/optimize-architecture/code-design.md)：D-1（消费形态）、D-2/D-3（build-kit）、D-9（workspace 显式四行）、D-12（内部包只进 devDeps）、D-15（contracts）
+- [optimize-architecture 代码蓝图](../../openspec/changes/archive/2026-11-07-optimize-architecture/code-design.md)：D-1（消费形态）、D-2/D-3（build-kit）、D-9（workspace 显式四行）、D-12（内部包只进 devDeps）、D-15（contracts）
 - [build-kit README](../../tooling/build-kit/README.md)、[host-kit README](../../tooling/host-kit/README.md)、[test-kit README](../../tooling/test-kit/README.md)、[contracts 模块头](../../tooling/contracts/src/index.ts)
 - 归档变更：`openspec/changes/archive/2026-10-11-split-project-mcp-plugin/design.md`（D4，已推翻）、`openspec/changes/archive/2026-11-05-unify-workspace-config-entry/design.md`（D4，已被本 ADR 修订）
 - multi-root-workspace 的同类旧结论：`plugins/multi-root-workspace/docs/decisions/ADR-0002-upstream-coupling-policy.md`（只约束 multi-root 自身，本 ADR 不改其结论）

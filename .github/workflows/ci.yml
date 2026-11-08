@@ -1,6 +1,6 @@
 # 最小 CI（R5）：两个作业——`verify` 跑八步链「安装 → lint → typecheck → build → test → docs:check →
 # spec:check → dsh:check」；`scaffold` 跑脚手架冒烟「gen 双 kind → 基线 frozen 安装 → 补装新 importer →
-# 两包 verify:all → `pnpm dsh:check`」。
+# 两包 verify:all → `pnpm docs:check` → `pnpm dsh:check`」。
 #
 # 为什么不跑 `pnpm verify`（递归 `verify:all`）：本机实测 smoke 全链耗时 11.196s 通过
 # （`[smoke:compose] 46/46` + `[smoke:behavior] 99/99` + `[smoke:journey] 60/60`，末行
@@ -13,7 +13,8 @@
 # importer 后才用 `--no-frozen-lockfile` 补装——仅该作业内，lockfile 写盘即弃（不进仓库）。
 #
 # docs:check 是决策 #6 六步之外的分歧点②裁决（tasks.md 待决 Q2 → 选 a）：
-# 它只跑 multi-root 的双语文档一致性检查，不需要 dsh，是唯一能自动守住该门的位置。
+# 口径为「仓级共享内核 + dual 入口」：仓级 `scripts/check-docs.mjs` 先扫仓级面，再 `pnpm -r run docs:check`
+# 递归兜底（当前只有 multi-root 实现 dual 入口）；不需要 dsh，是唯一能自动守住该门的位置。
 # spec:check 是 OpenSpec strict 校验（`openspec validate --all --strict`），与 docs:check 同属文档/规范面。
 name: CI
 
@@ -100,6 +101,9 @@ jobs:
 
       - name: 脚手架验证（dual）
         run: pnpm --filter dsh-plugin-ci-smoke-dual verify:all
+
+      - name: 文档检查（生成物）
+        run: pnpm docs:check
 
       - name: DSH 门禁（基线 / 结构 / 产物）
         run: pnpm dsh:check

@@ -2,8 +2,6 @@
 
 该目录保存项目的长期文档与工程知识。
 
-English: [README.en.md](./README.en.md)
-
 ## 文档地图
 
 | 目录 | 用途 |
@@ -42,14 +40,3 @@ English: [README.en.md](./README.en.md)
 ### 保存重要决策
 
 重要架构和工程决策应逐步记录在 `decisions/` 中。
-
-## 语言
-
-项目以中文文档为主。
-
-所有 README 同时维护：
-
-- `README.md`
-- `README.en.md`
-
-其中 `README.md` 为中文主版本。修改任意一个语言版本时，应检查另一个版本是否需要同步；如发生冲突，以中文版为准。

@@ -1,7 +1,5 @@
 # 开发流程（Development）
 
-English: [README.en.md](./README.en.md)
-
 ## 这里存放什么
 
 - 环境搭建（environment setup）；

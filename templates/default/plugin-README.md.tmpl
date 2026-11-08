@@ -2,23 +2,25 @@
 
 {{DESCRIPTION}}
 
-本目录由 `pnpm gen:plugin {{NAME}} --kind {{KIND}}` 生成（模板素材见
-[`templates/default/`](../../templates/default/README.md)），形态对齐六个软插件的终态：
+## 定位
 
-- 薄 `build.mjs`：构建策略全部在 `@dsh-plugins/build-kit`，本包只声明不可推导的旋钮；
-- `tsconfig.host.json`{{CLIENT_TSCONFIG_NOTE}}：只 `extends` 根基准 `../../tsconfig.plugin.base.json`，
-  `include` 声明差异；
-- devDependencies 全部 `catalog:` / `catalog:dsh` / `workspace:*`，DSH 基线由
-  `scripts/dsh-baseline.mjs` 派生；
-- `cordis.patch.yml`：裸包名 insert 行（bundle 注册锚点）。
+端性：{{ENDNESS}}
 
-## 结构
+本包的定位与能力边界写在这里（解决什么问题、给谁用、不做什么）；运行期行为规格见
+`openspec/specs/`，结构性决策见 `docs/decisions/`。
 
-```text
-{{STRUCTURE_TREE}}
+<!-- 如适用：## 配置 —— 本包有配置键时补本节（节存在即须有非空白正文，空壳节会被门禁判红）；无配置项则删掉本注释 -->
+
+## 安装到 profile
+
+```bash
+TAG=$(git describe --tags --abbrev=0)
+docker exec dsh dsh plugin --profile web add \
+  "github:exponentxqq/dsh-plugins#${TAG}&path:plugins/{{NAME}}"
+docker exec dsh dsh --profile web --dump-config   # 装载冒烟以 exit 0 为准
 ```
 
-## 开发
+## 构建与测试
 
 ```bash
 pnpm install          # 仓库根一次装齐 workspace 依赖
@@ -32,11 +34,30 @@ pnpm dsh:check        # 仓库级聚合门禁（基线 / 结构不变式 / 产�
 
 `lib/` 随仓库提交（release 时递归重建保证新鲜），`node_modules/` 不入库。
 
-## 安装到 profile
+## 结构
 
-```bash
-TAG=$(git describe --tags --abbrev=0)
-docker exec dsh dsh plugin --profile web add \
-  "github:exponentxqq/dsh-plugins#${TAG}&path:plugins/{{NAME}}"
-docker exec dsh dsh --profile web --dump-config   # 装载冒烟以 exit 0 为准
+本目录由 `pnpm gen:plugin {{NAME}} --kind {{KIND}}` 生成（模板素材见
+[`templates/default/`](../../templates/default/README.md)），件套对齐六个软插件的终态：
+
+- 薄 `build.mjs`：构建策略全部在 `@dsh-plugins/build-kit`，本包只声明不可推导的旋钮；
+- `tsconfig.host.json`{{CLIENT_TSCONFIG_NOTE}}：只 `extends` 根基准 `../../tsconfig.plugin.base.json`，
+  `include` 声明差异；
+- devDependencies 全部 `catalog:` / `catalog:dsh` / `workspace:*`，DSH 基线由
+  `scripts/dsh-baseline.mjs` 派生；
+- `cordis.patch.yml`：裸包名 insert 行（bundle 注册锚点）。
+
+```text
+{{STRUCTURE_TREE}}
 ```
+
+<!-- 如适用：## 双端结构 —— 仅 dual 形态有本节：整节由生成器按 --kind 输出（host-only 时为空串），浏览器半的座位 / 事件桥细节写在节内 -->
+{{DUAL_SECTION}}
+<!-- 如适用：## 已知限制 / ## 排障 —— 有已知问题面才补，二者任一存在即可；存在即须有非空白正文 -->
+
+<!-- 如适用：## 非目标 —— 有边界声明才补；存在即须有非空白正文 -->
+
+<!-- 如适用：## 与其他插件的关系 —— 有同装 / 软依赖约束才补；存在即须有非空白正文 -->
+
+## 许可
+
+Apache-2.0（与 `package.json` 的 `license` 字段一致）。

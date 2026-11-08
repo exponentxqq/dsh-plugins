@@ -4,6 +4,12 @@ DSH 插件（**双端**，`exports "."` 宿主 + `exports "./client"` 浏览器�
 
 宿主半不含 Web 组件依赖，**任何 profile 都可单独安装**（命令面完整可用）；浏览器半只在 Web 组合下加载，入口是会话头部工具区的一枚图标按钮与统一「工作区配置」弹窗里的工作区默认档分节；弹窗壳由 holder 提供，**四包同装**（holder + multi-root-workspace / session-tool-toggle / web-ux 三个贡献方）才有完整入口。平台范围 DSH `>=0.2.1-rc.5 <0.3.0`。**安装/升级后必须重启 web profile**：浏览器半的 bundle 由宿主在启动图里提供，热装不生效。
 
+## 定位
+
+端性：双端
+
+**会话级工具面开关**：在单个会话内关掉不需要的模型可见工具（`mcp:<server>` 整组、单工具与 `tool:<name>` 内置工具），以及让 `skill:<name>` 只对模型隐身、`/技能名` 手动调用保留，**下一次模型步骤生效**。`/tools` 命令面、会话头部工具区的 Web 面板与统一「工作区配置」弹窗里的工作区默认档分节共用同一份状态；用户级默认档与工作区级默认档都只给之后新建的会话播种，不追溯。
+
 ## 双端结构
 
 ```text
@@ -124,7 +130,7 @@ lib/client.js              浏览器产物（CJS bundle，包在 window.__Module
 - **无 skills 的 Web 组合受限（上游硬依赖）**：上游 agent preset 需要 `skill-filesystem` / `tool-skill`，`skills` 缺席时新会话创建直接失败（`agent-preset/invalid … waiting for skills`），因此该组合下没有可调整的活会话；这是上游 preset 的硬依赖，不是本插件的降级失败。此时命令面照常可用，技能地址只记意图，RPC 面板快照按 `skills-unavailable` 降级（技能区不渲染开关）。
 - **跨窗口不广播**：`command/executed` 只在命令提交的那个窗口发出，另一个窗口要靠 focus 或手动「刷新」才收敛；两处并发修改按「后写者胜」。
 - **`--dump-config-schema` 整体可能 exit 1**：dsh 0.2.2-rc.1 的 schema 遍历器不认官方 `dsh-agent-preset` 的自定义载体（`EntryGroup.key` 标记类，非原生 group/include），4 条 `unrecognized Loader tree carrier` 诊断与本插件无关，全新空 `DSH_HOME` 同样红；**装载冒烟以 `--dump-config` exit 0 为准**。核对本插件的口径是 `x-cordis.entries` 中本插件条目的 `status` 为 `"schema"` 且没有指向本插件的诊断，不要追全局 exit 0。
-- **非目标**：不做追溯（默认档与工作区档都只对之后新建的会话生效，`/tools reset` 只回本会话创建时快照）；不做上游 patch（ADR-0002：`@deepseek-ai/dsh*` 零修改、零 import，技能影子只走公开 `skills.register`，不替换 `dsh-tool-skill` / `dsh-skill` 行）；上游工作区行菜单入口留作**后续变更**（上游座位定名后另立变更，本期工作区默认档只有统一「工作区配置」弹窗的分节入口，依赖 holder 同装）；不做全局 / 进程级服务器启停（`plugin_manager` 已有）、不做子代理继承会话开关、不做投影 wire 实时推送或轮询、不改写历史、不适配 DSH `>=0.3.0`（走既有基线升级流程）。
+- **非目标**：不做追溯（默认档与工作区档都只对之后新建的会话生效，`/tools reset` 只回本会话创建时快照）；不做上游 patch（[`ADR-0002`](../../plugins/multi-root-workspace/docs/decisions/ADR-0002-upstream-coupling-policy.md)：`@deepseek-ai/dsh*` 零修改、零 import，技能影子只走公开 `skills.register`，不替换 `dsh-tool-skill` / `dsh-skill` 行）；上游工作区行菜单入口留作**后续变更**（上游座位定名后另立变更，本期工作区默认档只有统一「工作区配置」弹窗的分节入口，依赖 holder 同装）；不做全局 / 进程级服务器启停（`plugin_manager` 已有）、不做子代理继承会话开关、不做投影 wire 实时推送或轮询、不改写历史、不适配 DSH `>=0.3.0`（走既有基线升级流程）。
 - 无 Web 组合时只有命令面；面板入口与通道都不出现，也不报错。
 
 ## 排障

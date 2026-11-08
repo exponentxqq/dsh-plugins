@@ -1,8 +1,11 @@
 # 从 zai-coding-zcode 迁移到 zcode-plan 路由
 
-> 适用 DSH 基线 `0.2.1-rc.2`。本文是**用户迁移指南**：把 profile 里既有的
+> 适用 DSH 基线：当前 `0.2.2-rc.1`（读自 `scripts/dsh-baseline.mjs`，复核时点 2026-11-08）。本文是**用户迁移指南**：把 profile 里既有的
 > `llm-pi-ai.providers['zai-coding-zcode']` 路由块换成本插件的 `zcode-plan`
 > 路由（PAT 凭证）。所有 `<尖括号>` 均为占位符，替换成你自己的值；本文不含任何真实凭据。
+>
+> 复核：2026-11-08（`docs-arch-refinement` G6）；复核基线来源 `scripts/dsh-baseline.mjs`，
+> 真机读数见 `../artifacts/route-replay-2026-11-08.md`（该文件由主会话随真机读数落盘，本文只引用）。
 
 ## 防误读
 

@@ -1,7 +1,5 @@
 # Agent 笔记（note）
 
-English: [README.en.md](./README.en.md)
-
 本目录是后续 Coding Agent 长期沉淀项目知识的位置。
 
 ## 这里可以保存什么
@@ -30,25 +28,9 @@ English: [README.en.md](./README.en.md)
 - 临时 TODO；
 - 每次任务的流水账。
 
-## 双语要求
+## 语言要求
 
-本目录下的所有正式文档必须中英双语：
-
-```text
-<name>.md       中文主版本（canonical）
-<name>.en.md    英文副文档
-```
-
-例如未来创建：
-
-```text
-upstream-integration.md
-upstream-integration.en.md
-```
-
-修改任意一个语言版本时，必须检查另一个版本是否需要同步；如发生冲突，以中文版为准。
-
-不要为普通笔记自动创建空的 `.en.md` 文件，只有确定为正式知识文档时才成对创建。
+本目录下的文档一律使用简体中文（中文唯一）：只维护一份中文文档，不维护英文版本，也不创建成对的双语副本。
 
 ## 推荐命名
 

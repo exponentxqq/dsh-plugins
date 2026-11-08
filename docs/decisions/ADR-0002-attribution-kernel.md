@@ -80,14 +80,14 @@ uc 的旧 `update()` 一进来就 `owners.clear()` / `rootSets.clear()`，然后
 
 **spec delta**（本次变更内，归档时 sync 进主 specs）：
 
-- [`dsh-project-mcp` spec delta](../../openspec/changes/optimize-architecture/specs/dsh-project-mcp/spec.md)：「工作区可见性隔离」追加「根集合契约（`#3`）」与「索引原子重建」两段，并新增 2 条 Scenario（首项不是主根 / 重扫期间创建会话）。
-- [`dsh-user-commands` spec delta](../../openspec/changes/optimize-architecture/specs/dsh-user-commands/spec.md)：「三层优先级与会话遮蔽」追加同样两段与 2 条 Scenario；其中「重扫期间归属判定不回退为 fail-closed」是本次新增行为。
+- [`dsh-project-mcp` spec delta](../../openspec/changes/archive/2026-11-07-optimize-architecture/specs/dsh-project-mcp/spec.md)：「工作区可见性隔离」追加「根集合契约（`#3`）」与「索引原子重建」两段，并新增 2 条 Scenario（首项不是主根 / 重扫期间创建会话）。
+- [`dsh-user-commands` spec delta](../../openspec/changes/archive/2026-11-07-optimize-architecture/specs/dsh-user-commands/spec.md)：「三层优先级与会话遮蔽」追加同样两段与 2 条 Scenario；其中「重扫期间归属判定不回退为 fail-closed」是本次新增行为。
 - `dsh-session-tool-toggle`：**无 spec delta**（行为不变；退化键策略本来就在其 spec 内）。
 
 **回归用例**：
 
 - `plugins/project-mcp/test/attribution-anomaly.test.ts`（5 例）：#3 场景断言「诊断一条 + 三个根都能命中 + 根集合完整不变」；重复主根断言先到先得；并发窗口断言旧快照；fail-closed 别名。
-- `plugins/user-commands/test/attribution-concurrency.test.ts`（2 例）：`const pending = attributor.update(B)` 不 await，窗口内 `attribute('/work/a')` 必须返回 A 的完整结果（不是 `null`、不是半表）；第二例覆盖旧附加根。两例在旧「clear → 逐条 claim」实现上均红（`expected null to deeply equal {…}`）。
+- 并发原子性用例已迁入 `tooling/host-kit/test/attribution.test.ts`（「并发原子性」describe）：`const pending = attributor.update(B)` 不 await，窗口内 `attribute('/work/a')` 必须返回 A 的完整结果（不是 `null`、不是半表）；第二例覆盖旧附加根。两例在旧「clear → 逐条 claim」实现上均红（`expected null to deeply equal {…}`）。
 - `plugins/user-commands/test/attribution-anomaly.test.ts`（4 例）：同 #3 与重复主根的包级接线。
 - 内核自带套件 `tooling/host-kit/test/attribution.test.ts` 钉住规则本身；两包 `test/attribution.test.ts` oracle **零改动**，是走法等价性的直接证据。
 
@@ -120,7 +120,7 @@ uc 的旧 `update()` 一进来就 `owners.clear()` / `rootSets.clear()`，然后
 - [ADR-0001：共享构建与源码包的落地边界](./ADR-0001-shared-build-and-source-kits.md)
 - [仓级 ADR 索引](./README.md)
 - 内核实现与规则全文：[`tooling/host-kit/src/attribution.ts`](../../tooling/host-kit/src/attribution.ts)（模块头 rule 10 / 11）；[host-kit README](../../tooling/host-kit/README.md)
-- 设计依据：[optimize-architecture 代码蓝图](../../openspec/changes/optimize-architecture/code-design.md) 的 D-4（策略参数化）与 D-5（`#3` 裁定）；[design.md](../../openspec/changes/optimize-architecture/design.md) 的 D-4 / D-5 行
-- spec delta：[dsh-project-mcp](../../openspec/changes/optimize-architecture/specs/dsh-project-mcp/spec.md)、[dsh-user-commands](../../openspec/changes/optimize-architecture/specs/dsh-user-commands/spec.md)
-- 回归用例：[pm anomaly](../../plugins/project-mcp/test/attribution-anomaly.test.ts)、[uc concurrency](../../plugins/user-commands/test/attribution-concurrency.test.ts)、[uc anomaly](../../plugins/user-commands/test/attribution-anomaly.test.ts)
+- 设计依据：[optimize-architecture 代码蓝图](../../openspec/changes/archive/2026-11-07-optimize-architecture/code-design.md) 的 D-4（策略参数化）与 D-5（`#3` 裁定）；[design.md](../../openspec/changes/archive/2026-11-07-optimize-architecture/design.md) 的 D-4 / D-5 行
+- spec delta：[dsh-project-mcp](../../openspec/changes/archive/2026-11-07-optimize-architecture/specs/dsh-project-mcp/spec.md)、[dsh-user-commands](../../openspec/changes/archive/2026-11-07-optimize-architecture/specs/dsh-user-commands/spec.md)
+- 回归用例：[pm anomaly](../../plugins/project-mcp/test/attribution-anomaly.test.ts)、[uc anomaly](../../plugins/user-commands/test/attribution-anomaly.test.ts)、[并发原子性（host-kit）](../../tooling/host-kit/test/attribution.test.ts)
 - 被取代的归档决策：`openspec/changes/archive/2026-10-11-split-project-mcp-plugin/design.md`（D4）

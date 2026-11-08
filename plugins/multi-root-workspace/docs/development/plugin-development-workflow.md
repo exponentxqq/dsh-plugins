@@ -1,15 +1,15 @@
 # 插件开发工作流：构建、测试与冒烟
 
-> 状态：MVP（M1/M2/M3）与 `v0.1.1` 硬化批次（H1–H4）均已落地。本文记录本仓库当前**真实存在**的命令、运行时约束与验证机制；未实现的流程不要写在这里。
+> 状态：本文记录本仓库当前**真实存在**的命令、运行时约束与验证机制；未实现的流程不要写在这里。
 > 相关：[架构](../architecture/multi-root-workspace.md)、[ADR-0002 上游耦合策略](../decisions/ADR-0002-upstream-coupling-policy.md)、[ADR-0003 方言 grant 拼接](../decisions/ADR-0003-dialect-grant-widening.md)、[ADR-0009 DSH 兼容性代码契约](../decisions/ADR-0009-dsh-compat-contract.md)
 
 ## 1. 目标运行时与版本策略
 
 | 项 | 值 | 说明 |
 | --- | --- | --- |
-| 开发目标版本（基线） | `0.2.2-rc.1` | 精确版本在 `catalogs.dsh`（各插件经 `catalog:dsh` 引用）；基线常量在仓库根 `scripts/dsh-baseline.mjs`；升级/回归时用 `DSH_CLI` 逐版本实跑完整检查（上游 CI 矩阵已随 fork 移除） |
+| 开发目标版本（基线） | `0.2.2-rc.1` | 精确版本在 `catalogs.dsh`（各插件经 `catalog:dsh` 引用）；基线常量在仓库根 `scripts/dsh-baseline.mjs`；升级/回归时用 `DSH_CLI` 逐版本实跑完整检查 |
 | 支持矩阵 | [`SUPPORTED_DSH_RANGE`](../../src/compat/dsh-version.ts) | **基线派生的软范围**（`>=0.2.2-rc.1 <0.3.0`）：与基线同 `major.minor` 且 ≥ 基线才放行；`dsh.engines.dsh` 与 `peerDependencies` 声明同一个派生范围 |
-| 实测证据 | 本仓库 `pnpm test` / `pnpm smoke`（上游 CI 矩阵记录已随 fork 清理） | 升级与旧版回归都应运行完整检查；升级工具 `pnpm dsh:upgrade` 在同一批次里移动基线并重指派生事实，绿灯是回归证据 |
+| 实测证据 | 本仓库 `pnpm test` / `pnpm smoke` | 升级与旧版回归都应运行完整检查；升级工具 `pnpm dsh:upgrade` 在同一批次里移动基线并重指派生事实，绿灯是回归证据 |
 | 运行时门禁 | `multi-root-compat` 行 | 版本落在派生范围外或核心包混装时，七个安全相关行根本不启动，且没有降级或放行开关（ADR-0009） |
 | cordis | 基线 `4.1.0`；按 `dsh` 声明的 `^`/`~` 范围 pin 到该精确版本 | 根级 `pnpm dsh:upgrade` 同步重指；`--probe` 从各插件直接声明的 DSH 依赖派生 workspace-only 的 probe overrides，避免预发布范围导致混装、重复副本导致工具调度 Symbol 不一致。已有自定义 overrides 时拒绝覆盖；重跑不带 `--probe` 即移除该块 |
 
@@ -72,7 +72,7 @@ pnpm docs:check         # 文档结构检查
 3. 对 `ctx.fs` / `ctx.shell` 跑同一组操作：主根内写、主根外写、临时区写、根内编辑、根外读、bash `pwd`、bash 根内写、bash 根外写。
 4. 在 `workspace-write` 与 `read-only` 两种模式下各跑一轮，并把 `mr-plugin` 的结果与 `mr-baseline` 的结果逐项比较：**空附加根时两者必须完全一致**，而 provider 身份必须不同。
 5. 额外断言身份：`ctx.fs` 是本插件的类且与宿主的 `FileSystem` 同一份定义、`ctx.sandbox` 继承上游 `LocalSandboxProvider`、`ctx.shell` 仍是上游 `SandboxBashExecutor`。
-6. **多根 battery（M2）**：在同一个插件 profile 上再 boot 一次，用 `ctx.multiRootScope.setAdditionalRoots()` 注册一个附加根，然后断言——
+6. **多根 battery**：在同一个插件 profile 上再 boot 一次，用 `ctx.multiRootScope.setAdditionalRoots()` 注册一个附加根，然后断言——
    - fs 写附加根成功；写「第三个目录」（根外）被 `FS_SANDBOX_DENIED` 拒绝，且文案含 `allowed roots:` 并同时列出主根与附加根；根外不留文件；
    - **宿主真实方言**（不注入 `internals`）的 `ctx.sandbox.confine` argv 含该附加根，`read-only` 下不含；
    - 受限 bash：可用时能写附加根、不能写根外；不可用时显式 skip 并打印原因。
@@ -156,7 +156,7 @@ dsh plugin --profile web add <本仓库路径>
 | --- | --- | --- |
 | 本地路径（`link:`，开发调试） | 插件按自身真实路径解析，使用本仓库 pin 的 `@deepseek-ai/*` 副本 | 三行全部挂载，冒烟全绿 |
 | 打包安装（`pnpm pack` + `file:`，即发布形态） | 包内不含 `node_modules`，`@deepseek-ai/*` 由宿主运行时/模块回退目录提供 | 三行全部挂载，provider 身份正确 |
-| git tag 安装（`github:<owner>/<repo>#v<tag>&path:plugins/<目录>`，正式通道） | pnpm 拉 tarball，`lib/` 已随 tag 提交、无 `prepare`，按 `files` 打包进 profile | 十一行 insert + 两行 disabled 全部就位，`node_modules/<包名>` 为实体目录且版本等于 tag，`--dump-config-schema` 通过（M1 时验证，当时还由 `prepare` 现场构建；v1.1.1 起免构建授权） |
+| git tag 安装（`github:<owner>/<repo>#v<tag>&path:plugins/<目录>`，正式通道） | pnpm 拉 tarball，`lib/` 已随 tag 提交、无 `prepare`，按 `files` 打包进 profile | 十一行 insert + 两行 disabled 全部就位，`node_modules/<包名>` 为实体目录且版本等于 tag，`--dump-config-schema` 通过（v1.1.1 起免构建授权） |
 
 发布形态的包内容为：`package.json`、`cordis.patch.yml`、`lib/*.js`（含共享 chunk）、`lib/types/**/*.d.ts`、README、LICENSE —— 因此**不要**假设任何 `src/` 路径在安装后存在（见 §6）。
 
@@ -183,33 +183,25 @@ dsh plugin --profile web add <本仓库路径>
   失败时只改 `src/compat/` 适配；若要放弃探测，`git checkout --` 恢复各插件 manifest（`plugins/*/package.json`）、`pnpm-workspace.yaml`、`pnpm-lock.yaml`、`scripts/dsh-baseline.mjs` 与 `plugins/*/src/compat/dsh-version.ts`，再 `pnpm install --frozen-lockfile`。本地的 `git checkout` 会连同未提交修改一起抹掉——先提交或 stash。
 - 根级工具不维护手写包名清单：`scripts/upgrade-dsh.mjs` 从 `plugins/*/package.json` 动态发现插件，重指所有直接 `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` 依赖与各插件的运行时基线副本（`plugins/*/src/compat/dsh-version.ts` 的 `DSH_BASELINE`），并可输出每个包**实际解析到**的版本（`--print-installed`）。新增或移除插件不需要另外修工作流。
 - 仓库级门禁：`pnpm dsh:check` 校验基线常量、`catalogs.dsh` 基线册、根与全部插件的 `catalog:dsh` devDeps、统一派生范围（`dsh.engines.dsh` 与 DSH peers）、安装树版本、发布年龄豁免与 lockfile 的精确相等，以及 git-graph 不被重新引入；multi-root 自己的 `compat:check` 挂在它的 `verify:all` 上，不复制进 `dsh:check`。`pnpm release` 在写版本前自动执行它。
-- 支持矩阵回归：`DSH_CLI=<另一受支持版本的 dsh 入口> pnpm smoke`（本地手动执行；上游按周车道已随 fork 移除）。
+- 支持矩阵回归：`DSH_CLI=<另一受支持版本的 dsh 入口> pnpm smoke`（本地手动执行）。
 - 跨版本编写 smoke/测试时的两处安静坑（`confine` 的 promise、journey 的 agent-step 判据）记在 [Agent Note](../../.agent/note/dsh-compat-contract.md)。
 
-## 7. CI（上游基线；车道已随 fork 移除）
+## 7. CI 与跨平台验证
 
-> **本 fork 注记**：`.github/workflows/`（ci / upgrade / release）、`test/workflows.spec.ts` 与 `scripts/list-dsh-releases.mjs` 已随 vendored 清理——本目录不是 GitHub 仓库根，这些车道不会运行。下文描述保留为上游基线的历史记录，用以理解各门禁的顺序与理由；本地等价：完整门禁 `pnpm --filter dsh-plugin-multi-root-workspace verify:all`（按需加 `kernel:probe`）、逐版本回归 `DSH_CLI=<版本> pnpm smoke`、重指 pin `pnpm dsh:upgrade`。
-
-**历史（上游基线，已随 fork 移除，不再代表现行机制）**：`.github/workflows/ci.yml` 的 `releases` job 用 `scripts/list-dsh-releases.mjs` 从当时的精确版本支持矩阵读取版本轴，`verify` 将该轴与启用的 OS 做笛卡尔积。开发 pin 使用 frozen lockfile，其他版本先用当时的升级脚本重指 DSH / cordis 后重新安装；制品名同时含 OS 与 DSH 版本。主车道在 `ubuntu-latest` 与 `macos-latest` 上执行：**`compat:check`** → `lint` → `typecheck` → **`build`** → **`kernel:probe`** → `test` → `smoke:compose` → `smoke:behavior` → `smoke:journey` → `docs:check`。`compat:check` 放在最前，因为后续每一步的结果只有对"契约真正声明的版本"才算证据。探针必须先于单测，否则它导出的方言集无法约束本次单测的 skip。现行顺序见 §3：`compat:check` 在包内 `verify:all` 里紧跟 `lint`。
-
-**历史（上游基线，已随 fork 移除，不再代表现行机制）**：`.github/workflows/upgrade.yml` 是**按周**运行的升级车道（也可手动触发指定版本）：解析 `@deepseek-ai/dsh` 最新 pre-release → 重指 pin → 安装 → 与主车道同样顺序的完整矩阵，全程用当时的「警告档」开关放行候选（该开关与精确版本矩阵都已在 2026-11-07 的裁定中删除，现行升级流程见 §6）。它的权限是 `contents: read`，不提交、不推送、不碰支持矩阵；成功时只在 step summary 里写出当时的提升步骤。它**不**跑 `compat:check`（候选按设计不在精确版本矩阵上）。这些性质由 `test/workflows.spec.ts` 钉住。 手动版本输入及 candidate output 只通过 step `env` 传入 shell，禁止把 GitHub 表达式直接嵌进 `run`；写入 `$GITHUB_OUTPUT` 前校验为单行版本，避免 shell 代码执行与多行输出注入。
+本包是 `dsh-plugins` workspace 的仓内子包，文档体系与本工作流随仓维护。仓库根 `.github/workflows/ci.yml` 只跑可确定性复现的门禁：`verify` 作业的八步链（install → lint → typecheck → build → test → docs:check → spec:check → dsh:check）与 `scaffold` 作业的脚手架冒烟；本包的完整门禁（含 `compat:check`、`kernel:probe` 与三个冒烟）是发布前本地自检，跑 `pnpm --filter dsh-plugin-multi-root-workspace verify:all`（整仓 `pnpm verify` 递归调用各包的 `verify:all`）。
 
 Linux 覆盖 bwrap / Landlock 的方言选择与 argv 等价，macOS 覆盖 Seatbelt。**"没跑"不会被记成通过**，机制分两层，而且**按方言**判定：
 
-1. `pnpm kernel:probe`（`scripts/check-kernel-runner.mjs`）用原始机制逐个探测本机能否受限执行（`sandbox-exec` + allow profile / `bwrap` 绑定 flags / Landlock launcher），把**确实跑通的那几个方言**写进 `$GITHUB_ENV` 的 `DSH_PROBE_VERIFIED_DIALECTS`；一个都跑不通时打印每条机制的原因。
+1. `pnpm kernel:probe`（`scripts/check-kernel-runner.mjs`）用原始机制逐个探测本机能否受限执行（`sandbox-exec` + allow profile / `bwrap` 绑定 flags / Landlock launcher），把**确实跑通的那几个方言**记进 `$GITHUB_ENV` 的 `DSH_PROBE_VERIFIED_DIALECTS`，供同一次运行中的后续步骤使用；一个都跑不通时打印每条机制的原因。
 2. `test/parity-matrix.spec.ts` 与 `smoke:behavior` 的内核断言：**探针证明本机跑得通的方言必须真跑**（runner 不可用即失败），本机没有的方言永不要求（在 macOS 上要求 bwrap、或在 Linux 上要求 Seatbelt，都只会制造与本插件无关的红灯），未跑探针时一律不要求（开发机照旧打印原因后 skip）。判定集中在 `test/support/kernel-runner.ts`；`DSH_REQUIRE_KERNEL_RUNNER=1` 可强制要求全部方言，用来检查 skip 本身是否诚实。
 
 ### Windows 验证腿
 
-`ci.yml` 在仓库变量 `DSH_WINDOWS_CI=1` 时才把 `windows-latest` 加入动态矩阵，验证校验规则、注册表、命令与 RPC 通道、面板、client 制品，以及 B1 的真实 LSP stdio 和 B2 的原生 ACL 执行。`test/windows-multi-root.spec.ts` 必须真实启动 restricted-token Node、PowerShell 与 ConPTY，覆盖两根可写、第三目录拒绝、read-only 拒绝、移除根后拒绝和 PTY 退出码保留；Windows 不按能力探针跳过该用例。它在 Windows 上**不跑**需要 POSIX shell 的冒烟（`smoke:compose/behavior/journey`）与只探测 POSIX 方言的 `kernel:probe`；POSIX 方言的真实执行断言在该平台显式 skip。目录 symlink 无权限时，仅省略矩阵中依赖该链接的行，workspace-write 与 read-only 使用同一条件，其余行继续验证。
-
-该变量**当前已置 1**：本仓库是公开仓库，标准 runner 在公开仓库上不计费（计费的 2× 倍率只作用于私有仓库），因此这条腿没有理由停着。清掉变量即回到两 OS 矩阵。
+`test/windows-multi-root.spec.ts` 在 Windows 上必须真实启动 restricted-token Node、PowerShell 与 ConPTY，覆盖两根可写、第三目录拒绝、read-only 拒绝、移除根后拒绝和 PTY 退出码保留，不按能力探针跳过该用例。该平台**不跑**需要 POSIX shell 的冒烟（`smoke:compose/behavior/journey`）与只探测 POSIX 方言的 `kernel:probe`；POSIX 方言的真实执行断言在该平台显式 skip。目录 symlink 无权限时，仅省略矩阵中依赖该链接的行，workspace-write 与 read-only 使用同一条件，其余行继续验证。
 
 它抓的是"只在某个平台成立"的假设——最典型的一类是**期望值里的路径分隔符**：产品侧一律交回 `canonicalPath()` 的结果（Windows 是 `\`），而测试里用 `` `${base}/third` `` 拼出来的期望只在 POSIX 上等于它。写这类断言时用 `canonicalPath(...)` 或 `join(...)`，不要用字符串拼接。
 
 LSP 源码回传断言应比较读盘得到的完整源码。夹具里的路径经 `JSON.stringify()` 写入源码时，Windows 的反斜杠已转义，不能再用未转义的原始路径作子串断言。
-
-失败可诊断：`test` 与 `smoke:behavior` 的输出会同时写入 `vitest.log` / `smoke-behavior.log`，步骤失败时由 `actions/upload-artifact@v4` 上传，公共仓库无需管理员权限即可下载——"红但看不到日志"的运行等于没人能修。
 
 ## 8. 常见失败与处置
 
@@ -235,4 +227,4 @@ LSP 源码回传断言应比较读盘得到的完整源码。夹具里的路径�
 | 注册的根标着 `missing` 且写不进去 | 目录当前不存在（或不是目录） | 恢复目录后执行 `/workspace-folders list`（或在面板里刷新/重试）即可重新授予——这正是 `registry.refresh()` 的作用，不需要重启；`missing` 的根在被重新校验前不会被授予 |
 | 注册的根标着 `redirected` 且写不进去 | 该路径现在解析到的目录与登记时授予的目录不同（常见原因：登记目录被替换成指向别处的符号链接，或链接链中某一段改了） | 这是刻意行为：重新解析不等于重新授权，授权不会被转移到新目标。把目录恢复成登记时那个（或删掉那层符号链接）后执行 `/workspace-folders list` 即可复原；若确实想改到新目录，先 `remove` 再 `add` 一次，等于重新确认 |
 | 列表里有一条 `invalid`，说明写着"重复的 id"或"没有说明授予目录" | 存储被手工改过，或来自缺少 `recordedPath` 字段的旧记录 | 该记录不授予任何权限，可用 `/workspace-folders remove <n>` 或面板里的"移除"逐条删除（删除是按位置/单条进行的，不会一次删掉多条） |
-| 内核断言在本地/CI 被 skip | 宿主不能受限执行（外层沙箱禁止嵌套，或缺 bwrap/Landlock launcher） | 本地属正常；CI 里 `pnpm kernel:probe` 会在能执行的宿主上导出 `DSH_REQUIRE_KERNEL_RUNNER=1`，此时 skip 会变成失败。要在本地强制检查，可自行 `DSH_REQUIRE_KERNEL_RUNNER=1 pnpm test`（预期在看到各条原因后失败） |
+| 内核断言在本地/CI 被 skip | 宿主不能受限执行（外层沙箱禁止嵌套，或缺 bwrap/Landlock launcher） | 属正常：先跑 `pnpm kernel:probe` 确认本机到底跑得通哪些方言；要在本地强制检查，可 `DSH_REQUIRE_KERNEL_RUNNER=1 pnpm test`（预期在看到各条原因后失败） |

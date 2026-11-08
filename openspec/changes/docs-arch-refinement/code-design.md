@@ -56,7 +56,7 @@
 | `README.en.md` 等 **10 份 `.en.md`（781 行）** | 删 | D-2 单语化。清单：`README.en.md`(239)、`docs/README.en.md`、`docs/{architecture,decisions,development,reference,troubleshooting}/README.en.md`(6)、`.agent/README.en.md`、`.agent/note/README.en.md`、`.agent/note/dsh-compat-contract.en.md` |
 | `package.json` | 改 | `files`（:63 起）删 `"README.en.md"` 行（:69）——**漏改 = 清单撒谎**（writer skill §4 第 4 项 / F2 同族） |
 | `README.md` | 改 | 删 :3 语言导航行；删 fork 上游叙述（:17 整段、:21 的「本仓库是本地 fork」句、:82 上游 tgz 注释、:111 上游源码命令、:118 上游 clone）；**保留** DSH 上游语义（:7、:209「不修改上游仓库（deepseek-harness）」） |
-| `AGENTS.md` | 改 | 删 `## Bilingual Documentation` 整节（:71–:86）；:90 `local fork…baseline f149fa4…M1–M3/H1–H4` 段改写为**一句事实**（「本包是自 `cherrchen/…@f149fa4` 起分支的本地维护线，不再跟随上游」）；十一条不变量与其后 DSH 兼容正文**不动** |
+| `AGENTS.md` | 改 | 删 `## Bilingual Documentation` 整节（:71–:86）；:90 `local fork…baseline f149fa4…M1–M3/H1–H4` 段清零改写为**纯现状事实**（**不含任何来历句**——轮 5 裁定②：上游相关描述一句不留，本行原「留一句 fork 事实」口径已废）；十一条不变量与其后 DSH 兼容正文**不动** |
 | `.agent/skills/documentation/SKILL.md` | 改 | §4 中英文文档规则（:62–:87）删除；§5 README Rules（:95–:103）去掉成对与导航要求；:140 特殊文件名去掉 `README.en.md`；§11 清单第 4 项（:170）删除；§12（:180–:186）检查范围描述改写为「7 项 + 共享内核」 |
 | `.agent/note/README.md` | 改 | :39 `foo.en.md` 说明、:46 `upstream-integration.en.md` 举例、:51 成对创建规则三处删除/改写 |
 | `docs/README.md` | 改 | :5 nav 行删；「## 语言」段（:48–:57）改为「中文唯一」一句 |
@@ -148,7 +148,10 @@
 
 **multi-root 单语化（D 组）**
 
-- 10 份 `.en.md` 合计 **781 行**（`find | wc -l` 实测）；非 `.en.md` 文件中指向它们的**导航行共 9 处**，形式仅两种：`English: [README.en.md](./README.en.md)`（8 处，如 `docs/architecture/README.md:3`）与 `中文 | [English](./README.en.md)`（1 处，`README.md:3`）→ 删除面是**有限且可枚举**的。
+```
+- 10 份 `.en.md` 合计 **781 行**（`find | wc -l` 实测）；非 `.en.md` 文件中指向它们的**导航行共 10 处**（执行期实测较本盘点 9 处多 1：`.agent/note/dsh-compat-contract.md:3` 漏盘，已随执行补清），形式仅两种：`English: [README.en.md](./README.en.md)`（9 处，如 `docs/architecture/README.md:3`）与 `中文 | [English](./README.en.md)`（1 处，`README.md:3`）→ 删除面是**有限且可枚举**的。
+```
+
 - `plugins/multi-root-workspace/package.json:69` — `"README.en.md"` 在 `files` 白名单内 → 删文件必同批删此行（writer skill §4 第 4 项）。
 - `plugins/multi-root-workspace/AGENTS.md:71`–`:86` — `## Bilingual Documentation` 整节（含「if the two versions ever conflict, the Chinese version wins」）；`:90` — `This checkout is a **local fork** vendored…upstream is cherrchen/…baseline f149fa4…`（fork 叙述的唯一英文权威段）；`:88` 与 `:108`/`:111` 中的 `upstream` 指 **DSH 上游**（保留）。
 - `plugins/multi-root-workspace/.agent/skills/documentation/SKILL.md:13` — 「相关文档规则的总纲见根目录 [`AGENTS.md`](../../../AGENTS.md)」（指向包外，证明其规则体系与仓根的耦合是**既定事实**，为新入口共享内核提供同构先例）；`:180` — 「`docs:check` 是稳定的逻辑入口，其内部实现（当前为 `node scripts/check-docs.mjs`）属于实现细节，不要直接依赖脚本内部文件名」→ **薄化在语义上被其自身规范允许**（契约是 `docs:check`，不是文件名）。
@@ -218,7 +221,7 @@ interface DocCheckConfig {
     evidenceSectionPattern: RegExp    // /^(验证证据|冒烟记录|验收记录|真机验证)$/
     evidenceLinePattern: RegExp       // /^验证证据：\[[^\]]+\]\((?:\.\.\/)?artifacts\/[^)]+\.md\)——结论：.+$/
     evidenceDirName: string           // 'artifacts'
-    pluginPackages: { dir: string, exclude: string[] }   // { dir:'plugins', exclude:['plugins/multi-root-workspace'] }
+    pluginPackages: { dir: string, exclude: string[] }   // { dir:'plugins', exclude:[] }（轮 5 裁定⑤：七包统一，exclude 空集）
   }
   exemptions: {
     absolutePaths: string[]           // 相对路径**子串**（沿用 :181 语义）
@@ -260,8 +263,11 @@ import { runSelfTest } from './lib/doc-checks.selftest.mjs'
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
-/** 仓级配置：六个软插件 + 仓级面；multi-root 子树交给其包内 docs:check（④D-B2） */
-const REPO_CONFIG = { root: REPO_ROOT, label: 'repo', checks: { /* 4 必 + 4 新，见 ③.1 表 */ }, /* … */ }
+/** 仓级配置：骨架检查取包面 = 七包（rules.pluginPackages，exclude 空集，R5）；markdown 扫描子树
+ *  排除 multi-root（scan.excludePaths，④D-B2 双入口）；openspec/changes/** 入 scan.noScanPaths
+ *  （D-B6/N1 裸 ADR 排除口径；链接检查不受 noScanPaths 影响，R8） */
+const REPO_CONFIG = { root: REPO_ROOT, label: 'repo', checks: { /* 4 必 + 4 新，见 ③.1 表 */ },
+  scan: { noScanPaths: ['openspec/changes'], excludePaths: ['plugins/multi-root-workspace'] } /* 其余旋钮见 ③.1 */ }
 
 // 用法：--help → 0；未知参数 → 2（与 dsh-check.mjs 同约定）
 if (!runSelfTest()) process.exit(1)
@@ -289,7 +295,8 @@ scan: {
 ```js
 #!/usr/bin/env node
 // 薄化：检查实现在 workspace 根 scripts/lib/doc-checks.mjs（单实现，防双写漂移）。
-// 本包只声明：扫描根 = 包根、目录角色 = 本包约定、检查集合 = 原 10 项减 3 项双语。
+// 本包只声明：扫描根 = 包根、目录角色 = 本包约定、检查集合 = 原 10 项（G3 时点十项全开，含双语三项；
+// 组 4 任务 4.7 同批退役双语三项后为 7 项，PKG_CONFIG 随该任务同批改）。
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runDocChecks } from '../../../scripts/lib/doc-checks.mjs'
@@ -298,16 +305,17 @@ import { runSelfTest } from '../../../scripts/lib/doc-checks.selftest.mjs'
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const PKG_CONFIG = {
   root: PKG_ROOT, label: 'multi-root',
-  checks: { 'wrong-english-suffix': true, 'markdown-links': true, 'absolute-paths': true,
-            'agent-note-filenames': true, 'plan-conflicts': true, 'adr-names': true, 'empty-documents': true },
-  scan: { markdownRoots: ['.'], excludeDirs: [/* 9 项原样 */], excludePaths: [],
+  checks: { /* G3 时点：10 项全开（readme-pairs / agent-note-pairs / wrong-english-suffix / readme-navigation /
+              markdown-links / absolute-paths / agent-note-filenames / plan-conflicts / adr-names / empty-documents）；
+              4.7 退役双语三项后为 7 项 */ },
+  scan: { markdownRoots: ['.'], excludeDirs: [/* 8 项原样（.git,node_modules,dist,build,coverage,.next,out,.dsh-smoke） */], excludePaths: [],
           linkWarningPaths: [], noScanPaths: [] },
   dirs: { agentNote: '.agent/note', plansActive: 'docs/plans/active',
           plansCompleted: 'docs/plans/completed', decisions: 'docs/decisions' },
   rules: { /* 与本包约定一致；readme*/adr* 规则在此不生效 */ },
   exemptions: { absolutePaths: [], bareAdrRefs: [] },
 }
-if (!runSelfTest()) process.exit(1)
+if (!runSelfTest()) process.exit(1)   // 自检静默模式接线（R12）：通过时零输出保 parity，失败时打印诊断并 exit 1
 const { errors } = runDocChecks(PKG_CONFIG)
 process.exitCode = errors > 0 ? 1 : 0
 ```
@@ -348,7 +356,7 @@ process.exitCode = errors > 0 ? 1 : 0
 3. `端性` 声明行缺失或取值不在 `{host-only, 双端}` → error；声明 `双端` 而无 `## 双端结构` → error；声明 `host-only` 却有 `## 双端结构` → error（防复制粘贴残留）。
 4. 标题命中 `evidenceSectionPattern` 的 H2 → error「证据不得内嵌 README」。
 5. 证据行：格式不符 → error；目标不在 `artifacts/` 下或文件不存在 → error。
-6. 门禁范围：`plugins/*/README.md` 除 `pluginPackages.exclude`（`plugins/multi-root-workspace`，④D-B7）。
+6. 门禁范围：`plugins/*/README.md` 七包全部纳入——`pluginPackages.exclude` 为空集（轮 5 用户裁定⑤推翻 D-B7 六包范围；multi-root 骨架对齐由 G5.5 施工）。
 7. 模板生成的注释行 `<!-- 如适用：… -->` 不构成 `##` 标题 → 不触发任何判定（④D-B9）。
 
 ### ③.6 spec 增补形状（`openspec/specs/dsh-plugin-toolchain/spec.md` 末尾）
@@ -436,9 +444,10 @@ process.exitCode = errors > 0 ? 1 : 0
 **被否方案**：① 全仓 error 一刀切——反例：一开闸 **325** 条，其中 312 条在只读归档或 multi-root 自有单编号体系内，门禁上线即不可用。② 只做 warning——反例：`docs/decisions/README.md:14` 把「引用 MUST 带路径」写成成文纪律，warning 等于自己声明纪律不必遵守（`check-docs.mjs:310-311` 只在 errors>0 时置退出码）。③ 把 multi-root 子树也纳入——反例：其内部 13 篇 ADR + 34 处架构文档裸引用**全部无歧义**（单编号体系，`docs/decisions/README.md:11-12` 的歧义只在**跨体系**时产生），一律要求带路径是纯噪声。
 **理由**：把「歧义」这个真实判据机械化 —— 歧义只在跨体系边界产生，故 scope 以体系边界为界。
 
-### D-B7 `readme-skeleton` 范围 = 六个软插件（不是七个）
+### D-B7 `readme-skeleton` 范围 = 六个软插件（不是七个）【已被轮 5 用户裁定⑤推翻：七包统一】
 
-**选定**：`pluginPackages = { dir:'plugins', exclude:['plugins/multi-root-workspace'] }`。
+**选定（轮 5 修订后现行）**：`pluginPackages = { dir:'plugins', exclude:[] }`——七包全部纳入；multi-root 骨架对齐（3 处改名 + 补 `## 构建与测试` + `README.md:29` 锚点跟随）由 G5.5 施工，配置一行改动、不触内核代码（本段下方「风险与消解」预埋的路径即现行执行路径）。
+**轮 4 原选定（已废弃，留档）**：`pluginPackages = { dir:'plugins', exclude:['plugins/multi-root-workspace'] }`。
 **证据**（轮 4 自身的枚举即是范围声明）：轮 4 的「如适用」清单写 `## 配置`（project-mcp/session-tool-toggle/zcode-plan/web-ux）、`## 双端结构`（web-ux/session-tool-toggle/workspace-config）——**两处枚举都恰为软插件集合**且都不含 multi-root；而 multi-root 实际是 dual（`dsh.client.platform: web`）且也有配置键（`Config.commonRoots`），若「全部插件」= 7 包，这两条枚举就该包含它。故轮 4 的「全部插件必查」= 六个软插件。
 **被否方案**：7 包强制——反例：multi-root README 需 `## 项目简介（What & Why）`→`## 定位`、`## 安装`→`## 安装到 profile`、`## 许可证`→`## 许可` 三处改名 + 新增 `## 构建与测试` + 修复 `README.md:29` 的 `[安装](#安装)` 同文档锚点（改名即断），合计 5 处编辑，与 D-13「multi-root 文档体系其余面不动」冲突，收益为零（其 12 节骨架本身比软骨架信息量更高）。
 **风险与消解**：此判断是对轮 4 字面的**解释**而非改写；若用户裁定为 7 包，改动是配置表一行 + multi-root 5 处编辑，**不触内核代码**（见「待决问题 Q1」）。
@@ -517,17 +526,19 @@ process.exitCode = errors > 0 ? 1 : 0
 > 理由：骨架是一条规则的三个表达面（存量 README / 模板 / 生成器 token），拆到两组必然出现「存量已按 A 版骨架改、模板还是 B 版」的中间态；而模板正确性的**唯一机械验收**（生成物过 `docs:check`）必须等门禁存在，故补步留后。
 > **同批约束**：G7 与 G8 必须在**同一提交**内收口（门禁挂上根入口 = 首轮清偿完成），否则 `docs:check` 红。
 
-### G1 评估档案（含豁免清单盘点，D-12）
+### G1 评估档案（含豁免清单盘点，D-12）【已施工 · 终形态 2026-11-07】
 
 - **触达**：`docs/assessments/docs-unification.md`（新建）、`docs/assessments/README.md`（+1 索引行）。
 - **要点**：按 `docs/assessments/README.md:7` 的四节骨架写；§现状差异清单逐条对应 P1–P6 与 D-1~D-14 的落点（不复制需求级论证，只记「事实 → 处置」）；§不施工项三条（双语推广、multi-root 体系收敛、豁免清单生成化）各带一句依据；附录 = 豁免清单盘点（`minimumReleaseAgeExclude` 300+ 条现状、`--dump-config-schema` 4 条 unrecognized 口径豁免、`ABSOLUTE_PATH_ALLOWLIST` 当前为空、`AR5` 的 workspace-config 六键放行）；§结论明确「本档案不裁定方案」。
 - **验证**：`grep -c '^## ' docs/assessments/docs-unification.md` = 4；`node -e` 断言索引行含文件名；`git status --porcelain docs/assessments/` 仅 2 个文件。
+- **执行回填（终形态）**：档案 169 行落地（四节 + 附录 A.1–A.5）；验收实测——文件存在 ✅、`不施工`=15（≥2）、`minimumReleaseAgeExclude`=3（≥1）、H2=4、strict validate exit 0、`docs/assessments/` 恰 2 文件。执行期实测校正三条（详见 diff-matrix §7 R1–R3）：①豁免清单精确 333 条（档案按实测写，未沿用「300+」）；②规划台账行号漂移两条（G6/G8 按现读重定位）；③索引行结论列由主会话按档案 §结论口径对齐（1.2 产物一行微调，验证句复跑绿）。
 
 ### G2 规范落位（D-3）
 
 - **触达**：`docs/decisions/ADR-0003-doc-system-layers-and-gates.md`（新建）、`docs/README.md`（新建）、`docs/decisions/README.md`（+1 行）、`AGENTS.md`（+2 链接行）、`openspec/specs/dsh-plugin-toolchain/spec.md`（+1 requirement，③.6 形状）、`openspec/changes/docs-unification/{proposal,design,tasks}.md`（提案本体，OpenSpec 工作流）。
 - **要点**：ADR-0003 先按 `adr-skeleton` 的七节**子集**自检（多出节允许）；分层表六行逐字对齐 C2；4 必备 + 5 如适用节清单与 ③.5 文法**逐字一致**（规范与脚本是同一份规则的两种表达，禁止改写成同义不同词）；两处边界声明（N1 openspec 工件面、N2 索引只链接）各一句；`docs/README.md` 只写链接与一句话定位，**不写任何摘要**（N2）。
 - **验证**：`grep -c '^## ' docs/decisions/ADR-0003-*.md` ≥ 7 且七节名齐全；`pnpm spec:check` exit 0；`git diff -U0 AGENTS.md | grep -c '^+[^+]'` = 2（本组只加链接，口径句在 G9）。
+- **执行回填（终形态 2026-11-07）**：2.1/2.2/2.3 全部核对通过。实测——ADR-0003 172 行、H2=7、分层表与 C2 逐字一致、4+5 节清单与 ③.5 逐字一致、内链全通；`docs/README.md` 33 行 15 链接人工巡检零断链（「docs 三区」实为两区、openspec 无 README 故链两个真实目录、artifacts 只链现存两包——G6 后补 3 行，见 R4）；`AGENTS.md` 恰 +2 行（numstat 2/0）。主会话组收尾补齐三件：①`docs/decisions/README.md` 索引 +1 行（触达面有、tasks.md 三条任务均未覆盖，机械补齐）；②AGENTS 括注「文档体系分层与门禁」与 ADR 标题核对一致（概括式，形态同 0001/0002 行，不改）；③工件矛盾同步——readme-skeleton 范围按轮 5 裁定⑤改七包统一（D-B7 标注被推翻），见 R5。触达面残留口径（同 R2 原则）：`openspec/specs/dsh-plugin-toolchain/spec.md` 不直改——specs delta 已随落档存在，归档时由 OpenSpec 同步主 spec。
 
 ### G3 门禁内核抽取 + multi-root 薄化（10 项全开，D-6 前半）
 
@@ -546,6 +557,7 @@ diff /tmp/before.txt /tmp/after.txt && echo PARITY-OK                           
 
 （本组尚未退役任何检查，故 `before.txt` 的 10 行 `[PASS]` 与末两行必须**逐字节**相同；基线文本已实测为：`Documentation checks` + 10 行 `[PASS] <name>` + `0 errors, 0 warnings.` + `Documentation checks passed.`。）
 另：`grep -c 'checkXxx\|newResult' scripts/lib/doc-checks.mjs` 用于确认实现只有一处（口令人工核对，不设阈值）。
+- **执行回填（终形态 2026-11-07）**：3.1/3.2/3.3 全部核对通过。实测——内核 1278 行（14 检查 + 配置归一化 fail-closed + 惰性收集 + 打印层，导出面 `CHECK_IDS`/`runDocChecks`）+ `.d.mts` 165 行 + selftest 517 行（**22 项运行时断言**，超 D-B10 的 6 样本口径：每类缺陷 + 合规/豁免/边界，含 R7 围栏用例位、D-7 归档降级、端性闭环、bare-adr 剥离语义）+ 薄入口 39 行（318→39，含自检静默接线 2 行）。验收三条链全绿：①正常路径 parity 与基线 md5 逐字节一致（主会话独立复核，接线自检后复跑仍一致）；②缺陷路径双树对拍（新旧同构树喂 8 类缺陷，输出逐字节一致、均 exit 1）；③selftest 22 断言 + 规则回退探针（弱化内置规则→精确转红）。组期工件修正四件（R8–R11）：③.2 示例同步 noScanPaths、specs delta 必备节措辞对齐裁定链、③.3 蓝本两时态计数修正、bare-adr 修复面 6→17（R9）。执行期裁定（R12/R13）：自检组合输出模式已实施接线；规则回退口径 G7 复跑探针。未做（范围外）：根入口（G7）、双语三项退役（4.7，内核开关已备）。
 
 ### G4 单语化 + 废弃上游同步 + 3 项退役（D-2）
 
@@ -556,12 +568,13 @@ diff /tmp/before.txt /tmp/after.txt && echo PARITY-OK                           
 ```bash
 find plugins/multi-root-workspace -name '*.en.md' -not -path '*/node_modules/*' | wc -l        # 0
 grep -rn 'README\.en\.md' plugins/multi-root-workspace --include='*.md' --include='package.json' | wc -l  # 0
-grep -rn 'cherrchen\|f149fa4\|local fork\|本地 fork' plugins/multi-root-workspace --include='*.md' | grep -v docs/decisions/ | wc -l  # 0（ADR 域留一句事实）
+grep -rn 'cherrchen\|f149fa4\|local fork\|本地 fork' plugins/multi-root-workspace --include='*.md' | grep -v docs/decisions/ | wc -l  # 0（全域清零——轮 5 裁定②一句不留；ADR-0014 只写处置，decisions 域内旧 ADR 不含这些词）
 grep -c 'deepseek-harness\|上游 provider' plugins/multi-root-workspace/README.md                 # ≥1（DSH 上游语义保留，D-B15）
 node plugins/multi-root-workspace/scripts/check-docs.mjs | grep -c '^\[PASS\]'                  # 7
 node plugins/multi-root-workspace/scripts/check-docs.mjs | grep -E 'bilingual|language navigation' | wc -l  # 0
 git diff --stat -- plugins/multi-root-workspace/src plugins/*/src | wc -l                       # 0
 ```
+- **执行回填（终形态 2026-11-07）**：7/7 任务核对通过。实测——10 份 `.en.md` 删净（781 行）、files 行同批、双语三项配置退役（内核实现保留）；README 239→220 行（17 个删除点，**npm 上游安装通道叙述随裁定清零**、安装来源计数 4→3）；AGENTS 119→101（H2 9→8，十一条不变量逐字保留）；SKILL §4 保号改写 + §12 对齐 7 项共享内核口径；ADR-0014 80 行零来历句（三条 SHALL 处置 + 六条被否方案）；workflow §7 整节重写为现状 CI 事实。组级验收全绿：docs:check 7 项 PASS + `0 errors, 0 warnings.` + exit 0（恰少双语三行）；fork 词全域扫描 0（decisions 域外）；dsh:check 3/3 组全过。执行期连锁与工件同步见 R14（12+ 处补清、验收①口径裁定、M/H 里程碑标签全域去化、code-design :59/:568/Q5/:151 四处旧口径同步）。
 
 ### G5 骨架对齐（六软插件）+ web-ux 去重 + 模板同步（D-4/D-8/D-10 前半）
 
@@ -590,12 +603,14 @@ pnpm gen:plugin tmp-doc-smoke --kind dual && grep -E '^## (定位|安装到 prof
 pnpm gen:plugin tmp-doc-host --kind host-only && grep -c '^## 双端结构$' plugins/tmp-doc-host/README.md  # 0
 rm -rf plugins/tmp-doc-smoke plugins/tmp-doc-host   # 临时件不入库
 ```
+- **执行回填（终形态 2026-11-08）**：6/6 任务核对通过，组级硬验收达成——**七包 4 必备节计数全部 = 4**、内核 readme-skeleton 探针逐包全绿（web-ux 最后补验 PASS）。5.1/5.2 补定位 + 改名（锚点零跟随需求实测确认）；5.3 三刀去重按 R15 改判口径验收（重复正文净删 1609 字符、标题除定位/改名外逐字节零变化、wc 443→443 如实记录）；5.4 三包 + 偏差补齐（workspace-config 端性行，R15②）；5.5 四改名 + 双端结构节（R15②）+ 构建归并单一出处 + tarball `pnpm pack` 无参修正（G4 遗留观察闭环）；5.6 模板骨架全集 + ENDNESS/DUAL_SECTION 无条件注入（生成物 dual/host-only 双验证 + 内核正负对照 + gen:plugin --check 回归 0）。组期联动：ADR-0003:163 代价行补端性闭环项、templates/README.md:156 措辞对齐、tasks.md 5.5 验证句补双端结构计数。
 
 ### G6 证据归位 + zcode-plan 内容级复核（D-5/D-11）
 
 - **触达**：project-mcp / user-commands / zcode-plan 的 README + 三个 `artifacts/` 新目录；zcode-plan `docs/` 两篇移动、一篇改写。
 - **要点**：① 迁移用 `git mv`（保留 blame），**同批**改 README 的一行证据行 + 所有指向它的链接（zcode-plan README `:5`/`:104`/`:247` 三处）；② project-mcp `:106` 的内联指引「见下节」必须改口（否则成孤儿）；③ user-commands `:92` 示例输出路径改为 `…/person/dsh-plugins`（`artifacts/` 里的原文**不改**，D-B5）；④ 每份证据文件首行加元信息行（`> 证据类型 / 采集时点 / 结论`），正文零改写；⑤ zcode-plan 迁移指南按 D-B14 静态对账，文首加两行（复核日期、复核基线来源 `scripts/dsh-baseline.mjs`）。
-- **验证**：
+- **执行回填（终形态 2026-11-08）**：4/4 任务核对通过。6.1——证据节 52 行 sha256 字节级一致迁 `artifacts/isolation-smoke.md`（元信息采集时点取正文记录 2026-11-05），README 证据行按 §3 文法就位、`artifacts/isolation-smoke.md` 恰 2 处命中；6.2——38 行 / 4054 字符字符级全等迁 `artifacts/real-machine-verification.md`；6.3——两文件普通 mv（暂存区零触碰，rename 相似度 98%/97% 由临时索引实测）+ 元信息首行 + README 三处活链改链（散文路径 7 处按 R16⑤不改）；6.4——前置经用户裁定满足（R16①），静态复核三条全绿（`0.2.1-rc.2` 零命中、来源常量表述、复核时点 2026-11-08），真机三命令读数由用户执行回贴、`route-replay-2026-11-08.md` 主会话落盘（status/route/refresh 含幂等换发形态 + 四点对照表）。组期联动：zcode-plan README:17 版本声明矛盾修正、verify-discount.sh:9 注释路径同步、G8.2 修复清单 +1（R16②）。验证句全达成（route-replay 文件名与指南引用一致）。
+- **验证（原文保留；`git mv` 实际按 R16 改用普通 mv）**：
 
 ```bash
 ls plugins/{project-mcp,user-commands,zcode-plan}/artifacts/*.md                             # 各 ≥1
@@ -611,7 +626,8 @@ git log --follow --oneline -1 plugins/project-mcp/artifacts/isolation-smoke.md  
 ### G7 门禁落位：仓级入口 + 4 新检查 + 负测试 + scaffold 补步（D-6 后半 / D-10 后半）
 
 - **触达**：`scripts/check-docs.mjs`（新建）、`scripts/lib/doc-checks.mjs`（+4 检查 + `noScanPaths`/`linkWarningPaths`/`pluginPackages`）、`package.json:22`、`.github/workflows/ci.yml`（+1 步 + `:15` 注释）。
-- **要点**：① 4 个新检查按 ③.1 表与 ③.5 文法实现；`bare-adr-ref` 需先做**链接标签剥离 + 首行自标题跳过**（D-B6 的量化路径）；② 仓级配置的 `excludeDirs` 补三项（D-B17）、`excludePaths` 排 multi-root（D-B2）、`noScanPaths` 排归档与 artifacts（D-B4/D-B5）；③ scaffold 作业在 `:102` 之后插 `- name: 文档检查（生成物）` / `run: pnpm docs:check`；④ `ci.yml:15` 注释句改写为「仓级共享内核 + dual 入口」。
+- **要点**：① 4 个新检查按 ③.1 表与 ③.5 文法实现（G3 已在内核落地，G7 只做配置启用）；`bare-adr-ref` 的链接标签剥离 + 首行自标题跳过已随内核实现（D-B6 的量化路径）；② 仓级配置的 `excludeDirs` 补三项（D-B17）、`excludePaths` 排 multi-root（D-B2）、`noScanPaths` 排归档与 artifacts（D-B4/D-B5/R8）；③ scaffold 作业在两包 `verify:all` 之后、`dsh:check` 之前插 `- name: 文档检查（生成物）` / `run: pnpm docs:check`；④ `ci.yml:15` 注释句改写为「仓级共享内核 + dual 入口」。
+- **执行回填（终形态 2026-11-08，含与 G8 的联合验收）**：2/2 任务核对通过。仓级入口 151 行（三值语义 + R12/R13 自检接线 + R5/R8 配置口径）；首跑 `36 errors + 4 warnings` 全量盘点（R17：台账外断链 6 条并入 G8.2 fenced 化、absolutePaths 空数组裁定、G8 清单漂移修正）。**联合验收（8.3 完成时）全绿**：`node scripts/check-docs.mjs` exit 0、`0 errors, 4 warnings.`（恰 D-7 归档域）、`pnpm docs:check` 两段全跑 exit 0（仓级 + multi-root 7 项）——7.1 验证句原口径（exit 0 + 四新检查 PASS 行）于此达成。ci.yml scaffold 补步 + :3/:15 注释口径句改写（YAML 解析验证、scaffold 10→11 步逐位核对）。
 - **验证**：
 
 ```bash
@@ -653,6 +669,7 @@ node scripts/check-docs.mjs | grep -E 'errors, [0-9]+ warnings'    # "0 errors, 
 node plugins/multi-root-workspace/scripts/check-docs.mjs; echo $?  # 0
 node scripts/check-docs.mjs | grep -c "Broken link"              # 4（全部落在归档域，且为 warning）
 ```
+- **执行回填（终形态 2026-11-08，含 G7+G8 联合验收）**：3/3 任务核对通过。8.1——10 处 error 清零（8 断链 + 2 bare-adr；:123/:124 各含 2 链接故行号 8 个点位 10 条 error）；内容层小修（主会话）：ADR-0002 :125 label 与 :90 叙述按「并发用例已迁入 `tooling/host-kit/test/attribution.test.ts`」事实更新。8.2——23 处清零（1 断链 + 15 bare-adr + 7 围栏化）；**偏差① 纠正正确**：session-tool-toggle 的 ADR-0002 真源是插件级 `upstream-coupling-policy.md`（仓级 attribution-kernel 无该内容）——派发提示照搬台账未辨析语义，子代理按内容改链插件级并报备；围栏化落本变更三工件（文字逐字未动，主会话抽查确认）。8.3——spec 子串豁免登记（`exemptions.absolutePaths`）+ 根 README:77 `<本仓>` 占位；行号漂移根因实测：内核 `checkAbsolutePaths` 先 `stripCodeFences()` 后按剥离文本计数（报告 :38 = 原文 :77）。**联合验收全绿**：exit 0、`0 errors, 4 warnings.`（恰 D-7 归档域 4 条）、`pnpm docs:check` 两段全跑 exit 0。与台账差异：断链实修 10 处（8 仓级 + 1 迁移连带 + 1 label 同步）、bare-adr 实修 17 处（台账 6 + G1 自伤 11）、围栏化 7 处（R17① 台账外）、豁免 1 子串（2 error）、绝对路径 1 处（user-commands:92 由 G6 达成）。
 
 ### G9 收尾（O6 + 口径同步 + 索引回链）
 
@@ -686,7 +703,11 @@ git diff --stat -- 'plugins/*/src' 'plugins/*/lib' | wc -l                      
 ### 未决项（技术未知，不构成用户决策）
 
 - **U1**：`noScanPaths` 的单层 `*` 匹配是否需要支持 `**`。当前设计只需 `plugins/*/artifacts/` 与 `openspec/changes/archive/**/artifacts/` 两种形状；若实施时发现还有第三种（如 `docs/**/artifacts/`），需扩语法（代价：一个 8 行的段匹配器）。
+
+```
 - **U2**：`bare-adr-ref` 对 `[ADR-0002：归属内核](./ADR-0002-attribution-kernel.md)` 这类**标签即裸写、目标带路径**的形态是否算违规。本设计的判定是「标签不算引用表述，只看非链接文本」→ 不算。实施时若希望更严，需先接受 `docs/assessments/multi-root-build-unification.md:9`、`docs/decisions/ADR-0002:120` 等 3–5 处同类改写的连带面。
+```
+
 - **U3**：`adr-skeleton` 是否应同时查 `## Status` 的取值域（`Accepted|Proposed|Deprecated|Superseded`）。本设计不查（`docs/decisions/README.md:35` 只要求「含」，取值域未成文）。
 - **U4**：`check-docs.mjs --self-test` 是否作为公开 flag 保留。本设计倾向「内置 + 同 flag 双通道」（flag 便于排障，内置保证热路径），成本是 4 行参数解析。
 - **U5**：multi-root 入口的 `label` 与输出前缀是否要区分（当前设计只用于错误提示里的一行标识，**不进 `[PASS]` 行**，以免破坏 parity）。若未来两入口输出被并列阅读，需要前缀。
@@ -725,12 +746,10 @@ git diff --stat -- 'plugins/*/src' 'plugins/*/lib' | wc -l                      
 - **推荐**：**a + c 的可选补充**（豁免机制按 a，元信息行按 c 的措辞写进 G6 的要点，不做门禁断言）。b 会让「证据」变成「叙述」，与 D-5 的证据语义冲突。
 - **影响面**：选 b 则 `plugins/workspace-config/artifacts/workspace-config-smoke.md` 5 处、`zcode-plan` 两篇 4 处、`user-commands` 迁入内容 4 处需人工改写（可读性与可信度双降）；选 a 则门禁只管叙述型文档，证据域对路径卫生零约束。
 
-### Q5 multi-root 插件级 ADR 的「上游事实一句」写在哪一节
+### Q5 multi-root 插件级 ADR 的「上游事实一句」写在哪一节【前提已被轮 5 裁定②推翻：上游事实一句不留，本问失效】
 
-- **问题**：D-2 要求「决策记录留一句最简上游事实供自解释」。这一句放在 ADR-0014 的 `## Context`（叙述位置）还是 `## Decision`（结论位置）？
-- **选项**：a) `## Context` 首段一句（本设计）；b) `## Decision` 内单列一条「本包自 `cherrchen/…@f149fa4` 起分支，不再跟随上游」；c) 两处各一句。
-- **推荐**：**a**。`## Context` 的语义就是「为什么会有这篇决策」，放这里最自解释；`## Decision` 应只写可执行的处置（单语化 / 终止同步 / 薄化）。
-- **影响面**：纯文案位置，零机械影响；选 b/c 仅影响该 ADR 的可读性。
+- **问题**：~~D-2 要求「决策记录留一句最简上游事实供自解释」~~（轮 5 裁定②改为完全移除、一句不留，ADR-0014 只写处置）。
+- **结论（轮 5 现行）**：ADR-0014 **零来历句**（Context 只写现状与动因，不写 fork 历史）；4.6 施工已按此落地。
 
 ---
 
