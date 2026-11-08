@@ -27,7 +27,9 @@
  * - `exemptions.bareAdrRefs` 豁免两份规则自述文件（D-B6：`AGENTS.md`、
  *   `docs/decisions/README.md` 的成文纪律本身就在讲「怎么引用 ADR」）；
  * - `exemptions.absolutePaths` 登记 `openspec/specs/dsh-multi-root-file-references/spec.md`：该只读
- *   spec 的 Scenario 示例绝对路径（`:30` / `:44`）按 D-13（不改 spec）/ D-B5（证据域口径）豁免（任务 8.3）。
+ *   spec 的 Scenario 示例绝对路径（`:30` / `:44`）按 D-13（不改 spec）/ D-B5（证据域口径）豁免（任务 8.3）；
+ *   另登记 `openspec/specs/dsh-plugin-toolchain/spec.md`：其「文档链接与禁项检查语义」requirement
+ *   自述 `file://` 禁项时字面命中自身规则（规则自述场景），沿用同一「不改 spec」口径豁免（R10）。
  *
  * 目录排除集按 D-B17 在 multi-root 的 8 项上补 `.dsh` / `.opencode` / `.worktrees`：
  * 三者是本地生成物（`.gitignore:1-2`），不排除会造成「本地红、CI 绿」的判定分裂。
@@ -125,6 +127,9 @@ const REPO_CONFIG = {
       // 只读 spec 的 Scenario 示例绝对路径（`:30` / `:44`）：D-13 / D-B5 口径，
       // 按文件路径子串登记——命中整份 spec，其他文件的绝对路径判定不受影响。
       'openspec/specs/dsh-multi-root-file-references/spec.md',
+      // 该 spec 的「文档链接与禁项检查语义」requirement 自述 file:// 禁项本身，字面命中
+      // 自身规则（规则自述场景）；D-13「不改 spec」口径同上（R10 收尾，2026-11-08）。
+      'openspec/specs/dsh-plugin-toolchain/spec.md',
     ],
     // 精确相对路径（D-B6）。
     bareAdrRefs: ['AGENTS.md', 'docs/decisions/README.md'],

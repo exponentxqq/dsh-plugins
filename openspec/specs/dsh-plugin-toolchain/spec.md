@@ -214,7 +214,7 @@ bundle.test 的包独有断言 MUST 留在包内：INLINED/ABSENT 标记、css �
 
 ### Requirement: 插件文档件套统一
 
-全部七个插件包 SHALL 落在同一套 README 件套规范下（无任何包豁免），规范决策本体由仓级 ADR-0003 承载，本条只约束机器可判定行为。固定必备四节（定位（含端性声明行）/ 安装到 profile / 构建与测试 / 许可）MUST 存在；「如适用」节（配置 / 双端结构 / 已知限制·排障 / 非目标 / 与其他插件的关系）以声明驱动：节存在即 MUST 非空，端性声明为双端时「双端结构」节 MUST 存在、host-only 时 MUST NOT 出现；检查 MUST NOT 断言节顺序或限制自由节。验证证据 MUST 位于各包 `artifacts/` 目录，README 内 MUST NOT 内嵌证据正文。全仓文档语言为中文唯一：`.en.md` 与双语成对规则 MUST NOT 存在。
+全部七个插件包 SHALL 落在同一套 README 件套规范下（无任何包豁免），规范决策本体由仓级 [ADR-0003](../../../docs/decisions/ADR-0003-doc-system-layers-and-gates.md) 承载，本条只约束机器可判定行为。固定必备四节（定位（含端性声明行）/ 安装到 profile / 构建与测试 / 许可）MUST 存在；「如适用」节（配置 / 双端结构 / 已知限制·排障 / 非目标 / 与其他插件的关系）以声明驱动：节存在即 MUST 非空，端性声明为双端时「双端结构」节 MUST 存在、host-only 时 MUST NOT 出现；检查 MUST NOT 断言节顺序或限制自由节。验证证据 MUST 位于各包 `artifacts/` 目录，README 内 MUST NOT 内嵌证据正文。全仓文档语言为中文唯一：`.en.md` 与双语成对规则 MUST NOT 存在。
 
 #### Scenario: 缺必备节被拦截
 

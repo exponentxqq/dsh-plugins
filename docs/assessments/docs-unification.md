@@ -7,7 +7,7 @@
 | 落档 | 2026-11-07（`docs-arch-refinement` 变更 1.1） |
 | 事实时点 | 2026-11-07；行数、计数与豁免条数均为当日现读实测（复现命令见附录 A） |
 | 事实基线 | 工作树（`HEAD 162e48f`） |
-| 相关文档 | [multi-root 构建统一化评估](./multi-root-build-unification.md)（同目录先例）、[仓级 ADR 索引](../decisions/README.md)、变更蓝图 [`code-design.md`](../../openspec/changes/docs-arch-refinement/code-design.md)、[`diff-matrix.md`](../../openspec/changes/docs-arch-refinement/diff-matrix.md)、[`tasks.md`](../../openspec/changes/docs-arch-refinement/tasks.md) |
+| 相关文档 | [multi-root 构建统一化评估](./multi-root-build-unification.md)（同目录先例）、[仓级 ADR 索引](../decisions/README.md)、变更蓝图 [`code-design.md`](../../openspec/changes/archive/2026-11-08-docs-arch-refinement/code-design.md)、[`diff-matrix.md`](../../openspec/changes/archive/2026-11-08-docs-arch-refinement/diff-matrix.md)、[`tasks.md`](../../openspec/changes/archive/2026-11-08-docs-arch-refinement/tasks.md) |
 
 本档案回答三件事：文档面现在差在哪（§现状差异清单）、哪些方向本轮明确不做或已废（§不施工项）、做到什么程度算收口（§通过标准）。它不复制 proposal 的需求论证，也不重复 diff-matrix 的取舍过程；每条只记「事实 → 处置」。P1–P6 为规划期问题编号，本档案按编号对账、只记落点。
 
@@ -64,7 +64,7 @@
 
 ### D-1~D-14 落点索引
 
-逐条落点（取舍过程见 [`diff-matrix.md`](../../openspec/changes/docs-arch-refinement/diff-matrix.md) §5，实现细节见 [`code-design.md`](../../openspec/changes/docs-arch-refinement/code-design.md) ④）。
+逐条落点（取舍过程见 [`diff-matrix.md`](../../openspec/changes/archive/2026-11-08-docs-arch-refinement/diff-matrix.md) §5，实现细节见 [`code-design.md`](../../openspec/changes/archive/2026-11-08-docs-arch-refinement/code-design.md) ④）。
 
 | 决策 | 本轮落点 |
 | --- | --- |
