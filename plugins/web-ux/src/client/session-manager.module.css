@@ -1,11 +1,11 @@
 /*
- * 会话管理分节的样式（统一「工作区配置」弹窗右栏里的卡片主体）。
+ * 会话管理分节的样式（「工作区配置」页面里的分节卡片主体）。
  *
- * 只补官方 primitives 给不了的东西：分节容器与行内动作条、工具栏（工作区选择器 +
- * 三个 tab）、列表行与行内徽标、选择条、确认与结果区的文字层级。弹窗外壳（Modal 的
- * mask / 卡片 / header / 关闭按钮）与 Button / SegmentedTabs / Checkbox / Menu 的骨架、
- * 尺寸与焦点环全部由 holder 与 primitives 负责，这里不复制它们的配色，也不与删除确认
- * 对话框的样式文件混用（两处视觉语义不同，且 bundle 的样式注入器按模块各自计数）。
+ * 只补官方 primitives 给不了的东西：分节容器与行内动作条、工具栏（节内域 tab 行）、
+ * 列表行与行内徽标、选择条、确认与结果区的文字层级。页面外壳（页头、工具栏、页级
+ * tab）由 holder 的页面负责，Button / SegmentedTabs / Checkbox 的骨架、尺寸与焦点环
+ * 全部由 primitives 负责，这里不复制它们的配色，也不与删除确认对话框的样式文件混用
+ * （两处视觉语义不同，且 bundle 的样式注入器按模块各自计数）。
  *
  * 颜色纪律：每一处颜色都是 `var(--dsw-alias-*, <兜底>, )` 形态——兜底值只用 CSS 关键字
  * （`currentColor`、具名色）与 `color-mix()`，不写死具体色值。这样令牌整体缺席时最坏
@@ -14,7 +14,7 @@
  *
  * 类名契约（分节组件按此清单消费；均按 CSS Modules 局部类引用）：
  *   sectionBody、actions                                  —— 分节容器与正文末尾动作条
- *   toolbar、workspaceButton、workspaceName、tabsRow      —— 工具栏与工作区选择器
+ *   toolbar、tabsRow                                      —— 工具栏与节内域 tab 行
  *   modes、modeRow、modeText                              —— tab 2 的处置方式单选
  *   selectionBar、list、row、rowSelected、rowDisabled     —— 选择条与列表
  *   rowMeta、badge、badgeRunning、badgeBlank              —— 行内元信息与徽标
@@ -32,11 +32,11 @@
   flex-direction: column;
   gap: 0;
   min-width: 0;
-  /* 内容列由 holder 的弹窗负责滚动；这里只保证 flex 收缩不撑破卡片。 */
+  /* 内容列由 holder 的页面负责滚动；这里只保证 flex 收缩不撑破卡片。 */
   min-height: 0;
 }
 
-/* —— 行内动作条：统一弹窗没有 footer，阶段动作跟在正文之后、右下对齐 —— */
+/* —— 行内动作条：分节没有独立 footer，阶段动作跟在正文之后、右下对齐 —— */
 .actions {
   display: flex;
   flex-wrap: wrap;
@@ -47,50 +47,12 @@
   border-top: 1px solid var(--dsw-alias-border-l1, gray);
 }
 
-/* —— 工具栏：工作区选择器一行，三个 tab 占满下一行（浮层宽度有限，横排会挤） —— */
+/* —— 工具栏：只剩节内三个域 tab（工作区选择归页面工具栏的选择框，换工作区 = 分节重挂） —— */
 .toolbar {
   display: flex;
   flex-direction: column;
   gap: 10px;
   margin: 0 0 12px;
-}
-
-/* 工作区选择器的触发按钮：幽灵按钮形态，边框只用一级描边。 */
-.workspaceButton {
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  align-self: flex-start;
-  gap: 4px;
-  max-width: 100%;
-  padding: 4px 8px;
-  border: 1px solid var(--dsw-alias-border-l3, gray);
-  border-radius: var(--dsw-radius-sm, 6px);
-  background: none;
-  color: var(--dsw-alias-label-primary, currentColor);
-  font: inherit;
-  font-size: 13px;
-  line-height: 20px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.workspaceButton:hover,
-.workspaceButton[aria-expanded='true'] {
-  background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentColor 8%, transparent));
-}
-
-.workspaceButton:focus-visible {
-  outline: 2px solid var(--dsw-alias-state-business-primary, currentColor);
-  outline-offset: -2px;
-}
-
-/* 工作区名过长时省略，而不是把工具栏撑出卡片宽度。 */
-.workspaceName {
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
 
 /* SegmentedTabs 的放置类：三段等分，与工具栏同宽。 */

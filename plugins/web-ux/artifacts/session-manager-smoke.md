@@ -8,6 +8,13 @@
   在真机 GUI（http://127.0.0.1:3080）执行并逐点记录。侧栏底部入口存在**视觉裁切**（见步骤 2），
   因此浮层的打开以脚本点击 DOM 中已渲染的入口按钮完成——入口的存在性先经可访问性树证实。
 
+> **历史状态注记（2026-11-08 补，R8）**：本记录基于页面化之前的旧形态验收——侧栏 footer
+> 入口、`shell.overlay` 浮层与节内工作区菜单均已随 `2026-11-08-workspace-config-page` 变更
+> （已归档）删除；`WORKSPACE_MENU_PORTAL` 开关不复存在，下文收尾备忘里与浮层 / footer /
+> 工作区菜单相关的条目仅作历史留存，不再适用于排障。现行入口为「工作区配置」面板行 →
+> 独立页面分节（节内工作区寻址改由页面统一选择框下传），最新真机冒烟见
+> [`workspace-config-page-smoke.md`](../../workspace-config/artifacts/workspace-config-page-smoke.md)。
+
 ## 步骤 1 — link: 安装
 
 - 结论：**PASS**（2026-11-05）
