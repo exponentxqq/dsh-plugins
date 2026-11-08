@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2026-11-08-workspace-folders-picker · L2 · 界面演示</title>
+<style>
+  :root{
+    /* 配色：主色 1 + 危险色 1 + 中性阶（贴近宿主 --dsw 中性基调） */
+    --brand:#2563eb; --danger:#dc2626; --ink:#111827; --ink2:#4b5563; --ink3:#6b7280;
+    --line:#e5e7eb; --bg:#f8fafc; --card:#fff; --mask:rgba(15,23,42,.45);
+    --fs1:22px; --fs2:16px; --fs3:13px; --fs0:12px; --sp:8px; --sp2:16px; --sp3:24px; --r:10px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:var(--fs2)/1.6 system-ui,"PingFang SC","Microsoft YaHei",sans-serif}
+  .bar{position:sticky;top:0;z-index:9;padding:10px var(--sp3);background:#0f172a;color:#fff;font-size:var(--fs3)}
+  .bar p{margin:2px 0}
+  .wrap{max-width:980px;margin:0 auto;padding:var(--sp3) var(--sp2)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:var(--sp2);margin-bottom:var(--sp2)}
+  h1,h2,h3{margin:0 0 var(--sp);line-height:1.3} h1{font-size:var(--fs1)} h2{font-size:15px} h3{font-size:var(--fs3)}
+  .muted{color:var(--ink2)} .tiny{color:var(--ink3);font-size:var(--fs0)}
+  .row{display:flex;flex-wrap:wrap;gap:var(--sp);align-items:center}
+  .btn{padding:6px 14px;border:1px solid var(--brand);border-radius:999px;background:var(--brand);color:#fff;font:inherit;font-size:var(--fs3);cursor:pointer}
+  .btn:hover{filter:brightness(1.08)} .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn.ghost{background:transparent;color:var(--brand)}
+  .btn.outline{background:transparent;color:var(--brand);border-color:var(--brand)}
+  .btn.plain{background:transparent;color:var(--ink2);border-color:var(--line)}
+  .iconbtn{width:28px;height:28px;padding:0;border-radius:999px;border:1px solid transparent;background:transparent;color:var(--ink2);font-size:14px;cursor:pointer}
+  .iconbtn:hover{background:#f1f5f9} .iconbtn:disabled{opacity:.35;cursor:not-allowed}
+  .tabs{display:flex;gap:var(--sp);border-bottom:1px solid var(--line);margin-bottom:var(--sp2)}
+  .tabs a{padding:8px 12px;color:var(--ink2);text-decoration:none;border-bottom:2px solid transparent;font-size:var(--fs3)}
+  .tabs a:target{color:var(--brand);border-color:var(--brand)}
+  section:target{display:block}
+  .state{display:none}
+  .state:target{display:block}
+  .state.default{display:block}
+  .state.default:target{display:block}
+  /* 分节骨架 */
+  .sec{margin:0 0 var(--sp2)}
+  .sec-title-row{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
+  .sec-title{font-size:var(--fs3);font-weight:600}
+  .sec-note{font-size:var(--fs0);color:var(--ink3)}
+  .grouphint{margin:0 0 6px;font-size:var(--fs0);line-height:18px;color:var(--ink3)}
+  .item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;border:1px solid transparent}
+  .item:hover{background:#f8fafc}
+  .item .txt{flex:1 1 auto;min-width:0}
+  .item .name{display:block;font-size:var(--fs3);font-weight:500}
+  .item .path{display:block;font-size:var(--fs0);color:var(--ink3);font-family:ui-monospace,Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .badge{font-size:var(--fs0);color:var(--ink2);border:1px solid var(--line);border-radius:999px;padding:0 8px;background:#f8fafc}
+  .warn{font-size:var(--fs0);color:#b45309}
+  .err{color:var(--danger);font-size:var(--fs3);margin:4px 0 0}
+  input{padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:var(--fs3)}
+  .manual{flex:1 1 220px;min-width:160px}
+  .actions-row{display:flex;flex-wrap:wrap;gap:var(--sp);align-items:center;padding-top:8px;border-top:1px dashed var(--line);margin-top:6px}
+  /* 对话框 */
+  .stage{position:relative;background:linear-gradient(135deg,#eef2f7,#e2e8f0);border-radius:var(--r);padding:var(--sp3);min-height:420px;display:flex;align-items:center;justify-content:center}
+  .overlay{position:relative;width:100%;max-width:560px}
+  .masknote{position:absolute;inset:-12px;background:var(--mask);border-radius:var(--r);z-index:0}
+  .dlg{position:relative;z-index:1;display:flex;flex-direction:column;background:var(--card);border-radius:12px;box-shadow:0 20px 50px rgba(2,6,23,.25);overflow:hidden}
+  .dlg-head{display:flex;align-items:center;gap:8px;padding:12px 16px}
+  .dlg-head h3{flex:1;margin:0;font-size:var(--fs2);font-weight:500}
+  .crumbs{display:flex;flex-wrap:wrap;gap:2px;align-items:center;padding:0 16px 10px;font-size:var(--fs3)}
+  .crumbs button{border:none;background:transparent;color:var(--brand);font:inherit;font-size:var(--fs3);cursor:pointer;padding:2px 4px;border-radius:6px}
+  .crumbs button:hover{background:#eff6ff}
+  .crumbs .cur{color:var(--ink2);font-weight:500}
+  .crumbs .sep{color:var(--ink3);font-size:var(--fs0)}
+  .dlist{flex:1;min-height:150px;max-height:300px;overflow-y:auto;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:4px 0}
+  .drow{display:flex;align-items:center;gap:8px;width:100%;padding:6px 16px;border:none;background:transparent;text-align:left;font:inherit;font-size:var(--fs3);cursor:pointer}
+  .drow:hover{background:#f1f5f9}
+  .drow .ic{color:#d97706;font-size:15px}
+  .drow.hid{opacity:.55}
+  .dfoot{display:flex;align-items:center;gap:8px;padding:12px 16px}
+  .dfoot .path{flex:1;min-width:0;font-family:ui-monospace,Consolas,monospace;font-size:var(--fs0);color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .create-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 16px 4px}
+  .truncnote{padding:6px 16px;font-size:var(--fs0);color:var(--ink3)}
+  .switch{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs0);color:var(--ink2);cursor:pointer;padding:4px 8px;border-radius:999px;border:1px solid var(--line)}
+  .legend{display:flex;flex-wrap:wrap;gap:12px;font-size:var(--fs0);color:var(--ink3);margin-top:8px}
+  .chip{display:inline-flex;align-items:center;gap:4px}
+  .chip i{width:10px;height:10px;border-radius:3px;display:inline-block}
+  @media (max-width:480px){
+    .wrap{padding:16px 8px}
+    .bar{font-size:12px;padding:8px 12px} .tabs{overflow-x:auto}
+    .stage{padding:12px}
+    .dfoot{flex-wrap:wrap}
+  }
+</style>
+</head>
+<body>
+<!-- 演示约束条 -->
+<header class="bar">
+  <p>变更名 <b>2026-11-08-workspace-folders-picker</b> · 分档 <b>L2</b> · 生成 <b>2026-11-08 23:20</b> · <b>界面演示，非最终实现</b></p>
+  <p>示意数据：本页目录名、路径、徽章均为虚构，仅用于确认布局与视觉；实际视觉以宿主 <code>--dsw-*</code> 令牌为准。</p>
+</header>
+<main class="wrap">
+  <h1>「工作区文件夹」分节 · 分组 + 目录选择器</h1>
+  <p class="muted">本页确认四件事：① 附属/通用两组分开呈现与动作行归属；② 应用内目录选择对话框的布局与状态；③ 新建文件夹与错误文案位；④ 空态与「选择器不可用」的降级形态。</p>
+  <nav class="tabs"><a href="#s-layout">① 分节布局（混合态）</a><a href="#s-browse">② 对话框 · 浏览</a><a href="#s-create">③ 对话框 · 新建与错误</a><a href="#s-states">④ 空态与降级</a></nav>
+
+  <!-- ① 分节布局 -->
+  <section class="card state default" id="s-layout">
+    <h2>① 分节正文 · 混合态（示意数据）</h2>
+    <p class="tiny">顺序：主工作目录 → 附属工作目录（含动作行）→ 通用工作目录；「添加目录」动作行收进附属组内，避免被误读为在通用组添加。</p>
+    <div class="card sec">
+      <div class="sec-title-row"><span class="sec-title">主工作目录</span><span class="sec-note">当前工作区主工作目录，不可移除</span></div>
+      <div class="item">
+        <span class="txt"><span class="name">demo-proj</span><span class="path">/home/me/develop/demo-proj</span></span>
+        <button class="iconbtn" title="复制路径">⧉</button>
+      </div>
+    </div>
+    <div class="card sec">
+      <div class="sec-title-row"><span class="sec-title">附属工作目录</span></div>
+      <div class="item">
+        <span class="txt"><span class="name">资料库</span><span class="path">/home/me/documents/refs</span></span>
+        <button class="iconbtn" title="复制路径">⧉</button><button class="iconbtn" title="在文件管理器中显示">▣</button>
+        <button class="iconbtn" disabled title="上移">↑</button><button class="iconbtn" title="下移">↓</button><button class="iconbtn" title="更多操作">⋯</button>
+      </div>
+      <div class="item">
+        <span class="txt"><span class="name">shared-assets</span><span class="path">/data/assets</span></span>
+        <span class="warn" title="目录不存在，暂不授予">目录不存在，暂不授予</span>
+        <button class="iconbtn" title="复制路径">⧉</button><button class="iconbtn" title="在文件管理器中显示">▣</button>
+        <button class="iconbtn" disabled title="上移">↑</button><button class="iconbtn" disabled title="下移">↓</button><button class="iconbtn" title="更多操作">⋯</button>
+      </div>
+      <div class="actions-row">
+        <button class="btn" onclick="document.getElementById('s-browse').scrollIntoView()">＋ 添加目录</button>
+        <input class="manual" placeholder="输入绝对路径" value="">
+        <button class="btn outline">添加</button>
+        <button class="btn plain">重试</button>
+      </div>
+      <p class="grouphint">「添加目录」优先走选择器；输入框为兜底（绝对路径或 ~/ 开头）。<b>悬停/禁用态</b>：上移到顶、下移到底、通用行操作均为禁用态展示。</p>
+    </div>
+    <div class="card sec">
+      <div class="sec-title-row"><span class="sec-title" title="由插件 commonRoots 配置授予，对所有工作空间生效；请在插件配置（cordis.patch.yml）中修改。">通用工作目录</span><span class="sec-note">由插件配置授予 · 全部工作区生效</span></div>
+      <p class="grouphint">由插件配置的 commonRoots 授予，对所有工作空间生效；修改请编辑插件配置（cordis.patch.yml）。</p>
+      <div class="item">
+        <span class="txt"><span class="name">.cache</span><span class="path">/home/docker/.cache</span></span>
+        <span class="badge">通用</span>
+        <button class="iconbtn" title="复制路径">⧉</button><button class="iconbtn" title="在文件管理器中显示">▣</button>
+        <button class="iconbtn" disabled title="上移">↑</button><button class="iconbtn" disabled title="下移">↓</button><button class="iconbtn" title="更多操作">⋯</button>
+      </div>
+      <div class="item">
+        <span class="txt"><span class="name">tmp</span><span class="path">/tmp</span></span>
+        <span class="badge">通用</span>
+        <button class="iconbtn" title="复制路径">⧉</button><button class="iconbtn" title="在文件管理器中显示">▣</button>
+        <button class="iconbtn" disabled title="上移">↑</button><button class="iconbtn" disabled title="下移">↓</button><button class="iconbtn" title="更多操作">⋯</button>
+      </div>
+    </div>
+    <div class="legend">
+      <span class="chip"><i style="background:#dbeafe;border:1px solid var(--brand)"></i>主按钮（拾取）</span>
+      <span class="chip"><i style="background:#fff;border:1px solid var(--brand)"></i>描边（手输确认/重试）</span>
+      <span class="chip"><i style="background:#f8fafc;border:1px solid var(--line)"></i>徽章（通用来源）</span>
+      <span class="chip"><i style="background:#fff7ed;border:1px solid #fdba74"></i>状态警示（missing 等）</span>
+    </div>
+  </section>
+
+  <!-- ② 对话框 · 浏览 -->
+  <section class="card state" id="s-browse">
+    <h2>② 目录选择对话框 · 浏览态（browse 部署，示意数据）</h2>
+    <p class="tiny">点击「＋ 添加目录」后：先尝试系统选择器，当前部署不可用 → 自动降级为本对话框。起点 = 宿主主目录；面包屑逐级跳转；点行进入；底部「选择此目录」采纳当前层。</p>
+    <div class="stage">
+      <div class="masknote"></div>
+      <div class="overlay">
+        <div class="dlg" role="dialog" aria-modal="true" aria-label="选择工作目录">
+          <div class="dlg-head">
+            <h3>选择工作目录</h3>
+            <label class="switch"><input type="checkbox"> 显示隐藏目录</label>
+            <button class="iconbtn" title="关闭">✕</button>
+          </div>
+          <nav class="crumbs" aria-label="目录层级">
+            <button type="button">主目录</button><span class="sep">›</span>
+            <button type="button">me</button><span class="sep">›</span>
+            <button type="button">develop</button><span class="sep">›</span>
+            <span class="cur">demo-proj</span>
+          </nav>
+          <div class="dlist">
+            <button class="drow"><span class="ic">▸</span> assets</button>
+            <button class="drow"><span class="ic">▸</span> docs</button>
+            <button class="drow hid"><span class="ic">▸</span> .git</button>
+            <button class="drow"><span class="ic">▸</span> packages</button>
+            <button class="drow"><span class="ic">▸</span> scripts</button>
+            <button class="drow"><span class="ic">▸</span> tools</button>
+            <p class="truncnote" style="padding-left:16px">这里没有子目录（空层提示位）</p>
+          </div>
+          <div class="dfoot">
+            <span class="path" title="当前路径">/home/me/develop/demo-proj</span>
+            <button class="btn plain">取消</button>
+            <button class="btn">选择此目录</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="grouphint">要点：单栏列表（非 Miller 双栏）；`.git` 为隐藏目录示例——默认过滤，开关揭开后以低透明度呈现；Esc / 取消 / 点遮罩均关闭且不采纳；确认后走既有「添加」校验（重复/包含/主根冲突错误在对话框内原地提示，见 ③）。</p>
+  </section>
+
+  <!-- ③ 对话框 · 新建与错误 -->
+  <section class="card state" id="s-create">
+    <h2>③ 对话框 · 新建文件夹与错误文案位（示意数据）</h2>
+    <div class="stage">
+      <div class="masknote"></div>
+      <div class="overlay">
+        <div class="dlg" role="dialog" aria-modal="true" aria-label="选择工作目录">
+          <div class="dlg-head">
+            <h3>选择工作目录</h3>
+            <label class="switch"><input type="checkbox" checked> 显示隐藏目录</label>
+            <button class="iconbtn" title="关闭">✕</button>
+          </div>
+          <nav class="crumbs" aria-label="目录层级">
+            <button type="button">主目录</button><span class="sep">›</span>
+            <button type="button">me</button><span class="sep">›</span>
+            <span class="cur">workspace-a</span>
+          </nav>
+          <div class="create-row">
+            <input placeholder="文件夹名称" value="new-dir" style="flex:1 1 160px;min-width:120px">
+            <button class="btn outline">创建</button>
+            <button class="btn plain">取消</button>
+          </div>
+          <p class="err" role="alert" style="padding:0 16px">该目录下已有同名文件夹。</p>
+          <div class="dlist" style="margin-top:6px">
+            <button class="drow"><span class="ic">▸</span> new-dir</button>
+            <button class="drow"><span class="ic">▸</span> release-2026-11</button>
+            <button class="drow"><span class="ic">▸</span> scratch-1</button>
+            <button class="drow hid"><span class="ic">▸</span> .venv</button>
+            <button class="drow"><span class="ic">▸</span> z-archive</button>
+          </div>
+          <p class="truncnote">条目过多，列表已截断（truncated 提示位）</p>
+          <p class="err" role="alert" style="padding:0 16px 4px">该目录与已登记的根互相包含，不会带来新的可写范围。（确认「选择此目录」被宿主拒绝时的原地提示，对话框保持打开）</p>
+          <div class="dfoot">
+            <span class="path">/home/me/workspace-a</span>
+            <button class="btn plain">取消</button>
+            <button class="btn">选择此目录</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="grouphint">要点：新建成功后自动导航进入新目录（此处展示的是 <b>directory-exists</b> 失败态）；两层错误位——浏览/新建错误在列表区上方，采纳（add）失败句在 footer 上方且不关闭对话框。</p>
+  </section>
+
+  <!-- ④ 空态与降级 -->
+  <section class="card state" id="s-states">
+    <h2>④ 空态与「选择器不可用」降级（示意数据）</h2>
+    <div class="card sec">
+      <div class="sec-title-row"><span class="sec-title">附属工作目录</span></div>
+      <p class="grouphint">还没有附属工作目录。 添加后，Agent 可在同一会话中读写该目录，受限 shell 和终端同步生效。</p>
+      <div class="actions-row">
+        <button class="btn">＋ 添加目录</button>
+        <input class="manual" placeholder="输入绝对路径">
+        <button class="btn outline" disabled>添加</button>
+      </div>
+    </div>
+    <div class="card sec">
+      <div class="sec-title-row"><span class="sec-title">通用工作目录</span><span class="sec-note">空态也常驻</span></div>
+      <p class="grouphint">没有配置通用工作目录；在插件配置（cordis.patch.yml）的 commonRoots 中添加即可对所有工作空间生效。</p>
+    </div>
+    <div class="card sec">
+      <div class="sec-title-row"><span class="sec-title">附属工作目录</span><span class="sec-note">选择器不可用时</span></div>
+      <p class="grouphint" style="color:#b45309">当前部署没有可用的目录选择器；请直接在下方输入绝对路径。</p>
+      <div class="actions-row">
+        <input class="manual" placeholder="输入绝对路径">
+        <button class="btn outline">添加</button>
+        <button class="btn plain">重试</button>
+      </div>
+      <p class="grouphint">要点：拾取按钮<b>隐藏</b>（非禁用）并常驻一句提示；手动输入成为唯一入口时升为描边主按钮位。加载中（列表未就绪）时通用组说明不渲染，避免把「还没读到」误显示为「没配置」。</p>
+    </div>
+  </section>
+</main>
+</body>
+</html>
