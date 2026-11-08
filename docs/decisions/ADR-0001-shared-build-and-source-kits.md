@@ -1,4 +1,4 @@
-# ADR-0001: 共享构建与源码包的落地边界（`tooling/` 四包）
+# ADR-0001: 共享构建与源码包的落地边界（`tooling/` 五包）
 
 ## Status
 
@@ -52,16 +52,17 @@ Accepted（2026-11-06）。
 
 ## Decision
 
-### 1. `tooling/` 四个包的职责边界
+### 1. `tooling/` 五个包的职责边界
 
 | 包 | 形态 | 依赖面 | 边界 |
 | --- | --- | --- | --- |
 | `@dsh-plugins/build-kit` | 构建期纯 `.mjs` | 只有 `esbuild` | 六份 `build.mjs` 的骨架：宿主半、浏览器半、CSS modules、产物守卫；策略从包事实推导，薄入口只留不可推导的旋钮 |
 | `@dsh-plugins/host-kit` | 运行期 TS 源 | **零运行时依赖**，零 `@deepseek-ai/*` import | 归属内核、目录监听、触发器、根枚举、日志适配、真实 `node:fs` seam；以结构性端口（`RealpathPort` / `WatchIo` / `TriggerContext` / `RootEnumeratorContext` / `LogSink`）隔离宿主 |
+| `@dsh-plugins/client-kit` | 运行期 TS 源（client 半） | **零运行时依赖**，零 `@deepseek-ai/*` import（连 cordis 的 `Context` 类型也不进） | 「当前会话」两步结构探测 + 会话 `updatedAt` 投影的唯一实现；签名收 `sessions` 服务对象而不是 `ctx`，`ctx.get('sessions')` 留在消费方；TS 源消费、构建期内联（见文末「修订记录」段） |
 | `@dsh-plugins/test-kit` | 测试夹具 + 测试接线纯 TS | `react` / `react-dom`（stub 运行时）；`vitest` 仅 devDep（自测用），不是运行时依赖 | `ui-primitives` 并集底座 + `locale-parity` 纯函数 + `./vitest` 测试接线原语（`defineWebTestConfig({ root })` 返回裸对象、单 import、不包 `defineConfig`）；只放无分支的夹具与接线原语，包行为断言留在包内 |
 | `@dsh-plugins/contracts` | 纯类型包 | `dependencies: {}`，仅工具链 devDeps | 座位契约的类型权威（D-15）：Seat 字面量、owner 份额、`SlotMap` 条目形状、order 字面量类型；零运行时、零 DSH 依赖 |
 
-四包一律 `private: true`、`version: 0.0.0`、无 `files`、不发布、不进发布版本同步范围（`release.mjs` 只遍历 `plugins/*`）。`tooling/template` 是模板素材、不是包（清单文件叫 `package.json.tmpl`），因而不进 workspace；`pnpm-workspace.yaml` 用显式四行而不是 `tooling/*`，让「谁是包」可断言（AR7）。
+五包一律 `private: true`、`version: 0.0.0`、无 `files`、不发布、不进发布版本同步范围（`release.mjs` 只遍历 `plugins/*`）。`tooling/template` 是模板素材、不是包（清单文件叫 `package.json.tmpl`），因而不进 workspace；`pnpm-workspace.yaml` 用显式五行而不是 `tooling/*`，让「谁是包」可断言（AR7）。
 
 ### 2. 消费形态：双轨解析 + 去 composite
 
@@ -79,7 +80,7 @@ Accepted（2026-11-06）。
 
 ### 4. 版本与发布面
 
-四个 tooling 包是「仓内构建/类型资产」，不是产品单元：版本恒为 `0.0.0`、不进统一 tag 的同步范围、不生成 `lib/` 产物。仓库的统一版本契约仍然只覆盖 `plugins/*` 的七个包（含 multi-root-workspace 的既有发布形态）。
+五个 tooling 包是「仓内构建/类型资产」，不是产品单元：版本恒为 `0.0.0`、不进统一 tag 的同步范围、不生成 `lib/` 产物。仓库的统一版本契约仍然只覆盖 `plugins/*` 的七个包（含 multi-root-workspace 的既有发布形态）。
 
 ### 5. D-15：座位契约类型权威转移至 `contracts`
 
@@ -154,11 +155,21 @@ Accepted（2026-11-06）。
 
 **落地证据（本变更组落点）**：`tooling/test-kit/src/vitest.ts`（`defineWebTestConfig` / `WEB_TEST_INCLUDE`）与 `tooling/test-kit/package.json` 的 `exports['./vitest']`；三个双端包的 `vitest.config.ts` 收敛为 3 物理行薄声明（单 import，≤6 行断言通过），`pnpm -r test` 实测全绿（wsc 55 / web-ux 579 / stt 1086，jsdom 组件套件经 alias 接缝真实跑通）；AR8 四条规则（存在性 / 薄入口 ≤6 行单 import / stub 存在 / include 覆盖双面）把「唯一 import 源」钉成机器事实（六软插件判定通过，负向探针可红可恢复）；alias 接缝承重已由负向探针独立证明（指向换掉即 `Cannot find module`）；实测附注：当前 vitest/vite 组合下 automatic JSX 不依赖工厂的 `esbuild.jsx` 行（保留该行作接口契约与兜底，详见本变更 diff-matrix §7 R8）；`vitest` 只落 test-kit 的 `devDependencies`，运行时依赖仍为 `react` / `react-dom`（AR2 复核）。验收命令：`pnpm -r test`、`pnpm dsh:check`。
 
+### 修订记录：第五个 tooling 包 client-kit（2026-11-08，workspace-config-page）
+
+**被修订的旧结论**：本文决策 1 的包清单与「`tooling/` 四包」计数——构建期（build-kit）、宿主运行期（host-kit）、测试夹具（test-kit）与类型（contracts）各有着落，client 半的共享运行时函数却没有归属；同一个「当前会话」结构探测因此在 session-tool-toggle、holder 与 multi-root 各持一份（`2026-11-08-workspace-config-page` 的待决项 P3）。
+
+**修订后的结论**：新增第五个 tooling 包 `@dsh-plugins/client-kit`——client 半共享运行时函数的唯一归属（当前会话探测 + 会话 `updatedAt` 投影），形态对偶 host-kit：零 `@deepseek-ai/*` 依赖、TS 源分发、构建期内联、只进消费方 `devDependencies`（AR1 / AR2 / AR7 已纳管）。「页面 UI 组件不提取」的结论（Q4：React / CSS 组件不并包）不受影响，本次只并纯函数。
+
+**落点**：`tooling/client-kit/{package.json,src/client-session.ts,test,tsconfig.json,vitest.config.ts,README.md}`；`pnpm-workspace.yaml` 的显式清单、`scripts/check-architecture.mjs` 的 `TOOLING_CONTRACT` 与 AR7 必备包清单同批登记；消费方（holder `dsh-plugin-workspace-config` 与 multi-root）的 `devDependencies` 各增一行 `@dsh-plugins/client-kit`，运行时 `dependencies` 不变。
+
+**落地证据**：`tooling/client-kit/README.md` 的导出契约表、`pnpm-workspace.yaml:packages` 的五行 tooling 条目、`pnpm dsh:check`（AR1 / AR2 / AR7）与 `pnpm --filter @dsh-plugins/client-kit test` 退出码 0、两个消费方产物中不含 `@dsh-plugins/client-kit` 词。
+
 ## Related Documents
 
 - [ADR-0002：归属内核（`#3` 裁定与原子索引纪律）](./ADR-0002-attribution-kernel.md)
 - [仓级 ADR 索引](./README.md)（两套编号与引用路径纪律）
 - [optimize-architecture 代码蓝图](../../openspec/changes/archive/2026-11-07-optimize-architecture/code-design.md)：D-1（消费形态）、D-2/D-3（build-kit）、D-9（workspace 显式四行）、D-12（内部包只进 devDeps）、D-15（contracts）
-- [build-kit README](../../tooling/build-kit/README.md)、[host-kit README](../../tooling/host-kit/README.md)、[test-kit README](../../tooling/test-kit/README.md)、[contracts 模块头](../../tooling/contracts/src/index.ts)
+- [build-kit README](../../tooling/build-kit/README.md)、[host-kit README](../../tooling/host-kit/README.md)、[client-kit README](../../tooling/client-kit/README.md)、[test-kit README](../../tooling/test-kit/README.md)、[contracts 模块头](../../tooling/contracts/src/index.ts)
 - 归档变更：`openspec/changes/archive/2026-10-11-split-project-mcp-plugin/design.md`（D4，已推翻）、`openspec/changes/archive/2026-11-05-unify-workspace-config-entry/design.md`（D4，已被本 ADR 修订）
 - multi-root-workspace 的同类旧结论：`plugins/multi-root-workspace/docs/decisions/ADR-0002-upstream-coupling-policy.md`（只约束 multi-root 自身，本 ADR 不改其结论）

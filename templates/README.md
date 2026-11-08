@@ -18,7 +18,7 @@ templates/
 - `templates/` 是**模板素材目录，不是 workspace 包**：模板里的插件清单素材故意叫
   `package.json.tmpl` 而不是 `package.json`，`pnpm install` / `pnpm -r` 永远不会把它当成包；
   `*.tmpl` 只是素材后缀，不参与本仓的构建、lint 与类型检查。
-- `pnpm-workspace.yaml` 的 `packages` 逐条显式列 tooling 四包、不列 `templates`：
+- `pnpm-workspace.yaml` 的 `packages` 逐条显式列 tooling 五包、不列 `templates`：
   AR7（`scripts/check-architecture.mjs`）禁止 `templates` / `templates/*` 出现在 `packages` 里，
   通配 `tooling/*` 同样被拒——「谁是包」因此可断言，也避免 `pnpm -r` 递归进模板目录。
 - 模板素材的唯一消费者是 `scripts/gen-plugin.mjs`；本目录不跑 git / pnpm，生成器只写文件。

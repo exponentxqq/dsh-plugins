@@ -1,14 +1,16 @@
 // @vitest-environment jsdom
 /**
- * 工作区默认档编辑器的组件测试（任务 9.5 / TS12，code-design ③ 3.19、D10 / D11 / D13、G7-b / G8）。
+ * 工作区默认档编辑器的组件测试（任务 9.5 / TS12，code-design ③ 3.19、D10 / D11 / D13、G7-b / G8；
+ * 页面化适配见 code-design §1.3 / §3.9，变更 `2026-11-08-workspace-config-page` 任务 4.3）。
  *
  * 组件仍是**纯展示层**：状态、读、写都在父级（`useWorkspaceDefaults` / `PanelController`）。
  * 本套件只渲染真实组件、用 `vi.fn` 记录回调，逐条钉住 TS12 的出口断言面：
  *
  * 1. **两形态**：`section` 形态走 `DefaultsSectionFrame`——默认收起、标题行带计数摘要、点开
- *    才有正文（键/路径/三计数/分组清单），且**没有**工作区下拉（作用域恒为本会话所属工作区）；
- *    `dialog` 形态是统一「工作区配置」弹窗的分节正文——自带 `<h3>` 与工作区下拉，但没有
- *    `role="dialog"`（对话根由 holder 的 `Modal` 提供）。
+ *    才有正文（键/路径/三计数/分组清单）；`dialog` 形态是 holder 页面的分节正文——自带
+ *    `<h3>`，但没有 `role="dialog"`（页面骨架由 holder 提供）。**两形态都不再有工作区下拉**：
+ *    选择动作归 holder 页面的唯一选择框，节内只消费选中结果（`queryByRole('combobox')` 恒为
+ *    `null`，code-design §1.3「删除节内工作区下拉」/ §3.9「props 删 `choices` / `onSelect`」）。
  * 2. **分组清单**（与用户级默认档共用 `DefaultsGroupList`）：组开关打组地址
  *    （`mcp:a` / `tool:skill`）、行开关打行地址（`mcp:a::x`）；锁态两行（保护名单 / 保留名）
  *    与「整组在档」的行禁用并带 `整组默认关` 标签；残留地址只能移除，界面上**没有任何自由
@@ -18,10 +20,10 @@
  *    `清单 N · 默认关 M · 残留 K`，标题行摘要 `默认关 M · 残留 K` 是它的子串。
  * 4. **降级**：`workspace === null` 只留 `workspace.unresolved`（不渲染三计数与清单）；
  *    `universe === null` 只留 `defaults.universeUnavailable` + 残留区 + 命令提示。
- * 5. **`WorkspaceDefaultsSection`**（文件末尾）：挂载即读一次、client 缺席 / 晚就绪、下拉切换，
- *    「与 /tools 共用同一份宿主状态」的双向回归，以及**切换工作区后分组清单仍在**的跨目标
- *    宇宙缓存回归（`WorkspaceEntry` 的 `remembered`：`{workspacePath}` 响应的 `universe` 是
- *    `null`，切目标后仍复用上一份会话视角的宇宙）。
+ * 5. **`WorkspaceDefaultsSection`**（文件末尾）：份额三态——`{kind:'workspace',…}` 按
+ *    `{workspacePath}` 寻址读一次、`{kind:'unassigned'}` / `{kind:'none'}` 渲染
+ *    `workspace.noTarget` 空态且**不发请求**；`key={path}` 让「换工作区 = 重挂重读」；client
+ *    缺席 / 晚就绪的降级，以及「与 `/tools` 共用同一份宿主状态」的双向回归。
  *
  * 每个开关都是一次立即写入（宿主 `workspaces.json`）：`off` = 加入本工作区档、`on` = 移出、
  * `reset` = 清空本工作区条目；失败/成功展示沿用面板容器的唯一失败形状 {@link PanelFailure}。
@@ -54,12 +56,6 @@ afterEach(cleanup)
 
 /** 工作区档文件的假绝对路径（只用于渲染与失败文案断言，不指向真实文件）。 */
 const WS_PATH = '/fake/dsh-home/session-tool-toggle/workspaces.json'
-
-/** 下拉可选项（宿主 `WorkspaceValue.choices` 的形状）。 */
-const CHOICES: readonly WorkspaceChoice[] = [
-  { key: '/w1', title: 'w1' },
-  { key: '/w2', title: 'w2' },
-]
 
 /** 用 canonical 中文词典模拟框架注入的 `t`（含 `{name}` 插值，与 locale 服务同一实现）。 */
 function translate(key: Parameters<Translate>[0], params?: Record<string, unknown>): string {
@@ -140,9 +136,8 @@ function workspaceView(overrides: Partial<WorkspaceView> = {}): WorkspaceView {
   }
 }
 
-/** 本组件消费的三个回调。 */
+/** 本组件消费的两个回调（下拉的 `onSelect` 随节内选择框一起删除，code-design §3.9）。 */
 interface Handlers {
-  readonly onSelect: (key: string) => void
   readonly onUpdate: (action: WorkspaceAction, addresses?: readonly string[]) => void
   readonly onRefresh: () => void
 }
@@ -153,18 +148,16 @@ interface Handlers {
  * `rerenderEditor` 复用同一组 mock 重新渲染（受控组件的「再点一次」用例需要父级把新状态
  * 写回 props，例如组开关从 `off` 变成 `on`）。
  * @param overrides - 需要覆盖的 props（形态、宇宙、在途、失败等）。
- * @returns render 结果 + 三个 mock + 重新渲染助手。
+ * @returns render 结果 + 两个 mock + 重新渲染助手。
  */
 function renderEditor(overrides: Partial<WorkspaceDefaultsEditorProps> = {}) {
   const handlers: Handlers = {
-    onSelect: vi.fn<Handlers['onSelect']>(),
     onUpdate: vi.fn<Handlers['onUpdate']>(),
     onRefresh: vi.fn<Handlers['onRefresh']>(),
   }
   const base: WorkspaceDefaultsEditorProps = {
     workspace: workspaceView(),
     universe: UNIVERSE,
-    choices: CHOICES,
     variant: 'section',
     saving: false,
     saved: false,
@@ -388,6 +381,13 @@ describe('WorkspaceDefaultsEditor（section 形态）', () => {
     // 跨清单的新关只走命令，说明文案在清单组件内部（G8 handoff，本组件不重复渲染）。
     expect(screen.getByText(zh['workspace.cliHint'])).toBeTruthy()
   })
+
+  it('分区形态没有工作区下拉（作用域恒为本页面选中的工作区）', () => {
+    renderEditor()
+    expandFrame()
+
+    expect(screen.queryByRole('combobox')).toBeNull()
+  })
 })
 
 describe('WorkspaceDefaultsEditor 的开关写入动作', () => {
@@ -533,43 +533,30 @@ describe('WorkspaceDefaultsEditor 的开关写入动作', () => {
 })
 
 describe('WorkspaceDefaultsEditor（dialog 形态）', () => {
-  it('渲染正文壳与工作区下拉，选中 /w2 触发 onSelect(\'/w2\')', () => {
-    const { container, onSelect } = renderEditor({ variant: 'dialog' })
+  it('渲染正文壳：<h3> 标题 + 正文，没有对话框根，也没有节内工作区下拉', () => {
+    const { container } = renderEditor({ variant: 'dialog' })
 
     expect(container.firstElementChild?.tagName).toBe('DIV')
-    // 对话根的 role="dialog" 由 holder 的统一弹窗提供；本组件只交付正文壳。
+    // 对话根由 holder 的页面骨架提供；本组件只交付正文壳。
     expect(container.firstElementChild?.getAttribute('role')).toBeNull()
     expect(container.querySelector('section')).toBeNull()
     expect(screen.getByRole('heading', { name: zh['workspace.title'], level: 3 })).toBeTruthy()
-
-    const select = screen.getByRole('combobox', { name: zh['workspace.select'] }) as HTMLSelectElement
-    expect(select.value).toBe('/w1')
-    expect([...select.options].map((option) => option.value)).toEqual(['/w1', '/w2'])
-
-    fireEvent.change(select, { target: { value: '/w2' } })
-    expect(onSelect).toHaveBeenCalledTimes(1)
-    expect(onSelect).toHaveBeenCalledWith('/w2')
+    // 工作区选择框已上移到 holder 页面：节内不再有 combobox（code-design §1.3 / §3.9）。
+    expect(screen.queryByRole('combobox')).toBeNull()
+    // 正文仍在：键、档文件路径、作用域与并集说明。
+    expect(screen.getByText('/w1')).toBeTruthy()
+    expect(screen.getByText(WS_PATH)).toBeTruthy()
+    expect(screen.getByText(zh['workspace.scope'])).toBeTruthy()
+    expect(screen.getByText(zh['workspace.union'])).toBeTruthy()
   })
 
-  it('未登记目标不在 choices 里时补一项选中值，不显示空白', () => {
-    renderEditor({
-      variant: 'dialog',
-      workspace: workspaceView({ key: '/w9', title: 'w9', registered: false }),
-      choices: CHOICES,
-    })
+  it('工作区无法归属（null）时只读降级，仍然没有下拉', () => {
+    renderEditor({ variant: 'dialog', workspace: null })
 
-    const select = screen.getByRole('combobox', { name: zh['workspace.select'] }) as HTMLSelectElement
-    expect(select.value).toBe('/w9')
-    expect([...select.options].map((option) => option.value)).toEqual(['/w1', '/w2', '/w9'])
-  })
-
-  it('工作区无法归属时仍可下拉切换到已登记工作区', () => {
-    const { onSelect } = renderEditor({ variant: 'dialog', workspace: null })
-
-    const select = screen.getByRole('combobox', { name: zh['workspace.select'] }) as HTMLSelectElement
-    expect(select.value).toBe('')
-    fireEvent.change(select, { target: { value: '/w2' } })
-    expect(onSelect).toHaveBeenCalledWith('/w2')
+    expect(screen.getByText(zh['workspace.unresolved'])).toBeTruthy()
+    expect(screen.queryByRole('combobox')).toBeNull()
+    // 没有写入目标：清空按钮禁用（布局稳定）。
+    expect((screen.getByRole('button', { name: zh['workspace.clear'] }) as HTMLButtonElement).disabled).toBe(true)
   })
 })
 
@@ -608,19 +595,27 @@ describe('WorkspaceDefaultsEditor 的失败与成功展示', () => {
   })
 })
 
-/** 用例里那个活着的会话 id（分节默认按当前会话寻址）。 */
+/** 用例里那个会话 id（只给 `/tools` 面的 panel 快照用；分节不再有「当前会话」寻址）。 */
 const SESSION_ID = 'session-1'
 
 /** 默认档文件的假绝对路径（只在快照字段里出现，本套件不渲染它）。 */
 const DEFAULTS_PATH = '/fake/dsh-home/session-tool-toggle/defaults.json'
 
-/** 分节按当前会话解析到的第一个工作区键。 */
+/** 分节的目标工作区路径（`{workspacePath}` 寻址键，与 `WorkspaceView.path` 同源）。 */
 const FIRST_KEY = '/w1'
 
-/** 分节下拉可切换到的第二个工作区键。 */
+/** 换工作区用例里的第二个目标路径（`key={path}` 重挂重读）。 */
 const SECOND_KEY = '/w2'
 
-/** 分节下拉的两项（宿主 `WorkspaceValue.choices` 的形状）。 */
+/** 页面下传的工作区上下文（`{kind:'workspace'}` 三键齐全，code-design §3.9）。 */
+const WORKSPACE_CONTEXT: WorkspaceDefaultsSectionProps['workspace'] = {
+  kind: 'workspace',
+  id: 'ws-w1',
+  title: 'w1',
+  path: FIRST_KEY,
+}
+
+/** `workspace` 响应的 `choices`（契约字段仍在；本节已不渲染下拉，这里只为响应形状完整）。 */
 const SHARED_CHOICES: readonly WorkspaceChoice[] = [
   { key: FIRST_KEY, title: 'w1' },
   { key: SECOND_KEY, title: 'w2' },
@@ -647,7 +642,7 @@ function sharedWorkspaceView(key: string, disabled: Iterable<string>): Workspace
 /**
  * 从同一份关闭集造一个面板快照——`/tools` 面的可视快照与 `workspace` 端点读的是同一个状态。
  * @param sessionId - 目标会话。
- * @param disabled - 当前会话所属工作区的关闭集。
+ * @param disabled - 该工作区的关闭集。
  * @returns 面板快照（本套件只断言 `workspace.disabled`，其余字段取最小合法值）。
  */
 function sharedSnapshot(sessionId: string, disabled: readonly string[]): PanelSnapshot {
@@ -672,14 +667,15 @@ function sharedSnapshot(sessionId: string, disabled: readonly string[]): PanelSn
  * `workspaces.json`——分节与 `/tools` 面各自只是这份状态的入口，不是第二份状态。
  *
  * 宇宙按寻址形态区分（契约事实）：`{sessionId}` 形态带会话视角的宇宙；`{workspacePath}`
- * 形态的 `universe` 恒为 `null`——这正是缓存回归用例要打的那条路径。
+ * 形态的 `universe` 恒为 `null`（宿主 U1 / D-24）。页面化后本节只发 `{workspacePath}`，
+ * 因此分节渲染的是「不可用说明 + 残留区 + 命令兜底」形态——本套件不在这一层重测宇宙口径。
  */
 class SharedStateClient implements PanelClient {
   /** 每次 `workspace` 的请求体（地址数组已复制）。 */
   readonly workspaceCalls: WorkspaceRequest[] = []
   /** 每次 `panel` 的 sessionId。 */
   readonly panelCalls: string[] = []
-  /** 每次 `workspace` 响应里的宇宙（供缓存回归断言第二次响应确实是 `null`）。 */
+  /** 每次 `workspace` 响应里的宇宙（路径形态恒为 `null`：本项目前只发这一种寻址）。 */
   readonly universes: (DefaultsUniverse | null)[] = []
   /** 工作区键 → 关闭集（分节与 `/tools` 面写的是同一份）。 */
   readonly disabledByWorkspace = new Map<string, Set<string>>()
@@ -753,44 +749,68 @@ class SharedStateClient implements PanelClient {
 
 /**
  * 渲染分节组件。
- * @param overrides - 需要覆盖的 props（`resolveClient` / `currentSessionId` / `t`）。
- * @returns testing-library 的 render 结果。
+ * @param overrides - 需要覆盖的 props（`workspace` 份额三态 / `resolveClient` / `t`）。
+ * @returns testing-library 的 render 结果 + 换份额重新渲染的助手。
  */
 function renderSection(overrides: Partial<WorkspaceDefaultsSectionProps> = {}) {
-  const props: WorkspaceDefaultsSectionProps = {
+  const base: WorkspaceDefaultsSectionProps = {
+    // 份额三态：`{kind:'workspace',…}` 才有读写目标（§3.9 的消费矩阵）。
+    workspace: WORKSPACE_CONTEXT,
     resolveClient: () => undefined,
-    currentSessionId: () => SESSION_ID,
-    // 座位 owner 份额（holder 弹窗在 renderSlot 时注入；本节不消费）。
-    close: () => undefined,
     t: translate,
     ...overrides,
   }
-  return render(<WorkspaceDefaultsSection {...props} />)
+  const view = render(<WorkspaceDefaultsSection {...base} />)
+  return {
+    ...view,
+    /** 用新的 owner 份额重新渲染（`key={path}` 重挂语义的真实触发路径）。 */
+    rerenderSection(next: Partial<WorkspaceDefaultsSectionProps>): void {
+      view.rerender(<WorkspaceDefaultsSection {...base} {...next} />)
+    },
+  }
 }
 
-describe('WorkspaceDefaultsSection（holder 统一弹窗的分节，dialog 形态）', () => {
-  it('渲染正文壳而**没有**对话框根，且保留工作区下拉（Q2=a 的落档裁决）', async () => {
+describe('WorkspaceDefaultsSection（页面的分节，dialog 形态）', () => {
+  it('渲染正文壳而**没有**对话框根，节内也没有工作区下拉（选择框由页面提供）', async () => {
     const client = new SharedStateClient()
     const { container } = renderSection({ resolveClient: () => client })
 
     await waitFor(() => { expect(client.workspaceCalls).toHaveLength(1) })
 
-    // 对话根由 holder 弹窗提供：分节不自带 role="dialog"，也不自带 <section> 分区根。
+    // 页面骨架由 holder 提供：分节不自带 role="dialog"，也不自带 <section> 分区根。
     expect(container.firstElementChild?.tagName).toBe('DIV')
     expect(container.firstElementChild?.getAttribute('role')).toBeNull()
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(container.querySelector('section')).toBeNull()
     expect(screen.getByRole('heading', { name: zh['workspace.title'], level: 3 })).toBeTruthy()
-    // dialog 形态：工作区下拉仍在（去掉下拉等于删能力）。
-    expect(screen.getByRole('combobox', { name: zh['workspace.select'] })).toBeTruthy()
+    // 下拉已上移到页面：节内不再有 combobox（code-design §1.3「删除节内工作区下拉」）。
+    expect(screen.queryByRole('combobox')).toBeNull()
   })
 
-  it('挂载即读一次，请求体是当前会话的 { sessionId, action: read }', async () => {
+  it('挂载即读一次，请求体是选中工作区的 { workspacePath, action: read }', async () => {
     const client = new SharedStateClient()
     renderSection({ resolveClient: () => client })
 
     await waitFor(() => { expect(client.workspaceCalls).toHaveLength(1) })
-    expect(client.workspaceCalls[0]).toEqual({ sessionId: SESSION_ID, action: 'read' })
+    expect(client.workspaceCalls[0]).toEqual({ workspacePath: FIRST_KEY, action: 'read' })
+    // 分节从不按会话寻址：`{sessionId}` 形态会带会话视角，页面化后已无消费者。
+    expect(client.panelCalls).toEqual([])
+  })
+
+  it('无有效目标（unassigned / none）：渲染 workspace.noTarget 空态，且零请求', async () => {
+    for (const workspace of [{ kind: 'unassigned' }, { kind: 'none' }] as const) {
+      const client = new SharedStateClient()
+      const { unmount } = renderSection({ workspace, resolveClient: () => client })
+
+      expect(await screen.findByText(zh['workspace.noTarget'])).toBeTruthy()
+      // 空态不是错误态：没有 alert，也没有编辑器。
+      expect(screen.queryByRole('alert')).toBeNull()
+      expect(screen.queryByRole('combobox')).toBeNull()
+      // 关键契约：不发任何寻址请求（缺寻址字段的请求只会被宿主判 bad-request）。
+      expect(client.workspaceCalls).toEqual([])
+      expect(client.panelCalls).toEqual([])
+      unmount()
+    }
   })
 
   it('client 缺席（connection 未就绪）时渲染 workspace.unavailable，不发任何请求', async () => {
@@ -798,11 +818,12 @@ describe('WorkspaceDefaultsSection（holder 统一弹窗的分节，dialog 形�
 
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain(zh['workspace.unavailable'])
-    // 降级态没有编辑器，也就没有下拉/输入框。
+    // 降级态没有编辑器，也就没有输入框。
     expect(screen.queryByRole('combobox')).toBeNull()
+    expect(screen.queryAllByRole('switch')).toEqual([])
   })
 
-  it('connection 晚就绪：重开统一弹窗（分节重新挂载）后同一组件读取恢复', async () => {
+  it('connection 晚就绪：分节重新挂载后同一组件读取恢复', async () => {
     const first = renderSection({ resolveClient: () => undefined })
     await screen.findByRole('alert')
     first.unmount()
@@ -811,84 +832,67 @@ describe('WorkspaceDefaultsSection（holder 统一弹窗的分节，dialog 形�
     const client = new SharedStateClient()
     renderSection({ resolveClient: () => client })
     await waitFor(() => { expect(client.workspaceCalls).toHaveLength(1) })
-    expect(screen.getByRole('combobox', { name: zh['workspace.select'] })).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByRole('heading', { name: zh['workspace.title'], level: 3 })).toBeTruthy()
   })
 
-  it('工作区下拉切换后按 workspacePath 重读（保留 footer 时期的下拉能力）', async () => {
+  it('换工作区 = 换 key 重挂重读：旧目标卸载，新目标按新路径重读一次', async () => {
     const client = new SharedStateClient()
-    renderSection({ resolveClient: () => client })
-
-    const select = await screen.findByRole('combobox', { name: zh['workspace.select'] })
-    fireEvent.change(select, { target: { value: SECOND_KEY } })
-
-    await waitFor(() => {
-      expect(client.workspaceCalls.at(-1)).toEqual({ workspacePath: SECOND_KEY, action: 'read' })
-    })
-  })
-
-  it('切换工作区后分组清单仍在：记住上一份宇宙（缓存回归）', async () => {
-    const client = new SharedStateClient()
-    renderSection({ resolveClient: () => client })
+    const { rerenderSection } = renderSection({ resolveClient: () => client })
 
     await waitFor(() => { expect(client.workspaceCalls).toHaveLength(1) })
-    // 第一次读（{sessionId}）带完整宇宙：清单与组开关都在。
-    expect(client.universes[0]).not.toBeNull()
-    expect(groupSwitchOf('a')).toBeTruthy()
+    expect(client.workspaceCalls[0]).toEqual({ workspacePath: FIRST_KEY, action: 'read' })
 
-    fireEvent.change(screen.getByRole('combobox', { name: zh['workspace.select'] }), {
-      target: { value: SECOND_KEY },
+    rerenderSection({
+      workspace: { kind: 'workspace', id: 'ws-w2', title: 'w2', path: SECOND_KEY },
     })
 
+    // `key={path}` 让目标组件整体重挂：不是「同一份状态换个读数」，而是旧目标卸载 + 新目标重读。
     await waitFor(() => { expect(client.workspaceCalls).toHaveLength(2) })
     expect(client.workspaceCalls[1]).toEqual({ workspacePath: SECOND_KEY, action: 'read' })
-    // 第二次响应确实抹掉了宇宙，否则本用例测不到缓存。
-    expect(client.universes[1]).toBeNull()
-
-    // 清单与三计数仍按记住的宇宙渲染（不是空白）：分组标题、组开关、整串三计数都在。
-    expect(groupToggleOf('MCP 服务器')).toBeTruthy()
-    expect(groupSwitchOf('a')).toBeTruthy()
-    expect(screen.getByText(countsLineOf(8, 0, 0))).toBeTruthy()
   })
 })
 
 describe('与 /tools 共用状态（零回归红线）', () => {
-  it('分节内整组开关写入后，/tools 面（panel 快照）读到同一条记录', async () => {
+  it('分节内移除残留地址后，/tools 面（panel 快照）读到同一条记录', async () => {
     const client = new SharedStateClient()
+    // 宿主侧这个工作区已有一条关闭项（本套件的假客户端只保存写入结果，这里预置一份）。
+    client.disabledByWorkspace.set(FIRST_KEY, new Set(['legacy:retired']))
     renderSection({ resolveClient: () => client })
     await waitFor(() => { expect(client.workspaceCalls).toHaveLength(1) })
 
-    fireEvent.click(groupSwitchOf('a'))
+    // 残留地址不在宇宙里，只能从残留区移除（移除 = 从工作区档里拿掉）。
+    fireEvent.click(await screen.findByRole('button', {
+      name: translate('workspace.removeAria', { address: 'legacy:retired' }),
+    }))
 
     // 写走的是 `/session-tool-toggle` 的 workspace 端点，落到同一份宿主状态。
-    await waitFor(() => { expect(client.disabledByWorkspace.get(FIRST_KEY)?.has('mcp:a')).toBe(true) })
+    await waitFor(() => { expect(client.disabledByWorkspace.get(FIRST_KEY)?.has('legacy:retired')).toBe(false) })
     expect(client.workspaceCalls.at(-1)).toEqual({
-      sessionId: SESSION_ID,
-      action: 'off',
-      addresses: ['mcp:a'],
+      workspacePath: FIRST_KEY,
+      action: 'on',
+      addresses: ['legacy:retired'],
     })
 
     // `/tools` 面（panel 快照）读的是同一份状态：同一条记录、同一个工作区键。
     const tools = await client.panel(SESSION_ID)
     expect(tools.workspace?.key).toBe(FIRST_KEY)
-    expect(tools.workspace?.disabled).toContain('mcp:a')
-
-    // 节内也显示同一条（受控开关来自同一响应，不维护第二份关闭集）。
-    await waitFor(() => { expect(groupSwitchOf('a').getAttribute('aria-checked')).toBe('false') })
-    expect(screen.getByText(countsLineOf(8, 1, 0))).toBeTruthy()
+    expect(tools.workspace?.disabled).not.toContain('legacy:retired')
   })
 
-  it('命令面写入后，分节下一次刷新读到同一状态（反之亦然）', async () => {
+  it('命令面写入后，分节重挂（切走再切回）读到同一状态', async () => {
     const client = new SharedStateClient()
-    renderSection({ resolveClient: () => client })
+    const first = renderSection({ resolveClient: () => client })
     await waitFor(() => { expect(client.workspaceCalls).toHaveLength(1) })
 
     // 模拟 `/tools workspace off tool:cmd`：命令面写的是同一个控制内核、同一份 workspaces.json。
-    await client.workspace({ sessionId: SESSION_ID, action: 'off', addresses: ['tool:cmd'] })
-    // 分节不轮询、不做第二份缓存：命令面改完，节内要等一次刷新才看到。
+    await client.workspace({ workspacePath: FIRST_KEY, action: 'off', addresses: ['tool:cmd'] })
+    // 分节不轮询、不做第二份缓存：命令面改完，当前挂载要等一次重挂（切走再切回）才看到。
     expect(screen.queryByText('tool:cmd')).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: zh['workspace.refresh'] }))
+    first.unmount()
+    renderSection({ resolveClient: () => client })
     expect(await screen.findByText('tool:cmd')).toBeTruthy()
-    expect(client.workspaceCalls.at(-1)).toEqual({ sessionId: SESSION_ID, action: 'read' })
+    expect(client.workspaceCalls.at(-1)).toEqual({ workspacePath: FIRST_KEY, action: 'read' })
   })
 })

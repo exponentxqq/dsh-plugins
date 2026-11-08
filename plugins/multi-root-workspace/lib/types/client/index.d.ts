@@ -4,11 +4,14 @@
  * Two soft seats, one panel body:
  *
  * - `workspace-config.section` — the Workspace Folders section inside the
- *   unified workspace-config dialog. This is the panel's mount point since the
+ *   unified workspace-config surface. This is the panel's mount point since the
  *   footer action was removed (ADR-0013): the holder declares the seat from its
  *   `shell.overlay` registration, registers its own footer entry, and owns the
- *   modal shell, so this registration exists exactly when the holder is
- *   installed.
+ *   shell, so this registration exists exactly when the holder is installed.
+ *   The holder passes the owner share — the page-level workspace context
+ *   (`WorkspaceConfigWorkspaceContext`, three states) — when it renders the
+ *   seat, so the `inject` face below carries the business ports only and the
+ *   share never becomes part of this registration.
  * - `sidebar.right.tab.files.actions` — the legacy Files-tab compact entry. On
  *   surfaces that still declare it, the same panel body expands inline in the
  *   tab, which keeps the panel reachable without the holder.

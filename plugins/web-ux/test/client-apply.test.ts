@@ -410,7 +410,7 @@ describe('客户端半的注册契约', () => {
 /**
  * 四格安装组合矩阵（本包视角；code-design ⑤G6 6.2 / tasks 7.1）。
  *
- * 全装格与「后装 holder 补跑」由 holder 的 `test/dialog.test.tsx` 用四个真 `apply` 同 ctx
+ * 全装格与「后装 holder 补跑」由 holder 的 `test/section-seat.poc.test.tsx` 真 renderer 哨兵
  * 覆盖；这里钉本包的三格：**格 1**（holder 已声明分节座位 → 本节 order 30 注册，其余四条
  * entry 原样保留）、**格 3**（只装贡献方、无 holder → 分节 inject 待命，不注册、不抛错，
  * 其余四条 entry 不受影响）、**格 4**（holder 后到 → 待命回调补跑，分节立即可用）。

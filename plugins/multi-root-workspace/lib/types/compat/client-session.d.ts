@@ -3,30 +3,32 @@
  *
  * The browser panel has to name that session before it may call the host
  * (ADR-0008). Upstream moved the fact between two releases this plugin
- * supports, without renaming the `sessions` service:
+ * supports, without renaming the `sessions` service: the explicit
+ * `list.getSnapshot().current` became the main-view retention count
+ * `byId[id].retainedBy.mainView > 0`. The probe prefers the explicit selection
+ * when it is a non-empty string and otherwise the first row the main view
+ * actually retains — the same predicate `ui-session` uses to publish the main
+ * binding — and never falls back to `ids[0]`, which would name a session the
+ * operator is not looking at. `getSnapshot` must be invoked as a method. Both
+ * the two-step shape and the per-release history are documented once, in
+ * `@dsh-plugins/client-kit/client-session` and `.agent/note/dsh-compat-contract.md`
+ * (section 4); this adapter does not duplicate them.
  *
- * ```text
- * 0.1.5-rc.2, 0.1.6-alpha.1
- *   sessions.list.getSnapshot().current          SessionId | undefined
- * 0.1.6-alpha.2, 0.1.7-alpha.1, 0.1.7-alpha.2, 0.1.7-rc.1, 0.1.7-rc.2
- *   the catalog has no `current`. The main view retains its session with
- *   source `mainView`, and that count is projected onto the list row:
- *   sessions.list.getSnapshot().byId[id].retainedBy.mainView > 0
- * ```
- *
- * Reading only `current` makes 0.1.6-alpha.2 report "no active session"
- * while a conversation is on screen. Reading the first catalog id would
- * name a session the operator is not looking at. This probe prefers the
- * explicit selection when that field is a non-empty string, and otherwise
- * the first row the main view actually retains — the same predicate
- * `ui-session` uses to publish the main binding.
+ * **Why this module still exists although the implementation moved.** The
+ * single probe implementation (P3) now lives in
+ * `@dsh-plugins/client-kit/client-session`, so this file is a re-export and
+ * holds no implementation of its own. This package cannot reach the
+ * workspace-config holder's runtime module: the relationship between the two
+ * bundles is a compile-time contract only (the seat types live in
+ * `@dsh-plugins/contracts`), and the holder is installed independently of this
+ * plugin. `client-kit` is the neutral landing both halves consume, inlined at
+ * build time (AR1: internal packages live in `devDependencies` only, never in
+ * `dependencies` or `dsh.client.inject`). Keeping the re-export under
+ * `src/compat/` also preserves the invariant that version-dependent code is
+ * reached only from here: business code keeps calling
+ * `currentSessionIdOf(sessions)` with the import path it already had, and never
+ * learns where the probe is.
  *
  * @module dsh-plugin-multi-root-workspace/compat/client-session
  */
-/**
- * The session the composed client is showing, when it can name one.
- * @param sessions - the client `sessions` service, or whatever this
- *   composition provided under that name. Absence is a supported state.
- * @returns the session id, or `undefined` when no main view holds one.
- */
-export declare function currentSessionIdOf(sessions: unknown): string | undefined;
+export { currentSessionIdOf } from '@dsh-plugins/client-kit/client-session';

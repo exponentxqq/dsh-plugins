@@ -1776,12 +1776,10 @@ window.__ModuleLoader__.load({
 		function WorkspaceDefaultsEditor({
 		  workspace,
 		  universe,
-		  choices,
 		  variant,
 		  saving,
 		  saved,
 		  failure,
-		  onSelect,
 		  onUpdate,
 		  onRefresh,
 		  t
@@ -1790,10 +1788,7 @@ window.__ModuleLoader__.load({
 		  const dialog = variant === "dialog";
 		  const writable = workspace !== null;
 		  const disabled = workspace?.disabled ?? EMPTY_DISABLED;
-		  const selectable = workspace?.key ?? "";
 		  const counts = (0, import_react5.useMemo)(() => defaultsCountsOf(universe, disabled), [universe, disabled]);
-		  const missingChoice = workspace !== null && !choices.some((choice) => choice.key === workspace.key);
-		  const options = missingChoice ? [...choices, { key: workspace.key, title: workspace.title ?? workspace.key }] : choices;
 		  const clear = () => {
 		    if (!armed) {
 		      setArmed(true);
@@ -1873,37 +1868,6 @@ window.__ModuleLoader__.load({
 		  ] });
 		  return dialog ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.workspaceBody, children: [
 		    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { className: panel_default.sectionTitle, children: t("workspace.title") }),
-		    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.addRow, children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: panel_default.meta, children: t("workspace.select") }),
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
-		        "select",
-		        {
-		          className: panel_default.select,
-		          value: selectable,
-		          "aria-label": t("workspace.select"),
-		          disabled: saving,
-		          onChange: (event) => {
-		            onSelect(event.target.value);
-		          },
-		          children: [
-		            selectable === "" && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("option", { value: "", disabled: true, children: t("workspace.select") }),
-		            options.map((choice) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("option", { value: choice.key, children: choice.title }, choice.key))
-		          ]
-		        }
-		      ),
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		        import_dsh_client_ui_primitives6.Button,
-		        {
-		          variant: "ghost",
-		          size: "sm",
-		          disabled: saving,
-		          onClick: () => {
-		            onRefresh();
-		          },
-		          children: t("workspace.refresh")
-		        }
-		      )
-		    ] }),
 		    body
 		  ] }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
 		    DefaultsSectionFrame,
@@ -2008,9 +1972,11 @@ window.__ModuleLoader__.load({
 		  "defaults.saved": "\u5DF2\u4FDD\u5B58\uFF08\u672C\u4F1A\u8BDD\u4E0D\u53D8\uFF09\u3002",
 		  "defaults.clear": "\u6E05\u7A7A\u9ED8\u8BA4\u6863",
 		  "defaults.clearConfirm": "\u518D\u70B9\u4E00\u6B21\u786E\u8BA4\u6E05\u7A7A",
-		  // —— 工作区默认档（设计 §3.4 / C2；面板分区与侧栏对话框共用同一组键） ——
+		  // —— 工作区默认档（设计 §3.4 / C2；面板分区与页面分节共用同一组键） ——
 		  "workspace.title": "\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863",
-		  "workspace.select": "\u9009\u62E9\u5DE5\u4F5C\u533A",
+		  // 页面级选择框没有给出有效目标（未分配 / 工作区服务未就绪）时的空态：本节不发任何寻址
+		  // 请求，也不渲染编辑器（选择动作归 holder 页面的唯一选择框，节内不再自带下拉）。
+		  "workspace.noTarget": "\u8BF7\u5148\u5728\u4E0A\u65B9\u9009\u62E9\u4E00\u4E2A\u5DE5\u4F5C\u533A",
 		  "workspace.key": "\u5DE5\u4F5C\u533A\u952E",
 		  "workspace.path": "\u5DE5\u4F5C\u533A\u6863\u6587\u4EF6",
 		  "workspace.registered": "\u5DF2\u767B\u8BB0\u5DE5\u4F5C\u533A",
@@ -2154,7 +2120,9 @@ window.__ModuleLoader__.load({
 		  "defaults.clearConfirm": "Click again to clear",
 		  // —— 工作区默认档 ——
 		  "workspace.title": "Workspace defaults",
-		  "workspace.select": "Choose a workspace",
+		  // Empty state when the page-level picker gives no valid target (unassigned / service not ready):
+		  // the section sends no addressing request and no longer renders a picker of its own.
+		  "workspace.noTarget": "Choose a workspace above first",
 		  "workspace.key": "Workspace key",
 		  "workspace.path": "Workspace file",
 		  "workspace.registered": "Registered workspace",
@@ -2478,14 +2446,10 @@ window.__ModuleLoader__.load({
 		            {
 		              workspace: state.workspace ?? null,
 		              universe,
-		              choices: state.workspaceChoices,
 		              variant: "section",
 		              saving: state.savingWorkspace,
 		              saved: state.workspaceSaved,
 		              failure: workspaceFailure,
-		              onSelect: (key) => {
-		                void controller.updateWorkspace("read", void 0, key);
-		              },
 		              onUpdate: (action, addresses) => {
 		                void controller.updateWorkspace(action, addresses);
 		              },
@@ -2539,7 +2503,7 @@ window.__ModuleLoader__.load({
 		var import_react7 = require("react");
 		var import_jsx_runtime8 = require("react/jsx-runtime");
 		var CLIENT_MISSING_MESSAGE2 = "\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u5BA2\u6237\u7AEF\u5C1A\u672A\u5C31\u7EEA\uFF1Aconnection \u53EF\u80FD\u665A\u4E8E\u63D2\u4EF6 apply \u6302\u8F7D";
-		var NO_SESSION_MESSAGE = "\u5F53\u524D\u6CA1\u6709\u53EF\u5B9A\u4F4D\u7684\u4F1A\u8BDD\uFF1A\u5148\u6253\u5F00\u4E00\u4E2A\u4F1A\u8BDD\uFF0C\u6216\u7528\u4E0B\u62C9\u5207\u6362\u5230\u5DF2\u767B\u8BB0\u7684\u5DE5\u4F5C\u533A";
+		var NO_TARGET_MESSAGE = "\u5F53\u524D\u6CA1\u6709\u53EF\u5BFB\u5740\u7684\u76EE\u6807\u5DE5\u4F5C\u533A\uFF1A\u76EE\u6807\u7531\u9875\u9762\u9009\u62E9\u6846\u7ED9\u51FA\uFF0C\u7A7A\u76EE\u6807\u65F6\u672C\u8282\u5448\u73B0\u7A7A\u6001";
 		var NO_ADDRESS_MESSAGE = "\u5199\u5165\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u7F3A\u5C11\u5730\u5740\uFF1A\u7A7A\u5355\u4E0D\u53D1\u8BF7\u6C42\uFF08\u5951\u7EA6\u8981\u6C42 set / off / on \u81F3\u5C11\u5E26\u4E00\u6761\u5730\u5740\uFF09";
 		function asPanelError2(error) {
 		  if (error instanceof PanelError) return error;
@@ -2566,7 +2530,6 @@ window.__ModuleLoader__.load({
 		    saving: false,
 		    saved: false
 		  });
-		  const targetRef = (0, import_react7.useRef)(void 0);
 		  const seqRef = (0, import_react7.useRef)(0);
 		  const mountedRef = (0, import_react7.useRef)(true);
 		  (0, import_react7.useEffect)(() => {
@@ -2583,7 +2546,6 @@ window.__ModuleLoader__.load({
 		      return void 0;
 		    }
 		  }, []);
-		  const targetOf = (0, import_react7.useCallback)(() => targetRef.current ?? initialTargetRef.current(), []);
 		  const failLocally = (0, import_react7.useCallback)((message) => {
 		    if (!mountedRef.current) return;
 		    seqRef.current += 1;
@@ -2602,9 +2564,9 @@ window.__ModuleLoader__.load({
 		      failLocally(CLIENT_MISSING_MESSAGE2);
 		      return;
 		    }
-		    const target = targetOf();
+		    const target = initialTargetRef.current();
 		    if (!hasTarget(target)) {
-		      failLocally(NO_SESSION_MESSAGE);
+		      failLocally(NO_TARGET_MESSAGE);
 		      return;
 		    }
 		    const seq = seqRef.current += 1;
@@ -2618,7 +2580,7 @@ window.__ModuleLoader__.load({
 		      if (!mountedRef.current || seq !== seqRef.current) return;
 		      setState((previous) => ({ ...previous, phase: "failed", error: asPanelError2(error), saved: false }));
 		    }
-		  }, [clientOf, failLocally, targetOf]);
+		  }, [clientOf, failLocally]);
 		  const update = (0, import_react7.useCallback)(async (action, addresses) => {
 		    if (action === "read") {
 		      await read();
@@ -2629,9 +2591,9 @@ window.__ModuleLoader__.load({
 		      failLocally(CLIENT_MISSING_MESSAGE2);
 		      return;
 		    }
-		    const target = targetOf();
+		    const target = initialTargetRef.current();
 		    if (!hasTarget(target)) {
-		      failLocally(NO_SESSION_MESSAGE);
+		      failLocally(NO_TARGET_MESSAGE);
 		      return;
 		    }
 		    const request = writeRequestOf(target, action, addresses);
@@ -2657,30 +2619,16 @@ window.__ModuleLoader__.load({
 		      }
 		      setState((previous) => ({ ...previous, saving: false, saved: false, error: asPanelError2(error) }));
 		    }
-		  }, [clientOf, failLocally, read, targetOf]);
-		  const select = (0, import_react7.useCallback)((key) => {
-		    if (key === "") return;
-		    targetRef.current = { workspacePath: key };
-		    void read();
-		  }, [read]);
-		  return { ...state, read, update, select };
+		  }, [clientOf, failLocally, read]);
+		  return { ...state, read, update };
 		}
-		function WorkspaceDefaultsSection(props) {
-		  const { resolveClient, currentSessionId, t } = props;
-		  const initialTarget = (0, import_react7.useCallback)(() => {
-		    const sessionId = currentSessionId();
-		    return sessionId === void 0 || sessionId === "" ? {} : { sessionId };
-		  }, [currentSessionId]);
-		  const { value, error, saving, saved, read, update, select } = useWorkspaceDefaults({
+		function WorkspaceDefaultsTarget(props) {
+		  const { workspacePath, resolveClient, t } = props;
+		  const initialTarget = (0, import_react7.useCallback)(() => ({ workspacePath }), [workspacePath]);
+		  const { value, error, saving, saved, read, update } = useWorkspaceDefaults({
 		    resolveClient,
 		    initialTarget
 		  });
-		  const remembered = (0, import_react7.useRef)(null);
-		  const universe = value?.universe ?? remembered.current;
-		  const selectAndRemember = (key) => {
-		    if (value?.universe !== void 0 && value.universe !== null) remembered.current = value.universe;
-		    select(key);
-		  };
 		  (0, import_react7.useEffect)(() => {
 		    void read();
 		  }, [read]);
@@ -2698,13 +2646,11 @@ window.__ModuleLoader__.load({
 		    WorkspaceDefaultsEditor,
 		    {
 		      workspace: value.workspace,
-		      universe,
-		      choices: value.choices,
+		      universe: value.universe,
 		      variant: "dialog",
 		      saving,
 		      saved,
 		      failure,
-		      onSelect: selectAndRemember,
 		      onUpdate: (action, addresses) => {
 		        void update(action, addresses);
 		      },
@@ -2715,46 +2661,20 @@ window.__ModuleLoader__.load({
 		    }
 		  ) });
 		}
-
-		// src/client/current-session.ts
-		function currentSessionIdOf(ctx) {
-		  const snapshot = listSnapshotOf(ctx.get("sessions"));
-		  if (snapshot === void 0) return void 0;
-		  const current = snapshot.current;
-		  if (typeof current === "string" && current !== "") return current;
-		  return mainViewSessionId(snapshot.byId);
-		}
-		function listSnapshotOf(sessions) {
-		  if (sessions === null || typeof sessions !== "object") return void 0;
-		  const list = sessions.list;
-		  if (list === null || typeof list !== "object") return void 0;
-		  const holder = list;
-		  if (typeof holder.getSnapshot !== "function") return void 0;
-		  let snapshot;
-		  try {
-		    snapshot = holder.getSnapshot();
-		  } catch {
-		    return void 0;
+		function WorkspaceDefaultsSection(props) {
+		  const { workspace, resolveClient, t } = props;
+		  if (workspace.kind !== "workspace") {
+		    return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: panel_default.workspaceBody, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { className: panel_default.empty, children: t("workspace.noTarget") }) });
 		  }
-		  if (snapshot === null || typeof snapshot !== "object") return void 0;
-		  return snapshot;
-		}
-		function mainViewSessionId(byId) {
-		  if (byId === null || typeof byId !== "object") return void 0;
-		  for (const [key, row] of Object.entries(byId)) {
-		    if (!isMainViewRow(row)) continue;
-		    const id = row.id;
-		    if (typeof id === "string" && id !== "") return id;
-		    if (key !== "") return key;
-		  }
-		  return void 0;
-		}
-		function isMainViewRow(row) {
-		  if (row === null || typeof row !== "object") return false;
-		  const retainedBy = row.retainedBy;
-		  if (retainedBy === null || typeof retainedBy !== "object") return false;
-		  const count = retainedBy.mainView;
-		  return typeof count === "number" && count > 0;
+		  return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+		    WorkspaceDefaultsTarget,
+		    {
+		      workspacePath: workspace.path,
+		      resolveClient,
+		      t
+		    },
+		    workspace.path
+		  );
 		}
 
 		// src/client/seats.ts
@@ -2835,9 +2755,7 @@ window.__ModuleLoader__.load({
 		          inject: () => ({
 		            // 复用头部入口的现取客户端：两个入口对 `connection` 是同一份纪律（同一 RPC 通道、
 		            // 同一宿主控制内核，因此与 `/tools` 读到的是同一份状态）。
-		            resolveClient: ports.resolveClient,
-		            // 每次动作现取当前会话（`current-session.ts` 的两步探测，服务缺席返回 undefined）。
-		            currentSessionId: () => currentSessionIdOf(ctx)
+		            resolveClient: ports.resolveClient
 		          })
 		        },
 		        WorkspaceDefaultsSection

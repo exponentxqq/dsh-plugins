@@ -21,8 +21,9 @@
  * 2. **不把** holder 写进贡献方的 `dsh.client.inject`：那会变成运行时加载依赖，与「贡献方
  *    对 holder 的依赖仅限编译期类型」的结论冲突；`slots.inject` 的软注册本来就不需要加载
  *    顺序保证。
- * 3. 座位字面量与 order 值由各包自持，本包只给**类型**（见下面 `WorkspaceConfig*Order`），
- *    因此没有任何包需要从本包做值 import——权威与运行时解耦。
+ * 3. 座位字面量与 order 值由各包自持，本包只给**类型**（见
+ *    `WorkspaceConfigSectionOrder`），因此没有任何包需要从本包做值 import——权威与运行时
+ *    解耦。
  *
  * 为什么本包不自己写 `declare module '@deepseek-ai/dsh-client-ui-slots'`：模块增补要求
  * 目标模块能从**声明文件所在包**解析，而本包按 AR2 是零 `@deepseek-ai/*` 依赖（纯类型包
@@ -30,10 +31,20 @@
  * 的 client 程序里（一行 `declare module`，条目形状直接引用本包的
  * {@link WorkspaceConfigSectionSlot}），**形状、owner 份额与座位名的权威仍在本包**。
  *
- * 座位形状与官方 `settings.section` 同构：`kind: 'list'`、`scope: 'root'`，owner 份额只有
- * `close()`（弹窗开合由 holder 拥有）。holder 在注册 `shell.overlay` 时用 `children` 声明
- * 本座位（Declaring is claiming），渲染时以 `renderSlot('workspace-config.section',
- * { close }, { only: activeId })` 过滤出当前选中分节。
+ * 座位形状与官方 `settings.section` 同构：`kind: 'list'`、`scope: 'root'`，owner 份额是
+ * holder 页面产出的**纯数据**——页面级工作区上下文（{@link WorkspaceConfigWorkspaceContext}），
+ * 没有任何回调。入口形态为「侧栏面板行（`sidebar.panellist`）+ 独立页面（`main` 注册）」：
+ * holder 注册页面时用 `children` 声明本座位（Declaring is claiming），渲染时以
+ * `renderSlot('workspace-config.section', { workspace }, { only: activeId })` 把当前选择
+ * 传给选中分节；选择值变化即换 `key` 重挂分节，贡献方无需订阅或自行同步。
+ *
+ * 三态语义（owner 份额的载荷，纯数据、无回调）：
+ *
+ * | `kind`       | 语义                                           | 消费方处置                         |
+ * | ------------ | ---------------------------------------------- | ---------------------------------- |
+ * | `workspace`  | 选中一个已登记工作区（`id` / `title` / `path` 全给） | 各分节按自己的寻址键取用           |
+ * | `unassigned` | 选择框的「未分配」特殊项（恒排在最后）         | 非会话管理分节按无有效目标空态处理 |
+ * | `none`       | 页面拿不到工作区上下文（服务未就绪 / 清单为空） | 全部分节空态，不发寻址请求         |
  *
  * @module @dsh-plugins/contracts
  */
@@ -47,13 +58,33 @@
 export type WorkspaceConfigSectionSeat = 'workspace-config.section'
 
 /**
- * 分节座位的 owner 份额：与官方 `settings.section` 同构（只有 `close`）。
+ * 页面级工作区上下文（owner 份额的载荷，纯数据、无回调）。
+ * - `workspace`：选中一个已登记工作区；三个寻址键都给，分节各取所需。
+ * - `unassigned`：选择框的「未分配」特殊项（Q8；恒排在最后）。
+ * - `none`：页面拿不到工作区上下文（工作区服务未就绪 / 列表为空前的降级）。
+ */
+export type WorkspaceConfigWorkspaceContext =
+  | {
+      readonly kind: 'workspace'
+      /** Host WorkspaceId（web-ux 的行集寻址键）。 */
+      readonly id: string
+      /** 显示标题；空串由消费方用 path 兜底。 */
+      readonly title: string
+      /** 规范绝对路径（stt 的 `{ workspacePath }` 寻址键，与 `WorkspaceView.path` 同源）。 */
+      readonly path: string
+    }
+  | { readonly kind: 'unassigned' }
+  | { readonly kind: 'none' }
+
+/**
+ * 分节座位的 owner 份额：只剩一份纯数据（`close` 已删，Q7）。
  *
- * owner 份额由弹窗在 `renderSlot` 时传入；分节自身不拥有弹窗开合状态。
+ * owner 份额由 holder 页面在 `renderSlot` 时传入；分节自身不拥有选择状态，也不拿到任何
+ * 回调（导航与页面离开统一归壳 / 宿主）。
  */
 export interface WorkspaceConfigSectionOwnerProps {
-  /** 关闭统一弹窗（弹窗开合由 holder 拥有）。 */
-  close: () => void
+  /** 页面级工作区上下文（三态，见 {@link WorkspaceConfigWorkspaceContext}）。 */
+  readonly workspace: WorkspaceConfigWorkspaceContext
 }
 
 /**
@@ -73,36 +104,16 @@ export interface WorkspaceConfigSectionOwnerProps {
  * 形状一旦在这里变化，所有消费方的增补会同时失配——这正是「单一权威」要的效果。
  */
 export interface WorkspaceConfigSectionSlot {
-  /** 分节是 list 座位的 entry（导航行）。 */
+  /** 分节是 list 座位的 entry（页面 tab）。 */
   kind: 'list'
-  /** 分节挂在 root 作用域（弹窗不属于某个会话）。 */
+  /** 分节挂在 root 作用域（分节不属于某个会话）。 */
   scope: 'root'
-  /** 弹窗传给分节的 owner 份额。 */
+  /** 页面传给分节的 owner 份额。 */
   owner: WorkspaceConfigSectionOwnerProps
 }
 
 /**
- * footer 入口 entry 的显示顺序（权威值 `50`，D11）。
- *
- * `sidebar.footer.action` 是 list 座位、按 order 升序排列；官方底部控件用缺省 `0`，
- * multi-root 旧入口用 `50`、session-tool-toggle 旧入口用 `60`、web-ux 旧入口用 `100`。
- * 统一入口取代它们后取 `50`，既与官方控件留出间隔，又让后装插件可插在中间而不必重排。
- *
- * 以**字面量类型**而非运行时常量给出：holder 在自己的 `contract.ts` 里用
- * `const X: WorkspaceConfigTriggerOrder = 50` 持有运行期值，本包不产生任何运行时 import。
- */
-export type WorkspaceConfigTriggerOrder = 50
-
-/**
- * 统一弹窗在 `shell.overlay` 上的显示顺序（权威值 `530`，D11）。
- *
- * web-ux 的删除确认弹窗是 `500`、旧会话管理浮层是 `520`，两者互斥不叠放；统一弹窗排在
- * 它们之后，保证「删除确认」始终盖在统一弹窗之上。同样只给字面量类型。
- */
-export type WorkspaceConfigDialogOrder = 530
-
-/**
- * 三个贡献分节在弹窗 nav 中的 order 权威集合（`10 / 20 / 30`，D11）。
+ * 三个贡献分节在页面 tab 栏中的 order 权威集合（`10 / 20 / 30`，D11）。
  *
  * multi-root-workspace（工作区文件夹）→ session-tool-toggle（工作区默认档）→
  * web-ux（会话管理）。各贡献方在自己的 `seats.ts` / `index.ts` 里持有字面量；本类型

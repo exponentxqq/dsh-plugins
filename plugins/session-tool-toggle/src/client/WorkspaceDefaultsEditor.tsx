@@ -5,19 +5,22 @@
  * 差异，全部来自「目标是一份工作区档」这个事实：
  *
  * 1. **两形态**：
- *    - `variant='dialog'` 是统一「工作区配置」弹窗的分节正文（`workspace-config.section` 座位）：
- *      组件自己渲染 `<h3>` 标题 + 工作区下拉（`workspace.select`）+ 该行的刷新——holder 的
- *      `Modal` 提供 `role="dialog"` 根，本组件只交付正文壳（再包一层会成嵌套 dialog）；
+ *    - `variant='dialog'` 是统一「工作区配置」页里本分节的正文（`workspace-config.section` 座位）：
+ *      组件自己渲染 `<h3>` 标题与正文——holder 的页面壳提供分节容器（不渲染 `role="dialog"`，
+ *      本组件只交付正文壳，再包一层会成嵌套 dialog/landmark）；
  *    - `variant='section'` 是会话工具面板里的一个分区：外壳交给 `DefaultsSectionFrame`（D13，
- *      **默认收起**、标题行带计数摘要），**没有下拉**——分区的作用域恒为「本会话所属工作区」，
- *      在分区里换工作区会与「面板只改本会话工作区」的预期冲突（unify 裁定）。
- *    `section` 形态**不再**自己包 `<section>`：折叠壳自带壳与间距。
+ *      **默认收起**、标题行带计数摘要）。
+ *    **两形态都不带工作区选择控件**（需求 3：三个分节 SHALL NOT 各自携带工作区选择控件）：
+ *    选择框由 holder 页面的工具栏统一提供，写入目标经座位 owner 份额以纯数据上下文下传，
+ *    本组件只渲染拿到的那份 `workspace` 视图。`section` 形态**不再**自己包 `<section>`：
+ *    折叠壳自带壳与间距。
  * 2. **并集一句说明**（DQ2=A，沿用）：界面**不**标注每一项来自用户档还是工作区档，只给一句
  *    「新会话初始关闭 = 用户级默认档 ∪ 本工作区默认档」（`workspace.union`），把合并语义先说清、
  *    再让用户看到本工作区的增量。
  * 3. **工作区无法归属**（`workspace === null`）：只读降级——显示 `workspace.unresolved`，不渲染
- *    分组清单与三计数（没有目标档就没有可数的关闭集），清空按钮禁用；`dialog` 形态仍可下拉
- *    切换到已登记工作区（写入目标随之改变）。
+ *    分组清单与三计数（没有目标档就没有可数的关闭集），清空按钮禁用。分节的目标三态（真实
+ *    工作区 / 未分配 / 清单未就绪）由容器先判、以空态呈现；这里的 `null` 分支是宿主返回
+ *    「目标无法归属」时的兜底。
  *
  * 与用户级编辑器的同一条纪律：**没有自由文本添加**（D8）。开关打的是宿主给的规范形地址
  * （`group.address` / `entry.address`），文法、保护名单与上限的唯一权威在宿主；跨清单的新关
@@ -43,7 +46,6 @@ import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   DefaultsUniverse,
   WorkspaceAction,
-  WorkspaceChoice,
   WorkspaceView,
 } from '../contract.ts'
 import type { PanelFailure } from './DefaultsEditor.tsx'
@@ -56,7 +58,7 @@ import css from './panel.module.css'
 /** 本组件消费的转发函数（命名空间键联合，由 `locales.ts` 的 `declare module` 提供）。 */
 type Translate = TranslateNS<typeof NS>
 
-/** 渲染形态：面板分区，或统一工作区配置弹窗的分节正文。 */
+/** 渲染形态：面板分区，或统一「工作区配置」页的分节正文。 */
 export type WorkspaceDefaultsVariant = 'section' | 'dialog'
 
 /**
@@ -72,19 +74,19 @@ export interface WorkspaceDefaultsEditorProps {
   /**
    * 当前编辑目标的工作区视图（宿主返回的活视图）。
    *
-   * `null` = 当前会话 cwd 无法归属 / 目标未登记：界面按只读降级，不渲染分组清单与写入入口。
+   * `null` = 宿主无法归属本分节的目标（目标未登记 / 读数缺席）：界面按只读降级，不渲染
+   * 分组清单与写入入口。
    */
   readonly workspace: WorkspaceView | null
   /**
    * 目标无关的工具宇宙。
    *
-   * `dialog` 形态来自 `WorkspaceValue.universe`（容器负责跨目标缓存，切到 `{workspacePath}`
-   * 寻址后响应里的 `universe` 为 `null`），`section` 形态来自面板快照的投影
-   * （`universeOfSnapshot`）。`null` / `layerReady:false` 时清单组件只留残留区。
+   * `dialog` 形态来自 `WorkspaceValue.universe`（页面形态以 `{workspacePath}` 寻址，
+   * 响应里的 `universe` 为 `null`——宿主契约 D-24：宇宙只对会话视角有意义），
+   * `section` 形态来自面板快照的投影（`universeOfSnapshot`）。`null` / `layerReady:false`
+   * 时清单组件只留残留区。
    */
   readonly universe: DefaultsUniverse | null
-  /** 下拉可选项（`WorkspaceValue.choices`，已登记工作区，按标题+路径排序）。 */
-  readonly choices: readonly WorkspaceChoice[]
   /** 渲染形态（见文件头注释）。 */
   readonly variant: WorkspaceDefaultsVariant
   /** 写在途（父级 hook 的 `saving`）：整区禁用。 */
@@ -93,11 +95,6 @@ export interface WorkspaceDefaultsEditorProps {
   readonly saved: boolean
   /** 上一次写入的失败（已本地化，由父级按 `error.<code>` 映射）；无错时为 `undefined`。 */
   readonly failure?: PanelFailure
-  /**
-   * 切换目标工作区（只有 `dialog` 形态渲染下拉）。
-   * @param key - 工作区规范路径（`WorkspaceChoice.key`）。
-   */
-  readonly onSelect: (key: string) => void
   /**
    * 提交一次工作区档写入。
    *
@@ -116,17 +113,15 @@ export interface WorkspaceDefaultsEditorProps {
 /**
  * 工作区默认档编辑器。
  * @param props - 见 {@link WorkspaceDefaultsEditorProps}。
- * @returns 面板分区（折叠壳）或弹窗分节正文。
+ * @returns 面板分区（折叠壳）或页面分节正文（`<h3>` + 正文）。
  */
 export function WorkspaceDefaultsEditor({
   workspace,
   universe,
-  choices,
   variant,
   saving,
   saved,
   failure,
-  onSelect,
   onUpdate,
   onRefresh,
   t,
@@ -138,19 +133,11 @@ export function WorkspaceDefaultsEditor({
   /** 写入目标存在才允许写（`null` = 工作区无法归属 / 未登记）。 */
   const writable = workspace !== null
   const disabled = workspace?.disabled ?? EMPTY_DISABLED
-  const selectable = workspace?.key ?? ''
 
   // 三计数与清单共用同一份 (universe, disabled) 读数：摘要 / 计数行 / 清单不会各算一套。
   // 目标档缺席时按空档求值（listed 仍取宇宙、inDefaults 与 residual 都是 0）：标题行的摘要
   // 需要一个字符串，折叠态也要能看出「没有默认关的东西」。
   const counts = useMemo(() => defaultsCountsOf(universe, disabled), [universe, disabled])
-
-  // 当前工作区可能不在 choices 里（未登记工作区 / 列表过期）：补一项，避免 select 显示空白。
-  const missingChoice =
-    workspace !== null && !choices.some((choice) => choice.key === workspace.key)
-  const options: readonly WorkspaceChoice[] = missingChoice
-    ? [...choices, { key: workspace.key, title: workspace.title ?? workspace.key }]
-    : choices
 
   /** 清空本工作区条目：第一次点击只改文案，第二次才真的发请求。 */
   const clear = (): void => {
@@ -247,47 +234,14 @@ export function WorkspaceDefaultsEditor({
     </>
   )
 
-  // 分节正文形态只交付正文壳：`role="dialog"` 由 holder 的
-  // 统一弹窗壳 `Modal` 提供，本组件再带一层会构成嵌套 dialog（A11y 双根）。
+  // 分节正文形态只交付 `<h3>` + 正文：页面壳（标题栏 / 选择框 / 布局）归 holder，
+  // 本组件再带一层容器会构成嵌套 landmark（A11y 双根）。
   // 正文壳**不**复用 `.dialog`（760px 卡片宽度）：右栏内容列的宽度由 holder 约束，
-  // 嵌套固定宽度会溢出，宽度约束归持有 `Modal` 的 holder。
+  // 嵌套固定宽度会溢出，宽度约束归持有页面壳的 holder。
   return dialog
     ? (
       <div className={css.workspaceBody}>
         <h3 className={css.sectionTitle}>{t('workspace.title')}</h3>
-
-        <div className={css.addRow}>
-          <span className={css.meta}>{t('workspace.select')}</span>
-          <select
-            className={css.select}
-            value={selectable}
-            aria-label={t('workspace.select')}
-            disabled={saving}
-            onChange={(event) => {
-              onSelect(event.target.value)
-            }}
-          >
-            {selectable === '' && (
-              <option value="" disabled>
-                {t('workspace.select')}
-              </option>
-            )}
-            {options.map((choice) => (
-              <option key={choice.key} value={choice.key}>{choice.title}</option>
-            ))}
-          </select>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={saving}
-            onClick={() => {
-              onRefresh()
-            }}
-          >
-            {t('workspace.refresh')}
-          </Button>
-        </div>
-
         {body}
       </div>
     )

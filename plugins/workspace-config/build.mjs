@@ -5,14 +5,15 @@
  *
  * - **宿主半**（`src/index.ts` → `lib/index.js`）：不承载任何职责的 no-op 载体，只提供
  *   bundle 行所需的锚点。
- * - **浏览器半**（`src/client/index.ts` → `lib/client.js`）：footer 唯一入口 + 统一弹窗 +
- *   分节座位声明。
+ * - **浏览器半**（`src/client/index.ts` → `lib/client.js`）：侧栏面板行 + 主区域独立页面
+ *   （同一面板 id）+ 分节座位声明。
  *
  * 类型产物不在这里：`package.json` 的 `build` 先跑 `build:types`（`tsc` 把 d.ts 发到
- * `lib/types/` 下），再进本脚本。本包**必须**发射 d.ts——它是三个贡献方的座位契约
- * 类型权威（`exports["./client"].types` 指向 `lib/types/client/index.d.ts`），而 web-ux /
- * session-tool-toggle 的构建产物不产 d.ts；清理策略由 kit 从 `exports[*].types`
- * 推导为 `js-only`。
+ * `lib/types/` 下），再进本脚本。本包**必须**发射 d.ts——三个贡献方对 holder 只有编译期
+ * 类型消费（`exports["./client"].types` 指向 `lib/types/client/index.d.ts`），而 web-ux /
+ * session-tool-toggle 的构建产物不产 d.ts；座位契约的**类型权威**自 D-15 起在
+ * `@dsh-plugins/contracts`，本包 contract.ts 只做 re-export 装配。清理策略由 kit 从
+ * `exports[*].types` 推导为 `js-only`。
  *
  * 外部模块白名单刻意保持极短：`@deepseek-ai/dsh-client-ui-slots` **不能**出现在里面
  * （它没有 `./client` 导出、也不是 loader 模块表里的词），运行时 require 它会命中

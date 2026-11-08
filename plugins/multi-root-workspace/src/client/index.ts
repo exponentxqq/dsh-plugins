@@ -4,11 +4,14 @@
  * Two soft seats, one panel body:
  *
  * - `workspace-config.section` — the Workspace Folders section inside the
- *   unified workspace-config dialog. This is the panel's mount point since the
+ *   unified workspace-config surface. This is the panel's mount point since the
  *   footer action was removed (ADR-0013): the holder declares the seat from its
  *   `shell.overlay` registration, registers its own footer entry, and owns the
- *   modal shell, so this registration exists exactly when the holder is
- *   installed.
+ *   shell, so this registration exists exactly when the holder is installed.
+ *   The holder passes the owner share — the page-level workspace context
+ *   (`WorkspaceConfigWorkspaceContext`, three states) — when it renders the
+ *   seat, so the `inject` face below carries the business ports only and the
+ *   share never becomes part of this registration.
  * - `sidebar.right.tab.files.actions` — the legacy Files-tab compact entry. On
  *   surfaces that still declare it, the same panel body expands inline in the
  *   tab, which keeps the panel reachable without the holder.
@@ -132,10 +135,12 @@ export function apply(ctx: ClientContext): void {
   const sessionId = (): string | undefined => currentSessionIdOf(readService(ctx, 'sessions'))
   const t = ctx.locale.bind(NS) as unknown as Translate
 
-  // The unified dialog's section (declared by the workspace-config holder). The
+  // The unified surface's section (declared by the workspace-config holder). The
   // registration is soft and separately guarded: a missing seat means the
   // holder is not installed, while a refusing seat must not take the Files-tab
-  // entry down with it.
+  // entry down with it. The injected face is the business ports only — the
+  // page's share (`workspace?`, three states) arrives through the holder's
+  // `renderSlot`, and its absence is exactly the Files-tab launcher form.
   ctx.slots.inject(SECTION_SEAT, () => {
     try {
       return ctx.slots.register({

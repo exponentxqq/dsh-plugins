@@ -71,10 +71,8 @@ export const zh = {
   'manager.title': '会话管理',
   'manager.description':
     '按工作区批量管理会话：归档活跃会话、处置已归档会话、清理或恢复已迁移到归档目录的日志。',
-  'manager.close': '关闭',
+  'manager.finish': '完成',
   'manager.unavailable': '会话管理依赖的工作区或会话服务尚未就绪；请稍后重试。',
-  'manager.workspace.label': '工作区',
-  'manager.workspace.unassigned': '未匹配工作区的归档',
   'manager.workspace.empty': '还没有任何工作区。',
   'manager.tab.active': '活跃',
   'manager.tab.archived': '已归档',
@@ -204,11 +202,9 @@ export const en = {
   'manager.title': 'Session manager',
   'manager.description':
     'Manage sessions per workspace: archive active sessions, dispose of archived sessions, and clean up or restore logs migrated to the archive directory.',
-  'manager.close': 'Close',
+  'manager.finish': 'Done',
   'manager.unavailable':
     'The workspace or session service that session management depends on is not ready yet; try again shortly.',
-  'manager.workspace.label': 'Workspace',
-  'manager.workspace.unassigned': 'Archives with no matching workspace',
   'manager.workspace.empty': 'There are no workspaces yet.',
   'manager.tab.active': 'Active',
   'manager.tab.archived': 'Archived',

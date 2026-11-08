@@ -300,3 +300,5 @@ PR #1（head `507c954`）的 P2-3 / P2-4 / P2-5 收紧了两条规则（内容�
 - [Agent Note：DSH 兼容性契约](../../.agent/note/dsh-compat-contract.md)
 - [故障排查：DSH 版本在支持范围外](../troubleshooting/unsupported-dsh-release.md)
 - [开发工作流](../development/plugin-development-workflow.md)
+
+> **注记（2026-11-08）**：`currentSessionIdOf` 的唯一实现已迁 `tooling/client-kit`（`@dsh-plugins/client-kit/client-session`，P3 落点）；`src/compat/client-session.ts` 现为 re-export 薄层，两步探测语义与历史沿革以 client-kit 模块头与本文为准。

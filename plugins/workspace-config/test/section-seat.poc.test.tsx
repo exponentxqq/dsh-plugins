@@ -1,21 +1,32 @@
 // @vitest-environment jsdom
 /**
- * 分节座位运行时 PoC（触达面 #18 / 组 4 前置风险门）。
+ * 分节座位运行时 PoC（真 renderer 哨兵，改挂 `main`）。
  *
  * 目的：用**真** `@deepseek-ai/dsh-client-ui-renderer` 的浏览器产物 + 真 cordis
- * `Context`，在 jsdom 里钉住五条只有类型级证据、没有运行时自证的语义：
+ * `Context`，在 jsdom 里钉住「独立页面」形态下只有类型级证据、没有运行时自证的语义。
+ * 场景与生产装配同构（code-design ① 1.1 的 PoC 一行）：
  *
- * 1. children 声明：holder 的 `register({ children })` 把子座位写进声明账本，
- *    声明提交后贡献方的 `slots.inject(childKey, …)` 回调同步补跑、entry 立刻进账本。
- * 2. only 过滤：`renderSlot(childKey, owner, { only })` 只渲染 `options.id` 匹配的
- *    分节，未选中的 entry 仍留在注册账本（只过滤渲染，不删注册）。
- * 3. label 双态：字符串与 thunk 两种 `SlotLabel` 都能在 nav 行投影里求值；thunk
- *    每次读取重新求值（locale 切换无需重注册）。
- * 4. 后装补跑：贡献方先 `slots.inject`（子座位尚未声明 → 回调延迟），holder 后到
- *    并声明子座位时，待命回调在声明提交后同步补跑，先到的贡献不丢。
- * 5. 崩溃边界：某分节渲染期抛错由框架 `SlotErrorBoundary` 按 entry 隔离，并经
- *    `onEntryError` 上报（list 种类 `abdicate: true` 退场、账本保留）；弹窗壳与兄弟
- *    分节存活，异常不向上冒泡。holder 因此不自行 try/catch `renderSlot`。
+ * ```
+ * root（= AppFrame 位）声明 main(keyed, root)
+ *   └─ 页面注册进 main（key = PANEL_ID）并 children 声明 workspace-config.section
+ *        └─ 贡献方 slots.inject 软注册进分包座位
+ * ```
+ *
+ * 五条断言：
+ *
+ * 1. **children 声明 + keyed 分发**：页面的 `children` 表把分节座位写进声明账本
+ *    （`spec` 可读）；`main` 是 keyed 座位，root 用 `renderSlot('main', {}, { entryKey })`
+ *    按 key 分发——只有 `key` 匹配的页面条目被渲染。
+ * 2. **only 过滤 + 切 tab 卸载**：`renderSlot(SECTION, owner, { only })` 只渲染
+ *    `options.id` 匹配的分节；切 tab 后上一节**从 DOM 卸载**（不是 display:none），
+ *    未选中的 entry 仍留在注册账本。
+ * 3. **`{workspace}` 份额到达**：页面每次渲染按当前选择传 owner 份额 `{ workspace }`；
+ *    份额是纯数据（没有 `close` 回调），选中分节拿到当下值，换工作区后立刻更新。
+ * 4. **后装补跑**：贡献方先 `slots.inject`（子座位尚未声明 → 回调延迟），页面后到并
+ *    声明子座位时，待命回调在声明提交后同步补跑，先到的贡献不丢。
+ * 5. **崩溃隔离**：某分节渲染期抛错由框架 `SlotErrorBoundary` 按 entry 隔离，并经
+ *    `onEntryError` 上报（list 种类 `abdicate: true` 退场、账本保留）；页面壳与 root
+ *    存活，切回兄弟分节仍可交互。holder 因此不自行 try/catch `renderSlot`。
  *
  * 为什么不是普通 `import`：上游包把浏览器半发成 `lib/client.js` 的
  * `window.__ModuleLoader__.load({ id, factory })` 壳，外部依赖（react / react-dom /
@@ -24,14 +35,14 @@
  * 捕获 factory 后调用。被测对象仍是真 renderer 实现，不 stub 任何
  * `SlotRegistry` / `register` / `inject` / `renderSlot` / `only` 语义。
  *
- * 常驻且不 skip：本文件是「children / only / label / inject / 崩溃边界语义漂移」的长期哨兵。
- * 测试内注释与断言话术均为 zh-CN；上游标识符保留原名。
+ * 常驻且不 skip：本文件是「main keyed / children / only / owner 份额 / inject / 崩溃边界
+ * 语义漂移」的长期哨兵。测试内注释与断言话术均为 zh-CN；上游标识符保留原名。
  */
 
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import * as React from 'react'
 import * as ReactDOM from 'react-dom'
 import * as ReactDOMClient from 'react-dom/client'
@@ -46,14 +57,18 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as Cordis from '@deepseek-ai/cordis'
 import * as Slots from '@deepseek-ai/dsh-client-ui-slots'
-// 类型专用：加载两个模块增强声明——renderer 的 'root' / ctx.slots，layout 的 'shell.overlay'。
+import type { WorkspaceConfigWorkspaceContext } from '@dsh-plugins/contracts'
+// 类型专用：加载两个模块增强声明——renderer 的 'root' / ctx.slots，layout 的 'main'。
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-// holder 的座位契约唯一权威（运行时只用座位名常量）。
-import { WORKSPACE_CONFIG_SECTION } from '../src/client/contract.ts'
+// holder 的座位契约唯一权威（运行时只用座位名 / 面板 id 常量）。
+import { PANEL_ID, WORKSPACE_CONFIG_SECTION } from '../src/client/contract.ts'
 
 /** 座位名（与 contract.ts 的常量逐字一致；用例里显式断言这一点）。 */
 const SECTION = WORKSPACE_CONFIG_SECTION
+
+/** 面板 id（`main` 的 key，也是 sidebar.panellist 的 id）。 */
+const PANEL = PANEL_ID
 
 /** 真 renderer 浏览器产物被 loader 捕获后的 apply 面。 */
 interface RealRendererClient {
@@ -137,8 +152,8 @@ function loadRealRendererClient(): RealRendererClient {
  *
  * 真 renderer 的 root 出口固定包一层 `ScopeProvider scope="session-maybe"`，它把
  * session-maybe 解析到已安装的 `session` 适配器；生产里由 dsh-client-ui-session 安装。
- * PoC 只关心 root 作用域的 children/only/label 语义，不需要会话数据，因此装一个
- * 空绑定（稳定快照、无订阅）即可——这不是 stub renderer，而是补上 renderer 正常
+ * PoC 只关心 root / main 作用域的 children / only / keyed 语义，不需要会话数据，因此装
+ * 一个空绑定（稳定快照、无订阅）即可——这不是 stub renderer，而是补上 renderer 正常
  * 装配所需的、与被测语义无关的会话作用域依赖。
  */
 function installEmptySessionScope(ctx: Cordis.Context): void {
@@ -170,164 +185,227 @@ function createRuntime(): Cordis.Context {
 }
 
 // ---------------------------------------------------------------------------
-// PoC 组件：模拟真实装配里的三层 —— root（AppFrame 位）/ holder（弹窗）/ 分节贡献方。
+// PoC 组件：模拟真实装配里的三层 —— root（AppFrame 位）/ 页面（main）/ 分节贡献方。
 // ---------------------------------------------------------------------------
 
+/** 「已登记工作区」那一支（PoC 只用这一支，便于读 `id` / `title` / `path`）。 */
+type WorkspaceChoice = Extract<WorkspaceConfigWorkspaceContext, { kind: 'workspace' }>
+
+/** 页面级工作区上下文（owner 份额的载荷，纯数据三态）。 */
+const W_ONE: WorkspaceChoice = {
+  kind: 'workspace',
+  id: 'w-one',
+  title: '工作区一',
+  path: '/repos/one',
+}
+const W_TWO: WorkspaceChoice = {
+  kind: 'workspace',
+  id: 'w-two',
+  title: '工作区二',
+  path: '/repos/two',
+}
+
+/** 份额显示文案（断言「份额到达」用；三态都覆盖）。 */
+function workspaceText(workspace: WorkspaceConfigWorkspaceContext): string {
+  return workspace.kind === 'workspace' ? `${workspace.title}@${workspace.path}` : workspace.kind
+}
+
+/** 切换工作区的纯函数（PoC 页面里只有两态，够区分「份额真的更新了」）。 */
+function nextWorkspaceOf(workspace: WorkspaceConfigWorkspaceContext): WorkspaceConfigWorkspaceContext {
+  return workspace.kind === 'workspace' && workspace.id === W_ONE.id ? W_TWO : W_ONE
+}
+
+/** root 位（对应生产里的 ui-layout AppFrame）：声明 main(keyed) 并按面板 key 分发。 */
 interface RootFrameProps {
-  renderSlot: (key: 'shell.overlay', owner: object) => ReactNode
-}
-
-/** root 位：声明并渲染 `shell.overlay`（对应生产里的 ui-layout AppFrame）。 */
-function RootFrame({ renderSlot }: RootFrameProps): ReactNode {
-  return <div data-testid="poc-root">{renderSlot('shell.overlay', {})}</div>
-}
-
-interface OverlayHolderInjected {
-  close: () => void
-  active?: string
-}
-
-interface OverlayHolderProps extends OverlayHolderInjected {
-  renderSlot: (
-    key: 'workspace-config.section',
-    owner: { close: () => void },
-    opts: { only?: string },
+  readonly renderSlot: (
+    key: 'main',
+    owner: object,
+    opts: { entryKey?: string },
   ) => ReactNode
 }
 
-/**
- * holder 位：按生产同形调用 `renderSlot(SECTION, { close }, { only })`。
- *
- * 这里故意写座位字面量（而不是常量）：它是 `renderSlot('workspace-config.section'…)`
- * 的直接调用点，同时让 G3 的 grep 验证句可以在源码里锚定真实调用。
- */
-function OverlayHolder({ renderSlot, close, active }: OverlayHolderProps): ReactNode {
+function RootFrame({ renderSlot }: RootFrameProps): ReactNode {
   return (
-    <div data-testid="poc-overlay-holder">
-      {renderSlot('workspace-config.section', { close }, { only: active })}
+    <div data-testid="poc-root">
+      {renderSlot('main', {}, { entryKey: PANEL })}
     </div>
   )
 }
 
-/** 分节 A：字符串 label 的贡献方。 */
-function SectionA({ close }: { close: () => void }): ReactNode {
+/** 分节座位的 owner 份额（与 `@dsh-plugins/contracts` 逐字同形：只有 `workspace`）。 */
+interface SectionOwnerShare {
+  readonly workspace: WorkspaceConfigWorkspaceContext
+}
+
+/** 分节 A：字符串 label 的贡献方（把份额写进 DOM 便于断言）。 */
+function SectionA({ workspace }: SectionOwnerShare): ReactNode {
   return (
-    <div data-testid="poc-section-a">
-      <p>分节 A（字符串 label）</p>
-      <button type="button" data-testid="poc-close-a" onClick={close}>
-        关闭 A
-      </button>
+    <div data-testid="poc-section-a" data-workspace={workspaceText(workspace)}>
+      分节 A：{workspaceText(workspace)}
     </div>
   )
 }
 
 /** 分节 B：thunk label 的贡献方。 */
-function SectionB({ close }: { close: () => void }): ReactNode {
+function SectionB({ workspace }: SectionOwnerShare): ReactNode {
   return (
-    <div data-testid="poc-section-b">
-      <p>分节 B（thunk label）</p>
-      <button type="button" data-testid="poc-close-b" onClick={close}>
-        关闭 B
-      </button>
+    <div data-testid="poc-section-b" data-workspace={workspaceText(workspace)}>
+      分节 B：{workspaceText(workspace)}
     </div>
   )
 }
 
-/** holder 本地 nav 投影（D2 的 2 行等价解析：不 import 上游 resolveSlotLabel）。 */
-interface NavRow {
-  id: string
-  order: number
-  label: string
+/** 页面注入面：初始 tab 列表与初始工作区份额（只在注册时求值一次）。 */
+interface PageInjected {
+  readonly tabIds: readonly string[]
+  readonly initialWorkspace: WorkspaceConfigWorkspaceContext
 }
 
-function projectNavRows(entries: readonly Slots.StoredEntry[]): NavRow[] {
-  return entries
-    .map((entry) => ({
-      id: entry.options.id ?? '',
-      order: entry.options.order ?? 0,
-      label:
-        typeof entry.options.label === 'function'
-          ? entry.options.label()
-          : (entry.options.label ?? ''),
-    }))
-    .sort((left, right) => left.order - right.order)
+/** 页面组件的完整 props：注入面 + `children` 声明带来的 `renderSlot` 能力。 */
+type PageProps = PageInjected & {
+  readonly renderSlot: (
+    key: 'workspace-config.section',
+    owner: SectionOwnerShare,
+    opts: { only?: string },
+  ) => ReactNode
+}
+
+/**
+ * 页面位：按生产同形调用 `renderSlot(SECTION, { workspace }, { only })`。
+ *
+ * kind 与 `tabIds` 都是页面本地 state（真实 holder 同样不把选中 tab / 选择值放进 store）；
+ * 这里故意写座位字面量（而不是常量）：它是 `renderSlot('workspace-config.section'…)` 的
+ * 直接调用点，与 `section-seat.poc.test.tsx` 的座位声明侧锚点成对出现。
+ */
+function PagePoC({ tabIds, initialWorkspace, renderSlot }: PageProps): ReactNode {
+  const [active, setActive] = useState<string>(tabIds[0] ?? '')
+  const [workspace, setWorkspace] = useState<WorkspaceConfigWorkspaceContext>(initialWorkspace)
+  return (
+    <div data-testid="poc-page">
+      <div role="tablist" aria-label="配置分类">
+        {tabIds.map((id) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={active === id}
+            data-testid={`poc-tab-${id}`}
+            onClick={() => {
+              setActive(id)
+            }}
+          >
+            {id}
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        data-testid="poc-switch-workspace"
+        onClick={() => {
+          setWorkspace(nextWorkspaceOf(workspace))
+        }}
+      >
+        切换工作区
+      </button>
+      <div role="tabpanel" data-testid="poc-panel">
+        {renderSlot('workspace-config.section', { workspace }, { only: active })}
+      </div>
+    </div>
+  )
 }
 
 // ---------------------------------------------------------------------------
 // 场景装配
 // ---------------------------------------------------------------------------
 
-interface SceneOptions {
-  /** 传给 holder 的选中分节 id；缺省 = 不过滤（全渲染）。 */
-  active?: string
-  /** 分节 B 的 label thunk；缺省给固定文案，用例可注入可变版本。 */
-  bLabel?: () => string
+/** 一个分节贡献方的注册面（字段即真实贡献方 register 的 `id` / `order` / `label`）。 */
+interface SectionSpec {
+  readonly id: string
+  readonly order: number
+  readonly label: string
+  readonly Component: (props: SectionOwnerShare) => ReactNode
 }
 
+/** 默认两个分节：order 与 tab 顺序故意相反，用来区分「按 id 过滤」与「截断首项」。 */
+const DEFAULT_SECTIONS: readonly SectionSpec[] = [
+  { id: 'a', order: 20, label: '分节 A', Component: SectionA },
+  { id: 'b', order: 10, label: '分节 B', Component: SectionB },
+]
+
+/** 场景装配选项。 */
+interface SceneOptions {
+  /** 页面 tab 列表（缺省为分节 id 顺序）。 */
+  readonly tabIds?: readonly string[]
+  /** 初始工作区份额（缺省 W_ONE）。 */
+  readonly initialWorkspace?: WorkspaceConfigWorkspaceContext
+  /** 分节贡献清单（缺省 A/B 两节）。 */
+  readonly sections?: readonly SectionSpec[]
+  /** 页面注册用的 main key（缺省 PANEL；keyed 分发用例用它造「不匹配」的页面）。 */
+  readonly pageKey?: string
+  /** 是否立刻注册页面（缺省 true；后装补跑用例传 false，稍后手动 `registerPage()`）。 */
+  readonly withPage?: boolean
+}
+
+/** 场景句柄：真 ctx + 延迟注册页面的装配动作。 */
 interface Scene {
-  ctx: Cordis.Context
-  close: ReturnType<typeof vi.fn>
+  readonly ctx: Cordis.Context
+  /** 装配页面：`slots.inject('main', () => register({ children }, PagePoC))`（生产同形）。 */
+  registerPage(): void
 }
 
 /**
- * 主场景：root 先声明 shell.overlay → holder 用 `slots.inject` 注册并在 children 表
- * 声明分节座位 → 两个贡献方随后 `slots.inject` 到分节座位。
+ * 装配一个与生产同构的场景：
+ * root 声明 `main`(keyed) → 页面注册进 `main` 并 `children` 声明分节座位 → 贡献方软注册。
+ * @param options - tab 列表、初始份额、分节清单与注册时机。
+ * @returns 场景句柄。
  */
 function createScene(options: SceneOptions = {}): Scene {
   const ctx = createRuntime()
-  const close = vi.fn()
+  const sections = options.sections ?? DEFAULT_SECTIONS
+  const tabIds = options.tabIds ?? sections.map((section) => section.id)
+  const initialWorkspace = options.initialWorkspace ?? W_ONE
 
-  // ① root 位：声明 shell.overlay（等价于 ui-layout 的 AppFrame 注册）。
+  // ① root（AppFrame 位）：声明 main 为 keyed 座位。
   ctx.slots.register(
     {
       name: 'root',
-      children: { 'shell.overlay': { kind: 'list', scope: 'root' } },
+      children: { main: { kind: 'keyed', scope: 'root' } },
     },
     RootFrame,
   )
 
-  // ② holder 位：与生产装配同形——`slots.inject('shell.overlay', () => register({ children }, Comp))`。
-  //    此时 shell.overlay 已声明，回调同步执行；children 表把分节座位写进声明账本。
-  ctx.slots.inject('shell.overlay', () =>
-    ctx.slots.register(
-      {
-        name: 'shell.overlay',
-        id: 'workspace-config.dialog',
-        order: 530,
-        children: { [SECTION]: { kind: 'list', scope: 'root' } },
-        inject: () => ({ close, active: options.active }),
-      },
-      OverlayHolder,
-    ),
-  )
+  // ② 页面：注册进 main（key = 面板 id），同一个 register 里 children 声明分节座位。
+  const registerPage = (): void => {
+    ctx.slots.inject('main', () =>
+      ctx.slots.register(
+        {
+          name: 'main',
+          key: options.pageKey ?? PANEL,
+          children: { [SECTION]: { kind: 'list', scope: 'root' } },
+          inject: () => ({ tabIds, initialWorkspace }),
+        },
+        PagePoC,
+      ),
+    )
+  }
+  if (options.withPage !== false) registerPage()
 
-  // ③ 贡献方 A：字符串 label，order 20（列表序第二）。
-  ctx.slots.inject(SECTION, () =>
-    ctx.slots.register(
-      {
-        name: SECTION,
-        id: 'a',
-        order: 20,
-        label: '分节 A（字符串 label）',
-      },
-      SectionA,
-    ),
-  )
+  // ③ 贡献方软注册（分节座位可能尚未声明 → 回调延迟，声明提交后补跑）。
+  for (const section of sections) {
+    ctx.slots.inject(SECTION, () =>
+      ctx.slots.register(
+        {
+          name: SECTION,
+          id: section.id,
+          order: section.order,
+          label: section.label,
+        },
+        section.Component,
+      ),
+    )
+  }
 
-  // ④ 贡献方 B：thunk label，order 10（列表序第一）。
-  ctx.slots.inject(SECTION, () =>
-    ctx.slots.register(
-      {
-        name: SECTION,
-        id: 'b',
-        order: 10,
-        label: options.bLabel ?? (() => '分节 B（thunk label）'),
-      },
-      SectionB,
-    ),
-  )
-
-  return { ctx, close }
+  return { ctx, registerPage }
 }
 
 afterEach(async () => {
@@ -337,128 +415,120 @@ afterEach(async () => {
   await Promise.all(liveContexts.splice(0).map((ctx) => ctx.fiber.dispose()))
 })
 
-describe('分节座位运行时 PoC（组 4 / 触达面 #18）', () => {
-  it('① children 声明：holder 的 children 表声明子座位，贡献方后续 inject 同步补跑', () => {
-    const { ctx } = createScene()
+describe('分节座位运行时 PoC（main keyed / §1.1 哨兵）', () => {
+  it('① children 声明 + keyed 分发：只有 key 匹配的页面被渲染，贡献方在声明后同步补跑', () => {
+    const scene = createScene()
+    const ctx = scene.ctx
 
-    // holder 已通过 slots.inject 注册进 shell.overlay（root 先声明 → 回调同步执行）。
-    expect(ctx.slots.entries('shell.overlay')).toHaveLength(1)
-    const holderEntry = ctx.slots.entries('shell.overlay')[0]!
-    expect(holderEntry.children?.[SECTION]).toEqual({ kind: 'list', scope: 'root' })
-
-    // children 表被登记为真实声明：spec 可读、kind/scope 与契约一致。
+    // 页面进 main 账本：key 是面板 id，children 表把分节座位写进声明账本。
+    const pageEntry = ctx.slots.entries('main')[0]!
+    expect(pageEntry.options.key).toBe(PANEL)
+    expect(pageEntry.children?.[SECTION]).toEqual({ kind: 'list', scope: 'root' })
     expect(ctx.slots.spec(SECTION)).toMatchObject({ kind: 'list', scope: 'root' })
 
-    // 贡献方在声明之后 inject：回调立即执行，entry 已在子座位账本里（deferred-then-backfill 的
-    // 「已声明 → 同步补跑」分支）。
+    // 贡献方在声明之后 inject：回调立即执行，entry 已在分节账本里（按 order 升序投影）。
     expect(ctx.slots.entries(SECTION).map((entry) => entry.options.id)).toEqual(['b', 'a'])
+    expect(SECTION).toBe('workspace-config.section')
 
-    // 真渲染：holder 的 renderSlot 把两个分节都挂出来（active 缺省 = 不过滤）。
     render(ctx.slots.renderSlot('root', {}))
-    expect(screen.getByTestId('poc-root')).toBeTruthy()
+    expect(screen.getByTestId('poc-page')).toBeTruthy()
     expect(screen.getByTestId('poc-section-a')).toBeTruthy()
-    expect(screen.getByTestId('poc-section-b')).toBeTruthy()
+
+    // keyed 分发：换一个 key 注册的页面注册成功，但 root 按 PANEL 分发 → 不渲染。
+    cleanup()
+    const mismatched = createScene({ pageKey: 'conversation' })
+    expect(mismatched.ctx.slots.entries('main')[0]?.options.key).toBe('conversation')
+    render(mismatched.ctx.slots.renderSlot('root', {}))
+    expect(screen.getByTestId('poc-root')).toBeTruthy()
+    expect(screen.queryByTestId('poc-page')).toBeNull()
   })
 
-  it('② only 过滤：renderSlot 只渲染选中 id 的分节，未选中 entry 仍留在账本', () => {
-    // 选中 order 20 的 A（列表序第二）：若只渲染首项会错误地渲染 B，能区分「按 id 过滤」与「截断」。
-    const { ctx, close } = createScene({ active: 'a' })
-
+  it('② only 过滤 + 切 tab 卸载：上一节从 DOM 移除（不是 display:none），注册账本不删', () => {
+    const { ctx } = createScene()
     render(ctx.slots.renderSlot('root', {}))
 
+    // 默认选中 tabIds[0] = 'a'（order 20 的那个）：若按 order 截断会错误渲染 B。
     expect(screen.getByTestId('poc-section-a')).toBeTruthy()
     expect(screen.queryByTestId('poc-section-b')).toBeNull()
-    // only 只影响渲染投影，注册账本里仍是两条。
+    expect(screen.getByTestId('poc-section-a').getAttribute('data-workspace')).toBe(
+      '工作区一@/repos/one',
+    )
+
+    // 切到 B：only 换成 'b'，A 整颗卸载（DOM 里彻底不在）。
+    fireEvent.click(screen.getByTestId('poc-tab-b'))
+    expect(screen.getByTestId('poc-section-b')).toBeTruthy()
+    expect(screen.queryByTestId('poc-section-a')).toBeNull()
+    expect(screen.queryByText(/分节 A/)).toBeNull()
+
+    // only 只影响渲染投影：两条注册都还在账本里。
     expect(ctx.slots.entries(SECTION)).toHaveLength(2)
 
-    // owner 份额 close 从 holder 的 renderSlot 调用点到达选中分节并被回调。
-    fireEvent.click(screen.getByTestId('poc-close-a'))
-    expect(close).toHaveBeenCalledTimes(1)
-    expect(screen.getByTestId('poc-overlay-holder')).toBeTruthy()
+    // 切回 A：重新挂载，内容照常。
+    fireEvent.click(screen.getByTestId('poc-tab-a'))
+    expect(screen.getByTestId('poc-section-a')).toBeTruthy()
+    expect(screen.queryByTestId('poc-section-b')).toBeNull()
   })
 
-  it('③ label 双态：字符串与 thunk 在 nav 行投影中求值，thunk 每次读取重新求值', () => {
-    let revision = 1
-    const { ctx } = createScene({ bLabel: () => `分节 B（thunk v${revision}）` })
-    const entries = ctx.slots.entries(SECTION)
-    const a = entries.find((entry) => entry.options.id === 'a')!
-    const b = entries.find((entry) => entry.options.id === 'b')!
+  it('③ {workspace} 份额到达：选中分节拿到当下份额，换工作区后立刻更新并跨 tab 一致', () => {
+    const { ctx } = createScene()
+    render(ctx.slots.renderSlot('root', {}))
 
-    // 注册面原样存储 label：字符串仍是字符串、thunk 仍是函数（注册期不提前求值）。
-    expect(typeof a.options.label).toBe('string')
-    expect(typeof b.options.label).toBe('function')
+    expect(screen.getByTestId('poc-section-a').getAttribute('data-workspace')).toBe(
+      '工作区一@/repos/one',
+    )
 
-    // 上游真 resolveSlotLabel（仅测试侧 import；holder 产物按 D2 不 import 它）。
-    expect(Slots.resolveSlotLabel(a.options.label)).toBe('分节 A（字符串 label）')
-    expect(Slots.resolveSlotLabel(b.options.label)).toBe('分节 B（thunk v1）')
+    // 页面换选择 → 同一挂载内的分节收到新份额（纯数据，不靠分节订阅）。
+    fireEvent.click(screen.getByTestId('poc-switch-workspace'))
+    expect(screen.getByTestId('poc-section-a').getAttribute('data-workspace')).toBe(
+      '工作区二@/repos/two',
+    )
 
-    // thunk 每次读取重新求值：改 revision 后同一注册条目直接读出 v2，无需重注册。
-    revision = 2
-    expect(Slots.resolveSlotLabel(b.options.label)).toBe('分节 B（thunk v2）')
-
-    // holder 本地 2 行等价投影（D2）与上游解析结论、order 排序一致。
-    expect(projectNavRows(entries)).toEqual([
-      { id: 'b', order: 10, label: '分节 B（thunk v2）' },
-      { id: 'a', order: 20, label: '分节 A（字符串 label）' },
-    ])
-    // 与 contract.ts 的座位常量逐字一致（PoC 按契约构造注册面）。
-    expect(SECTION).toBe('workspace-config.section')
+    // 切到 B：新分节拿到的也是当下份额（不是页面初始值）。
+    fireEvent.click(screen.getByTestId('poc-tab-b'))
+    expect(screen.getByTestId('poc-section-b').getAttribute('data-workspace')).toBe(
+      '工作区二@/repos/two',
+    )
   })
 
-  it('④ 后装补跑：贡献方先 inject，holder 晚到声明后待命回调同步补跑', () => {
-    const ctx = createRuntime()
-    const close = vi.fn()
+  it('④ 后装补跑：贡献方先 inject（座位未声明），页面后到声明 children 后待命回调同步补跑', () => {
+    const scene = createScene({ withPage: false })
+    const ctx = scene.ctx
 
-    // root 先到位，声明 shell.overlay；holder 尚未注册。
-    ctx.slots.register(
-      {
-        name: 'root',
-        children: { 'shell.overlay': { kind: 'list', scope: 'root' } },
-      },
-      RootFrame,
-    )
-    expect(ctx.slots.entries('shell.overlay')).toHaveLength(0)
-
-    // 贡献方先到：子座位尚未声明 → inject 只挂待命订阅，不执行回调、不写 entry。
-    ctx.slots.inject(SECTION, () =>
-      ctx.slots.register(
-        {
-          name: SECTION,
-          id: 'a',
-          order: 20,
-          label: '分节 A（字符串 label）',
-        },
-        SectionA,
-      ),
-    )
+    // root 已声明 main，但页面还没注册；分节座位尚未声明。
+    expect(ctx.slots.entries('main')).toHaveLength(0)
     expect(ctx.slots.spec(SECTION)).toBeUndefined()
     expect(ctx.slots.entries(SECTION)).toHaveLength(0)
 
-    // holder 晚到：注册 shell.overlay 并以 children 表声明分节座位 →
-    // 声明提交后，待命回调同步补跑，先到的贡献注册不丢。
-    ctx.slots.inject('shell.overlay', () =>
-      ctx.slots.register(
-        {
-          name: 'shell.overlay',
-          id: 'workspace-config.dialog',
-          order: 530,
-          children: { [SECTION]: { kind: 'list', scope: 'root' } },
-          inject: () => ({ close, active: undefined }),
-        },
-        OverlayHolder,
-      ),
-    )
-    expect(ctx.slots.entries(SECTION)).toHaveLength(1)
-    expect(ctx.slots.entries(SECTION)[0]!.options.id).toBe('a')
+    // 页面后到：注册并提交 children 声明，动作本身不抛错。
+    expect(() => {
+      scene.registerPage()
+    }).not.toThrow()
 
-    // 补跑后的注册能正常渲染（holder 到位后装配完整）。
+    // 声明提交后待命回调同步补跑，先到的贡献不丢。
+    expect(ctx.slots.entries(SECTION)).toHaveLength(2)
+    expect(ctx.slots.entries(SECTION).map((entry) => entry.options.id)).toEqual(['b', 'a'])
+
     render(ctx.slots.renderSlot('root', {}))
+    expect(screen.getByTestId('poc-page')).toBeTruthy()
     expect(screen.getByTestId('poc-section-a')).toBeTruthy()
   })
 
-  it('⑤ 分节崩溃壳存活：崩溃分节被框架边界接管，壳与其余分节不受影响', async () => {
-    const ctx = createRuntime()
-    const close = vi.fn()
+  it('⑤ 崩溃隔离：崩溃分节被框架边界接管（abdicate 只改渲染投影），页面壳与兄弟分节存活', async () => {
+    const crashError = new Error('分节渲染期崩溃（PoC 注入）')
+    const { ctx } = createScene({
+      sections: [
+        { id: 'healthy', order: 10, label: '正常分节', Component: SectionA },
+        {
+          id: 'crash',
+          order: 20,
+          label: '崩溃分节',
+          Component: () => {
+            throw crashError
+          },
+        },
+      ],
+      tabIds: ['healthy', 'crash'],
+    })
 
     // 框架的错误监督面上报（真 `onEntryError`，不 stub）。
     const reports: Array<{
@@ -471,85 +541,36 @@ describe('分节座位运行时 PoC（组 4 / 触达面 #18）', () => {
       reports.push({ key, registration, error, abdicated: info.abdicated })
     })
 
-    // root 位声明 shell.overlay（与其余用例同形）。
-    ctx.slots.register(
-      {
-        name: 'root',
-        children: { 'shell.overlay': { kind: 'list', scope: 'root' } },
-      },
-      RootFrame,
-    )
-
-    // holder 位：真弹窗壳，声明分节座位并以 `{ close }` 为 owner 份额渲染（不过滤）。
-    ctx.slots.inject('shell.overlay', () =>
-      ctx.slots.register(
-        {
-          name: 'shell.overlay',
-          id: 'workspace-config.dialog',
-          order: 530,
-          children: { [SECTION]: { kind: 'list', scope: 'root' } },
-          inject: () => ({ close, active: undefined }),
-        },
-        OverlayHolder,
-      ),
-    )
-
-    // 正常分节（order 10）与渲染期抛错的分节（order 20）同时注册：
-    // 实测框架语义是「边界逐个 entry 隔离」，崩溃只影响它自己那一格。
-    const crashError = new Error('分节渲染期崩溃（PoC 注入）')
-    ctx.slots.inject(SECTION, () =>
-      ctx.slots.register(
-        {
-          name: SECTION,
-          id: 'healthy',
-          order: 10,
-          label: '正常分节',
-        },
-        SectionA,
-      ),
-    )
-    ctx.slots.inject(SECTION, () =>
-      ctx.slots.register(
-        {
-          name: SECTION,
-          id: 'crash',
-          order: 20,
-          label: '崩溃分节',
-        },
-        () => {
-          throw crashError
-        },
-      ),
-    )
-
     // React 必然把边界捕获的异常打到 console.error；这是被测的预期路径，不污染输出。
     vi.spyOn(console, 'error').mockImplementation(() => {})
 
-    // 初始渲染：真 `renderSlot` 不得抛错（异常由框架边界吞下，不向上冒泡）。
     render(ctx.slots.renderSlot('root', {}))
+    // 初始在健康分节：页面、root 与分节内容都在。
+    expect(screen.getByTestId('poc-root')).toBeTruthy()
+    expect(screen.getByTestId('poc-page')).toBeTruthy()
+    expect(screen.getByTestId('poc-section-a')).toBeTruthy()
+
+    // 切到崩溃分节：渲染期抛错不得向上冒泡（真 renderSlot 不抛）。
+    fireEvent.click(screen.getByTestId('poc-tab-crash'))
 
     // rc.5 语义：list 种类的崩溃上报带 `abdicate: true`，崩溃 entry 从 `entriesOfSlot`
-    // 投影里退场（注册账本保留），outlet 在同一个微任务批里把该格重投影成框架崩溃占位。
+    // 投影里退场（注册账本保留），outlet 在同一微任务批里把该格重投影成框架崩溃占位。
     await waitFor(() => {
       expect(ctx.slots.entriesOfSlot(SECTION).map((entry) => entry.options.id)).toEqual([
         'healthy',
       ])
     })
 
-    // ① 页面未崩、壳仍挂载：root 与 holder 都在，正常分节文案可见且可交互。
+    // ① 页面壳未崩、root 仍在：崩溃隔离在分节层，没有上浮到页面 / root。
     expect(screen.getByTestId('poc-root')).toBeTruthy()
-    expect(screen.getByTestId('poc-overlay-holder')).toBeTruthy()
-    expect(screen.getByTestId('poc-section-a')).toBeTruthy()
-    expect(screen.getByText('分节 A（字符串 label）')).toBeTruthy()
-    fireEvent.click(screen.getByTestId('poc-close-a'))
-    expect(close).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('poc-page')).toBeTruthy()
+    expect(screen.getByRole('tablist', { name: '配置分类' })).toBeTruthy()
 
-    // ② 崩溃分节内容不可见；其格子被框架崩溃占位接管，且占位仍在弹窗壳内部
-    //    （边界隔离在分节层，没有上浮到 holder / root）。
-    expect(screen.queryByTestId('poc-section-crash')).toBeNull()
+    // ② 崩溃分节内容不可见；其格子被框架崩溃占位接管，且占位仍在页面内部。
+    expect(screen.queryByText(/工作区一@\/repos\/one/)).toBeNull()
     const crashFace = document.querySelector(`[data-slot-error="${SECTION}"]`)
     expect(crashFace).not.toBeNull()
-    expect(crashFace?.closest('[data-testid="poc-overlay-holder"]')).not.toBeNull()
+    expect(crashFace?.closest('[data-testid="poc-page"]')).not.toBeNull()
     expect(document.querySelectorAll(`[data-slot-error="${SECTION}"]`)).toHaveLength(1)
 
     // ③ 监督面上报一次：座位 key、崩溃 registration、原始 Error 与退场标志都属实。
@@ -563,6 +584,11 @@ describe('分节座位运行时 PoC（组 4 / 触达面 #18）', () => {
     // ④ 注册账本未丢：abdication 只改渲染投影，entry 仍在 `entries`，disposer 归贡献方。
     expect(ctx.slots.entries(SECTION)).toHaveLength(2)
     expect(ctx.slots.entriesOfSlot(SECTION)).toHaveLength(1)
+
+    // ⑤ 切回健康分节：页面壳仍可交互，崩溃占位随重新渲染消失。
+    fireEvent.click(screen.getByTestId('poc-tab-healthy'))
+    expect(screen.getByTestId('poc-section-a')).toBeTruthy()
+    expect(document.querySelector(`[data-slot-error="${SECTION}"]`)).toBeNull()
 
     disposeReports()
   })

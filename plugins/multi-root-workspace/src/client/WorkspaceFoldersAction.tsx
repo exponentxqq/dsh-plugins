@@ -7,12 +7,19 @@
  * Since the unified workspace-config entry landed, the panel is a **section**
  * (`workspace-config.section`) rather than a dialog (ADR-0013): the
  * workspace-config holder owns the modal shell — mask, card, header, Escape,
- * the focus trap and the close action — and declares the seat from its
+ * the focus trap and the dismissal action — and declares the seat from its
  * `shell.overlay` registration. This module therefore renders only the body:
  * `WorkspaceFoldersSection` has no overlay, no `role="dialog"`, no Escape/Tab
- * handling and no close button. The seat's owner share (`close`) is accepted
- * for contract symmetry but not used: this section has no whole-window
- * navigation of its own, so closing stays the holder's business.
+ * handling and no dismissal button.
+ *
+ * The seat's owner share is the page-level workspace context (three states,
+ * {@link WorkspaceConfigWorkspaceContext}) and the page re-mounts the section
+ * whenever the selection changes, so this module never subscribes to it.
+ * `{kind:'workspace'}` passes the gate and the original body renders;
+ * `unassigned` / `none` render the `panel.noWorkspace` empty state and mount
+ * no request-issuing body at all (the page has no valid target). An absent
+ * share is the Files-tab form below and renders the original body unchanged —
+ * addressing stays session-derived either way, which is out of scope here.
  *
  * `WorkspaceFoldersLauncher` is the legacy Files-tab entry: on surfaces that
  * still offer `sidebar.right.tab.files.actions` it expands the same body
@@ -29,6 +36,10 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Menu } from '@deepseek-ai/dsh-client-ui-primitives'
+// Type-only: the page-level workspace context (D-15 — the type authority lives
+// in `@dsh-plugins/contracts`). The import is erased at build time, so neither
+// this bundle nor a runtime load depends on the contracts package.
+import type { WorkspaceConfigWorkspaceContext } from '@dsh-plugins/contracts'
 import {
   IconChevronDown,
   IconChevronUp,
@@ -52,16 +63,26 @@ export type Translate = (key: Key, params?: Record<string, unknown>) => string
  * The panel body's props: the seat owner share, the framework-synthesized
  * translator, and the business face the registration injects.
  *
- * The owner share is declared structurally (`close`) instead of importing the
- * holder's `WorkspaceConfigSectionOwnerProps`: the holder is a **dev**
- * dependency consumed with `import type` only (D3), so the published `.d.ts`
- * must not reference it. `index.ts` still pins the seat literal to the
- * holder's `WorkspaceConfigSectionSeat`, which is what keeps the two halves
- * from drifting.
+ * The owner share is declared as the contracts package's
+ * `WorkspaceConfigWorkspaceContext` rather than the holder's
+ * `WorkspaceConfigSectionOwnerProps`: the holder is a **dev** dependency
+ * consumed with `import type` only (D3), so the published `.d.ts` must not
+ * reference it, while `@dsh-plugins/contracts` is the shared type authority
+ * (D-15) both halves already depend on. `index.ts` still pins the seat literal
+ * to the holder's `WorkspaceConfigSectionSeat`, which is what keeps the two
+ * halves from drifting.
+ *
+ * `workspace` is optional because two forms share this body: the in-page
+ * section (the holder passes the page's selection) and the Files-tab launcher
+ * (no page, no selection — an absent share means "render the original body").
  */
 export interface WorkspaceFoldersSectionProps {
-  /** Seat owner share: close the unified dialog (unused here — the holder owns it). */
-  readonly close: () => void
+  /**
+   * Page-level workspace context (three states, see
+   * {@link WorkspaceConfigWorkspaceContext}). Absent in the Files-tab launcher
+   * form, where the body behaves exactly as it did before the page landed.
+   */
+  readonly workspace?: WorkspaceConfigWorkspaceContext
   /** Bound translator for this plugin's namespace. */
   readonly t: Translate
   /** The channel client; absent when this composition has no host Connection. */
@@ -75,11 +96,11 @@ export interface WorkspaceFoldersSectionProps {
   readonly sessionId?: () => string | undefined
 }
 
-/** The business face the `workspace-config.section` registration injects. */
-export type WorkspaceFoldersSectionInjected = Omit<WorkspaceFoldersSectionProps, 'close' | 't'>
+/** The business face the `workspace-config.section` registration injects (the page supplies the owner share). */
+export type WorkspaceFoldersSectionInjected = Omit<WorkspaceFoldersSectionProps, 'workspace' | 't'>
 
-/** The Files-tab launcher's props (translator and ports arrive from the entry's closure). */
-export type WorkspaceFoldersLauncherProps = Omit<WorkspaceFoldersSectionProps, 'close'>
+/** The Files-tab launcher's props: the business face plus the translator, and no owner share at all. */
+export type WorkspaceFoldersLauncherProps = Omit<WorkspaceFoldersSectionProps, 'workspace'>
 
 /** The visual family of one capsule button, mirroring the host Button kit. */
 type ActionVariant = 'ghost' | 'outline' | 'primary' | 'danger'
@@ -168,8 +189,12 @@ function displayNameOf(root: RootView): string {
  * The Files tab offers no modal shell of its own, and importing the holder's
  * open bridge is exactly the runtime coupling D3 forbids — so the entry owns a
  * local expansion state and renders the section inline. With the holder
- * installed the dialog is the primary surface; this entry only keeps the
+ * installed the page is the primary surface; this entry only keeps the
  * older `sidebar.right.tab.files.actions` surface usable on its own.
+ *
+ * It deliberately passes no owner share: there is no page and no selection in
+ * the tab, which is exactly the "absent share" form of the body (the original
+ * body, unchanged).
  */
 export function WorkspaceFoldersLauncher(props: WorkspaceFoldersLauncherProps): ReactNode {
   const [expanded, setExpanded] = useState(false)
@@ -186,7 +211,7 @@ export function WorkspaceFoldersLauncher(props: WorkspaceFoldersLauncherProps): 
         <span aria-hidden="true"><IconFolderClose size={16} /></span>
       </button>
       {expanded
-        ? <WorkspaceFoldersSection {...props} close={() => { setExpanded(false) }} />
+        ? <WorkspaceFoldersSection {...props} />
         : null}
     </div>
   )
@@ -210,15 +235,44 @@ function rowKey(root: RootView): string {
 }
 
 /**
+ * The section entry: the page's selection decides whether a body is mounted
+ * at all.
+ *
+ * `{kind:'workspace'}` — and an absent share, which is the Files-tab launcher
+ * form — fall through to `WorkspaceFoldersBody`. `unassigned` / `none` render
+ * the `panel.noWorkspace` empty state instead: the page has no valid target,
+ * so the body and every request it would issue stay unmounted. This gate holds
+ * no state of its own, which is what lets the body below call hooks
+ * unconditionally — the body is a separate component, mounted only when the
+ * gate passes (the same split the other contributors use).
+ */
+export function WorkspaceFoldersSection(props: WorkspaceFoldersSectionProps): ReactNode {
+  const { workspace, t } = props
+  if (workspace !== undefined && workspace.kind !== 'workspace') {
+    return (
+      <section className="mrfw-body mrfw-sectionBody" aria-label={t('panel.title')}>
+        <p className="mrfw-note">{t('panel.noWorkspace')}</p>
+      </section>
+    )
+  }
+  return <WorkspaceFoldersBody {...props} />
+}
+
+/**
  * The panel body: reads the view once per mount, then after every mutation.
+ * Mounted only through `WorkspaceFoldersSection`, so it always has a target.
  *
  * Two shapes travel back over the channel, and they are handled separately on
  * purpose: every mutating endpoint answers with the whole refreshed view, while
  * `reveal` answers with the path it revealed and leaves the list untouched
  * (see `contract.ts`). Treating a reveal answer as a roots view is exactly the
  * contract mismatch this split removes.
+ *
+ * The body's addressing is the current session, not the page's selection: the
+ * share only gates rendering here, and re-addressing the endpoints by workspace
+ * is a business change outside this one's scope.
  */
-export function WorkspaceFoldersSection(props: WorkspaceFoldersSectionProps): ReactNode {
+function WorkspaceFoldersBody(props: WorkspaceFoldersSectionProps): ReactNode {
   const { panel, t } = props
   const [state, setState] = useState<SectionState>({
     view: undefined,
@@ -472,6 +526,7 @@ export function WorkspaceFoldersSection(props: WorkspaceFoldersSectionProps): Re
             <Menu
               open={menuFor === key}
               onClose={() => { setMenuFor(undefined) }}
+              closeOnPointerLeave
               items={[
                 { id: 'rename', label: t('panel.rename'), icon: <IconEdit />, disabled: state.busy || isCommon },
                 { id: 'remove', label: t('panel.remove'), icon: <IconTrash />, danger: true, disabled: state.busy || isCommon },
@@ -486,7 +541,6 @@ export function WorkspaceFoldersSection(props: WorkspaceFoldersSectionProps): Re
               }}
               portal
               align="end"
-              closeOnPointerLeave
               anchor={(
                 <IconButton
                   disabled={state.busy}

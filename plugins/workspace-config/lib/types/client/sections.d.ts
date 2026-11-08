@@ -1,5 +1,5 @@
 /**
- * 统一「工作区配置」弹窗的 nav 行投影（`id` / `order` / `label`）。
+ * 统一「工作区配置」页面的 nav 行投影（`id` / `order` / `label`）。
  *
  * 分节是贡献方注册进 `workspace-config.section` 的 list entry：holder 不保存任何分节
  * 清单，nav 的每一行都是**当场从注册账本投影出来的**。投影有两个失效来源，必须同时
@@ -33,7 +33,7 @@ export interface WorkspaceConfigSectionRow {
     readonly label: string;
 }
 /**
- * nav 行的只读快照源：弹窗以 `useSyncExternalStore` 消费。
+ * nav 行的只读快照源：页面以 `useSyncExternalStore` 消费。
  *
  * `getSnapshot()` 必须返回 identity 稳定的数组——内容没变时同一引用，否则每次渲染都
  * 会被 uSES 判为「变了」而重渲染。
@@ -54,9 +54,9 @@ export interface WorkspaceConfigSectionsSource {
 /**
  * 建一个 nav 行投影源（双版本记忆）。
  *
- * 订阅按需建立：第一个订阅者到来时同时订阅两个来源，最后一个退订时全部摘除——弹窗
- * 关闭时 `Modal` 子树卸载但 holder 的弹窗组件仍挂载（要记住选中节），因此这里用
- * 引用计数而不是在 `apply` 期常驻订阅。
+ * 订阅按需建立：第一个订阅者到来时同时订阅两个来源，最后一个退订时全部摘除——页面
+ * 切走时整棵子树卸载、重进即回默认（页面壳不保留选中节记忆），因此这里用引用计数而
+ * 不是在 `apply` 期常驻订阅。
  * @param ctx - 浏览器侧根上下文（只用到 `slots` 与 `locale` 两个服务）。
  * @returns 投影源；首次 `getSnapshot()` 不依赖任何订阅即可读出当前账本。
  */

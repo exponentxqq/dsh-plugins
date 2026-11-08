@@ -18,7 +18,7 @@
  *   （执行期 R10 裁定①）；
  * - AR6：六个软插件目录不得有本地 `.oxlintrc.json`；根 `.oxlintrc.json` 的 `plugins`
  *   为空数组、`ignorePatterns` 恰为 R4 三条（执行期 R11①②）；
- * - AR7：workspace `packages` 恰为 `plugins/*` + 四个显式 tooling 包
+ * - AR7：workspace `packages` 恰为 `plugins/*` + 五个显式 tooling 包
  *   （执行期 R12①），`templates/` 不是包（禁止 `templates` / `templates/*` 进 `packages`）。
  * - AR8：软插件的 Web 测试接线必须收敛到 `@dsh-plugins/test-kit/vitest`——`dsh.client.platform`
  *   为 `web` 的包必须有 `vitest.config.ts`（AR8-1）；该文件是 ≤ 6 行的薄入口：单 import +
@@ -146,6 +146,10 @@ function inspectInternalDependencies(pkg, label) {
  * `contracts` 是 D-15（G4 5.5）新增的纯类型包，与三个 kit 同属 tooling 治理面
  * （code-design ① 1.4b / 决策 D-15 明写「AR1/AR2 断言自动覆盖」）；提前登记后
  * 建包当刻即被纳管，不需要再改本脚本。
+ *
+ * `client-kit` 是 2026-11-08-workspace-config-page（P3 附录）新增的 client 半共享
+ * 函数包：章程与 `host-kit` 对偶（结构端口探测纯函数、零运行时依赖、零 DSH 导入），
+ * 同样先登记后建包。
  */
 const TOOLING_CONTRACT = {
   'build-kit': {
@@ -164,6 +168,10 @@ const TOOLING_CONTRACT = {
   contracts: {
     runtime: [],
     scripts: ['lint', 'typecheck'],
+  },
+  'client-kit': {
+    runtime: [],
+    scripts: ['lint', 'typecheck', 'test'],
   },
 }
 
@@ -638,10 +646,12 @@ function inspectLintConfig(softPluginList) {
 /**
  * `packages` 必须恰为这些条目（顺序即契约顺序）。
  *
- * 执行期 R12①：G7 8.1 收紧为恰五条——`plugins/*` + 四个显式 tooling 包；
- * `tooling/contracts` 是 D-15 新增的纯类型包，与三个 kit 同属 tooling 治理面。
+ * 执行期 R12①：G7 8.1 收紧为恰六条——`plugins/*` + 五个显式 tooling 包；
+ * `tooling/contracts` 是 D-15 新增的纯类型包，`tooling/client-kit` 是
+ * 2026-11-08-workspace-config-page（P3 附录）新增的 client 半共享包，与三个 kit
+ * 同属 tooling 治理面。
  */
-const REQUIRED_PACKAGES = ['plugins/*', 'tooling/build-kit', 'tooling/contracts', 'tooling/host-kit', 'tooling/test-kit']
+const REQUIRED_PACKAGES = ['plugins/*', 'tooling/build-kit', 'tooling/client-kit', 'tooling/contracts', 'tooling/host-kit', 'tooling/test-kit']
 
 /**
  * 明确禁止出现在 `packages` 里的条目。
@@ -659,7 +669,7 @@ const FORBIDDEN_PACKAGES = new Map([
  * 判断一条 `packages` 条目是否命中 `FORBIDDEN_PACKAGES`。
  *
  * 精确值直接命中；尾缀通配按前缀命中，但先排除 `REQUIRED_PACKAGES` 里的显式
- * tooling 包，避免 `tooling/*` 误伤四个 kit。返回值里的 `entry` 始终是文件里
+ * tooling 包，避免 `tooling/*` 误伤五个显式 tooling 包。返回值里的 `entry` 始终是文件里
  * 实际列入的条目（如 `templates/default`），失败信息据此点名具体包。
  * @param entry - `packages` 列表中的一条原值。
  * @returns `{ entry, reason }`；未命中返回 `null`。
@@ -704,7 +714,7 @@ function readWorkspacePackages(source) {
 /**
  * 检查 `pnpm-workspace.yaml` 的 `packages` 列表（AR7）。
  *
- * 收紧后的口径（执行期 R12①）：列表必须**恰为** `plugins/*` + 四个显式
+ * 收紧后的口径（执行期 R12①）：列表必须**恰为** `plugins/*` + 五个显式
  * `tooling/<name>`，多一条少一条都失败；每个被列入的 tooling 目录都必须存在且带
  * `package.json`（不再有「未来建包」豁免）。
  */
@@ -1061,7 +1071,7 @@ note('AR6: 根 .oxlintrc.json 为唯一基准（plugins: []，ignorePatterns 三
 
 // AR7
 inspectWorkspacePackages()
-note('AR7: packages 恰为 plugins/* + 四个显式 tooling 包，templates/ 不是包（禁止 templates / templates/*）')
+note('AR7: packages 恰为 plugins/* + 五个显式 tooling 包，templates/ 不是包（禁止 templates / templates/*）')
 
 // AR8
 inspectWebTestInclude()

@@ -53,3 +53,7 @@ M3 时期（[ADR-0005](./ADR-0005-out-of-tree-client-transport.md)）给 Workspa
 - [架构文档 §7 Root 管理与 UI](../architecture/multi-root-workspace.md)
 - [故障排查：client bundle 不进 web 启动图](../troubleshooting/client-bundle-not-in-boot-graph.md)
 - `plugins/workspace-config/src/client/contract.ts`（座位契约唯一权威：座位名、owner 份额、order 常量）
+
+---
+
+> **注记（2026-11-08）**：2026-11-08-workspace-config-page：holder 的弹窗壳已改为独立页面，本节仍为分节贡献方。

@@ -10,8 +10,9 @@
  * - header 座位恰好一次，参数 `{ id: PANEL_ID, order: PANEL_ORDER, locale: NS }`（既有行为零回归）；
  * - **分节座位**（holder 的 `workspace-config.section`）恰好一次，参数
  *   `{ id: SECTION_ID, order: SECTION_ORDER, locale: NS, label: () => t('section.label') }`，
- *   组件是 `WorkspaceDefaultsSection`；注入面提供 `resolveClient`（每次现取 `connection`，与头部
- *   同一份）与 `currentSessionId`（`current-session.ts` 的两步探测，服务缺席返回 `undefined`）；
+ *   组件是 `WorkspaceDefaultsSection`；注入面只剩 `resolveClient`（每次现取 `connection`，与
+ *   头部同一份）。「当前会话」探测已随页面化迁往 holder（本包不再有该消费者），owner 份额
+ *   `{ workspace }` 由 holder 页面在 `renderSlot` 时传入，**不在**注入面；
  * - **旧 footer 座位不再出现**：`slots.inject` 名单只有两个座位，footer 的字面量在 `src/`
  *   与产物里都必须为零（迁移红线，`bundle.test.ts` 与任务验证句各钉一侧）；
  * - **DQ1=C**：对 `sidebar.workspaces.workspace.menu.item` **不** inject、不注册（上游工作区行
@@ -62,8 +63,8 @@ interface Registration {
   readonly component?: unknown
 }
 
-/** 分节注册面交给组件的业务份额（`t` 由 locale 合成、`close` 由 holder 弹窗给）。 */
-type WorkspaceDefaultsSectionInjected = Pick<WorkspaceDefaultsSectionProps, 'resolveClient' | 'currentSessionId'>
+/** 分节注册面交给组件的业务份额（`t` 由 locale 合成、`workspace` 由 holder 页面给）。 */
+type WorkspaceDefaultsSectionInjected = Pick<WorkspaceDefaultsSectionProps, 'resolveClient'>
 
 /** 假 ctx 的开关。 */
 interface FakeOptions {
@@ -229,21 +230,6 @@ function fakeClient(options: FakeOptions = {}) {
 /** 一个够用的 connection 假实现：`resolveClient` 只把它交给 `createPanelClient`。 */
 const CONNECTION = { rpc: { call: async () => ({ ok: true, value: {} }) } }
 
-/**
- * 一个够用的 `sessions` 假实现：两步探测只读 `list.getSnapshot`。
- *
- * 基线（rc.5）没有 `current` 字段，主视图持有靠 `retainedBy.mainView > 0` 表达。
- */
-const SESSIONS = {
-  list: {
-    getSnapshot: () => ({
-      byId: {
-        'session-main': { id: 'session-main', retainedBy: { mainView: 1 } },
-      },
-    }),
-  },
-}
-
 afterEach(vi.unstubAllGlobals)
 
 describe('浏览器半的依赖与身份', () => {
@@ -376,30 +362,6 @@ describe('工作区默认档分节座位（holder workspace-config.section）', 
       updateDefaults: expect.any(Function),
       workspace: expect.any(Function),
     })
-  })
-
-  it('注入面的 currentSessionId 每次现取当前会话（两步探测：current 优先，其次 mainView 持有）', () => {
-    const fake = fakeClient()
-    apply(fake.ctx)
-
-    // sessions 缺席是受支持状态：分节据此提示「无当前会话」，不抛。
-    expect(fake.sectionPorts().currentSessionId()).toBeUndefined()
-
-    fake.provide({ sessions: SESSIONS })
-    expect(fake.sectionPorts().currentSessionId()).toBe('session-main')
-
-    // 显式选择优先于 mainView 持有的行。
-    fake.provide({
-      sessions: {
-        list: {
-          getSnapshot: () => ({
-            current: 'session-explicit',
-            byId: { 'session-main': { id: 'session-main', retainedBy: { mainView: 1 } } },
-          }),
-        },
-      },
-    })
-    expect(fake.sectionPorts().currentSessionId()).toBe('session-explicit')
   })
 
   it('分节与头部共用同一个现取客户端（同一 connection → 同一条 /session-tool-toggle 通道）', () => {
@@ -579,7 +541,7 @@ describe('注入面的三个端口（header）', () => {
 /**
  * 四格安装组合矩阵（本包视角；code-design ⑤G6 6.2 / tasks 7.1）。
  *
- * 全装格与「后装 holder 补跑」由 holder 的 `test/dialog.test.tsx` 用四个真 `apply` 同 ctx
+ * 全装格与「后装 holder 补跑」由 holder 的 `test/section-seat.poc.test.tsx` 真 renderer 哨兵
  * 覆盖；这里钉本包的三格：**格 1**（holder 已声明分节座位 → 本节 order 20 注册，会话头部
  * 入口 order 20 原样保留）、**格 3**（只装贡献方、无 holder → 分节 inject 待命，不注册、
  * 不抛错、不 warn，头部入口不受影响）、**格 4**（holder 后到 → 待命回调补跑，分节立即可用）。

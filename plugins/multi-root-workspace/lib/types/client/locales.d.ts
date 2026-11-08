@@ -28,6 +28,7 @@ export declare const zh: {
     'panel.empty': string;
     'panel.emptyHint': string;
     'panel.noSession': string;
+    'panel.noWorkspace': string;
     'panel.loading': string;
     'panel.retry': string;
     'panel.close': string;
@@ -91,6 +92,7 @@ export declare const en: {
     'panel.empty': string;
     'panel.emptyHint': string;
     'panel.noSession': string;
+    'panel.noWorkspace': string;
     'panel.loading': string;
     'panel.retry': string;
     'panel.close': string;

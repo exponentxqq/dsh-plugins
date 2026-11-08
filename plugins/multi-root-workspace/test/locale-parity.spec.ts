@@ -66,6 +66,16 @@ describe('panel dictionaries', () => {
     }
   })
 
+  it('covers every empty state the section can be gated into', () => {
+    // `panel.noWorkspace` 是 holder 页面下传 `{kind:'unassigned'}` / `{kind:'none'}`
+    // 份额时的唯一空态（2026-11-08-workspace-config-page）；`panel.noSession` 与它并列，
+    // 是「客户端没有当前会话」这一更早的空态。两个键都被 client-panel.spec.tsx 读取。
+    for (const key of ['panel.noSession', 'panel.noWorkspace']) {
+      expect(Object.keys(zh), `${key} must be translated`).toContain(key)
+      expect(Object.keys(en), `${key} must be translated`).toContain(key)
+    }
+  })
+
   it('covers the source badge a configured root is marked with', () => {
     expect(Object.keys(zh)).toContain('root.sourceCommon')
     expect(Object.keys(zh)).toContain('root.sourceCommonTitle')

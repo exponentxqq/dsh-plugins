@@ -15,6 +15,7 @@ import { join } from 'node:path'
 import { createElement } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { WorkspaceConfigWorkspaceContext } from '@dsh-plugins/contracts'
 import { PANEL_CHANNEL, type PanelRequest, type RevealedView, type RootView, type RootsView } from '../src/contract.ts'
 import * as client from '../src/client/index.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
@@ -82,6 +83,27 @@ const ROOT_C: RootView = {
   state: 'redirected',
   detail: 'the path now resolves to "/repos/other"',
 }
+
+/**
+ * The owner share the holder page passes to a section: a real workspace.
+ *
+ * Since 2026-11-08-workspace-config-page the seat owner share is pure data
+ * (`{ workspace }`, three-state) and no longer a `close` callback; the section
+ * renders its body only for `{kind:'workspace'}`, and the two other kinds are
+ * the empty state `panel.noWorkspace`.
+ */
+const WORKSPACE_SHARE: WorkspaceConfigWorkspaceContext = {
+  kind: 'workspace',
+  id: 'ws-primary',
+  title: 'Primary workspace',
+  path: '/repos/primary',
+}
+
+/** The page's 「未分配」 special item: a page-scoped share with no target. */
+const UNASSIGNED_SHARE: WorkspaceConfigWorkspaceContext = { kind: 'unassigned' }
+
+/** The page's degraded share: the workspace list service is not ready. */
+const NO_WORKSPACE_SHARE: WorkspaceConfigWorkspaceContext = { kind: 'none' }
 
 /**
  * The 0.1.6-alpha.2 list snapshot: catalog rows, no `current`.
@@ -244,16 +266,22 @@ function registrationOf(harness: Harness, seat: string): Registration {
 
 /**
  * Render the section the plugin registered, with the composed props the
- * renderer passes: the seat owner share (`close`), the synthesized translator
- * and the registration's inject face. The component function is wrapped in an
- * element because React does not accept a bare function as a child.
+ * renderer passes: the seat owner share (`{ workspace }`), the synthesized
+ * translator and the registration's inject face. The component function is
+ * wrapped in an element because React does not accept a bare function as a
+ * child.
+ *
+ * The share defaults to a real workspace — the kind that renders the body. The
+ * other two kinds are the gated empty state, and the Files-tab launcher mounts
+ * the same component with no share at all (`undefined`).
  * @param harness - the mounted harness whose registration to render.
+ * @param workspace - the owner share to pass; `undefined` is the launcher form.
  */
-function renderSection(harness: Harness): void {
+function renderSection(harness: Harness, workspace: WorkspaceConfigWorkspaceContext | undefined = WORKSPACE_SHARE): void {
   const registration = registrationOf(harness, 'workspace-config.section')
   const injected = registration.options.inject?.() ?? {}
   render(createElement(registration.component as never, {
-    close: () => {},
+    workspace,
     t: translate,
     ...injected,
   } as never))
@@ -746,8 +774,65 @@ describe('the panel section', () => {
     client.apply(ctx as never)
     const registration = registrations.find(item => item.options.name === 'workspace-config.section')!
     const injected = registration.options.inject?.() ?? {}
-    render(createElement(registration.component as never, { close: () => {}, t: translate, ...injected } as never))
+    render(createElement(registration.component as never, { workspace: WORKSPACE_SHARE, t: translate, ...injected } as never))
     await waitFor(() => { expect(screen.getByRole('alert')).toBeTruthy() })
+  })
+})
+
+/**
+ * 分节份额的三态门（2026-11-08-workspace-config-page §1.5 / 任务 6.3）。
+ *
+ * holder 页面把 `{ workspace }` 作为 `workspace-config.section` 的 owner 份额下传；
+ * 本分节只在 `kind === 'workspace'` 时渲染正文，`unassigned`（选择框的「未分配」项）
+ * 与 `none`（工作区清单服务未就绪）都只渲染 `panel.noWorkspace` 空态。Files tab 的
+ * launcher 不给份额（它不是页面里的分节），因此必须照常渲染正文——这是同一个组件
+ * 两种形态的分界，也是本节数据仍按当前会话寻址（不改业务）的原因。
+ */
+describe('the section share', () => {
+  it('renders the no-workspace empty state for the unassigned share', async () => {
+    const harness = mount()
+    renderSection(harness, UNASSIGNED_SHARE)
+
+    await waitFor(() => { expect(screen.getByText(`${NS}.panel.noWorkspace`)).toBeTruthy() })
+    // 空态就是整节内容：正文的根列表与添加控件一个都不出现。
+    expect(screen.queryByText('/repos/payments')).toBeNull()
+    expect(screen.queryByPlaceholderText(`${NS}.panel.addManual`)).toBeNull()
+  })
+
+  it('renders the no-workspace empty state when the workspace list is not ready', async () => {
+    const harness = mount()
+    renderSection(harness, NO_WORKSPACE_SHARE)
+
+    await waitFor(() => { expect(screen.getByText(`${NS}.panel.noWorkspace`)).toBeTruthy() })
+    expect(screen.queryByText('/repos/payments')).toBeNull()
+    expect(screen.queryByPlaceholderText(`${NS}.panel.addManual`)).toBeNull()
+  })
+
+  it('passes the gate for a real workspace share and reads the roots view', async () => {
+    const harness = mount()
+    renderSection(harness, WORKSPACE_SHARE)
+
+    await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
+    expect(screen.getByText(`${NS}.panel.primary`)).toBeTruthy()
+    expect(screen.queryByText(`${NS}.panel.noWorkspace`)).toBeNull()
+    expect(harness.calls).toHaveLength(1)
+    expect(harness.calls[0]).toEqual({
+      channel: PANEL_CHANNEL,
+      endpoint: 'list',
+      payload: { sessionId: 'session-1' },
+    })
+  })
+
+  it('still renders the body from the Files-tab launcher, which passes no share', async () => {
+    const harness = mount(true)
+    renderLauncher(harness)
+
+    fireEvent.click(screen.getByRole('button', { name: `${NS}.action.label` }))
+
+    await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
+    // 份额缺席不是「尚未选择工作区」：launcher 形态必须照常进正文。
+    expect(screen.queryByText(`${NS}.panel.noWorkspace`)).toBeNull()
+    expect(harness.calls).toHaveLength(1)
   })
 })
 
@@ -765,7 +850,7 @@ describe('the panel copy', () => {
 /**
  * 四格安装组合矩阵（本包视角；code-design ⑤G6 6.2 / tasks 7.1）。
  *
- * 全装格与「后装 holder 补跑」由 holder 的 `test/dialog.test.tsx` 用四个真 `apply` 同 ctx
+ * 全装格与「后装 holder 补跑」由 holder 的 `test/section-seat.poc.test.tsx` 真 renderer 哨兵
  * 覆盖；这里钉的是本包在组合里的三格：**格 1**（holder 已声明分节座位 → 本节 order 10 进
  * 账本，Files tab 入口原样保留）、**格 3**（只装贡献方、无 holder → `slots.inject` 待命，
  * 不注册、不抛错、不 warn）、**格 4**（holder 后到 → 待命回调补跑，分节立即可用）。

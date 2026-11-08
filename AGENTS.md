@@ -8,10 +8,10 @@ DSH（DeepSeek Harness）自定义插件仓库：pnpm workspace 单仓多包，�
 
 ## 目录结构
 
-- `pnpm-workspace.yaml` — workspace 定义（packages: `plugins/*` + 四个显式 tooling 包）+ allowBuilds 构建白名单 + minimumReleaseAgeExclude 发布年龄豁免
+- `pnpm-workspace.yaml` — workspace 定义（packages: `plugins/*` + 五个显式 tooling 包）+ allowBuilds 构建白名单 + minimumReleaseAgeExclude 发布年龄豁免
 - `package.json` — workspace 根：pnpm 版本 pin（packageManager: pnpm@11.25.0）与递归脚本
 - `tsconfig.plugin.base.json` — 除 multi-root 外的六个插件共用的根编译基准（各包 tsconfig 只 `extends` 它 + `include` 差异）
-- `tooling/build-kit` — 构建期骨架（esbuild 宿主半 / 浏览器半 / CSS modules / 产物守卫）；`tooling/host-kit` — 运行期共享内核（归属 / 监听 / 触发器 / 根枚举 / 日志，零依赖、被内联进产物）；`tooling/test-kit` — 测试夹具底座（ui-primitives 并集 / locale-parity）；`tooling/contracts` — 座位契约纯类型包
+- `tooling/build-kit` — 构建期骨架（esbuild 宿主半 / 浏览器半 / CSS modules / 产物守卫）；`tooling/host-kit` — 运行期共享内核（归属 / 监听 / 触发器 / 根枚举 / 日志，零依赖、被内联进产物）；`tooling/client-kit` — client 半共享运行时函数（当前会话探测 + 会话 `updatedAt` 投影，TS 源消费、构建期内联）；`tooling/test-kit` — 测试夹具底座（ui-primitives 并集 / locale-parity）；`tooling/contracts` — 座位契约纯类型包
 - `templates/default/` — `pnpm gen:plugin` 的默认模板素材（**不是包**：清单叫 `template.json`；件套表见 `templates/default/README.md`，多模板约定见 `templates/README.md`）
 - `plugins/<name>/` — 一个插件一个目录（清单与结构见下文）
 - `scripts/gen-plugin.mjs` — 新插件脚手架：从 `templates/default/` 生成骨架，`--template <name>` 可选其他模板（只写文件，不跑 git / pnpm）
@@ -27,7 +27,7 @@ DSH（DeepSeek Harness）自定义插件仓库：pnpm workspace 单仓多包，�
 ## 插件清单（统一版本，各自独立 bundle）
 
 - `dsh-plugin-multi-root-workspace` — 给沙箱作用域追加 N 个附加工作区根；目录内有独立 `AGENTS.md` 与 `docs/`，改动前先读
-- `dsh-plugin-workspace-config` — 统一「工作区配置」入口（双端 holder）：侧栏 footer 单入口（宽栏文案 / 折叠 28px 图标）+ 统一分节弹窗（`workspace-config.section` 座位，multi-root-workspace / session-tool-toggle / web-ux 三方软注册贡献分节，缺贡献方节自动隐藏）；与 multi-root-workspace / session-tool-toggle / web-ux 四包同装
+- `dsh-plugin-workspace-config` — 统一「工作区配置」入口（双端 holder）：侧栏面板行（`sidebar.panellist`，id `workspace-config`、order 20）+ 主区域独立页面（`main` 注册、key 与面板行 id 同一值），页面级统一工作区选择框 + 分节 tab（`workspace-config.section` 座位，multi-root-workspace / session-tool-toggle / web-ux 三方软注册贡献分节，缺贡献方节自动隐藏）；与 multi-root-workspace / session-tool-toggle / web-ux 四包同装
 - `project-mcp` — 从各工作区根 `.dsh/mcp/` 发现项目级 MCP 服务器，工具可见性按工作区隔离、热重载，名字（资源服务器名与服务器指令段）与资源面隔离
 - `user-commands` — markdown 定义的用户斜杠命令（builtin / `$DSH_HOME/commands` / 各工作区根 `.dsh/commands` 三层），内置 prompt 型 `/init` 与宿主侧只读的 `/inventory`（会话 MCP + skill 清单）
 - `web-ux` — Web 界面体验（双端）：composer 状态行的模型提供商徽章 + 侧栏已归档会话的删除入口（宿主半承载 Connection RPC 通道 `/web-ux`）+ 命令结果通知卡（结果无处渲染时兜底，视图挂载即自隐）
@@ -99,7 +99,7 @@ DSH 源码与 API 参考位于 `/usr/local/lib/node_modules/@deepseek-ai/dsh/`�
 
 ## 仓级 ADR
 
-- 结构性决策记录在 `docs/decisions/`：`ADR-0001`（共享构建与源码包 `tooling/` 四包的落地边界）与 `ADR-0002`（归属内核与 `#3` 值语义），索引见 [`docs/decisions/README.md`](docs/decisions/README.md)。
+- 结构性决策记录在 `docs/decisions/`：`ADR-0001`（共享构建与源码包 `tooling/` 五包的落地边界）与 `ADR-0002`（归属内核与 `#3` 值语义），索引见 [`docs/decisions/README.md`](docs/decisions/README.md)。
 - `ADR-0003`（文档体系分层与门禁）见 [`docs/decisions/ADR-0003-doc-system-layers-and-gates.md`](docs/decisions/ADR-0003-doc-system-layers-and-gates.md)。
 - 仓级 ADR 与 `plugins/multi-root-workspace/docs/decisions/` 的插件级 ADR 是**两套独立编号**；引用时必须带路径——裸写「ADR-0009」有歧义（仓级没有 0009，multi-root 的 0009 是 DSH 兼容契约）。
 - 插件业务规格仍以 `openspec/specs/` 为准；ADR 只约束仓级结构与工程约定。

@@ -1,51 +1,67 @@
 /**
- * 统一「工作区配置」入口的浏览器半装配。
+ * 统一「工作区配置」入口的浏览器半装配（侧栏面板行 + 主区域独立页面）。
  *
- * 本包是**纯壳 holder**：不承载任何分节业务，只做四件事，按依赖顺序：
+ * 本包是**纯壳 holder**：不承载任何分节业务，只做五件事，按依赖顺序：
  *
  * 1. **注册双语文案**：`ctx.effect(() => ctx.locale.register(NS, { zh, en }))`。座位 entry
  *    声明 `locale: NS`，渲染时由框架合成 `t` 座；字典缺席会 fail loud，所以先于注册，
  *    并挂在 `ctx.effect` 上（插件卸载即摘）。
- * 2. **建打开桥**：`createOpenStore()`（布尔快照，D15）。入口只写 `open()`，弹窗订阅它
- *    并在关闭动作里写回 `close()`。
- * 3. **建 nav 行投影源**：`createSectionsSource(ctx)`（双版本记忆：分节账本版本 + locale
- *    版本；`getSnapshot()` 返回 identity 稳定的数组）。
- * 4. **两处软注册**（各自独立 `try/catch`）：
- *    - `sidebar.footer.action`（list / root，order 50）→ footer 唯一入口；
- *    - `shell.overlay`（list / root，order 530）→ 统一弹窗，并在同一个 `register` 里用
+ * 2. **建 nav 行投影源**：`createSectionsSource(ctx)`（双版本记忆：分节账本版本 + locale
+ *    版本；`getSnapshot()` 返回 identity 稳定的数组），作为页面注入面的一部分。
+ * 3. **建工作区清单源**：`createWorkspaceListSource(ctx)`（`pending | ready`，workspaces
+ *    服务晚到自动转 ready），驱动页面级唯一选择框与默认选择策略。
+ * 4. **绑行文案 thunk**：`ctx.locale.bind(NS)`。行 entry 的 `label` 是 thunk，locale 切换
+ *    时重新求值即可，无需重注册。
+ * 5. **双注册（经 `createPanelPair` 配对）**：
+ *    - `main`（keyed / root，key = `PANEL_ID`）→ 独立页面；同一个 `register` 里用
  *      `children` 声明分节座位 `workspace-config.section`（Declaring is claiming）。
+ *    - `sidebar.panellist`（list / root，id = 同一个 `PANEL_ID`，order = `PANEL_ORDER`）→
+ *      侧栏那一行图标。
  *
- * **为什么每处各自 try/catch**：座位缺席或拒绝注册时，最坏结果是「该入口不出现」，而
- * 不是整个客户端半装配失败——同一个壳里还有别的插件、别的座位。两处互相独立，一处
- * 失败不连累另一处；`ctx.logger?.warn` 留诊断线索，`apply` 始终正常返回。
+ * **为什么两处必须配对**：宿主点击面板行时直接 `ctx.layout.selectPanel(id)`，而它对
+ * **未注册**的 main key 会 throw——两处各自 `try/catch` 会留下「行在、点了抛错」的坏形态。
+ * `createPanelPair` 让页面装成之后行才注册、页面退场时行一并退场，任一侧失败只
+ * `ctx.logger.warn`，最终观感是「没有这一行」。
+ *
+ * **为什么页面没有 store**：keyed 的 `main` 渲染切走即卸载（renderer 不 keepMounted），
+ * 页面的选中 tab 与选择框手选值都是组件本地 state（`WorkspaceConfigPage` 的模块头），
+ * 重进自然回到默认——这正是「`main` 注册不带 store」的承诺，不要改成 store 持久化。
+ *
+ * **注入面是端口函数，不是服务值**：renderer 的 `inject` 工厂每个 entry 只跑一次，而
+ * `sessions` 服务可能晚于 `apply` 就绪、客户端对象也可能被宿主替换；因此 `currentSessionId`
+ * / `sessionUsage` 传的是「每次现取」的函数（见 `session-context.ts`），与清单源内部的
+ * `ctx.inject(['workspaces'], …)` 同一纪律。
  *
  * **为什么不需要把贡献方写进依赖**：分节座位由本包用 `children` 声明，贡献方用
- * `slots.inject` 软注册；loader 对「图里没有该包」是静默跳过，所以四包之间不建立任何
+ * `ctx.slots.inject` 软注册；loader 对「图里没有该包」是静默跳过，所以四包之间不建立任何
  * 运行时加载依赖（四包同装是**约定**而不是硬依赖，见仓库 README）。未装 holder 时贡献方
- * 的 inject 回调永不触发，也不报错、不残留入口。
+ * 的 inject 回调永不触发，也不报错、不残留入口。`inject` 服务面因此仍只有 `slots` 与
+ * `locale` 两项。
  *
- * **类型权威（组 2 交接项）**：本文件同时从 `./contract` re-export 座位契约的**类型**
- * （`WorkspaceConfigSectionSeat` / `WorkspaceConfigSectionOwnerProps`）与**运行时常量**
- * （座位名与两个 order）。贡献方按 `import type … from 'dsh-plugin-workspace-config/client'`
- * 取类型——`exports['./client'].types` 指向编译出的 `lib/types/client/index.d.ts`，其中
- * 含本文件的 re-export；缺了这一段，D3/D4 的类型权威就落空。
+ * **类型权威**：座位契约的类型权威在 `@dsh-plugins/contracts`（D-15），贡献方**直连**该包
+ * `import type`；本文件从 `./contract` re-export 的类型与运行时常量（座位名与面板 id / 位次）
+ * 只服务本包装配与过渡兼容（`exports['./client'].types` → `lib/types/client/index.d.ts`），
+ * 不是贡献方的取类型路径。
  *
  * @module dsh-plugin-workspace-config/client
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // 类型专用 import：把 renderer 的 `ctx.slots`、locale 的 `ctx.locale`、sidebar 的
-// `sidebar.footer.action` 声明与 layout 的 `shell.overlay` 声明并进本文件程序。
+// `sidebar.panellist` 声明与 layout 的 `main` 声明并进本文件程序。
+// `verbatimModuleSyntax` 下它们是零产物 import，不进 bundle 的 require 面。
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import { WORKSPACE_CONFIG_DIALOG_ORDER, WORKSPACE_CONFIG_TRIGGER_ORDER } from './contract.ts'
+import { PANEL_ID, PANEL_ORDER } from './contract.ts'
 import { NS, en, zh } from './locales.ts'
-import { createOpenStore } from './open-store.ts'
+import { createPanelPair } from './panel-pair.ts'
 import { createSectionsSource } from './sections.ts'
-import { WorkspaceConfigDialog, type WorkspaceConfigDialogInjected } from './WorkspaceConfigDialog.tsx'
-import { WorkspaceConfigTrigger, type WorkspaceConfigTriggerInjected } from './WorkspaceConfigTrigger.tsx'
+import { currentSessionIdOf, sessionUsageOf } from './session-context.ts'
+import { createWorkspaceListSource } from './workspace-source.ts'
+import { WorkspaceConfigPage, type WorkspaceConfigPageInjected } from './WorkspaceConfigPage.tsx'
+import { WorkspaceConfigPanelIcon } from './WorkspaceConfigPanelIcon.tsx'
 
 /**
  * 座位契约的类型与运行时常量 re-export（类型权威的唯一入口）。
@@ -54,25 +70,16 @@ import { WorkspaceConfigTrigger, type WorkspaceConfigTriggerInjected } from './W
  * 各自持有本地字面量（D3 三条纪律）。
  */
 export type { WorkspaceConfigSectionOwnerProps, WorkspaceConfigSectionSeat } from './contract.ts'
-export {
-  WORKSPACE_CONFIG_DIALOG_ORDER,
-  WORKSPACE_CONFIG_SECTION,
-  WORKSPACE_CONFIG_TRIGGER_ORDER,
-} from './contract.ts'
+export { PANEL_ID, PANEL_ORDER, WORKSPACE_CONFIG_SECTION } from './contract.ts'
 
-/** 诊断日志里的子系统名。 */
+/** 诊断日志里的子系统名（`createPanelPair` 的 `warn` 前缀）。 */
 const LOG_LABEL = 'workspace-config'
-
-/** footer 入口 entry 的 id（list 座位的 cell 身份；同 cell 同优先级重复注册会 fail loud）。 */
-export const TRIGGER_ID = 'workspace-config-trigger'
-
-/** 统一弹窗 entry 的 id（`shell.overlay` 的 list cell；530 与 web-ux 删除弹窗 500 互斥）。 */
-export const DIALOG_ID = 'workspace-config-dialog'
 
 /**
  * 依赖服务名单：只有座位注册表与字典服务。
  *
- * 不声明任何贡献方包——四包之间只有编译期类型依赖，没有运行时加载边（D3）。
+ * 不声明任何贡献方包——四包之间只有编译期类型依赖，没有运行时加载边（D3）；`sessions`
+ * 也不进名单（页面注入面按端口函数现取，服务缺席是受支持状态）。
  */
 export const inject: readonly string[] = ['slots', 'locale']
 
@@ -84,57 +91,60 @@ export function apply(ctx: ClientContext): void {
   // ① 字典先于座位：entry 声明 `locale: NS`，渲染时缺字典会 fail loud。
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'workspace-config: 双语文案')
 
-  // ②③ 打开桥与 nav 投影源都是 apply 期构造的稳定单例：入口与弹窗共享同一个打开桥，
-  //    弹窗订阅同一个投影源（贡献方注册变化 / locale 切换都能被投影读到）。
-  const open = createOpenStore()
+  // ②③ 两个快照源都是 apply 期构造的稳定单例：页面订阅它们，而不是每次渲染重建。
   const sections = createSectionsSource(ctx)
+  const workspaces = createWorkspaceListSource(ctx)
 
-  // ④-a footer 唯一入口（order 50）。座位缺席时 inject 回调不执行；座位在但拒绝注册时
-  //    只 warn，不连累弹窗。
-  ctx.slots.inject('sidebar.footer.action', () => {
-    try {
-      return ctx.slots.register(
-        {
-          name: 'sidebar.footer.action',
-          id: TRIGGER_ID,
-          order: WORKSPACE_CONFIG_TRIGGER_ORDER,
-          locale: NS,
-          inject: (): WorkspaceConfigTriggerInjected => ({ open }),
-        },
-        WorkspaceConfigTrigger,
-      )
-    } catch (error) {
-      ctx.logger?.warn('%s: 侧栏底部入口座位注册失败，本入口不显示', LOG_LABEL)
-      ctx.logger?.warn(error)
-      return () => {}
-    }
+  // ④ 行 label 的翻译函数（thunk 每次读取现求值，locale 切换不重注册）。
+  const t = ctx.locale.bind(NS)
+
+  // ⑤ 双注册协调器：两侧失败都只 warn（前缀在这里加），apply 始终正常返回。
+  const pair = createPanelPair((message, error) => {
+    ctx.logger?.warn(`${LOG_LABEL}: ${message}`)
+    if (error !== undefined) ctx.logger?.warn(error)
   })
 
-  // ④-b 统一弹窗（order 530）+ 分节座位声明。`children` 是「声明即认领」：它把
-  //    `workspace-config.section` 写进声明账本，贡献方的 `slots.inject` 回调此后才有
-  //    机会执行（后装 holder 时待命回调同步补跑）；同时它也是弹窗 `renderSlot` 的渲染授权。
-  ctx.slots.inject('shell.overlay', () => {
-    try {
-      return ctx.slots.register(
+  /** ① 页面：`main`（keyed、root，无 owner 份额、无 store）。 */
+  ctx.slots.inject('main', () =>
+    pair.page(() =>
+      ctx.slots.register(
         {
-          name: 'shell.overlay',
-          id: DIALOG_ID,
-          order: WORKSPACE_CONFIG_DIALOG_ORDER,
+          name: 'main',
+          key: PANEL_ID, // 'workspace-config'（= panellist 的 id）
           locale: NS,
-          children: {
-            // 字面量直写（与 contract.ts 的 WORKSPACE_CONFIG_SECTION 同值）：本行是
-            // 产物断言「`lib/client.js` 里 workspace-config.section 至少出现两次」的
-            // 声明侧锚点；渲染侧锚点在 WorkspaceConfigDialog 的 renderSlot 调用点。
-            'workspace-config.section': { kind: 'list', scope: 'root' },
-          },
-          inject: (): WorkspaceConfigDialogInjected => ({ open, sections }),
+          // 声明即认领：贡献方的软注册回调在此之后才有机会执行；同时这也是页面
+          // `renderSlot` 的渲染授权。
+          //
+          // 字面量直写（与 contract.ts 的 WORKSPACE_CONFIG_SECTION 同值）：本行是
+          // 产物断言「`lib/client.js` 里 workspace-config.section 至少出现两次」的
+          // 声明侧锚点；渲染侧锚点在 WorkspaceConfigPage 的 renderSlot 调用点。
+          children: { 'workspace-config.section': { kind: 'list', scope: 'root' } },
+          // 端口函数（非服务值）：inject 工厂每 entry 只跑一次，服务要现取。
+          inject: (): WorkspaceConfigPageInjected => ({
+            sections, // apply 期构造的 nav 行投影源
+            workspaces, // apply 期构造的工作区清单源
+            currentSessionId: () => currentSessionIdOf(ctx),
+            sessionUsage: () => sessionUsageOf(ctx),
+          }),
         },
-        WorkspaceConfigDialog,
-      )
-    } catch (error) {
-      ctx.logger?.warn('%s: 统一弹窗座位注册失败，本弹窗不显示', LOG_LABEL)
-      ctx.logger?.warn(error)
-      return () => {}
-    }
-  })
+        WorkspaceConfigPage,
+      ),
+    ),
+  )
+
+  /** ② 侧栏行：`sidebar.panellist`（list、root，owner `{size, active}`）。 */
+  ctx.slots.inject('sidebar.panellist', () =>
+    pair.row(() =>
+      ctx.slots.register(
+        {
+          name: 'sidebar.panellist',
+          id: PANEL_ID, // 必须等于 main 的 key：宿主 selectPanel(id) 直接用它
+          order: PANEL_ORDER, // 20：官方面板 plugins=0 / schedules=10 之后
+          locale: NS,
+          label: () => t('entry.label'), // thunk：locale 切换无需重注册
+        },
+        WorkspaceConfigPanelIcon,
+      ),
+    ),
+  )
 }

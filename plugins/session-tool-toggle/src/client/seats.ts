@@ -61,7 +61,8 @@ export const PANEL_ID = 'session-tool-toggle-panel'
 export const PANEL_ORDER = 20
 
 /**
- * 统一「工作区配置」弹窗的分节座位：`list` / scope `root`，owner 只有 `{ close }`。
+ * 统一「工作区配置」页的分节座位：`list` / scope `root`，owner 份额只有 `{ workspace }`
+ * （三态纯数据上下文，页面工具栏的选择框决定其值；本分节不自带选择控件）。
  *
  * 座位名与形状的唯一权威在 `@dsh-plugins/contracts`（`WorkspaceConfigSectionSeat` /
  * `WorkspaceConfigSectionSlot`）。holder 以 `children` 声明本座位（Declaring is claiming），

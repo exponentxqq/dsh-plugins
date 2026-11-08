@@ -8,7 +8,10 @@
  * 子代理过滤（D14）、选择操作与双动作分派。
  *
  * 打开桥已随分节迁移移交 holder（`dsh-plugin-workspace-config` 的布尔 open-store），
- * 旧的 `session-manager-store.ts` 与它的 seq 契约用例一并删除（#49）。
+ * 旧的 `session-manager-store.ts` 与它的 seq 契约用例一并删除（#49）。工作区选项与默认档
+ * 投影也已迁入 holder（`workspace-choice.ts`），`workspaceChoices` / `defaultWorkspaceChoice`
+ * 的用例随函数一并删除（2026-11-08-workspace-config-page G5）：本模块只留行集、选择与
+ * 动作输入这些「页面无关」的纯派生。
  *
  * @module dsh-plugin-web-ux/test/session-manager-model
  */
@@ -23,7 +26,6 @@ import {
   allSelected,
   archivedRows,
   clearSelection,
-  defaultWorkspaceChoice,
   emptySelection,
   entryKeyOf,
   migratedRows,
@@ -34,7 +36,6 @@ import {
   selectAllSelection,
   toggleSelection,
   unarchiveSelected,
-  workspaceChoices,
   type SessionRowViewInput,
   type SessionsSnapshotView,
   type WorkspaceRowView,
@@ -117,72 +118,6 @@ function idsOf(rows: readonly { readonly sessionId: string }[]): string[] {
 function keysOf(rows: readonly { readonly key: string }[]): string[] {
   return rows.map((row) => row.key)
 }
-
-describe('工作区选项与默认选择', () => {
-  it('选项 = 真实工作区（Host 顺序）+ 末尾一枚伪选项', () => {
-    const choices = workspaceChoices(
-      makeWorkspaces([
-        makeWorkspace('ws-a', PATH_A, [], 'Alpha'),
-        makeWorkspace('ws-b', PATH_B, [], 'Beta'),
-      ]),
-    )
-    expect(choices).toEqual([
-      { id: 'ws-a', kind: 'workspace', title: 'Alpha', path: PATH_A },
-      { id: 'ws-b', kind: 'workspace', title: 'Beta', path: PATH_B },
-      { id: UNASSIGNED_CHOICE, kind: 'unassigned', title: '', path: '' },
-    ])
-    // 没有任何真实工作区时伪选项仍然在：选中它时三个域各自给空态，选项不忽隐忽现。
-    expect(workspaceChoices(makeWorkspaces([]))).toEqual([
-      { id: UNASSIGNED_CHOICE, kind: 'unassigned', title: '', path: '' },
-    ])
-  })
-
-  it('默认选中最近使用的工作区：成员会话 max(updatedAt) 最大者（含已归档成员）', () => {
-    const workspaces = makeWorkspaces(
-      [
-        makeWorkspace('ws-a', PATH_A, ['a1', 'a-archived']),
-        makeWorkspace('ws-b', PATH_B, ['b1']),
-      ],
-      ['a-archived'],
-    )
-    const sessions = makeSessions({
-      a1: makeSession('A1', { updatedAt: 100 }),
-      // 归档不改变「这个工作区被用过」的事实：已归档成员也参与最近使用计算。
-      'a-archived': makeSession('A 归档', { updatedAt: 400 }),
-      b1: makeSession('B1', { updatedAt: 300 }),
-    })
-    expect(defaultWorkspaceChoice(workspaces, sessions)).toBe('ws-a')
-  })
-
-  it('最近使用同值或全为 0 时按 Host 顺序取第一个', () => {
-    const workspaces = makeWorkspaces([
-      makeWorkspace('ws-a', PATH_A, ['a1']),
-      makeWorkspace('ws-b', PATH_B, ['b1']),
-    ])
-    const tied = makeSessions({
-      a1: makeSession('A1', { updatedAt: 500 }),
-      b1: makeSession('B1', { updatedAt: 500 }),
-    })
-    expect(defaultWorkspaceChoice(workspaces, tied)).toBe('ws-a')
-
-    const zero = makeSessions({ a1: makeSession('A1'), b1: makeSession('B1') })
-    expect(defaultWorkspaceChoice(workspaces, zero)).toBe('ws-a')
-  })
-
-  it('没有工作区时回退伪选项；缺元数据的成员不参与最近使用计算', () => {
-    expect(defaultWorkspaceChoice(makeWorkspaces([]), makeSessions({}))).toBe(UNASSIGNED_CHOICE)
-
-    const workspaces = makeWorkspaces([
-      makeWorkspace('ws-a', PATH_A, ['ghost', 'a1']),
-      makeWorkspace('ws-b', PATH_B, ['b1']),
-    ])
-    const sessions = makeSessions({
-      a1: makeSession('A1', { updatedAt: 200 }),
-      b1: makeSession('B1', { updatedAt: 100 }),
-    })
-    expect(defaultWorkspaceChoice(workspaces, sessions)).toBe('ws-a')
-  })
-})
 
 describe('三域行集：活跃 / 已归档 / 已迁移', () => {
   it('活跃域：成员 ∩ Host 列表 − 归档集合 − 子代理，行序沿用 sessionIds', () => {

@@ -30,12 +30,16 @@ window.__ModuleLoader__.load({
 		let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 		_deepseek_ai_dsh_client_ui_primitives = __toESM(_deepseek_ai_dsh_client_ui_primitives, 1);
 		let react_jsx_runtime = require("react/jsx-runtime");
-		//#region src/compat/client-session.ts
+		//#region ../../tooling/client-kit/src/client-session.ts
 		/**
-		* The session the composed client is showing, when it can name one.
-		* @param sessions - the client `sessions` service, or whatever this
-		*   composition provided under that name. Absence is a supported state.
-		* @returns the session id, or `undefined` when no main view holds one.
+		* 读取当前会话 id。
+		*
+		* **每次动作现取**：`sessions` 服务可能晚于 `apply` 就绪；在 `apply` 期把服务或快照
+		* 闭包缓存下来，服务晚到时这条探测就永远读不到。
+		*
+		* @param sessions - 客户端 `sessions` 服务（消费方传 `ctx.get('sessions')` 的结果），或
+		*   组合里挂在这个名字下的任何值。缺席是受支持状态。
+		* @returns 当前会话 id；没有主视图持有的会话时为 `undefined`。
 		*/
 		function currentSessionIdOf(sessions) {
 			const snapshot = listSnapshotOf(sessions);
@@ -45,11 +49,12 @@ window.__ModuleLoader__.load({
 			return mainViewSessionId(snapshot.byId);
 		}
 		/**
-		* The list snapshot, when the service actually exposes one.
+		* 列表快照，仅当服务确实暴露了一个。
 		*
-		* `getSnapshot` is invoked as a method so a real store can read `this`.
-		* Extracting the function and calling it unbound drops that binding and
-		* yields `undefined` even when a session is selected.
+		* `getSnapshot` 以**方法**方式调用：真实 store 要读 `this`。把函数摘出来裸调会丢
+		* 绑定，即使会话已选中也返回 `undefined`（stt 原实现的既有教训，回归用例钉住）。
+		* @param sessions - 客户端 `sessions` 服务，或组合里挂在这个名字下的任何值。
+		* @returns 快照对象，或缺席 / 不可读时为 `undefined`。
 		*/
 		function listSnapshotOf(sessions) {
 			if (sessions === null || typeof sessions !== "object") return void 0;
@@ -67,25 +72,33 @@ window.__ModuleLoader__.load({
 			return snapshot;
 		}
 		/**
-		* The first catalog row retained by the main view.
+		* 目录里第一行被主视图持有的会话。
 		*
-		* Enumeration order is the catalog's insertion order, which is the order
-		* upstream's own main-binding projection scans. A row counts only while
-		* `retainedBy.mainView` is a positive number: zero, a missing source, and a
-		* non-numeric value are not a selection.
-		* @param byId - the catalog map, or anything else the snapshot happened to carry.
-		* @returns that row's session id.
+		* 一行只有在 `retainedBy.mainView` 是正数时才算选中：`0`、缺这个来源、非数值
+		* 都不是选择。
+		* @param byId - 目录映射，或快照里恰好携带的任何值。
+		* @returns 该行的会话 id；没有任何主视图持有的行时为 `undefined`。
 		*/
 		function mainViewSessionId(byId) {
 			if (byId === null || typeof byId !== "object") return void 0;
 			for (const [key, row] of Object.entries(byId)) {
 				if (!isMainViewRow(row)) continue;
-				const id = row.id;
-				if (typeof id === "string" && id !== "") return id;
-				if (key !== "") return key;
+				const id = rowIdOf(row, key);
+				if (id !== void 0) return id;
 			}
 		}
-		/** Whether one catalog value is a row the main view currently retains. */
+		/**
+		* 一行的会话 id：行上非空 `id` 优先，否则回退目录键。
+		* @param row - 目录值（调用方已确认是对象）。
+		* @param key - 目录里这一行的键。
+		* @returns 会话 id；两边都空时 `undefined`。
+		*/
+		function rowIdOf(row, key) {
+			const id = row.id;
+			if (typeof id === "string" && id !== "") return id;
+			return key !== "" ? key : void 0;
+		}
+		/** 某个目录值是不是主视图当前持有的一行。 */
 		function isMainViewRow(row) {
 			if (row === null || typeof row !== "object") return false;
 			const retainedBy = row.retainedBy;
@@ -4367,6 +4380,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			"panel.empty": "还没有附属工作目录。",
 			"panel.emptyHint": "添加后，Agent 可在同一会话中读写该目录，受限 shell 和终端同步生效。",
 			"panel.noSession": "当前没有活动会话",
+			"panel.noWorkspace": "尚未选择工作区",
 			"panel.loading": "正在读取…",
 			"panel.retry": "重试",
 			"panel.close": "关闭",
@@ -4428,6 +4442,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			"panel.empty": "No secondary working directories yet.",
 			"panel.emptyHint": "Once added, the agent can use the folder in this session, including confined shells and terminals.",
 			"panel.noSession": "No active session",
+			"panel.noWorkspace": "No workspace selected",
 			"panel.loading": "Loading…",
 			"panel.retry": "Retry",
 			"panel.close": "Close",
@@ -4988,12 +5003,19 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		* Since the unified workspace-config entry landed, the panel is a **section**
 		* (`workspace-config.section`) rather than a dialog (ADR-0013): the
 		* workspace-config holder owns the modal shell — mask, card, header, Escape,
-		* the focus trap and the close action — and declares the seat from its
+		* the focus trap and the dismissal action — and declares the seat from its
 		* `shell.overlay` registration. This module therefore renders only the body:
 		* `WorkspaceFoldersSection` has no overlay, no `role="dialog"`, no Escape/Tab
-		* handling and no close button. The seat's owner share (`close`) is accepted
-		* for contract symmetry but not used: this section has no whole-window
-		* navigation of its own, so closing stays the holder's business.
+		* handling and no dismissal button.
+		*
+		* The seat's owner share is the page-level workspace context (three states,
+		* {@link WorkspaceConfigWorkspaceContext}) and the page re-mounts the section
+		* whenever the selection changes, so this module never subscribes to it.
+		* `{kind:'workspace'}` passes the gate and the original body renders;
+		* `unassigned` / `none` render the `panel.noWorkspace` empty state and mount
+		* no request-issuing body at all (the page has no valid target). An absent
+		* share is the Files-tab form below and renders the original body unchanged —
+		* addressing stays session-derived either way, which is out of scope here.
 		*
 		* `WorkspaceFoldersLauncher` is the legacy Files-tab entry: on surfaces that
 		* still offer `sidebar.right.tab.files.actions` it expands the same body
@@ -5068,8 +5090,12 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		* The Files tab offers no modal shell of its own, and importing the holder's
 		* open bridge is exactly the runtime coupling D3 forbids — so the entry owns a
 		* local expansion state and renders the section inline. With the holder
-		* installed the dialog is the primary surface; this entry only keeps the
+		* installed the page is the primary surface; this entry only keeps the
 		* older `sidebar.right.tab.files.actions` surface usable on its own.
+		*
+		* It deliberately passes no owner share: there is no page and no selection in
+		* the tab, which is exactly the "absent share" form of the body (the original
+		* body, unchanged).
 		*/
 		function WorkspaceFoldersLauncher(props) {
 			const [expanded, setExpanded] = (0, react.useState)(false);
@@ -5088,12 +5114,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 						"aria-hidden": "true",
 						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconFolderClose, { size: 16 })
 					})
-				}), expanded ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(WorkspaceFoldersSection, {
-					...props,
-					close: () => {
-						setExpanded(false);
-					}
-				}) : null]
+				}), expanded ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(WorkspaceFoldersSection, { ...props }) : null]
 			});
 		}
 		function entryOf(root) {
@@ -5108,15 +5129,44 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			return `${root.ordinal}\u0000${root.id}\u0000${root.path}\u0000${root.addedAt}`;
 		}
 		/**
+		* The section entry: the page's selection decides whether a body is mounted
+		* at all.
+		*
+		* `{kind:'workspace'}` — and an absent share, which is the Files-tab launcher
+		* form — fall through to `WorkspaceFoldersBody`. `unassigned` / `none` render
+		* the `panel.noWorkspace` empty state instead: the page has no valid target,
+		* so the body and every request it would issue stay unmounted. This gate holds
+		* no state of its own, which is what lets the body below call hooks
+		* unconditionally — the body is a separate component, mounted only when the
+		* gate passes (the same split the other contributors use).
+		*/
+		function WorkspaceFoldersSection(props) {
+			const { workspace, t } = props;
+			if (workspace !== void 0 && workspace.kind !== "workspace") return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("section", {
+				className: "mrfw-body mrfw-sectionBody",
+				"aria-label": t("panel.title"),
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+					className: "mrfw-note",
+					children: t("panel.noWorkspace")
+				})
+			});
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(WorkspaceFoldersBody, { ...props });
+		}
+		/**
 		* The panel body: reads the view once per mount, then after every mutation.
+		* Mounted only through `WorkspaceFoldersSection`, so it always has a target.
 		*
 		* Two shapes travel back over the channel, and they are handled separately on
 		* purpose: every mutating endpoint answers with the whole refreshed view, while
 		* `reveal` answers with the path it revealed and leaves the list untouched
 		* (see `contract.ts`). Treating a reveal answer as a roots view is exactly the
 		* contract mismatch this split removes.
+		*
+		* The body's addressing is the current session, not the page's selection: the
+		* share only gates rendering here, and re-addressing the endpoints by workspace
+		* is a business change outside this one's scope.
 		*/
-		function WorkspaceFoldersSection(props) {
+		function WorkspaceFoldersBody(props) {
 			const { panel, t } = props;
 			const [state, setState] = (0, react.useState)({
 				view: void 0,
@@ -5462,6 +5512,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 											onClose: () => {
 												setMenuFor(void 0);
 											},
+											closeOnPointerLeave: true,
 											items: [{
 												id: "rename",
 												label: t("panel.rename"),
@@ -5484,7 +5535,6 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 											},
 											portal: true,
 											align: "end",
-											closeOnPointerLeave: true,
 											anchor: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
 												disabled: state.busy,
 												onClick: () => {

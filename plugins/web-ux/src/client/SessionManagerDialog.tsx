@@ -1,33 +1,49 @@
 /**
- * 会话管理分节：统一「工作区配置」弹窗里的第三项（`workspace-config.section`，order 30）。
+ * 会话管理分节：统一「工作区配置」页面里的第三项（`workspace-config.section`，order 30）。
  *
  * ## 座位与挂载形态
  *
- * 本文件不再注册任何 slot，也不拥有弹窗：`client/index.ts` 以贡献方统一形状把
- * {@link SessionManagerSection} 注册到 holder 声明的 `workspace-config.section` 上，由统一
- * 弹窗按 nav 选中项经 `renderSlot(..., { only })` 渲染。因此**五阶段状态机整体内联在分节
- * 里**（换的只是弹窗右栏的卡片主体），分节自身不渲染 `Modal`、不处理 Escape / 遮罩点击，
- * 关闭由座位 owner 份额提供（`close`，弹窗开合归 holder 所有）。
+ * 本文件不注册任何 slot，也不拥有页面：`client/index.ts` 以贡献方统一形状把
+ * {@link SessionManagerSection} 注册到 holder 声明的 `workspace-config.section` 上，由页面
+ * 按 nav 选中项经 `renderSlot(..., { only })` 渲染。因此**五阶段状态机整体内联在分节
+ * 里**（换的只是页面右栏的卡片主体），分节自身不渲染页面外壳、不处理导航与关闭：页面开合归
+ * 壳与宿主所有，分节除了「完成」把流程复位回 `select` 之外不参与任何关闭动作（Q7）。
+ *
+ * ## 工作区份额：纯数据三态（Q8 / Q9）
+ *
+ * holder 以 owner 份额 `{ workspace }` 传入页面级的当前选择，分节**不做节内选择**：
+ *
+ * | `workspace.kind` | 分节处置 |
+ * |---|---|
+ * | `workspace` | `choice = workspace.id`（真实工作区的行集） |
+ * | `unassigned` | `choice = UNASSIGNED_CHOICE`（孤儿归档 / 已迁移的行集） |
+ * | `none` | 空态 `manager.unavailable`（拿不到页面上下文，不发寻址请求） |
+ *
+ * 三态到行集寻址键只有一行映射，行集函数与选择状态机因此零改动。`choice` 同时是承载状态机
+ * 的子树的 `key`：**换工作区 = 重挂**（phase 回 `select`、选择集合清空，D14）——用挂载身份
+ * 表达重置，不需要用 effect 对齐 props，也不存在「`running` 中被切换」的半新半旧界面。
  *
  * ## 一个分节，五个阶段（D8 / D10）
  *
  * | phase | 主体 | 行内动作条 |
  * |---|---|---|
- * | `select` | 三 tab 列表 + 选择条 | `[取消]` + 该 tab 的动作按钮 |
+ * | `select` | 三 tab 列表 + 选择条 | 该 tab 的动作按钮（**没有取消按钮**：页面无关闭义务） |
  * | `confirm` | 摘要 / 被拒清单 / 恢复或删除警示 | `[返回]` + `[确认执行]` |
- * | `running` | `manager.running` | `[取消]`（禁用） |
- * | `done` | 结果计数 + 逐项失败 + warnings | `[关闭]` |
- * | `failed` | 失败码文案 + 宿主兜底 message | `[返回]` + `[关闭]` |
+ * | `running` | `manager.running` | 禁用态按钮（无 `onClick`：请求已发出，界面不撤销） |
+ * | `done` | 结果计数 + 逐项失败 + warnings | `[完成]`（`manager.finish`）→ 回 `select` |
+ * | `failed` | 失败码文案 + 宿主兜底 message | `[返回]` + `[完成]` → 回 `select` |
  *
- * 统一弹窗没有统一 footer（D10）：动作条随阶段变化，阶段知识只在本分节里，所以它作为
- * 正文末尾的行内动作条渲染，而不是塞进 holder 的壳。
+ * 页面没有统一 footer（D10）：动作条随阶段变化，阶段知识只在本分节里，所以它作为正文末尾的
+ * 行内动作条渲染，而不是塞进页面的壳。`done` / `failed` 是终点态，两者共用「完成 → 回
+ * `select`」这一个出口（Q7 落地）；`select` 是过程态，取消按钮原本只为关弹窗，随壳改页面
+ * 一并删除（D15）。
  *
- * ## 关闭语义（D16）
+ * ## 运行中与关闭（D16）
  *
- * `running` 阶段请求已经发出，界面不能撤销它——分节里的「取消」保持禁用；但**关闭不再被
- * 分节否决**：统一弹窗的关闭按钮 / Escape / 遮罩点击由 holder 直接执行 `open.close()`，
- * 不经过本分节的任何判断。请求在宿主侧继续完成，重新打开分节看列表即可验证结果。这条
- * 行为同时写进 README 与冒烟清单。
+ * `running` 阶段请求已经发出，界面不能撤销它：分节的「取消」保持禁用，且不再挂 `onClick`
+ * （禁用按钮本来就不会回调）。请求在宿主侧继续完成，回到 `select` 或重新进入分节看列表即可
+ * 验证结果；关闭页面、切换工作区（分节重挂）都不会中断宿主侧的请求，这条行为同时写进
+ * README 与冒烟清单。
  *
  * ## 数据面：判据全部在 model
  *
@@ -61,16 +77,11 @@
  *
  * ## 软降级（D9 / D18）
  *
- * `client` / `workspaces` / `sessions` 任一缺席 → 分节渲染 `manager.unavailable` 空态。
- * 旧壳里 `client === undefined` 是整颗浮层 `return null`；迁移后 null 等于右列一片空白，
- * 而 nav 仍高亮着「会话管理」，用户既无解释也无从重试——所以改成可见空态（D9）。
- *
- * ## A13：`Menu` 的 portal 在统一弹窗内
- *
- * 工作区选择器用 primitives 的 `Menu`，且默认 `portal: true`（列表渲染到 `document.body`，
- * 否则会被弹窗的滚动容器/遮罩裁剪）。A13 的验证路径：jsdom 按 role 查询不依赖 portal
- * 落点；真机走查菜单不被裁剪、Escape 先关菜单再关弹窗。失败时把
- * {@link WORKSPACE_MENU_PORTAL} 改成 `false` 即可单点退回原地渲染。
+ * `client` / `workspaces` / `sessions` 任一缺席，或 owner 份额是 `kind === 'none'`（页面拿
+ * 不到工作区上下文）→ 分节渲染 `manager.unavailable` 空态。旧壳里 `client === undefined`
+ * 是整颗浮层 `return null`；迁移后 null 等于右列一片空白，而 nav 仍高亮着「会话管理」，
+ * 用户既无解释也无从重试——所以改成可见空态（D9）。`none` 同理：与「未分配」不同，服务
+ * 或上下文没到位时不能展示孤儿行集（D5），因此连寻址请求也不发。
  *
  * @module dsh-plugin-web-ux/client/SessionManagerDialog
  */
@@ -79,15 +90,13 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactN
 import {
   Button,
   Checkbox,
-  IconChevronDownOutlineRegular,
   IconRefreshOutlineRegular,
-  Menu,
   SegmentedTabs,
   type SegmentedTab,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
-// 类型专用：统一「工作区配置」分节的 owner 份额（只有 `close`）。契约包不进 bundle，
-// 这里只消费类型（D-15）。
+// 类型专用：统一「工作区配置」分节的 owner 份额（纯数据 `{ workspace }`，三态见契约包）。
+// 契约包不进 bundle，这里只消费类型（D-15）。
 import type { WorkspaceConfigSectionOwnerProps } from '@dsh-plugins/contracts'
 import {
   MAX_BATCH_TARGETS,
@@ -109,7 +118,6 @@ import {
   allSelected,
   archivedRows,
   clearSelection,
-  defaultWorkspaceChoice,
   emptySelection,
   migratedRows,
   selectedCount,
@@ -119,7 +127,6 @@ import {
   selectionLimitReached,
   toggleSelection,
   unarchiveSelected,
-  workspaceChoices,
   type ManagerAction,
   type ManagerRow,
   type ManagerSelection,
@@ -132,20 +139,12 @@ import {
 import { NS, type Key } from './locales.ts'
 import css from './session-manager.module.css'
 
-/** 管理浮层在一次打开请求内的阶段（code-design ③.6 的阶段机）。 */
+/** 管理分节在一次流程内的阶段（code-design ③.6 的阶段机）。 */
 export type ManagerPhase = 'select' | 'confirm' | 'running' | 'done' | 'failed'
 
 /**
- * 工作区选择菜单是否用 portal 渲染（A13 的唯一开关）。
- *
- * 默认 `true`：统一弹窗的正文在滚动容器里，原地菜单会被裁剪。若真机验证发现它与弹窗的
- * 焦点/层级冲突（详见模块注释的验证路径），把它改成 `false` 即退回原地渲染。
- */
-export const WORKSPACE_MENU_PORTAL = true
-
-/**
- * 工作区选择器与三 tab 的 DOM id（tab ↔ panel 互指，`SegmentedTabs` 要求一一对应）。
- * 浮层同一时刻只有一个实例，常量足够，也便于用例按 id 断言可访问性关联。
+ * 三个域 tab 的 DOM id（tab ↔ panel 互指，`SegmentedTabs` 要求一一对应）。
+ * 分节同一时刻只有一个实例，常量足够，也便于用例按 id 断言可访问性关联。
  */
 const TAB_IDS: Readonly<Record<ManagerTab, { readonly tab: string; readonly panel: string }>> = {
   active: { tab: 'web-ux-manager-tab-active', panel: 'web-ux-manager-panel-active' },
@@ -207,7 +206,7 @@ export interface WorkspacesSource {
 
 /**
  * 会话列表快照的注入面（结构式声明）。`ctx.sessions`（`ISessions`）在结构上满足它；
- * 浮层只读快照，不使用 retain/open 等会话生命周期能力。
+ * 分节只读快照，不使用 retain/open 等会话生命周期能力。
  */
 export interface SessionsSource {
   /** 身份稳定的会话列表快照 + 订阅面。 */
@@ -237,8 +236,8 @@ export interface SessionManagerSectionInjected {
 }
 
 /**
- * 完整 props：分节座位的 owner 份额（`{ close }`，弹窗开合归 holder）+ 本命名空间的
- * `t` + 分节注入面。
+ * 完整 props：分节座位的 owner 份额（纯数据 `{ workspace }`，三态；页面开合与选择都归
+ * holder）+ 本命名空间的 `t` + 分节注入面。
  */
 export type SessionManagerSectionProps = WorkspaceConfigSectionOwnerProps
   & PropsLocale<typeof NS>
@@ -384,8 +383,10 @@ function useSessionsSnapshot(source: SessionsSource): SessionsSnapshotView {
   return useSyncExternalStore(subscribe, read, read)
 }
 
-/** 分节主体的 props：三个服务都已确定（外层已把缺席形态挡掉）。 */
+/** 分节主体的 props：三个服务都已确定（外层已把缺席形态挡掉），`choice` 已由份额解出。 */
 interface SessionManagerContentProps {
+  /** 行集寻址键：真实工作区 id 或 {@link UNASSIGNED_CHOICE}（分节从 owner 份额一行解出）。 */
+  readonly choice: WorkspaceChoiceId
   /** 通道客户端（确定可用）。 */
   readonly client: SessionManagerClient
   /** 工作区快照与归档/取消归档动作（确定可用）。 */
@@ -394,20 +395,19 @@ interface SessionManagerContentProps {
   readonly sessions: SessionsSource
   /** 本命名空间的翻译函数。 */
   readonly t: SessionManagerSectionProps['t']
-  /** 座位 owner 的关闭动作（关闭统一弹窗；弹窗开合归 holder）。 */
-  readonly close: () => void
 }
 
 /** 本文件里的 `t` 形状（从 props 派生，避免重复声明键域）。 */
 type Translate = SessionManagerSectionProps['t']
 
 /**
- * 会话管理分节：统一「工作区配置」弹窗右栏里的卡片主体。
+ * 会话管理分节：统一「工作区配置」页面右栏里的卡片主体。
  *
- * 三个服务任一缺席时渲染 `manager.unavailable` 空态而不是 `null`（D9）：新壳里 null 等于
- * 右列一片空白，nav 却高亮着本节。确定可用时交给 {@link SessionManagerContent} 持有五阶段
- * 状态机（hooks 只在服务齐全后调用，避免缺席 ↔ 就绪切换时 hooks 数量变化）。
- * @param props - 座位 owner 的 `close`、三个注入面与 `t`。
+ * 三个服务任一缺席、或 owner 份额是 `kind === 'none'` 时渲染 `manager.unavailable` 空态而
+ * 不是 `null`（D9）：页面里 null 等于右列一片空白，nav 却高亮着本节。确定可用时把份额一行
+ * 映射成行集寻址键，交给 {@link SessionManagerContent} 持有五阶段状态机（hooks 只在服务齐全
+ * 后调用，避免缺席 ↔ 就绪切换时 hooks 数量变化）；`key={choice}` 让换工作区 = 重挂。
+ * @param props - 三个注入面、owner 份额 `workspace` 与 `t`。
  * @returns 空态或完整管理面。
  */
 export function SessionManagerSection({
@@ -415,45 +415,51 @@ export function SessionManagerSection({
   workspaces,
   sessions,
   t,
-  close,
+  workspace,
 }: SessionManagerSectionProps): ReactNode {
-  if (client === undefined || workspaces === undefined || sessions === undefined) {
+  if (
+    client === undefined
+    || workspaces === undefined
+    || sessions === undefined
+    || workspace.kind === 'none'
+  ) {
     return (
       <div className={css.sectionBody}>
         <p className={css.empty}>{t('manager.unavailable')}</p>
       </div>
     )
   }
+  // 三态 → 行集寻址键的一行映射（Q8）：「未分配」用插件内部哨兵，真实工作区用 id；
+  // `none` 已在上面挡掉。行集函数与它们的既有测试因此零改动。
+  const choice: WorkspaceChoiceId = workspace.kind === 'workspace' ? workspace.id : UNASSIGNED_CHOICE
+  // `key={choice}`：换工作区即重挂整颗状态机——phase 回 `select`、选择集合清空（D14）。
   return (
     <SessionManagerContent
+      key={choice}
+      choice={choice}
       client={client}
       workspaces={workspaces}
       sessions={sessions}
       t={t}
-      close={close}
     />
   )
 }
 
 /**
- * 五阶段管理面本体：工作区选择 → 三 tab 列表 → 动作 →（预览）确认 → 执行 → 结果。
- * @param props - 三个注入面、座位 owner 的关闭动作与 `t`。
+ * 五阶段管理面本体：三 tab 列表 → 动作 →（预览）确认 → 执行 → 结果。工作区由页面份额决定，
+ * 本节只按 `choice` 取行集。
+ * @param props - 行集寻址键、三个注入面与 `t`。
  * @returns 分节正文（含正文末尾的行内动作条）。
  */
-function SessionManagerContent({ client, workspaces, sessions, t, close }: SessionManagerContentProps): ReactNode {
+function SessionManagerContent({ choice, client, workspaces, sessions, t }: SessionManagerContentProps): ReactNode {
   const workspacesSnapshot = useWorkspacesSnapshot(workspaces)
   const sessionsSnapshot = useSessionsSnapshot(sessions)
-  const choices = useMemo(() => workspaceChoices(workspacesSnapshot), [workspacesSnapshot])
 
   const [phase, setPhase] = useState<ManagerPhase>('select')
   const [tab, setTab] = useState<ManagerTab>('active')
-  const [choice, setChoice] = useState<WorkspaceChoiceId>(
-    () => defaultWorkspaceChoice(workspacesSnapshot, sessionsSnapshot),
-  )
   const [selection, setSelection] = useState<ManagerSelection>(emptySelection)
   // tab 2 的处置模式：默认迁移归档（与既有单会话删除一致），切换即丢弃上批预览。
   const [mode, setMode] = useState<DisposalMode>(DEFAULT_DISPOSAL_MODE)
-  const [menuOpen, setMenuOpen] = useState(false)
   const [pending, setPending] = useState<PendingBatch | null>(null)
   const [outcome, setOutcome] = useState<ManagerOutcome | null>(null)
   const [failure, setFailure] = useState<DeleteError | null>(null)
@@ -462,20 +468,6 @@ function SessionManagerContent({ client, workspaces, sessions, t, close }: Sessi
   const [listingError, setListingError] = useState<DeleteError | null>(null)
   const [listingToken, setListingToken] = useState(0)
   const listingLoaded = useRef(false)
-
-  // 默认工作区（最近使用优先）：快照若晚于浮层到达，第一次拿到非空列表时补选；选中的
-  // 工作区被删掉时回退到默认档——两种情况都不让选择框指向一个不存在的范围。
-  const defaultSettled = useRef(workspacesSnapshot.items.length > 0)
-  useEffect(() => {
-    if (!defaultSettled.current) {
-      if (workspacesSnapshot.items.length === 0) return
-      defaultSettled.current = true
-      setChoice(defaultWorkspaceChoice(workspacesSnapshot, sessionsSnapshot))
-      return
-    }
-    if (choices.some((item) => item.id === choice)) return
-    setChoice(defaultWorkspaceChoice(workspacesSnapshot, sessionsSnapshot))
-  }, [choices, choice, sessionsSnapshot, workspacesSnapshot])
 
   // 「已迁移」列表：首次进入该 tab 才向宿主拉取；点「刷新」与 purge/restore 成功后重发
   // （U2 不轮询）。拉取失败只影响本 tab，界面给可重试的失败文案，不落到整单 failed。
@@ -545,14 +537,6 @@ function SessionManagerContent({ client, workspaces, sessions, t, close }: Sessi
     return choice === UNASSIGNED_CHOICE ? t('manager.empty.unassigned') : t('manager.empty.migrated')
   })()
 
-  /** 选择框触发按钮上的文案：真实工作区标题（空标题回退路径）或伪选项名。 */
-  const currentChoice = choices.find((item) => item.id === choice)
-  const choiceLabel = currentChoice === undefined || currentChoice.kind === 'unassigned'
-    ? t('manager.workspace.unassigned')
-    : currentChoice.title === ''
-      ? currentChoice.path
-      : currentChoice.title
-
   const tabIds = TAB_IDS[tab]
   const tabItems: readonly [SegmentedTab<ManagerTab>, ...SegmentedTab<ManagerTab>[]] = [
     { value: 'active', label: t('manager.tab.active'), id: TAB_IDS.active.tab, panelId: TAB_IDS.active.panel },
@@ -560,7 +544,7 @@ function SessionManagerContent({ client, workspaces, sessions, t, close }: Sessi
     { value: 'migrated', label: t('manager.tab.migrated'), id: TAB_IDS.migrated.tab, panelId: TAB_IDS.migrated.panel },
   ]
 
-  /** 回到选择阶段并丢弃确认页与结果（工作区 / tab / 模式变化、`[返回]` 共用）。 */
+  /** 回到选择阶段并丢弃确认页与结果（tab / 模式变化、`[返回]` / `[完成]` 共用）。 */
   const resetToSelect = (): void => {
     setPhase('select')
     setPending(null)
@@ -570,23 +554,13 @@ function SessionManagerContent({ client, workspaces, sessions, t, close }: Sessi
 
   /**
    * 切 tab：运行中忽略；其余阶段切换等价于放弃当前确认/结果（阶段回 `select`）。
-   * 各 tab 的选择集合由 model 分别保存，切换不会丢另一边的勾选。
+   * 各 tab 的选择集合由 model 分别保存，切换不会丢另一边的勾选。换工作区不走这里——那由
+   * 分节的 `key={choice}` 整颗重挂表达（`choice` 是 props，本节无 setter）。
    * @param next - 目标 tab。
    */
   const changeTab = (next: ManagerTab): void => {
     if (phase === 'running') return
     setTab(next)
-    resetToSelect()
-  }
-
-  /**
-   * 选工作区：运行中忽略；选择变化即回 `select`（确认页的数字属于旧范围）。
-   * @param next - 目标工作区 id 或 {@link UNASSIGNED_CHOICE}。
-   */
-  const changeChoice = (next: WorkspaceChoiceId): void => {
-    setMenuOpen(false)
-    if (phase === 'running') return
-    setChoice(next)
     resetToSelect()
   }
 
@@ -810,12 +784,8 @@ function SessionManagerContent({ client, workspaces, sessions, t, close }: Sessi
 
   const footer = ((): ReactNode => {
     if (phase === 'select') {
-      return (
-        <>
-          <Button variant="outline" onClick={close}>{t('dialog.cancel')}</Button>
-          {actionButtons}
-        </>
-      )
+      // 过程态：页面没有关闭义务，取消按钮随弹窗壳一并删除（D15），只剩该 tab 的动作按钮。
+      return <>{actionButtons}</>
     }
     if (phase === 'confirm') {
       const runnable = pending !== null
@@ -835,61 +805,29 @@ function SessionManagerContent({ client, workspaces, sessions, t, close }: Sessi
       )
     }
     if (phase === 'running') {
-      // 请求已发出：取消不可用，界面留在原地报告结果（D8 / 既有删除对话框同策略）。
-      return <Button variant="outline" onClick={close} disabled>{t('dialog.cancel')}</Button>
+      // 请求已发出：取消不可用且不挂 `onClick`（禁用按钮本来就不会回调），界面留在原地
+      // 报告结果（D8 / 既有删除对话框同策略）。
+      return <Button variant="outline" disabled>{t('dialog.cancel')}</Button>
     }
     if (phase === 'done') {
-      return <Button variant="outline" onClick={close}>{t('manager.close')}</Button>
+      // 终点态统一出口：完成 = 丢弃结果面板、回 `select` 继续管理（页面本身不关闭）。
+      return <Button variant="outline" onClick={resetToSelect}>{t('manager.finish')}</Button>
     }
     return (
       <>
         <Button variant="outline" onClick={resetToSelect}>{t('manager.confirm.back')}</Button>
-        <Button variant="outline" onClick={close}>{t('manager.close')}</Button>
+        <Button variant="outline" onClick={resetToSelect}>{t('manager.finish')}</Button>
       </>
     )
   })()
 
   return (
     <div className={css.sectionBody}>
+      {/*
+        * 工作区由页面顶部的选择框决定（owner 份额 `workspace`），节内不再有选择器：工具栏
+        * 只剩三个域 tab。换工作区 = 分节重挂（`key={choice}`），这里不处理任何同步。
+        */}
       <div className={css.toolbar}>
-        {/*
-          * 工作区选择器：`Menu` 自带触发按钮的包装与键盘漫游，锚点是我们渲染的按钮
-          * （`aria-expanded` 由本地开合状态驱动）。`portal` 默认开启（A13，见模块注释），
-          * 冲突时改 `WORKSPACE_MENU_PORTAL` 一处即可退回原地渲染。
-          */}
-        <Menu
-          open={menuOpen}
-          anchor={(
-            <button
-              type="button"
-              className={css.workspaceButton}
-              aria-label={t('manager.workspace.label')}
-              aria-expanded={menuOpen}
-              disabled={phase === 'running'}
-              onClick={() => {
-                setMenuOpen((open) => !open)
-              }}
-            >
-              <IconChevronDownOutlineRegular />
-              <span className={css.workspaceName}>{choiceLabel}</span>
-            </button>
-          )}
-          items={choices.map((item) => ({
-            id: item.id,
-            // 工作区标题可能为空（手改 registry）：此时用项目路径，绝不给一行空菜单项。
-            label: item.kind === 'unassigned'
-              ? t('manager.workspace.unassigned')
-              : item.title === ''
-                ? item.path
-                : item.title,
-          }))}
-          selectedId={choice}
-          onSelect={changeChoice}
-          onClose={() => {
-            setMenuOpen(false)
-          }}
-          portal={WORKSPACE_MENU_PORTAL}
-        />
         <SegmentedTabs
           className={css.tabsRow}
           items={tabItems}
@@ -901,7 +839,7 @@ function SessionManagerContent({ client, workspaces, sessions, t, close }: Sessi
 
       {/*
         * 分节只有一个 tabpanel：tab / panel 通过常量 id 互指，切换只换 panel 内容。
-        * 阶段切换也发生在 panel 内，分节不叠第二个弹窗（D8 / D10）。
+        * 阶段切换也发生在 panel 内，分节不再叠第二个对话框（D8 / D10）。
         */}
       <div role="tabpanel" id={tabIds.panel} aria-labelledby={tabIds.tab}>
         {/*
@@ -1070,7 +1008,7 @@ function SessionManagerContent({ client, workspaces, sessions, t, close }: Sessi
         {phase === 'failed' && failure !== null && <FailurePanel failure={failure} t={t} />}
       </div>
 
-      {/* 行内动作条：统一弹窗没有统一 footer（D10），阶段动作跟着正文一起渲染。 */}
+      {/* 行内动作条：页面没有统一 footer（D10），阶段动作跟着正文一起渲染。 */}
       <div className={css.actions}>{footer}</div>
     </div>
   )

@@ -7,10 +7,11 @@
  * - **删除已归档会话**：两个软注册——侧栏行菜单项（`sidebar.workspaces.session.menu.item`，
  *   order 500，仅已归档行）与确认弹窗（`shell.overlay`，order 500）。两者通过插件内的
  *   删除请求 store 通信：slot 的 `inject.hooks` 只能由声明方提供，第三方 entry 无法新增；
- * - **会话管理**：作为统一「工作区配置」弹窗的一个**分节**贡献
- *   （`workspace-config.section`，order 30），由 holder 的 `shell.overlay` 统一弹窗渲染。
- *   分节只做三 tab / 五阶段的管理面本体，打开与关闭都由 holder 拥有；本包不再注册
- *   侧栏 footer 入口或独立浮层（旧的两条 entry 与打开桥已删除）；
+ * - **会话管理**：作为统一「工作区配置」**页面**的一个**分节**贡献
+ *   （`workspace-config.section`，order 30），由 holder 的页面在渲染时下传 owner 份额
+ *   `{ workspace }`——页面级三态工作区上下文（`{kind:'workspace'|'unassigned'|'none'}`），
+ *   纯数据、无回调。分节只做三 tab / 五阶段的管理面本体，页面开合与工作区选择都归
+ *   holder 拥有；本包不再注册侧栏 footer 入口或独立浮层（旧的两条 entry 与打开桥已删除）；
  * - **命令结果通知**：把浏览器本地 `command/executed` 事件桥进通知 store，并在
  *   `conversation.input.overlay`（order 10，官方命令弹层 order 1 之后）挂一张可关闭卡片。
  *
@@ -244,10 +245,10 @@ export function apply(ctx: ClientContext): void {
     }
   })
 
-  // 会话管理分节（统一「工作区配置」弹窗的第三项，order 30）。holder 在注册
-  // `shell.overlay` 时以 `children` 声明 `workspace-config.section`；本包的
-  // `slots.inject` 在座位就绪前只登记，就绪后由框架补跑。label 用 thunk：
-  // locale 切换时 nav 重新求值，不需要重注册。
+  // 会话管理分节（统一「工作区配置」页面的第三项，order 30）。holder 在注册 `main`
+  // 时以 `children` 声明 `workspace-config.section`，页面渲染时把当前选择作为 owner
+  // 份额 `{ workspace }` 下传；本包的 `slots.inject` 在座位就绪前只登记，就绪后由框架
+  // 补跑。label 用 thunk：locale 切换时 nav 重新求值，不需要重注册。
   const t = ctx.locale.bind(NS)
 
   ctx.slots.inject(SECTION_SEAT, () => {

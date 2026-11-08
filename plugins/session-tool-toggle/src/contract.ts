@@ -227,12 +227,12 @@ export interface DefaultsRequest {
  * `workspace` 端点的请求体：工作区级默认档读 / 写（两种寻址形态，strict）。
  *
  * 恰好出现 `sessionId` / `workspacePath` 之一：前者由宿主解析会话 cwd 的归属，后者用于
- * footer 下拉切换（只接受已登记工作区的规范路径）。`action` 缺省 = `read`。
+ * 页面统一选择框（只接受已登记工作区的规范路径）。`action` 缺省 = `read`。
  */
 export interface WorkspaceRequest {
   /** 形态 A：按会话寻址（面板分区、footer 默认项）。 */
   readonly sessionId?: string
-  /** 形态 B：按工作区规范路径寻址（footer 下拉切换、未来的上游座位）。 */
+  /** 形态 B：按工作区规范路径寻址（holder 页面的统一选择框）。 */
   readonly workspacePath?: string
   /** 动作；缺省 = `read`。 */
   readonly action?: WorkspaceAction

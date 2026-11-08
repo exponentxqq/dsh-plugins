@@ -382,10 +382,8 @@ window.__ModuleLoader__.load({
 		  "manager.action": "\u4F1A\u8BDD\u7BA1\u7406",
 		  "manager.title": "\u4F1A\u8BDD\u7BA1\u7406",
 		  "manager.description": "\u6309\u5DE5\u4F5C\u533A\u6279\u91CF\u7BA1\u7406\u4F1A\u8BDD\uFF1A\u5F52\u6863\u6D3B\u8DC3\u4F1A\u8BDD\u3001\u5904\u7F6E\u5DF2\u5F52\u6863\u4F1A\u8BDD\u3001\u6E05\u7406\u6216\u6062\u590D\u5DF2\u8FC1\u79FB\u5230\u5F52\u6863\u76EE\u5F55\u7684\u65E5\u5FD7\u3002",
-		  "manager.close": "\u5173\u95ED",
+		  "manager.finish": "\u5B8C\u6210",
 		  "manager.unavailable": "\u4F1A\u8BDD\u7BA1\u7406\u4F9D\u8D56\u7684\u5DE5\u4F5C\u533A\u6216\u4F1A\u8BDD\u670D\u52A1\u5C1A\u672A\u5C31\u7EEA\uFF1B\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002",
-		  "manager.workspace.label": "\u5DE5\u4F5C\u533A",
-		  "manager.workspace.unassigned": "\u672A\u5339\u914D\u5DE5\u4F5C\u533A\u7684\u5F52\u6863",
 		  "manager.workspace.empty": "\u8FD8\u6CA1\u6709\u4EFB\u4F55\u5DE5\u4F5C\u533A\u3002",
 		  "manager.tab.active": "\u6D3B\u8DC3",
 		  "manager.tab.archived": "\u5DF2\u5F52\u6863",
@@ -492,10 +490,8 @@ window.__ModuleLoader__.load({
 		  "manager.action": "Session manager",
 		  "manager.title": "Session manager",
 		  "manager.description": "Manage sessions per workspace: archive active sessions, dispose of archived sessions, and clean up or restore logs migrated to the archive directory.",
-		  "manager.close": "Close",
+		  "manager.finish": "Done",
 		  "manager.unavailable": "The workspace or session service that session management depends on is not ready yet; try again shortly.",
-		  "manager.workspace.label": "Workspace",
-		  "manager.workspace.unassigned": "Archives with no matching workspace",
 		  "manager.workspace.empty": "There are no workspaces yet.",
 		  "manager.tab.active": "Active",
 		  "manager.tab.archived": "Archived",
@@ -1111,32 +1107,6 @@ window.__ModuleLoader__.load({
 		    migrated: tab === "migrated" ? next : selection.migrated
 		  };
 		}
-		function workspaceChoices(workspaces) {
-		  const choices = workspaces.items.map((workspace) => ({
-		    id: workspace.workspaceId,
-		    kind: "workspace",
-		    title: workspace.title,
-		    path: workspace.path
-		  }));
-		  choices.push({ id: UNASSIGNED_CHOICE, kind: "unassigned", title: "", path: "" });
-		  return choices;
-		}
-		function defaultWorkspaceChoice(workspaces, sessions) {
-		  let best;
-		  let bestAt = -1;
-		  for (const workspace of workspaces.items) {
-		    let lastUsed = 0;
-		    for (const sessionId of workspace.sessionIds) {
-		      const summary = sessions.byId[sessionId];
-		      if (summary !== void 0 && summary.updatedAt > lastUsed) lastUsed = summary.updatedAt;
-		    }
-		    if (lastUsed > bestAt) {
-		      best = workspace;
-		      bestAt = lastUsed;
-		    }
-		  }
-		  return best?.workspaceId ?? UNASSIGNED_CHOICE;
-		}
 		function entryKeyOf(tab, id, projectDir) {
 		  return tab === "migrated" ? `${tab}:${projectDir ?? ""}/${id}` : `${tab}:${id}`;
 		}
@@ -1291,7 +1261,6 @@ window.__ModuleLoader__.load({
 
 		// src/client/SessionManagerDialog.tsx
 		var import_jsx_runtime5 = require("react/jsx-runtime");
-		var WORKSPACE_MENU_PORTAL = true;
 		var TAB_IDS = {
 		  active: { tab: "web-ux-manager-tab-active", panel: "web-ux-manager-panel-active" },
 		  archived: { tab: "web-ux-manager-tab-archived", panel: "web-ux-manager-panel-archived" },
@@ -1354,34 +1323,31 @@ window.__ModuleLoader__.load({
 		  workspaces,
 		  sessions,
 		  t,
-		  close
+		  workspace
 		}) {
-		  if (client === void 0 || workspaces === void 0 || sessions === void 0) {
+		  if (client === void 0 || workspaces === void 0 || sessions === void 0 || workspace.kind === "none") {
 		    return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: session_manager_default.sectionBody, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: session_manager_default.empty, children: t("manager.unavailable") }) });
 		  }
+		  const choice = workspace.kind === "workspace" ? workspace.id : UNASSIGNED_CHOICE;
 		  return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
 		    SessionManagerContent,
 		    {
+		      choice,
 		      client,
 		      workspaces,
 		      sessions,
-		      t,
-		      close
-		    }
+		      t
+		    },
+		    choice
 		  );
 		}
-		function SessionManagerContent({ client, workspaces, sessions, t, close }) {
+		function SessionManagerContent({ choice, client, workspaces, sessions, t }) {
 		  const workspacesSnapshot = useWorkspacesSnapshot(workspaces);
 		  const sessionsSnapshot = useSessionsSnapshot(sessions);
-		  const choices = (0, import_react5.useMemo)(() => workspaceChoices(workspacesSnapshot), [workspacesSnapshot]);
 		  const [phase, setPhase] = (0, import_react5.useState)("select");
 		  const [tab, setTab] = (0, import_react5.useState)("active");
-		  const [choice, setChoice] = (0, import_react5.useState)(
-		    () => defaultWorkspaceChoice(workspacesSnapshot, sessionsSnapshot)
-		  );
 		  const [selection, setSelection] = (0, import_react5.useState)(emptySelection);
 		  const [mode, setMode] = (0, import_react5.useState)(DEFAULT_DISPOSAL_MODE);
-		  const [menuOpen, setMenuOpen] = (0, import_react5.useState)(false);
 		  const [pending, setPending] = (0, import_react5.useState)(null);
 		  const [outcome, setOutcome] = (0, import_react5.useState)(null);
 		  const [failure, setFailure] = (0, import_react5.useState)(null);
@@ -1390,17 +1356,6 @@ window.__ModuleLoader__.load({
 		  const [listingError, setListingError] = (0, import_react5.useState)(null);
 		  const [listingToken, setListingToken] = (0, import_react5.useState)(0);
 		  const listingLoaded = (0, import_react5.useRef)(false);
-		  const defaultSettled = (0, import_react5.useRef)(workspacesSnapshot.items.length > 0);
-		  (0, import_react5.useEffect)(() => {
-		    if (!defaultSettled.current) {
-		      if (workspacesSnapshot.items.length === 0) return;
-		      defaultSettled.current = true;
-		      setChoice(defaultWorkspaceChoice(workspacesSnapshot, sessionsSnapshot));
-		      return;
-		    }
-		    if (choices.some((item) => item.id === choice)) return;
-		    setChoice(defaultWorkspaceChoice(workspacesSnapshot, sessionsSnapshot));
-		  }, [choices, choice, sessionsSnapshot, workspacesSnapshot]);
 		  (0, import_react5.useEffect)(() => {
 		    if (tab !== "migrated" || listingLoaded.current) return;
 		    let cancelled = false;
@@ -1450,8 +1405,6 @@ window.__ModuleLoader__.load({
 		    }
 		    return choice === UNASSIGNED_CHOICE ? t("manager.empty.unassigned") : t("manager.empty.migrated");
 		  })();
-		  const currentChoice = choices.find((item) => item.id === choice);
-		  const choiceLabel = currentChoice === void 0 || currentChoice.kind === "unassigned" ? t("manager.workspace.unassigned") : currentChoice.title === "" ? currentChoice.path : currentChoice.title;
 		  const tabIds = TAB_IDS[tab];
 		  const tabItems = [
 		    { value: "active", label: t("manager.tab.active"), id: TAB_IDS.active.tab, panelId: TAB_IDS.active.panel },
@@ -1467,12 +1420,6 @@ window.__ModuleLoader__.load({
 		  const changeTab = (next) => {
 		    if (phase === "running") return;
 		    setTab(next);
-		    resetToSelect();
-		  };
-		  const changeChoice = (next) => {
-		    setMenuOpen(false);
-		    if (phase === "running") return;
-		    setChoice(next);
 		    resetToSelect();
 		  };
 		  const changeMode = (next) => {
@@ -1633,10 +1580,7 @@ window.__ModuleLoader__.load({
 		  });
 		  const footer = (() => {
 		    if (phase === "select") {
-		      return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
-		        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_dsh_client_ui_primitives3.Button, { variant: "outline", onClick: close, children: t("dialog.cancel") }),
-		        actionButtons
-		      ] });
+		      return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_jsx_runtime5.Fragment, { children: actionButtons });
 		    }
 		    if (phase === "confirm") {
 		      const runnable = pending !== null && !(pending.kind === "dispose" && acceptedIdsOf(pending).length === 0);
@@ -1655,63 +1599,27 @@ window.__ModuleLoader__.load({
 		      ] });
 		    }
 		    if (phase === "running") {
-		      return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_dsh_client_ui_primitives3.Button, { variant: "outline", onClick: close, disabled: true, children: t("dialog.cancel") });
+		      return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_dsh_client_ui_primitives3.Button, { variant: "outline", disabled: true, children: t("dialog.cancel") });
 		    }
 		    if (phase === "done") {
-		      return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_dsh_client_ui_primitives3.Button, { variant: "outline", onClick: close, children: t("manager.close") });
+		      return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_dsh_client_ui_primitives3.Button, { variant: "outline", onClick: resetToSelect, children: t("manager.finish") });
 		    }
 		    return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
 		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_dsh_client_ui_primitives3.Button, { variant: "outline", onClick: resetToSelect, children: t("manager.confirm.back") }),
-		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_dsh_client_ui_primitives3.Button, { variant: "outline", onClick: close, children: t("manager.close") })
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_dsh_client_ui_primitives3.Button, { variant: "outline", onClick: resetToSelect, children: t("manager.finish") })
 		    ] });
 		  })();
 		  return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: session_manager_default.sectionBody, children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: session_manager_default.toolbar, children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
-		        import_dsh_client_ui_primitives3.Menu,
-		        {
-		          open: menuOpen,
-		          anchor: /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
-		            "button",
-		            {
-		              type: "button",
-		              className: session_manager_default.workspaceButton,
-		              "aria-label": t("manager.workspace.label"),
-		              "aria-expanded": menuOpen,
-		              disabled: phase === "running",
-		              onClick: () => {
-		                setMenuOpen((open) => !open);
-		              },
-		              children: [
-		                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_dsh_client_ui_primitives3.IconChevronDownOutlineRegular, {}),
-		                /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: session_manager_default.workspaceName, children: choiceLabel })
-		              ]
-		            }
-		          ),
-		          items: choices.map((item) => ({
-		            id: item.id,
-		            // 工作区标题可能为空（手改 registry）：此时用项目路径，绝不给一行空菜单项。
-		            label: item.kind === "unassigned" ? t("manager.workspace.unassigned") : item.title === "" ? item.path : item.title
-		          })),
-		          selectedId: choice,
-		          onSelect: changeChoice,
-		          onClose: () => {
-		            setMenuOpen(false);
-		          },
-		          portal: WORKSPACE_MENU_PORTAL
-		        }
-		      ),
-		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
-		        import_dsh_client_ui_primitives3.SegmentedTabs,
-		        {
-		          className: session_manager_default.tabsRow,
-		          items: tabItems,
-		          value: tab,
-		          onChange: changeTab,
-		          label: t("manager.tabs.label")
-		        }
-		      )
-		    ] }),
+		    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: session_manager_default.toolbar, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		      import_dsh_client_ui_primitives3.SegmentedTabs,
+		      {
+		        className: session_manager_default.tabsRow,
+		        items: tabItems,
+		        value: tab,
+		        onChange: changeTab,
+		        label: t("manager.tabs.label")
+		      }
+		    ) }),
 		    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { role: "tabpanel", id: tabIds.panel, "aria-labelledby": tabIds.tab, children: [
 		      tab === "archived" && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("fieldset", { className: session_manager_default.modes, disabled: phase === "running", children: [
 		        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("legend", { children: t("dialog.mode.legend") }),

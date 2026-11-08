@@ -125,9 +125,9 @@ const REQUIRED_KEYS: readonly Key[] = [
   'skill.switchLabel',
   'skill.effective',
   'skill.intentOnly',
-  // 工作区默认档（设计 §3.4 / C2；面板分区与侧栏对话框共用同一组键）
+  // 工作区默认档（设计 §3.4 / C2；面板分区与页面分节共用同一组键）
   'workspace.title',
-  'workspace.select',
+  'workspace.noTarget',
   'workspace.refresh',
   'workspace.loading',
   'workspace.unavailable',

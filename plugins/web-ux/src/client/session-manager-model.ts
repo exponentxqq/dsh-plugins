@@ -1,10 +1,10 @@
 /**
- * 会话管理浮层的纯派生模型：把三份 Plain 快照（工作区、会话列表、已迁移列表）投影成
- * 三个会话域的行集，并提供工作区选项、选择操作与动作输入。
+ * 会话管理分节的纯派生模型：把三份 Plain 快照（工作区、会话列表、已迁移列表）投影成
+ * 三个会话域的行集，并提供选择操作与动作输入。
  *
  * ## 为什么单独成模块
  *
- * 管理浮层的**全部判据**集中在这里，组件只负责把派生结果画出来（code-design ③.6）：
+ * 管理面的**全部判据**集中在这里，组件只负责把派生结果画出来（code-design ③.6）：
  *
  * - **子代理过滤**（D14 / A14）：活跃域与已归档域都不出现 `origin === 'subagent'`
  *   的行——侧栏本来就不显示子代理，管理面出现它们会和「删除父会话级联」的既有语义
@@ -19,6 +19,14 @@
  * - **运行中置灰**（D15）：`running` 行保留在列表里（用户要能看到），但
  *   `selectable === false`，全选与动作输入都会跳过它；服务端拒绝仍是竞态兜底。
  *
+ * ## 页面级工作区选择不在这里
+ *
+ * 「候选清单 / 默认档 / 三态编解码」归 holder：统一选择框由
+ * `@dsh-plugins/workspace-config` 的页面渲染，投影在它的 `workspace-choice.ts`
+ * （`pickerItems` / `defaultSelection` / `selectionKeyOf` 一族）。本模块只接一个 **id**
+ * ——真实工作区 id 或 {@link UNASSIGNED_CHOICE}——据此投影行集，不再造选项、不猜默认
+ * 工作区；页面下传的三态值到 id 的映射由分节完成。
+ *
  * ## 纯度
  *
  * 本模块不 import React、cordis、locale、connection 或任何 store：输入全是 Plain
@@ -28,8 +36,8 @@
  * 正推匹配）。
  *
  * 本地化文案不在这里：行里的 `title` 可能是空串（视图用 `manager.untitled` 兜底），
- * 伪选项没有文案（视图用 `manager.workspace.unassigned`），`running` / `blank` 只是
- * 标记（视图渲染 `manager.badge.*`）。
+ * 伪选项没有文案（空态文案由分节给），`running` / `blank` 只是标记（视图渲染
+ * `manager.badge.*`）。
  *
  * ## 行序
  *
@@ -57,14 +65,15 @@ export const MANAGER_TABS = ['active', 'archived', 'migrated'] as const
 export type ManagerTab = (typeof MANAGER_TABS)[number]
 
 /**
- * 「未匹配工作区」伪选项的 id。
+ * 「未分配」伪选项的 id（本插件内部哨兵，不进座位契约）。
  *
- * 真实工作区 id 是上游生成的 uuid，不会与这个字面量冲突；选择框用同一个 `id`
- * 空间承载「真实工作区」与「伪选项」，`Menu` 之类的单值选择组件因此不需要额外状态。
+ * 真实工作区 id 是上游生成的 uuid，不会与这个字面量冲突，所以行集函数只用一个 `id`
+ * 空间就能同时表达「真实工作区」与「未分配」。页面级选择框归 holder（三态值 + 行 key），
+ * 这里只承接分节映射下来的 id。
  */
 export const UNASSIGNED_CHOICE = 'unassigned'
 
-/** 工作区选择框的取值：真实工作区 id，或 {@link UNASSIGNED_CHOICE}。 */
+/** 行集函数的取值空间：真实工作区 id，或 {@link UNASSIGNED_CHOICE}。 */
 export type WorkspaceChoiceId = string
 
 /**
@@ -116,18 +125,6 @@ export interface SessionsSnapshotView {
   readonly ids: readonly string[]
   /** 行元数据；查不到（快照漂移）的行由派生函数跳过。 */
   readonly byId: Readonly<Record<string, SessionRowViewInput | undefined>>
-}
-
-/** 工作区选择框的一项。 */
-export interface ManagerWorkspaceChoice {
-  /** 取值：真实工作区 id 或 {@link UNASSIGNED_CHOICE}。 */
-  readonly id: WorkspaceChoiceId
-  /** 真实工作区还是「未匹配工作区」伪选项。 */
-  readonly kind: 'workspace' | 'unassigned'
-  /** 真实工作区的显示标题；伪选项为空串（视图用 `manager.workspace.unassigned`）。 */
-  readonly title: string
-  /** 真实工作区的项目目录；伪选项为空串。 */
-  readonly path: string
 }
 
 /** 活跃 / 已归档域的一行。 */
@@ -314,55 +311,6 @@ function withTabSelection(
 }
 
 /**
- * 工作区选择框的选项：全部真实工作区（Host 顺序）+ 末尾一枚「未匹配工作区」伪选项。
- *
- * 伪选项恒在（spec：选择框 SHALL 提供真实工作区列表 + 一枚伪选项），即使当前没有
- * 孤儿条目——选中它时三个域各自给空态，而不是让选项忽隐忽现。
- * @param workspaces - 工作区快照投影。
- * @returns 选项列表（伪选项最后）。
- */
-export function workspaceChoices(workspaces: WorkspacesSnapshotView): readonly ManagerWorkspaceChoice[] {
-  const choices: ManagerWorkspaceChoice[] = workspaces.items.map((workspace) => ({
-    id: workspace.workspaceId,
-    kind: 'workspace',
-    title: workspace.title,
-    path: workspace.path,
-  }))
-  choices.push({ id: UNASSIGNED_CHOICE, kind: 'unassigned', title: '', path: '' })
-  return choices
-}
-
-/**
- * 打开浮层时的默认工作区（spec：默认选中一个工作区，最近使用优先）。
- *
- * 「最近使用」取该工作区成员会话里最大的 `updatedAt`（含已归档成员——归档不改变
- * 「这个工作区被用过」的事实）；全部为 0 时取 Host 顺序里的第一个工作区。没有任何
- * 工作区时回退到伪选项，否则浮层打开即无任何可管理范围。
- * @param workspaces - 工作区快照投影。
- * @param sessions - 会话列表快照投影。
- * @returns 默认选中的工作区 id 或 {@link UNASSIGNED_CHOICE}。
- */
-export function defaultWorkspaceChoice(
-  workspaces: WorkspacesSnapshotView,
-  sessions: SessionsSnapshotView,
-): WorkspaceChoiceId {
-  let best: WorkspaceRowView | undefined
-  let bestAt = -1
-  for (const workspace of workspaces.items) {
-    let lastUsed = 0
-    for (const sessionId of workspace.sessionIds) {
-      const summary = sessions.byId[sessionId]
-      if (summary !== undefined && summary.updatedAt > lastUsed) lastUsed = summary.updatedAt
-    }
-    if (lastUsed > bestAt) {
-      best = workspace
-      bestAt = lastUsed
-    }
-  }
-  return best?.workspaceId ?? UNASSIGNED_CHOICE
-}
-
-/**
  * 跨 tab 唯一的行标识。
  *
  * - 活跃 / 已归档域：`<tab>:<sessionId>`；
@@ -386,8 +334,9 @@ export function entryKeyOf(tab: ManagerTab, id: string, projectDir?: string): st
 /**
  * 活跃域行集：所选工作区的成员、未归档、Host 列表成员，滤掉子代理。
  *
- * 伪选项下恒为空（P1=A）；所选工作区已不在快照里（工作区被删）也返回空，由视图
- * 把选择回退到默认工作区。行序沿用 `workspace.sessionIds`，与侧栏分组顺序一致。
+ * 伪选项下恒为空（P1=A）；所选工作区已不在快照里（工作区被删）也返回空。失效回退
+ * （重解析默认值）由 holder 页面负责（Q10），本模块不猜默认工作区。行序沿用
+ * `workspace.sessionIds`，与侧栏分组顺序一致。
  * @param choice - 所选工作区 id 或 {@link UNASSIGNED_CHOICE}。
  * @param workspaces - 工作区快照投影。
  * @param sessions - 会话列表快照投影。

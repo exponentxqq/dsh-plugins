@@ -489,16 +489,10 @@ export function ToolPanelAction({
               <WorkspaceDefaultsEditor
                 workspace={state.workspace ?? null}
                 universe={universe}
-                choices={state.workspaceChoices}
                 variant="section"
                 saving={state.savingWorkspace}
                 saved={state.workspaceSaved}
                 failure={workspaceFailure}
-                // 分区形态不渲染下拉（作用域恒为本会话的工作区）；接上控制器让未来复用
-                // dialog 形态时不必改这一处。
-                onSelect={(key) => {
-                  void controller.updateWorkspace('read', undefined, key)
-                }}
                 onUpdate={(action, addresses) => {
                   void controller.updateWorkspace(action, addresses)
                 }}

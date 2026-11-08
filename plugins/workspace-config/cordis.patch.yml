@@ -8,12 +8,12 @@
 #   - 宿主半（`exports "."`）：**no-op 锚点**，只为让上面的 scan 找到包根并读到
 #     `dsh.client`（`src/index.ts` 只有 `inject: []` 与空 `apply`）；holder 不承载任何
 #     RPC 通道、不读写任何落盘文件、不新增配置键；
-#   - 浏览器半（`exports "./client"`）：侧栏 footer 的唯一入口（`sidebar.footer.action`，
-#     order 50）+ 统一模态弹窗（`shell.overlay`，order 530）+ 分节座位
-#     `workspace-config.section` 的声明与渲染。贡献方（multi-root-workspace /
+#   - 浏览器半（`exports "./client"`）：侧栏面板行（`sidebar.panellist`，id
+#     `workspace-config`、order 20）+ 主区域独立页面（`main` 注册，key 与行 id 同值）+
+#     分节座位 `workspace-config.section` 的声明与渲染。贡献方（multi-root-workspace /
 #     session-tool-toggle / web-ux）以 `slots.inject` 软注册分节，未安装 holder 时它们
 #     不报错也不残留入口。
-# 去掉裸包名行 = 浏览器半静默消失，footer 入口与统一弹窗一起不见。
+# 去掉裸包名行 = 浏览器半静默消失，侧栏面板行与独立页面一起不见。
 #
 # profile 级不带 `config:` 段：holder 刻意不提供任何配置键（已定结论「不做配置开关」）。
 - insert:

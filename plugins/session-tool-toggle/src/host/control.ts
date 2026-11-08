@@ -270,7 +270,7 @@ export interface DefaultsWriteReport {
  * 工作区档写目标的两种寻址形态（设计 D-11 / DQ4-A）。
  *
  * - `session`：面板分区与命令面用。宿主从会话 cwd 推键，**允许未登记目录**（`registered:false`）；
- * - `path`：footer 下拉与 `{workspacePath}` 请求用。只接受 `workspaceChoices()` 里的规范路径，
+ * - `path`：页面统一选择框与 `{workspacePath}` 请求用。只接受 `workspaceChoices()` 里的规范路径，
  *   拒绝任意路径探测（未登记目录不能借这个入口写进 `workspaces.json`）。
  */
 export type WorkspaceTarget =

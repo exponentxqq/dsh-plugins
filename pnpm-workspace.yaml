@@ -8,6 +8,7 @@
 packages:
   - "plugins/*"
   - "tooling/build-kit"
+  - "tooling/client-kit"
   - "tooling/contracts"
   - "tooling/host-kit"
   - "tooling/test-kit"

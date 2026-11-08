@@ -1,6 +1,6 @@
 # 仓级决策记录（Architecture Decision Records）
 
-本目录存放**仓级** ADR：约束整个 pnpm workspace 的结构性决定（`tooling/` 四包的边界、构建与类型消费形态、归属内核、守护门禁等），而不是某个插件的业务规格。插件业务规格仍以 `openspec/specs/` 为准。
+本目录存放**仓级** ADR：约束整个 pnpm workspace 的结构性决定（`tooling/` 五包的边界、构建与类型消费形态、归属内核、守护门禁等），而不是某个插件的业务规格。插件业务规格仍以 `openspec/specs/` 为准。
 
 ## 两套独立编号：引用 MUST 带路径
 
@@ -22,7 +22,7 @@
 
 | 编号 | 决策 | 状态 |
 | --- | --- | --- |
-| [ADR-0001](./ADR-0001-shared-build-and-source-kits.md) | 共享构建与源码包（`tooling/` 四包）的落地边界：构建期内联与单装安全、四包职责、被否方案；含 **D-15 contracts 权威转移对归档 D4 的修订记录**、**2026-11-07 测试接线底座修订（`/vitest` 工厂、vitest 仅 devDep）** | Accepted（2026-11-06） |
+| [ADR-0001](./ADR-0001-shared-build-and-source-kits.md) | 共享构建与源码包（`tooling/` 五包）的落地边界：构建期内联与单装安全、五包职责、被否方案；含 **D-15 contracts 权威转移对归档 D4 的修订记录**、**2026-11-07 测试接线底座修订（`/vitest` 工厂、vitest 仅 devDep）**、**2026-11-08 client-kit 入列修订** | Accepted（2026-11-06） |
 | [ADR-0002](./ADR-0002-attribution-kernel.md) | 归属内核：`#3`（`roots[0] ≠ primaryRoot`）值语义裁定、索引原子替换纪律、未命中策略保留在调用方 | Accepted（2026-11-06） |
 | [ADR-0003](./ADR-0003-doc-system-layers-and-gates.md) | 文档体系分层 ownership（入口/参考/证据/规格/决策/评估）、README 软骨架 4+5 节（七包统一）、证据两级制与行文法、门禁 6 查项与「规则在文档、脚本只机械执行」分工 | Accepted（2026-11-07） |
 

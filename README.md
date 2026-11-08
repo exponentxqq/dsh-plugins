@@ -5,11 +5,12 @@
 ## 目录结构
 
 ```
-pnpm-workspace.yaml   # workspace 定义（packages: plugins/* + 四个显式 tooling 包）、构建白名单与发布年龄豁免
+pnpm-workspace.yaml   # workspace 定义（packages: plugins/* + 五个显式 tooling 包）、构建白名单与发布年龄豁免
 package.json          # workspace 根：pnpm 版本 pin（packageManager / volta）与递归脚本
 tsconfig.plugin.base.json  # 除 multi-root 外的六个插件共用的根编译基准（各包 tsconfig 只 extends 它）
 tooling/build-kit/    # 构建期骨架：esbuild 宿主半 / 浏览器半 / CSS modules / 产物守卫（薄 build.mjs 的唯一实现）
 tooling/host-kit/     # 运行期共享内核：归属判定 / 目录监听 / 触发器 / 根枚举 / 日志（被 esbuild 内联进各包产物）
+tooling/client-kit/   # client 半共享运行时函数：当前会话探测 + 会话 updatedAt 投影（TS 源消费 + 构建期内联，双轨解析同 host-kit）
 tooling/test-kit/     # 测试夹具底座：ui-primitives 并集替身 / locale-parity 纯函数
 tooling/contracts/    # 座位契约纯类型包（workspace-config.section 的 Seat / SlotMap 条目形状 / order 权威值，仅编译期消费）
 templates/default/    # gen:plugin 默认模板素材（不是包；多模板约定见 templates/README.md）
@@ -65,7 +66,7 @@ docker exec dsh dsh --profile web --dump-config          # 校验组合可加载
 
 `dsh plugin add` 走 pnpm：把 git spec 写进 profile 的 `package.json` 依赖，并把声明了 `dsh.bundle` 的包追加进 `dsh.profile.bundles` 激活其 patch 层。移除用 `dsh plugin --profile web remove <包名>`。
 
-**四包同装**：统一工作区配置入口由 `dsh-plugin-workspace-config`（holder）与 `dsh-plugin-multi-root-workspace` / `dsh-plugin-session-tool-toggle` / `dsh-plugin-web-ux`（分节贡献方）四个包组成，须同一 tag 一并装入才有完整分节（Folders / 工作区默认档 / 会话管理）。这是 **BREAKING**（安装矩阵语义）：三枚旧 footer 入口已硬移除、不做共存探测或配置开关——只装贡献方不装 holder 时其分节入口不存在（multi-root 仍走 Files tab 入口与 `/workspace-folders`，session-tool-toggle 仍走会话头部入口与 `/tools`，web-ux 的会话管理 GUI 不可达为已知接受项）；升级时四包须一起到同一 tag——holder 是新包、需先 `add` 一次，其余三包改 tag 后重装。
+**四包同装**：统一工作区配置入口由 `dsh-plugin-workspace-config`（holder）与 `dsh-plugin-multi-root-workspace` / `dsh-plugin-session-tool-toggle` / `dsh-plugin-web-ux`（分节贡献方）四个包组成，须同一 tag 一并装入才有完整分节（Folders / 工作区默认档 / 会话管理）。holder 的入口形态是**侧栏面板行 + 独立页面**：`sidebar.panellist` 上一行「工作区配置」（id 与 `main` 页面 key 同一个值，order 20，排在官方面板之后），点击进入主区域页面——页面顶部是**页面级唯一的工作区选择框**，下方是分节 tab，正文一次只挂载选中的分节（holder 自身不再注册 footer 入口或 `shell.overlay` 浮层）。这是 **BREAKING**（安装矩阵语义）：三枚旧 footer 入口已硬移除、不做共存探测或配置开关——只装贡献方不装 holder 时其分节入口不存在（multi-root 仍走 Files tab 入口与 `/workspace-folders`，session-tool-toggle 仍走会话头部入口与 `/tools`，web-ux 的会话管理 GUI 不可达为已知接受项）；升级时四包须一起到同一 tag——holder 是新包、需先 `add` 一次，其余三包改 tag 后重装。
 
 两件必知的事：
 
@@ -95,7 +96,7 @@ git push origin main --tags   # 3. push（容器已挂载宿主 ~/.ssh，可直�
 | 插件 | 说明 |
 | --- | --- |
 | [`dsh-plugin-multi-root-workspace`](plugins/multi-root-workspace/README.md) | 把 Workspace 的可写范围从「一个主根」扩展为「主根 + N 个附加根」；不放宽沙箱档位，附加根与主根同权。上游 `cherrchen/dsh-plugin-multi-root-workspace` 的本地 fork，含附加根一次性播种与通用附加根 `commonRoots` 两个本地扩展。 |
-| [`dsh-plugin-workspace-config`](plugins/workspace-config/README.md) | 统一工作区配置入口（holder，双端，零业务逻辑）：侧栏 footer 只留一枚「工作区配置」入口（宽栏图标 + 文案、折叠轨图标，两形态均可见）+ 统一分节弹窗（声明 `workspace-config.section` 座位，导航 + 懒渲染 + 空态），把各插件自注册的 footer 入口收敛为一处；须与 `dsh-plugin-multi-root-workspace` / `dsh-plugin-session-tool-toggle` / `dsh-plugin-web-ux` **四包同装**才有完整分节（旧入口已硬移除，未装 holder 时 web-ux 会话管理 GUI 不可达）。 |
+| [`dsh-plugin-workspace-config`](plugins/workspace-config/README.md) | 统一工作区配置入口（holder，双端，零业务逻辑）：侧栏面板行（`sidebar.panellist`，id `workspace-config`、order 20）+ 主区域独立页面（`main` 注册、key 与面板行 id 同一值），页面顶部是页面级统一工作区选择框（候选 = 已登记工作区 + 末项「未分配」），下方分节 tab 一次只挂载选中分节（声明 `workspace-config.section` 座位，缺贡献方时少一节并保留空态），把各插件自注册的侧栏入口收敛为一处；须与 `dsh-plugin-multi-root-workspace` / `dsh-plugin-session-tool-toggle` / `dsh-plugin-web-ux` **四包同装**才有完整分节（旧入口已硬移除，未装 holder 时 web-ux 会话管理 GUI 不可达）。 |
 | [`dsh-plugin-web-ux`](plugins/web-ux/README.md) | Web 界面体验插件（双端）：状态行 provider 徽章 + 侧栏已归档会话的「删除会话」入口（两步预览确认，级联 subagent 日志、保留 fork 与共享附件）+ 命令结果通知卡（空会话首屏等结果无处渲染的场景，可展开全文，视图挂载即自隐）；宿主半承载 Connection RPC 通道 `/web-ux`，同时供 web 客户端模块扫描定位 `dsh.client` 声明。后续其他 Web 界面体验改动落在本包。 |
 | [`dsh-plugin-project-mcp`](plugins/project-mcp/README.md) | 项目级 MCP（host-only，任何 profile 可单独安装）：各工作区根 `.dsh/mcp/` 每文件一台服务器，自动发现、加载、热重载，按工作区隔离工具可见性，`/mcp-reload` 兜底；名字（资源服务器名与服务器指令段）与资源面隔离。自 `dsh-plugin-web-ux` 拆出，行为零变化。 |
 | [`dsh-plugin-user-commands`](plugins/user-commands/README.md) | 用户自定义斜杠命令（host-only，任何 profile 可单独安装）：`.md` 文件即命令，正文即 prompt 模板；三层来源（内置 / `$DSH_HOME/commands/` / 各工作区根 `.dsh/commands/`）按层遮蔽、会话级隔离、热刷新、`/commands-reload` 兜底，并内置 `/init`（生成或合并更新主根 `AGENTS.md`）与宿主侧只读的 `/inventory`（列出本会话实际可见的 MCP 服务器与可用 skill，零模型消息）。 |

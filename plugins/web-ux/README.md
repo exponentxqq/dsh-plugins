@@ -4,18 +4,18 @@ DSH Web GUI 插件（**双端**，`exports "."` 宿主 + `exports "./client"` �
 
 1. **Provider 徽章**——输入框下方状态行（`conversation.composer.dock`）追加一枚静态胶囊，以 `provider/model` 原始标识符显示当前会话所选模型路由；
 2. **删除已归档会话**——侧栏已归档会话行的 "..." 菜单入口 + 两步确认框，框内二选一：**移动到归档目录**（默认）或**永久删除**；宿主半的 Connection RPC 通道 `/web-ux` 承载其预览与执行两个端点（按请求里的处置模式分派）；
-3. **会话管理**——统一「工作区配置」弹窗的一个分节（`workspace-config.section`，order 30；holder 由独立插件 `dsh-plugin-workspace-config` 提供），按工作区批量管理活跃 / 已归档 / 已迁移三类会话：批量归档、批量删除（迁移归档 / 永久删除）、批量取消归档、物理删除归档条目与恢复；宿主通道因此从 2 个端点扩到 7 个；
+3. **会话管理**——统一「工作区配置」页面里的一个分节（`workspace-config.section`，order 30；holder 页面由独立插件 `dsh-plugin-workspace-config` 提供），按工作区（作用域由 holder 页面顶部的统一选择框决定）批量管理活跃 / 已归档 / 已迁移三类会话：批量归档、批量删除（迁移归档 / 永久删除）、批量取消归档、物理删除归档条目与恢复；宿主通道因此从 2 个端点扩到 7 个；
 4. **命令结果通知**——命令结果在当前视图无处渲染时（典型：空会话首屏），composer 上方弹一张可展开全文的临时通知卡。
 
 宿主半不再是空壳——它承载会话处置与归档目录管理的 Connection RPC 通道 `/web-ux`（单会话 2 端点 + 批量 / 已迁移 5 端点，共 7 个），同时继续充当 web 客户端模块扫描读取 `dsh.client` 声明的锚点。
 
-本包自 `split-project-mcp-plugin` 变更起**只做 Web 界面体验**——原先同包的「项目级 MCP」宿主能力已拆为独立插件 [`dsh-plugin-project-mcp`](../project-mcp/README.md)（纯宿主面，任何 profile 可单独安装）。自 `add-web-ux-archived-session-delete`（v1.2.0）起宿主半因「删除已归档会话」重新变成实载体：文件系统与工作区注册表只有宿主碰得到，这与拆出去的 MCP 能力互不相干；自 `web-ux-session-delete-archive-option` 起同一入口再补上「移动到归档目录」，宿主半因此多了一个可选配置键 `archiveRoot`（`src/config.ts`）；自 `web-ux-session-manager` 起再叠加「会话管理」——归档目录从「只能手工找回」变成可列出、可清理、可恢复（恢复只回到已归档态），通道扩到 7 个端点，配置面零增量；自 `unify-workspace-config-entry` 起它的 GUI 从侧栏底部入口 + 独立浮层迁为统一「工作区配置」弹窗的分节（需与 holder 同装）。后续其他 Web 界面体验优化仍落在本包。
+本包自 `split-project-mcp-plugin` 变更起**只做 Web 界面体验**——原先同包的「项目级 MCP」宿主能力已拆为独立插件 [`dsh-plugin-project-mcp`](../project-mcp/README.md)（纯宿主面，任何 profile 可单独安装）。自 `add-web-ux-archived-session-delete`（v1.2.0）起宿主半因「删除已归档会话」重新变成实载体：文件系统与工作区注册表只有宿主碰得到，这与拆出去的 MCP 能力互不相干；自 `web-ux-session-delete-archive-option` 起同一入口再补上「移动到归档目录」，宿主半因此多了一个可选配置键 `archiveRoot`（`src/config.ts`）；自 `web-ux-session-manager` 起再叠加「会话管理」——归档目录从「只能手工找回」变成可列出、可清理、可恢复（恢复只回到已归档态），通道扩到 7 个端点，配置面零增量；自 `unify-workspace-config-entry` 起它的 GUI 从侧栏底部入口 + 独立浮层迁为统一「工作区配置」的分节（需与 holder 同装）；自 `2026-11-08-workspace-config-page` 起 holder 的壳由弹窗换成「侧栏面板行 + 独立页面」，本分节随之只消费页面级选择框下传的 `{ workspace }` 份额（节内工作区 Menu 与「关闭」出口一并删除，终点态统一为「完成」）。后续其他 Web 界面体验优化仍落在本包。
 
 ## 定位
 
 端性：双端
 
-DSH Web GUI 的**界面体验包**：在官方 Web 壳上以座位软注册叠加四项体验——composer 状态行的 provider 徽章、侧栏已归档会话的删除入口（可移动到归档目录）、统一「工作区配置」弹窗里的会话管理分节、命令结果无处渲染时的兜底通知卡。宿主半承载 Connection RPC 通道 `/web-ux`（7 个端点），除此之外不提供其他宿主能力；只做 Web 界面体验。
+DSH Web GUI 的**界面体验包**：在官方 Web 壳上以座位软注册叠加四项体验——composer 状态行的 provider 徽章、侧栏已归档会话的删除入口（可移动到归档目录）、统一「工作区配置」页面里的会话管理分节、命令结果无处渲染时的兜底通知卡。宿主半承载 Connection RPC 通道 `/web-ux`（7 个端点），除此之外不提供其他宿主能力；只做 Web 界面体验。
 
 ## Provider 徽章
 
@@ -212,17 +212,17 @@ rm -f  ~/.dsh/storages/session_projcache/sessions/<会话id>.json
 
 ## 会话管理
 
-统一「工作区配置」弹窗里的一处分节：把活跃会话批量归档、把已归档会话批量删除或取消归档、把归档目录里的已迁移日志清理或恢复。它是既有单会话「...」菜单入口的**叠加**而不是替代（D17）——最短路径仍是行菜单，批量与归档目录管理才走这里。宿主通道因此从 2 个端点扩到 7 个，配置面零增量（归档根沿用既有 `archiveRoot`）。
+统一「工作区配置」页面里的一处分节：把活跃会话批量归档、把已归档会话批量删除或取消归档、把归档目录里的已迁移日志清理或恢复。它是既有单会话「...」菜单入口的**叠加**而不是替代（D17）——最短路径仍是行菜单，批量与归档目录管理才走这里。宿主通道因此从 2 个端点扩到 7 个，配置面零增量（归档根沿用既有 `archiveRoot`）。
 
 ### 入口与降级
 
-本包不再注册侧栏底部入口或独立浮层：会话管理以 `workspace-config.section`（order **30**，`id: web-ux-session-manager`，label thunk「会话管理 / Session manager」）软注册为统一弹窗的第三个分节，由 holder 的 `shell.overlay`（order 530）渲染。打开与关闭都由 holder 拥有——Escape、遮罩点击与关闭按钮直接关闭弹窗；分节里只有**行内动作条**（`[取消]` / `[返回]` / `[确认执行]` / `[关闭]`），不再有第二个 Modal。
+本包不再注册侧栏底部入口或独立浮层：会话管理以 `workspace-config.section`（order **30**，`id: web-ux-session-manager`，label thunk「会话管理 / Session manager」）软注册为统一「工作区配置」页面的第三个分节（tab），由 holder 的 `main` 页面按 nav 选中项经 `renderSlot(..., { only })` 渲染。打开与关闭都由 holder 拥有——切页面、切 tab 由宿主的 `main` 座位完成；分节除「完成」把流程复位回选择阶段外不参与任何关闭动作，本身只渲染**行内动作条**（`[返回]` / `[确认执行]` / `[完成]`），不存在第二个 Modal。
 
-**四包同装约定**：统一入口与分节座位由 [`dsh-plugin-workspace-config`](../workspace-config/README.md) 声明；未装 holder 时本分节的 `slots.inject` 永不触发，会话管理的 GUI 入口不存在（其余三项能力不受影响，`/web-ux` 通道照常）。建议与 [multi-root-workspace](../multi-root-workspace/README.md)、[session-tool-toggle](../session-tool-toggle/README.md) 及 holder 四个包一起安装。
+**四包同装约定**：统一入口（holder 的侧栏面板行 + 独立页面）与分节座位由 [`dsh-plugin-workspace-config`](../workspace-config/README.md) 声明；未装 holder 时本分节的 `slots.inject` 永不触发，会话管理的 GUI 入口不存在（其余三项能力不受影响，`/web-ux` 通道照常）。建议与 [multi-root-workspace](../multi-root-workspace/README.md)、[session-tool-toggle](../session-tool-toggle/README.md) 及 holder 四个包一起安装。
 
-分节是五阶段机（选择 → 确认 → 执行 → 完成 / 失败），阶段切换只换同一块右栏内容，不叠第二个弹窗；分节按 holder 的 `only` 过滤懒渲染，切走即卸载，重新选中或重开弹窗都会重置阶段、选择、预览与已迁移列表。
+分节是五阶段机（选择 → 确认 → 执行 → 完成 / 失败），阶段切换只换同一块分节内容，不叠第二个弹窗；分节按 holder 的 `only` 过滤懒渲染，切走即卸载，重新选中 tab、切换页面级工作区（分节随 `key` 重挂）或重进页面都会重置阶段、选择、预览与已迁移列表。
 
-**运行中关闭（D16）**：请求发出后行内「取消」保持禁用（请求无法撤销），但关闭不再被分节否决——holder 的关闭按钮 / Escape / 遮罩点击随时关闭弹窗，请求在宿主侧继续完成，重新打开分节看列表即可验证结果。
+**离开页面（D16）**：请求发出后 `running` 阶段的动作条保持禁用且不再挂 `onClick`（请求无法撤销），但离开页面不再被分节否决——切到侧栏别的面板、切走分节或重进页面都随时可以，请求在宿主侧继续完成，重新进入分节看列表即可验证结果。
 
 全部接触点软注册、服务在**渲染期**解析（理由同既有删除面：web 壳的工作区 / 会话服务晚于本插件 `apply` 就绪）：
 
@@ -236,11 +236,11 @@ rm -f  ~/.dsh/storages/session_projcache/sessions/<会话id>.json
 
 宿主通道 `/web-ux` 共 7 个端点：既有 `preview-delete` / `delete-session`，新增 `preview-delete-batch` / `delete-session-batch` / `list-migrated` / `delete-migrated` / `restore-migrated`；请求体仍走白名单严格校验（未知字段拒绝、必填处置模式、单批 ≤500、路径片段合法性）。
 
-一个工作区都没有时，选择器只剩伪选项，活跃域给「还没有任何工作区」空态。既有单会话「...」菜单入口与两步确认框**保留不动**，管理面与它互不替代。
+一个工作区都没有时，页面选择框只剩「未分配」一项（分节与页面共享同一个份额），活跃域给「还没有任何工作区」空态，已归档 / 已迁移域仍按未匹配集合枚举。既有单会话「...」菜单入口与两步确认框**保留不动**，管理面与它互不替代。
 
 ### 工作区与三个 tab
 
-进入分节（或重新打开统一弹窗）默认选中「最近使用」的工作区（该工作区成员会话里最大的 `updatedAt`；全部为 0 时取 Host 顺序第一个；没有任何工作区时回退到伪选项）。切换工作区、tab 或处置模式都会丢弃当前确认页与结果、回到选择阶段；各 tab 的选择集合分开保存，切 tab 不丢另一边的勾选。
+作用的工作区由 holder 页面的**统一选择框**决定（分节不再有节内选择），默认按 Q10 解析：最近使用（该工作区成员会话里最大的 `updatedAt`）> 当前会话所属工作区 > Host 顺序第一个；没有任何工作区时取「未分配」。切换工作区、tab 或处置模式都会丢弃当前确认页与结果、回到选择阶段（换工作区 = 分节重挂，由 `key` 驱动，D14）；各 tab 的选择集合分开保存，切 tab 不丢另一边的勾选。
 
 | tab | 行集 | 批量动作 |
 | --- | --- | --- |
@@ -252,7 +252,7 @@ rm -f  ~/.dsh/storages/session_projcache/sessions/<会话id>.json
 
 ### 伪选项：未匹配工作区
 
-工作区选择框末尾**恒有一枚**「未匹配工作区的归档」伪选项（即使当前没有无主条目，也不忽隐忽现）：
+holder 页面选择框的末项**恒为**「未分配」（伪选项：即使当前没有无主条目，也不忽隐忽现）。选中它时本分节枚举未匹配工作区的集合：
 
 - **已归档**：`archivedSessionIds` 中不属于任何工作区成员位的会话——典型是工作区被删后留下的孤儿归档。这些行没有工作区入口，但在伪选项下同样可删、可取消归档。
 - **已迁移**：`projectDir` 正推匹配不到任何工作区的归档条目；可删、可恢复。
@@ -276,10 +276,10 @@ rm -f  ~/.dsh/storages/session_projcache/sessions/<会话id>.json
 
 **在途互斥与结果**
 
-任一动作执行期间分节进入 `running`：动作按钮与选择条一起消失，同一时刻只有一个动作在飞；行内「取消」保持禁用（请求无法撤销），但 holder 的关闭按钮 / Escape / 遮罩点击可随时关闭弹窗——请求在宿主侧继续完成，重开分节看列表验证结果（D16）。完成后：
+任一动作执行期间分节进入 `running`：动作按钮与选择条一起消失，同一时刻只有一个动作在飞；动作条保持禁用且不再挂 `onClick`（请求无法撤销），但离开页面（切侧栏面板 / 切分节 tab / 重进页面）随时可以——请求在宿主侧继续完成，重进分节看列表验证结果（D16）。完成后：
 
 - **成功面板**给出计数（归档 / 取消归档 / 处置 / 永久删除 / 恢复）、逐项失败清单与 warnings；恢复成功**停在原 tab** 展示结果（不自动切走，P3=A），已迁移列表在 purge / restore 成功后自动重发一次。
-- **失败面板**给出失败码文案与宿主兜底 message；`[返回]` 回到选择阶段，`[关闭]` 退出。再次打开会重置阶段、选择与列表。
+- **失败面板**给出失败码文案与宿主兜底 message；`[返回]` 与 `[完成]` 都回到选择阶段（`manager.finish` → `resetToSelect`，终点态统一出口）。重进页面会重置阶段、选择与列表。
 
 ### 500 上限与分批操作
 
@@ -350,8 +350,8 @@ src/project-key.ts                    双端共享纯函数：projectKey 本地�
 src/delete-session.ts                 宿主处置流程：单会话与批量删除 / 迁移共用 DI 纯流程 + 文件操作工厂
 src/migrated.ts                       宿主已迁移域：枚举归档根、物理删除、恢复（两阶段；rename 优先、EXDEV 回退复制）
 src/client/                           浏览器半：provider 徽章 + 删除入口 / 确认框 + 会话管理分节 + 命令通知卡 + locale + CSS module
-src/client/session-manager-model.ts   管理面纯派生：工作区选项、三域行集、伪选项聚合、500 上限
-src/client/SessionManagerDialog.tsx   会话管理分节：五阶段机 + 三 tab + 工作区选择 + 批量动作（无 Modal 外壳）
+src/client/session-manager-model.ts   管理面纯派生：三域行集、伪选项聚合、500 上限（工作区选项与默认档已迁 holder 的 workspace-choice）
+src/client/SessionManagerDialog.tsx   会话管理分节：五阶段机 + 三 tab + 批量动作（作用工作区由页面级选择框经份额传入，无 Modal 外壳）
 src/client/session-manager.module.css 分节样式（复用 --dsw-alias-* 令牌）
 test/                                 单测：宿主 *.test.ts（node 环境）与浏览器 *.test.tsx（jsdom）
 ```
@@ -431,6 +431,11 @@ docker exec dsh dsh --profile web --dump-config | grep -A2 'id: web-ux'
 
 - **升级**：本批变更把会话管理的 GUI 从「侧栏底部入口 + 独立浮层」迁为统一「工作区配置」弹窗的分节：删除 `sidebar.footer.action` 与旧的 `shell.overlay`（order 520）两个 entry、`SessionManagerTrigger` 组件与插件内打开请求 store；新增 `workspace-config.section`（order 30）软注册。`dsh.client.inject` 因此收敛为 11 项（删 `dsh-client-ui-sidebar`），devDependencies 增加 `dsh-plugin-workspace-config`（仅类型，`workspace:*`）。**必须与 holder 四包同装**，否则会话管理没有 GUI 入口；`/web-ux` 七端点、宿主行为与 `archiveRoot` 配置零变化。
 - **回滚**：改指上一发布 tag 重装并重启即可（旧入口与旧浮层随旧版客户端回来）；本变更不迁移任何落盘数据、不改配置键，回滚无数据影响。
+
+### 版本迁移（工作区配置改独立页面）
+
+- **升级**：holder 的入口从「侧栏 footer 单入口 + `shell.overlay` 弹窗」换成「侧栏面板行（`sidebar.panellist`）+ `main` 独立页面」，本包的**分节注册面不变**（仍是 `workspace-config.section`、order 30），但 owner 份额从 `{ close }` 换成 `{ workspace }`：节内工作区 Menu、`WORKSPACE_MENU_PORTAL` 与「取消 / 关闭」按钮随之删除，`manager.close` 改为 `manager.finish`（完成），`manager.workspace.label` / `manager.workspace.unassigned` 两条文案出列（`manager.workspace.empty` 保留）；`session-manager-model.ts` 的工作区选项与默认档函数迁至 holder 的 `workspace-choice.ts`。`dsh.client.inject`、peer 范围、`/web-ux` 七端点与 `archiveRoot` 配置零变化。**必须与 holder（及另两个贡献方）同一发布 tag 同装**：旧版 holder 弹窗 ↔ 新版分节的 `close` 缺失组合不受支持（同 tag 安装是唯一受支持组合）。
+- **回滚**：改指上一发布 tag 重装并重启，分节随旧版 holder 的弹窗形态回来；本变更不迁移任何落盘数据、不改配置键，回滚无数据影响。
 
 ## 非目标（本版本）
 

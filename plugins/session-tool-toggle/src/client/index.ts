@@ -79,7 +79,6 @@ import type { WorkspaceDefaultsSectionProps } from './WorkspaceEntry.tsx'
 import type { ToolPanelActionInjected } from './ToolPanelAction.tsx'
 import { ToolPanelAction } from './ToolPanelAction.tsx'
 import { WorkspaceDefaultsSection } from './WorkspaceEntry.tsx'
-import { currentSessionIdOf } from './current-session.ts'
 // 类型专用 import：座位契约的 SlotMap 增补随 `./seats.ts` 进入本程序（D-15 之后权威在
 // `@dsh-plugins/contracts`）；`verbatimModuleSyntax` 下零产物，浏览器 bundle 不含契约包名。
 import { HEADER_SEAT, PANEL_ID, PANEL_ORDER, SECTION_ID, SECTION_ORDER, SECTION_SEAT } from './seats.ts'
@@ -112,11 +111,12 @@ const LOG_LABEL = 'session-tool-toggle'
  * 分节注册面交给组件的业务份额。
  *
  * `WorkspaceDefaultsSectionProps` 里剩下的部分由框架与座位 owner 提供：`t` 来自注册选项的
- * `locale: NS`（`PropsLocale` 合成），`close` 来自 `workspace-config.section` 的 owner
- * 份额（holder 弹窗注入；本分节没有整窗流程，不使用）。注入面的两个端口都**不缓存服务**：
- * 每次动作现取，与头部入口同一纪律（`connection` / `sessions` 都可能晚于 `apply` 就绪）。
+ * `locale: NS`（`PropsLocale` 合成），`workspace` 来自 `workspace-config.section` 的 owner
+ * 份额（holder 页面把工具栏选择框的当前值以纯数据上下文下传；本分节只读它，不再自己探测
+ * 会话、也不再自己选目标）。注入面唯一的端口也**不缓存服务**：每次动作现取，与头部入口
+ * 同一纪律（`connection` 可能晚于 `apply` 就绪）。
  */
-type WorkspaceDefaultsSectionInjected = Pick<WorkspaceDefaultsSectionProps, 'resolveClient' | 'currentSessionId'>
+type WorkspaceDefaultsSectionInjected = Pick<WorkspaceDefaultsSectionProps, 'resolveClient'>
 
 /**
  * 把 `window` 的 `focus` 事件接到一个回调上。
@@ -214,8 +214,6 @@ export function apply(ctx: ClientContext): void {
             // 复用头部入口的现取客户端：两个入口对 `connection` 是同一份纪律（同一 RPC 通道、
             // 同一宿主控制内核，因此与 `/tools` 读到的是同一份状态）。
             resolveClient: ports.resolveClient,
-            // 每次动作现取当前会话（`current-session.ts` 的两步探测，服务缺席返回 undefined）。
-            currentSessionId: () => currentSessionIdOf(ctx),
           }),
         },
         WorkspaceDefaultsSection,

@@ -1,0 +1,25 @@
+{
+  "name": "@dsh-plugins/client-kit",
+  "version": "0.0.0",
+  "private": true,
+  "description": "DSH client 半共享运行时函数包（当前会话探测 / 会话 updatedAt 投影）；以 TS 源供各插件内联，零运行时依赖、零 @deepseek-ai import",
+  "type": "module",
+  "exports": {
+    "./client-session": {
+      "types": "./src/client-session.ts",
+      "default": "./src/client-session.ts"
+    }
+  },
+  "scripts": {
+    "lint": "oxlint",
+    "typecheck": "tsc -p tsconfig.json --pretty false",
+    "test": "vitest run"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "oxlint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

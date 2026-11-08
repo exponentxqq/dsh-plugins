@@ -3,6 +3,11 @@
  * 产物契约断言（③.3 / ④ D5）；本文件保留包独有事实——座名字面量与出现次数、注入器、
  * `exports['./client'].types`、软插件基线范围（D2/D4/D13）。
  * `pnpm test` 之前必须先 `pnpm build`（`verify:all` 的顺序是 lint → typecheck → build → test）。
+ *
+ * **入口面换锚（2026-11-08）**：产品形态从「侧栏 footer 单入口 + 统一弹窗」换为「`main` 独立
+ * 页面 + `sidebar.panellist` 面板行（两侧共用同一面板 id）」，旧锚点（`sidebar.footer.action` /
+ * `shell.overlay` / 两个 entry id）随组件一并消失。因此本套件同时持有**正向**（新面在场）与
+ * **反向**（旧面不复活）两组断言：反向断言是这次换面的回归防线，不要因为「看起来像冗余」删掉。
  * @module dsh-plugin-workspace-config/test/bundle
  */
 
@@ -21,6 +26,11 @@ const ROOT = path.resolve(import.meta.dirname, '..')
 const PACKAGE_NAME = 'dsh-plugin-workspace-config'
 /** 浏览器 bundle 模块词（`CLIENT_EXTERNALS` 里实际被用的三项）；三份词集是独立证据，不共享常量（D5）。 */
 const CLIENT_EXTERNALS = ['@deepseek-ai/dsh-client-ui-primitives', 'react', 'react/jsx-runtime']
+/** 面板 id：`main` 的 `key` 与 `sidebar.panellist` 的 `id` 同值，宿主 `selectPanel(id)` 直接用它（Q6）。 */
+const PANEL_ID = 'workspace-config'
+/** 换面前的旧锚点：入口座位名、弹窗座位名与两个 entry id（只用于反向断言）。 */
+const LEGACY_ANCHORS = ['sidebar.footer.action', 'shell.overlay']
+const LEGACY_ENTRY_IDS = ['workspace-config-trigger', 'workspace-config-dialog']
 
 /** 包清单的形状（只取本套件断言到的字段）。 */
 interface Manifest {
@@ -52,13 +62,24 @@ describe('浏览器半产物', () => {
     expect(source).toContain('"workspace-config.section",')
   })
 
-  it('内联了两个宿主座位名与两个 entry id（footer 入口 + 统一弹窗）', () => {
+  it('内联了新入口面的两个座位名与同一个面板 id', () => {
     const source = readArtifact(ROOT, 'client.js')
 
-    expect(source).toContain('sidebar.footer.action')
-    expect(source).toContain('shell.overlay')
-    expect(source).toContain(JSON.stringify('workspace-config-trigger'))
-    expect(source).toContain(JSON.stringify('workspace-config-dialog'))
+    // 页面座位：`main`（keyed / root）；行座位：`sidebar.panellist`（list / root）。
+    expect(source).toContain(JSON.stringify('main'))
+    expect(source).toContain(JSON.stringify('sidebar.panellist'))
+    // 面板 id 是两个座位之间的唯一契约：写成别的字面量 = 行在、点开抛错（Q6）。
+    expect(source).toContain(JSON.stringify(PANEL_ID))
+  })
+
+  it('不含旧入口面：footer 单入口、overlay 弹窗与两个旧 entry id 都不再出现', () => {
+    const source = readArtifact(ROOT, 'client.js')
+    for (const anchor of LEGACY_ANCHORS) {
+      expect(source).not.toContain(anchor)
+    }
+    for (const entryId of LEGACY_ENTRY_IDS) {
+      expect(source).not.toContain(JSON.stringify(entryId))
+    }
   })
 
   it('不含三个贡献方包名：四包之间没有运行时反向依赖（D3）', () => {
@@ -68,14 +89,17 @@ describe('浏览器半产物', () => {
     }
   })
 
-  it('内联了弹窗壳与入口的关键文案键（翻译键随产物，文案在 locales.ts）', () => {
+  it('内联了页面壳的关键文案键（翻译键随产物，文案在 locales.ts）', () => {
     const source = readArtifact(ROOT, 'client.js')
-    for (const key of ['entry.label', 'dialog.title', 'dialog.close', 'nav.label', 'dialog.empty.title']) {
+    // 行列文案与页面壳文案是两个语义位（`entry.label` 给 sidebar.panellist 的 label thunk，
+    // `page.title` 给页面 `<h1>`），两者都要在产物里；弹窗期文案键（`dialog.*` / `nav.label`）
+    // 已随弹窗删除，这里不再断言。
+    for (const key of ['entry.label', 'page.title', 'page.empty.title', 'page.empty.hint', 'page.workspace.label']) {
       expect(source).toContain(key)
     }
   })
 
-  it('全部 CSS modules 内联为单个样式注入器（入口与弹窗共用 dialog.module.css）', () => {
+  it('全部 CSS modules 内联为单个样式注入器（页面与选择框共用 page.module.css）', () => {
     const source = readArtifact(ROOT, 'client.js')
     const injectors = source.match(/style\.setAttribute\((["'])data-dsh-css\1/g) ?? []
     expect(injectors).toHaveLength(1)
@@ -93,7 +117,8 @@ describe('宿主半产物', () => {
 
   it('不内联浏览器半（两端产物各自独立）', () => {
     const source = readArtifact(ROOT, 'index.js')
-    expect(source).not.toContain('WorkspaceConfigDialog')
+    // 浏览器半的组件名换成了页面（旧名 `WorkspaceConfigDialog` 已随弹窗删除）。
+    expect(source).not.toContain('WorkspaceConfigPage')
     expect(source).not.toContain('window.__ModuleLoader__')
   })
 })

@@ -1,43 +1,41 @@
 /**
- * 工作区默认档分节（统一「工作区配置」弹窗的贡献方组件）+ 它的状态机
- * （code-design §3.4 / ① 触达面 #37，原 footer 入口与自绘对话框在本次变更中拆除）。
+ * 工作区默认档分节（统一「工作区配置」页面的贡献方组件）+ 它的状态机
+ * （code-design ① 1.3 / ③ 3.9：份额与寻址改由页面驱动）。
  *
- * **挂载面迁移**：旧实现是 `sidebar.footer.*` 座位上的「触发按钮 + 自绘 `Modal` 对话框」；
- * 现在弹窗壳（header / nav / 内容列 / 关闭）属于 holder workspace-config，
- * 本文件只交付分节正文 `WorkspaceDefaultsSection`——holder 以 `children` 声明
- * `workspace-config.section`，本插件用 `ctx.slots.inject` 软注册（`src/client/index.ts`
- * 的 `register` 包 try/catch，失败只 warn）。旧触发按钮、footer 动作条（刷新/关闭）与
- * `Modal` 壳一并删除：刷新按钮由编辑器 dialog 形态自带（`WorkspaceDefaultsEditor.tsx`
- * 的 addRow），关闭由统一弹窗提供。
+ * **挂载面**：分节在 `workspace-config` 页面的 tabpanel 里挂载（`workspace-config.section`
+ * 座位，本插件用 `ctx.slots.inject` 软注册，`src/client/index.ts` 的 `register` 包 try/catch，
+ * 失败只 warn）。页面壳（页头 / 唯一的工作区选择框 / tab / 内容列）属于 holder
+ * workspace-config，本文件只交付分节正文——**本节没有下拉、也不持有选择状态**：选择动作归
+ * 页面工具栏那一个选择框（需求 3「三个分节不得各自携带工作区选择控件」）。
  *
  * 三个职责，按数据流自上而下：
  *
  * 1. **`useWorkspaceDefaults`**：工作区档的读写状态机（`phase` / `value` / `error` /
- *    `saving` / `saved`）。它不碰 DOM、不依赖座位，因此能脱离渲染单测；动作方法
- *    **不抛错**（失败落进状态），与 `panel-controller.ts` 同一纪律。**原样保留**，迁移
- *    只剥壳、不动状态机（既有 13 条 editor 用例继续覆盖它）。
- * 2. **`WorkspaceDefaultsSection`**：分节正文。挂载即读一次（`read()`），loading / failure
- *    两态沿用旧对话框的渲染分支；正文交给 `WorkspaceDefaultsEditor` 的 `dialog` 形态——
- *    **保留工作区下拉**（用户落档裁决：不改当前会话也能预先设默认档，去掉下拉等于删能力，
- *    见 code-design 待决问题 Q2 选项 a / D-13）。
- * 3. **目标寻址**：默认按**当前会话**（`{sessionId}` 形态）——宿主据此解析 cwd 的归属并
- *    返回 `workspace.key`；下拉切换后改用 `{workspacePath}` 形态（D-11：只接受已登记
- *    工作区的规范路径）。未登记目录也能读：`{sessionId}` 形态允许未归属（`registered:false`），
- *    此时 choices 仍可切换，不会把本节卡死。
+ *    `saving` / `saved`）。它不碰 DOM、不依赖座位，因此能脱离渲染单测；动作方法**不抛错**
+ *    （失败落进状态），与 `panel-controller.ts` 同一纪律。目标由调用方每次现取
+ *    （`initialTarget()`）——本变更后状态机自己不再记忆目标，`select` / `targetRef` 已删。
+ * 2. **`WorkspaceDefaultsSection`**：分节正文入口。三态份额
+ *    （`WorkspaceConfigWorkspaceContext`）决定渲染哪一路：`kind==='workspace'` → 交给
+ *    `WorkspaceDefaultsTarget` 以 `{workspacePath: path}` 寻址；`unassigned` / `none` →
+ *    渲染 `workspace.noTarget` 空态，且**不发请求**（空态下没有任何组件去取数，请求无从
+ *    发出）。
+ * 3. **目标寻址与重挂**：`<WorkspaceDefaultsTarget key={path}>` 把「工作区身份」并入组件
+ *    挂载身份（D14）——页面换工作区 = 本节重挂 = 重新读取；不写「监听 props 变化再重读」的
+ *    effect，也就不用处理「读在途时被切换」的竞态分支（旧请求在宿主侧照常完成，结果不再
+ *    有人渲染）。
  *
  * **与 `/tools` 共用状态（零回归红线）**：本节不维护第二份关闭集。读与写都走
  * `resolveClient()` 现取的 `PanelClient`——与头部面板同一个 `connection`、同一条
  * `/session-tool-toggle` 通道、同一组端点（`workspace` / `panel`）；宿主侧所有入口共用
  * `src/host/control.ts` 的同一控制内核与同一 `workspaces.json`。因此节内写入后
- * `/tools workspace status` 读到同一条记录，命令面写入后本节下一次 `read()`（刷新 / 重开
- * 统一弹窗）也看到同一状态。`test/workspace-editor.test.tsx` 的「与 /tools 共用状态」
- * 回归用例钉住这条链路。
+ * `/tools workspace status` 读到同一条记录，命令面写入后本节下一次 `read()`（刷新 / 重挂）
+ * 也看到同一状态。`test/workspace-editor.test.tsx` 的「与 /tools 共用状态」回归用例钉住
+ * 这条链路。
  *
  * **失败展示的唯一实现点**是面板容器（`ToolPanelAction.tsx` 的 `failureOf`）：本文件复用它
  * 把 `PanelError` 映射成 `error.<code>` 文案与宿主的二级灰字，不再复制一份映射。唯一例外是
- * 传输码 `unavailable`——本插件会本地合成两种「暂时不可能」：`connection` 尚未就绪、当前
- * 没有可定位的会话（此时**不发**非法请求）；两者都渲染 `workspace.unavailable` 主文案，
- * 原始说明放二级灰字，排障方向不丢。
+ * 传输码 `unavailable`——`connection` 尚未就绪时本插件本地合成一次「暂时不可能」（**不发**
+ * 请求），渲染 `workspace.unavailable` 主文案、原始说明放二级灰字，排障方向不丢。
  *
  * **不引用上游工作区行的菜单座位**（DQ1=C 红线）：本文件不写该座位的常量、类型增补或
  * 注册代码，也不出现那个座位名（连注释都不写，`grep` 断言才能覆盖整个 `src/client/`）。
@@ -47,7 +45,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { DefaultsUniverse, WorkspaceAction, WorkspaceRequest, WorkspaceValue } from '../contract.ts'
+// 份额类型（三态上下文）的唯一权威在 @dsh-plugins/contracts（D-15）；`import type` 在
+// `verbatimModuleSyntax` 下零产物，浏览器 bundle 不含契约包名。
+import type { WorkspaceConfigWorkspaceContext } from '@dsh-plugins/contracts'
+import type { WorkspaceAction, WorkspaceRequest, WorkspaceValue } from '../contract.ts'
 import type { PanelFailure } from './DefaultsEditor.tsx'
 import { WorkspaceDefaultsEditor } from './WorkspaceDefaultsEditor.tsx'
 import { PanelError, type PanelClient } from './panel-client.ts'
@@ -65,12 +66,12 @@ export type WorkspacePhase = 'idle' | 'loading' | 'ready' | 'failed'
  * 工作区档的只读状态。
  *
  * stale-while-revalidate 与面板一致：`failed` 只是「最近一次操作没成功」，`value` 可能仍是
- * 上一份可用数据（刷新失败时对话框不闪成空白）。
+ * 上一份可用数据（刷新失败时正文不闪成空白）。
  */
 export interface WorkspaceDefaultsState {
   /** 可见阶段。 */
   readonly phase: WorkspacePhase
-  /** 最近一次成功取得的 `WorkspaceValue`（目标工作区视图 + 下拉项）。 */
+  /** 最近一次成功取得的 `WorkspaceValue`（目标工作区视图 + 实际写入项 + 会话视角宇宙）。 */
   readonly value?: WorkspaceValue
   /** 最近一次失败（读或写）；成功一次后清空。 */
   readonly error?: PanelError
@@ -80,34 +81,32 @@ export interface WorkspaceDefaultsState {
   readonly saved: boolean
 }
 
-/** `useWorkspaceDefaults` 的构造参数（code-design §3.10 冻结）。 */
+/** `useWorkspaceDefaults` 的构造参数（code-design §3.9 冻结）。 */
 export interface UseWorkspaceDefaultsOptions {
   /** 现取面板客户端：`connection` 可能晚于插件 `apply` 就绪，取不到时降级不发请求。 */
   readonly resolveClient: () => PanelClient | undefined
   /**
-   * 初始目标请求（每次读取时现取；未 `select` 过新目标时用它）。
+   * 每次读取现取的目标请求（寻址形态）。
    *
-   * footer 侧按 `currentSessionId()` 构造 `{sessionId}`；没有可定位的会话时返回 `{}`——
-   * 状态机据此进 `failed('unavailable')` 且**不发**非法请求。
+   * 本变更后由调用方闭包给出 `{ workspacePath }`（页面份额里的规范路径）；返回 `{}` 时
+   * 状态机进 `failed('unavailable')` 且**不发**非法请求。
    */
   readonly initialTarget: () => WorkspaceRequest
 }
 
-/** 状态机的完整返回面（冻结签名：状态 + `read` / `update` / `select`）。 */
+/** 状态机的完整返回面（冻结签名：状态 + `read` / `update`）。 */
 export interface WorkspaceDefaults extends WorkspaceDefaultsState {
-  /** 读取当前目标的工作区档（挂载、打开对话框、显式刷新）。 */
+  /** 读取当前目标的工作区档（挂载、显式刷新）。 */
   readonly read: () => Promise<void>
   /** 写当前目标的工作区档（`set` / `off` / `on` / `reset`；`read` 等价于 `read()`）。 */
   readonly update: (action: WorkspaceAction, addresses?: readonly string[]) => Promise<void>
-  /** 切换目标工作区（下拉）并立即重读。 */
-  readonly select: (key: string) => void
 }
 
 /** 客户端缺席时的兜底说明（主文案由 `workspace.unavailable` 承担）。 */
 const CLIENT_MISSING_MESSAGE = '工作区默认档客户端尚未就绪：connection 可能晚于插件 apply 挂载'
 
-/** 当前没有可定位的会话时的兜底说明（**不发请求**，请求体缺寻址字段会被宿主判 bad-request）。 */
-const NO_SESSION_MESSAGE = '当前没有可定位的会话：先打开一个会话，或用下拉切换到已登记的工作区'
+/** 目标请求缺寻址形态时的兜底说明（**不发请求**，缺寻址字段会被宿主判 bad-request）。 */
+const NO_TARGET_MESSAGE = '当前没有可寻址的目标工作区：目标由页面选择框给出，空目标时本节呈现空态'
 
 /** 写动作必须带非空地址（契约 §3.6.2：`set` / `off` / `on` 至少一条）。 */
 const NO_ADDRESS_MESSAGE = '写入工作区默认档缺少地址：空单不发请求（契约要求 set / off / on 至少带一条地址）'
@@ -152,8 +151,8 @@ function writeRequestOf(
 /**
  * 释放「写在途」标志（幂等）。
  *
- * 一次写的结果被更新的一轮作废时（切换目标、重复刷新），**值**不再采用，但 `saving` 是
- * 请求生命周期的事实，必须复位；否则编辑区会永久禁用（比不更新值更糟）。
+ * 一次写的结果被更新的一轮作废时（重复刷新），**值**不再采用，但 `saving` 是请求生命周期的
+ * 事实，必须复位；否则编辑区会永久禁用（比不更新值更糟）。
  * @param previous - 当前状态。
  * @returns 复位后的状态；本来不在途时原样返回（identity 稳定，避免无谓重渲染）。
  */
@@ -164,9 +163,9 @@ function releaseSaving(previous: WorkspaceDefaultsState): WorkspaceDefaultsState
 /**
  * 工作区默认档的状态机（读 / 写 / 刷新 / 失败态）。
  *
- * - **目标记忆**：`select(key)` 之前每次都现取 `initialTarget()`（当前会话可能切换，footer
- *   常挂而 props 不变）；`select` 之后固定为 `{workspacePath}`，直到组件卸载。
- * - **最后写入者胜**：每次读/写递增序号，迟到的响应（切换目标、重复刷新）不落状态。
+ * - **目标现取**：每次读/写都问 `initialTarget()`（本变更后恒为调用方闭包给出的
+ *   `{workspacePath}`）；「换工作区」由分节的 `key` 重挂承担，状态机不记忆目标。
+ * - **最后写入者胜**：每次读/写递增序号，迟到的响应（重复刷新）不落状态。
  * - **不撒谎**：客户端缺席、无寻址形态、写动作缺地址都在本地进 `failed`，绝不发一个会被
  *   宿主拒绝的请求来「产生错误」。
  *
@@ -186,8 +185,6 @@ export function useWorkspaceDefaults(options: UseWorkspaceDefaultsOptions): Work
     saved: false,
   })
 
-  /** `select` 选中的目标；`undefined` = 跟随 `initialTarget()`（当前会话）。 */
-  const targetRef = useRef<WorkspaceRequest | undefined>(undefined)
   /** 请求序号：只有最后一次发出的请求可以落状态。 */
   const seqRef = useRef(0)
   /** 挂载标记：卸载后不再 `setState`（StrictMode 的挂载-卸载-重挂会复位它）。 */
@@ -210,9 +207,6 @@ export function useWorkspaceDefaults(options: UseWorkspaceDefaultsOptions): Work
       return undefined
     }
   }, [])
-
-  /** 现取目标请求（`select` 过就用它，否则问 `initialTarget()`）。 */
-  const targetOf = useCallback((): WorkspaceRequest => targetRef.current ?? initialTargetRef.current(), [])
 
   /**
    * 本地降级：不发请求，直接把「暂时不可能」写进状态。
@@ -237,9 +231,9 @@ export function useWorkspaceDefaults(options: UseWorkspaceDefaultsOptions): Work
       failLocally(CLIENT_MISSING_MESSAGE)
       return
     }
-    const target = targetOf()
+    const target = initialTargetRef.current()
     if (!hasTarget(target)) {
-      failLocally(NO_SESSION_MESSAGE)
+      failLocally(NO_TARGET_MESSAGE)
       return
     }
     const seq = (seqRef.current += 1)
@@ -256,7 +250,7 @@ export function useWorkspaceDefaults(options: UseWorkspaceDefaultsOptions): Work
       if (!mountedRef.current || seq !== seqRef.current) return
       setState((previous) => ({ ...previous, phase: 'failed', error: asPanelError(error), saved: false }))
     }
-  }, [clientOf, failLocally, targetOf])
+  }, [clientOf, failLocally])
 
   const update = useCallback(async (action: WorkspaceAction, addresses?: readonly string[]): Promise<void> => {
     // `read` 不是写动作：交给读取路径，避免把「刷新」做成一次多余的写回执。
@@ -269,9 +263,9 @@ export function useWorkspaceDefaults(options: UseWorkspaceDefaultsOptions): Work
       failLocally(CLIENT_MISSING_MESSAGE)
       return
     }
-    const target = targetOf()
+    const target = initialTargetRef.current()
     if (!hasTarget(target)) {
-      failLocally(NO_SESSION_MESSAGE)
+      failLocally(NO_TARGET_MESSAGE)
       return
     }
     const request = writeRequestOf(target, action, addresses)
@@ -285,7 +279,7 @@ export function useWorkspaceDefaults(options: UseWorkspaceDefaultsOptions): Work
       const value = await client.workspace(request)
       if (!mountedRef.current) return
       if (seq !== seqRef.current) {
-        // 结果已被更新的一轮作废（切换目标 / 重复刷新）：值不采用，但 `saving` 必须复位——
+        // 结果已被更新的一轮作废（重复刷新）：值不采用，但 `saving` 必须复位——
         // 否则编辑区永久禁用，用户再也点不动保存。
         setState(releaseSaving)
         return
@@ -299,96 +293,68 @@ export function useWorkspaceDefaults(options: UseWorkspaceDefaultsOptions): Work
       }
       setState((previous) => ({ ...previous, saving: false, saved: false, error: asPanelError(error) }))
     }
-  }, [clientOf, failLocally, read, targetOf])
+  }, [clientOf, failLocally, read])
 
-  const select = useCallback((key: string): void => {
-    // 空键（未知选项）不改变目标：保持当前工作区，避免发一个必被拒绝的 workspacePath。
-    if (key === '') return
-    targetRef.current = { workspacePath: key }
-    void read()
-  }, [read])
-
-  return { ...state, read, update, select }
+  return { ...state, read, update }
 }
 
 /**
- * 工作区默认档分节的 props（code-design §3.4 的迁移对照：`close` + `t` + 注入面）。
+ * 工作区默认档分节的 props（code-design ③ 3.9 冻结形状）。
  *
- * 座位是 `workspace-config.section`（list / root），owner 份额只有 `{ close }`（holder
- * 统一弹窗注入）；`resolveClient` 与 `currentSessionId` 由座位注册面的 `inject` 提供，
- * `t` 由 `locale: NS` 合成。旧 footer 入口 props 的 `wide` 随该座位一起消失——分节宽度由
- * holder 的内容列决定，本组件不感知宽窄形态。
+ * 座位是 `workspace-config.section`（list / root），owner 份额是页面下传的**纯数据**
+ * `{ workspace }`（holder 的 `renderSlot` 注入）；`resolveClient` 由座位注册面的 `inject`
+ * 提供，`t` 由 `locale: NS` 合成。没有关闭回调（关闭语义随弹窗壳一并删除，Q7），也
+ * **没有** `currentSessionId`（会话探测已迁 holder，D12）——本节不再读会话，寻址只认份额里
+ * 的规范路径。
  */
 export interface WorkspaceDefaultsSectionProps {
+  /** 页面级工作区上下文（三态：`workspace` / `unassigned` / `none`）。 */
+  readonly workspace: WorkspaceConfigWorkspaceContext
   /** 每次动作现取（`connection` 可能晚于 `apply` 就绪，与头部入口同一纪律）。 */
   readonly resolveClient: () => PanelClient | undefined
-  /** 当前会话 id 的探测（`current-session.ts` 在装配层注入；没有会话时返回 `undefined`）。 */
-  readonly currentSessionId: () => string | undefined
   /** 本命名空间的翻译函数。 */
   readonly t: Translate
-  /**
-   * holder 弹窗的关闭动作（座位 owner 份额，`renderSlot` 时注入）。
-   *
-   * 本节没有整窗跳转流程，不消费它（关闭统一由 holder 弹窗提供）；声明它是为了让本组件的
-   * props 与 `WorkspaceConfigSectionOwnerProps` 的份额严格对齐。
-   */
-  readonly close: () => void
+}
+
+/** `WorkspaceDefaultsTarget` 的 props（本文件内部面：份额里的 `path` 已由分节解出）。 */
+interface WorkspaceDefaultsTargetProps {
+  /** 目标工作区的规范路径（`{workspacePath}` 寻址键）。 */
+  readonly workspacePath: string
+  /** 每次动作现取的面板客户端。 */
+  readonly resolveClient: () => PanelClient | undefined
+  /** 本命名空间的翻译函数。 */
+  readonly t: Translate
 }
 
 /**
- * 统一「工作区配置」弹窗里的工作区默认档分节。
+ * 单个目标工作区的读写分节（`useWorkspaceDefaults` 的唯一挂载点）。
  *
- * 分节由 holder 的 `renderSlot('workspace-config.section', { close }, { only })` 挂载：一次
- * 只渲染一个选中分节（D8），切走即卸载、切回重新挂载并重读。挂载即读一次以预热 choices
- * 与当前工作区的档；失败也只是节内的一句话（不阻塞其它分节）。
+ * 由 `WorkspaceDefaultsSection` 以 `key={path}` 挂载：换工作区 = 本组件卸载重建 = 重新
+ * `read()`，`phase` / `value` / `saving` 全部回到初始态（D14 的「换工作区 = 重挂重读」）。
  *
- * 正文交给 `WorkspaceDefaultsEditor` 的 `dialog` 形态：**保留工作区下拉**（Q2=a 的用户裁决），
- * 关闭/外壳由 holder 弹窗提供，本节不再自带 `Modal`、没有对话框根（不渲染 `role="dialog"`）。
- *
- * @param props - 座位 owner 份额、注入的探测面与 `t`。
- * @returns 分节正文（loading / failure / 编辑器三态之一）。
+ * @param props - 目标路径、`resolveClient` 与 `t`。
+ * @returns loading / failure / 编辑器三态之一。
  */
-export function WorkspaceDefaultsSection(props: WorkspaceDefaultsSectionProps): ReactNode {
-  const { resolveClient, currentSessionId, t } = props
+function WorkspaceDefaultsTarget(props: WorkspaceDefaultsTargetProps): ReactNode {
+  const { workspacePath, resolveClient, t } = props
 
-  // `initialTarget` 每次读时现取当前会话；用 useCallback 让 hook 的 ref 骑住同一函数。
-  const initialTarget = useCallback((): WorkspaceRequest => {
-    const sessionId = currentSessionId()
-    return sessionId === undefined || sessionId === '' ? {} : { sessionId }
-  }, [currentSessionId])
+  // `initialTarget` 每次读时现取 `{ workspacePath }`；`useCallback` 让 hook 的 ref 骑住同一
+  // 函数（本挂载内目标不变，换工作区由 `key` 换挂载）。
+  const initialTarget = useCallback((): WorkspaceRequest => ({ workspacePath }), [workspacePath])
 
-  const { value, error, saving, saved, read, update, select } = useWorkspaceDefaults({
+  const { value, error, saving, saved, read, update } = useWorkspaceDefaults({
     resolveClient,
     initialTarget,
   })
 
-  /**
-   * 跨目标缓存的「上一份宇宙」（W9 / ③ 3.19）。
-   *
-   * 宇宙是**会话视角**的读数：目标切到 `{workspacePath}` 寻址后，响应里的 `universe` 是 `null`
-   * （宿主只按会话合成它）。没有这份缓存，下拉一切换分组清单就整块消失——记住最后一份非空
-   * 宇宙，切目标期间仍能显示清单与三计数（U1 的近似语义，D-18 / W14 记录了已知限制）。
-   *
-   * 不变式：只在「已有非空宇宙」时被写；切目标、写目标、刷新目标都不清空它。
-   */
-  const remembered = useRef<DefaultsUniverse | null>(null)
-  /** 渲染用的宇宙：当前响应优先，被抹成 `null` 时退回缓存（从未读到过才是 `null`）。 */
-  const universe = value?.universe ?? remembered.current
-
-  /** 下拉切换前记住当前宇宙：切到 `{workspacePath}` 后响应里 `universe` 为 null。 */
-  const selectAndRemember = (key: string): void => {
-    if (value?.universe !== undefined && value.universe !== null) remembered.current = value.universe
-    select(key)
-  }
-
-  // 挂载即读一次：分节在弹窗打开（`only` 命中本节）时挂载，先把 choices 与当前工作区的档
-  // 拉到手；失败也只是节内的一句话。刷新走编辑器 dialog 形态自带的按钮（`onRefresh`）。
+  // 挂载即读一次：分节在页面 tab 命中本节时挂载，先把目标工作区的档拉到手；失败也只是节内的
+  // 一句话。刷新走编辑器 dialog 形态自带的按钮（`onRefresh`）。
   useEffect(() => {
     void read()
   }, [read])
 
-  // 传输码 `unavailable` 走本地降级文案（连接未就绪 / 没有可定位的会话两种「暂时不可能」）；
-  // 其余码复用面板容器的唯一映射点。
+  // 传输码 `unavailable` 走本地降级文案（`connection` 尚未就绪的「暂时不可能」）；其余码复用
+  // 面板容器的唯一映射点。
   const failure = useMemo<PanelFailure | undefined>(() => {
     if (error === undefined) return undefined
     if (error.code === 'unavailable') {
@@ -413,13 +379,11 @@ export function WorkspaceDefaultsSection(props: WorkspaceDefaultsSectionProps): 
         : (
           <WorkspaceDefaultsEditor
             workspace={value.workspace}
-            universe={universe}
-            choices={value.choices}
+            universe={value.universe}
             variant="dialog"
             saving={saving}
             saved={saved}
             failure={failure}
-            onSelect={selectAndRemember}
             onUpdate={(action, addresses) => {
               void update(action, addresses)
             }}
@@ -430,5 +394,43 @@ export function WorkspaceDefaultsSection(props: WorkspaceDefaultsSectionProps): 
           />
         )}
     </div>
+  )
+}
+
+/**
+ * 统一「工作区配置」页面里的工作区默认档分节。
+ *
+ * 页面按 tab 选中挂载本节（D8：一次只渲染一个选中分节，切走即卸载、切回重新挂载并重读），
+ * 选择框换工作区时以 `key` 重挂（D14）。份额不是有效工作区时只渲染空态：`unassigned` 与
+ * `none` 两态都**不发**寻址请求（spec「未分配项的分节语义」「清单未就绪降级」）——因为空态
+ * 下根本不挂载会取数的 `WorkspaceDefaultsTarget`，请求无从发出。
+ *
+ * 正文交给 {@link WorkspaceDefaultsTarget}（hooks 只在拿到有效目标后调用，避免空态 ↔ 有效
+ * 目标切换时 hooks 数量变化），再交给 `WorkspaceDefaultsEditor` 的 `dialog` 形态——节内
+ * **没有**下拉，也没有对话框根（不渲染 `role="dialog"`）。
+ *
+ * @param props - 页面份额、注入的 `resolveClient` 与 `t`。
+ * @returns 空态或目标工作区的编辑器。
+ */
+export function WorkspaceDefaultsSection(props: WorkspaceDefaultsSectionProps): ReactNode {
+  const { workspace, resolveClient, t } = props
+
+  // 无有效目标（未分配 / 工作区服务未就绪）：空态，且不挂载任何会取数的组件。
+  if (workspace.kind !== 'workspace') {
+    return (
+      <div className={css.workspaceBody}>
+        <p className={css.empty}>{t('workspace.noTarget')}</p>
+      </div>
+    )
+  }
+
+  // 换工作区 = 换 `key` = 重挂重读（D14）；不做 props 对齐 effect，也不留下旧目标的读数。
+  return (
+    <WorkspaceDefaultsTarget
+      key={workspace.path}
+      workspacePath={workspace.path}
+      resolveClient={resolveClient}
+      t={t}
+    />
   )
 }

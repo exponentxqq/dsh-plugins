@@ -5,16 +5,20 @@
  * 三条纪律 docblock）；D-15 拍板后它们全部搬到
  * `tooling/contracts/src/index.ts`，本文件只剩三件事：
  *
- * 1. **过渡 re-export**：holder 内部（`sections.ts` / `WorkspaceConfigDialog.tsx` /
+ * 1. **过渡 re-export**：holder 内部（`sections.ts` / `WorkspaceConfigPage.tsx` /
  *    `index.ts`）与既有测试仍从 `./contract.ts` 取类型，避免本次变更扩散到与类型权威
  *    无关的调用点；贡献方**不再**经过本文件——它们 `import type` 直连
  *    `@dsh-plugins/contracts`（单一权威，无 holder 中转）。
- * 2. **本地运行时常量**：座位名与两个 order 是 holder 内部的值；权威值以 contracts 的
- *    字面量类型钉住（写错即 typecheck 失败），但运行期值留在本包，`import type` 纪律
- *    不受影响。贡献方各自持有本地字面量，不 import 这些常量。
+ * 2. **本地运行时常量**：分节座位名与面板 id / 位次是 holder 内部的值；座位名的权威值
+ *    以 contracts 的字面量类型钉住（写错即 typecheck 失败），但运行期值留在本包，
+ *    `import type` 纪律不受影响。贡献方各自持有本地字面量，不 import 这些常量。
  * 3. **本地 `SlotMap` 增补**：`declare module` 要求目标模块能从本包解析（本包是 holder，
  *    本来就依赖 `@deepseek-ai/dsh-client-ui-slots`）；条目形状引用 contracts 的
  *    `WorkspaceConfigSectionSlot`，形状权威仍在 contracts。
+ *
+ * 入口形态为「侧栏面板行 + 独立页面」：面板 id 在两边是**同一个值**（`main` 的 `key` 与
+ * `sidebar.panellist` 的 `id`，Q6），宿主 `selectPanel(id)` 直接拿它切换页面；位次排在
+ * 官方面板 `plugins=0` / `schedules=10` 之后（Q5）。
  *
  * 决策记录：`docs/decisions/ADR-0001-shared-build-and-source-kits.md`（架构变更收尾时
  * 落盘）；契约包本体见 `tooling/contracts/src/index.ts` 的模块头。三条纪律（仅
@@ -28,15 +32,12 @@
 // 依赖被解析一次，否则 tsc 报 TS2664「module cannot be found」。`import type {}` 在编译期
 // 被完全擦除，不进 bundle，也不给贡献方带来运行时耦合。
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
-import type {
-  WorkspaceConfigDialogOrder,
-  WorkspaceConfigSectionSlot,
-  WorkspaceConfigTriggerOrder,
-} from '@dsh-plugins/contracts'
+import type { WorkspaceConfigSectionSlot } from '@dsh-plugins/contracts'
 
 export type {
   WorkspaceConfigSectionOwnerProps,
   WorkspaceConfigSectionSeat,
+  WorkspaceConfigWorkspaceContext,
 } from '@dsh-plugins/contracts'
 
 /**
@@ -48,25 +49,25 @@ export type {
 export const WORKSPACE_CONFIG_SECTION = 'workspace-config.section' as const
 
 /**
- * footer 入口 entry 的显示顺序（holder 内部常量，权威值 `50`，D11）。
+ * 面板 id（holder 内部常量）。
  *
- * 类型由 `@dsh-plugins/contracts` 的 `WorkspaceConfigTriggerOrder` 钉住；运行期值留在
- * 本包，因此本包对 contracts 只有编译期依赖。
+ * **同时**是 `main` 座位的 `key` 与 `sidebar.panellist` 座位的 `id`：宿主
+ * `selectPanel(id)` 直接用它切换页面，两边写岔即面板点不开（Q6）。
  */
-export const WORKSPACE_CONFIG_TRIGGER_ORDER: WorkspaceConfigTriggerOrder = 50
+export const PANEL_ID = 'workspace-config' as const
 
 /**
- * 统一弹窗在 `shell.overlay` 上的显示顺序（holder 内部常量，权威值 `530`，D11）。
+ * 侧栏面板行在 `sidebar.panellist` 上的位次（holder 内部常量，`20`）。
  *
- * 取 `530`：web-ux 的删除确认弹窗是 `500`、旧会话管理浮层是 `520`，统一弹窗排在它们之后，
- * 保证「删除确认」始终盖在统一弹窗之上。
+ * 排在官方面板之后——`plugins=0`、`schedules=10`（Q5）；本包的面板行是插件自建面板，
+ * 因此列在其后。
  */
-export const WORKSPACE_CONFIG_DIALOG_ORDER: WorkspaceConfigDialogOrder = 530
+export const PANEL_ORDER = 20 as const
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     /**
-     * 统一「工作区配置」弹窗的分节座位（list、scope root）。
+     * 工作区配置页面的分节座位（list、scope root）。
      *
      * 条目形状取自 `@dsh-plugins/contracts` 的 `WorkspaceConfigSectionSlot`（唯一权威）；
      * 贡献方在自己的 client 程序里各自增补同一形状（本包不导出运行时类型）。

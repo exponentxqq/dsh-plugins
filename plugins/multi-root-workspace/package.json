@@ -191,6 +191,7 @@
     "@deepseek-ai/dsh-subprocess": "catalog:dsh",
     "@deepseek-ai/dsh-system-prompt": "catalog:dsh",
     "@deepseek-ai/dsh-workspace": "catalog:dsh",
+    "@dsh-plugins/client-kit": "workspace:*",
     "@dsh-plugins/contracts": "workspace:*",
     "@testing-library/react": "^16.3.3",
     "@types/node": "^22.0.0",

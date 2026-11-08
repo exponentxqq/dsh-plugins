@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-workspace-config",
-  "description": "DSH Web GUI 的统一「工作区配置」入口（holder，零业务逻辑）：侧栏 footer 单入口 + shell.overlay 统一模态弹窗，并声明分节座位 workspace-config.section；其他插件以纯类型依赖方式贡献分节",
+  "description": "DSH Web GUI 的统一「工作区配置」入口（holder，零业务逻辑）：侧栏面板行（sidebar.panellist）+ 主区域独立页面（main 注册，两侧共用同一面板 id），页面级统一工作区选择框与分节座位 workspace-config.section；其他插件以纯类型依赖方式贡献分节",
   "version": "1.5.0",
   "type": "module",
   "engines": {
@@ -48,6 +48,8 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "catalog:dsh",
     "@deepseek-ai/dsh": "catalog:dsh",
+    "@deepseek-ai/dsh-api-session-controller": "catalog:dsh",
+    "@deepseek-ai/dsh-api-workspace-controller": "catalog:dsh",
     "@deepseek-ai/dsh-client-locale": "catalog:dsh",
     "@deepseek-ai/dsh-client-ui-layout": "catalog:dsh",
     "@deepseek-ai/dsh-client-ui-primitives": "catalog:dsh",
@@ -55,6 +57,7 @@
     "@deepseek-ai/dsh-client-ui-sidebar": "catalog:dsh",
     "@deepseek-ai/dsh-client-ui-slots": "catalog:dsh",
     "@dsh-plugins/build-kit": "workspace:*",
+    "@dsh-plugins/client-kit": "workspace:*",
     "@dsh-plugins/contracts": "workspace:*",
     "@dsh-plugins/test-kit": "workspace:*",
     "@testing-library/react": "catalog:",

@@ -10,7 +10,7 @@
  * - 不读写任何落盘文件（`workspaces.json` / `defaults.json` 与 holder 无关）；
  * - 不新增任何配置键（`cordis.patch.yml` 不带 `config:` 段，`Config` 也不导出）。
  *
- * 浏览器半（footer 入口 + 统一弹窗 + 分节座位声明）在 `exports "./client"` → `lib/client.js`，
+ * 浏览器半（侧栏面板行 + 独立页面 + 分节座位声明）在 `exports "./client"` → `lib/client.js`，
  * 由 `src/client/index.ts` 装配；本文件不 import 它，宿主产物因此仍是零 `@deepseek-ai/*`
  * 运行时依赖、external 只有 `node:*`。
  *

@@ -2,28 +2,28 @@
 /**
  * 会话管理分节（`src/client/SessionManagerDialog.tsx`）的交互契约测试。
  *
- * 用例逐条对齐 code-design 触达面 #48 与 ③.6 的阶段机 / 动作分派表：工作区选择
- * （Menu portal、默认最近使用、伪选项）、三 tab 各取各的数据（migrated 首次进入才
- * 向宿主拉取）、复选 / 全选 / 清空与 500 单批上限截断、预览 → 确认 → 执行 → 结果的
- * 五阶段推进、整单拒绝落 `failed`、预览软失败在确认页呈现并从本批剔除、tab 1 归档
- * 逐项报告、tab 2 双动作（处置 / 取消归档逐项报告）、tab 3 永久删除与恢复（未分组
- * 拆分 + warnings + 停在原 tab）、在途互斥（动作按钮与选择条整体消失）以及三服务
- * 缺席时的空态（D9）。
+ * 用例逐条对齐 code-design 触达面 #48、③.6 的阶段机 / 动作分派表与 ③ 3.9 的份额消费矩阵：
+ * 页面级工作区上下文三态（`workspace` → 真实行集 / `unassigned` → 孤儿行集 / `none` → 空态）、
+ * 三 tab 各取各的数据（migrated 首次进入才向宿主拉取）、复选 / 全选 / 清空与 500 单批上限
+ * 截断、预览 → 确认 → 执行 → 结果的五阶段推进、整单拒绝落 `failed`、预览软失败在确认页
+ * 呈现并从本批剔除、tab 1 归档逐项报告、tab 2 双动作（处置 / 取消归档逐项报告）、tab 3
+ * 永久删除与恢复（未分组拆分 + warnings + 停在原 tab）、换工作区即重挂，以及三服务缺席时的
+ * 空态（D9）。
  *
- * 迁移后本组件是统一「工作区配置」弹窗里的一个分节：它不渲染 Modal、不自绘遮罩，
- * 关闭由座位 owner 的 `close` 提供；`running` 阶段的请求不可取消（按钮禁用），但
- * holder 的关闭按钮 / Escape 不经过分节判断，随时可关（D16）。因此每个用例直接渲染
- * 分节，不再有「先登记打开请求」的桥接步骤。
+ * 页面化后本组件是 holder（`dsh-plugin-workspace-config`）页面里的一个分节：它不渲染
+ * Modal、不自绘遮罩、**不拥有工作区选择框**，也不拿到任何关闭回调（owner 份额只剩
+ * `{ workspace }`，Q7）。footer 各阶段按 ③ 3.10：`select` 只剩动作按钮、`running` 的
+ * 取消禁用且不接回调、`done` / `failed` 的「完成」（`manager.finish`）回到 `select`。
  *
  * 范式沿用 `test/delete-dialog.test.tsx`：`t` 用 canonical 中文词典查表、每个用例只
- * 覆盖自己关心的那条路径；primitives 由 `test/stubs/ui-primitives.tsx` 替身提供
- * （Menu 的 portal 形态与真组件一致，列表进 `document.body`，查询按 role 而不依赖
- * 落点）。CSS Modules 由 vitest 管线加载，无需在此声明。
+ * 覆盖自己关心的那条路径；primitives 由 `test/stubs/ui-primitives.tsx` 替身提供。
+ * CSS Modules 由 vitest 管线加载，无需在此声明。
  *
  * @module dsh-plugin-web-ux/test/session-manager-dialog
  */
 
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import type { WorkspaceConfigWorkspaceContext } from '@dsh-plugins/contracts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   MAX_BATCH_TARGETS,
@@ -65,7 +65,7 @@ const PROJECT_ORPHAN = '--home-dev-orphan--'
 /** 假宿主解析出的归档根。 */
 const ARCHIVE_ROOT = '/data/dsh/archive/sessions'
 
-/** 工作区 A 的活跃会话（最近使用，默认选中 A）。 */
+/** 工作区 A 的活跃会话（默认持有量）。 */
 const ACTIVE_A1 = 's-alpha-1'
 /** 工作区 A 的第二个活跃会话。 */
 const ACTIVE_A2 = 's-alpha-2'
@@ -85,6 +85,27 @@ const MIGRATED_A1 = 's-migrated-1'
 const MIGRATED_A2 = 's-migrated-2'
 /** 归档根下匹配不到工作区的已迁移条目。 */
 const MIGRATED_ORPHAN = 's-migrated-orphan'
+
+// —— owner 份额夹具：页面选择框下传的三态值 ——
+
+/** 份额：选中工作区 A（默认夹具；行集来自 `ws-a`）。 */
+const WORKSPACE_A: WorkspaceConfigWorkspaceContext = {
+  kind: 'workspace',
+  id: 'ws-a',
+  title: '项目甲',
+  path: PATH_A,
+}
+/** 份额：选中工作区 B（换选用例的重挂目标）。 */
+const WORKSPACE_B: WorkspaceConfigWorkspaceContext = {
+  kind: 'workspace',
+  id: 'ws-b',
+  title: '项目乙',
+  path: PATH_B,
+}
+/** 份额：选择框的「未分配」项（孤儿归档 / 已迁移行集）。 */
+const WORKSPACE_UNASSIGNED: WorkspaceConfigWorkspaceContext = { kind: 'unassigned' }
+/** 份额：页面拿不到工作区上下文（工作区服务未就绪 / 清单为空）。 */
+const WORKSPACE_NONE: WorkspaceConfigWorkspaceContext = { kind: 'none' }
 
 /** 造一个工作区行投影；`sessionIds` 顺序即行序。 */
 function makeWorkspace(
@@ -238,36 +259,34 @@ function fakeSessions(snapshot: SessionsSnapshotView = SESSIONS): SessionsSource
   return { list: { getSnapshot: () => snapshot, subscribe: () => () => {} } }
 }
 
-/** 渲染参数：`null` 表示该注入面缺席（软降级用例）。 */
+/** 渲染参数：注入面传 `null` 表示缺席（软降级用例）；`workspace` 缺省为工作区 A。 */
 interface RenderOptions {
+  readonly workspace?: WorkspaceConfigWorkspaceContext
   readonly client?: SessionManagerClient | null
   readonly workspaces?: WorkspacesSource | null
   readonly sessions?: SessionsSource | null
 }
 
 /**
- * 渲染会话管理分节（座位 owner 的 `close` 用 spy，供关闭路径断言）。
- * @param options - 三个注入面的替身；缺省用内置夹具。
- * @returns render 结果 + 座位 owner 的 close 替身。
+ * 造一份分节 props（座位 owner 份额只剩 `{ workspace }`，无关闭回调）。
+ * @param options - 三个注入面与 owner 份额的替身；缺省用内置夹具。
+ * @returns 可直接渲染的 props。
  */
-function renderManager(options: RenderOptions = {}) {
-  const close = vi.fn()
+function managerProps(options: RenderOptions = {}): SessionManagerSectionProps {
   const client = options.client === null ? undefined : options.client ?? fakeClient()
   const workspaces = options.workspaces === null ? undefined : options.workspaces ?? fakeWorkspaces()
   const sessions = options.sessions === null ? undefined : options.sessions ?? fakeSessions()
-  const props = { close, client, workspaces, sessions, t: translate } as unknown as SessionManagerSectionProps
-  return { ...render(<SessionManagerSection {...props} />), close }
+  const workspace = options.workspace ?? WORKSPACE_A
+  return { workspace, client, workspaces, sessions, t: translate } as unknown as SessionManagerSectionProps
 }
 
-/** 工作区选择器的触发按钮（可访问名来自 `aria-label`）。 */
-function workspaceTrigger(): HTMLButtonElement {
-  return screen.getByRole('button', { name: zh['manager.workspace.label'] }) as HTMLButtonElement
-}
-
-/** 打开菜单并点选一项；工作区换选即回 `select` 并重建行集。 */
-function chooseWorkspace(label: string): void {
-  fireEvent.click(workspaceTrigger())
-  fireEvent.click(screen.getByRole('menuitem', { name: label }))
+/**
+ * 渲染会话管理分节。
+ * @param options - 三个注入面与 owner 份额的替身；缺省用内置夹具。
+ * @returns render 结果（换选重挂用例用它的 `rerender`）。
+ */
+function renderManager(options: RenderOptions = {}) {
+  return render(<SessionManagerSection {...managerProps(options)} />)
 }
 
 /** 当前选中的 tab 文案。 */
@@ -276,24 +295,31 @@ function selectedTabLabel(): string | null {
 }
 
 /** 造一份超过单批上限的活跃域快照（全选截断用例）。 */
-function makeBulkFixture(count: number): { workspaces: WorkspacesSnapshotView; sessions: SessionsSnapshotView } {
+function makeBulkFixture(
+  count: number,
+): { workspace: WorkspaceConfigWorkspaceContext; workspaces: WorkspacesSnapshotView; sessions: SessionsSnapshotView } {
   const ids = Array.from({ length: count }, (_, index) => `s-bulk-${String(index)}`)
   const byId: Record<string, SessionRowViewInput> = {}
   for (const id of ids) byId[id] = makeSession(`批量 ${id}`, { updatedAt: 1 })
   return {
+    // 份额必须指向这份快照里的工作区：行集寻址键不再由节内默认档推导（③ 3.9）。
+    workspace: { kind: 'workspace', id: 'ws-bulk', title: '批量工作区', path: PATH_A },
     workspaces: makeWorkspaces([makeWorkspace('ws-bulk', '批量工作区', PATH_A, ids)]),
     sessions: makeSessions(byId, ids),
   }
 }
 
 describe('分节挂载与软降级', () => {
-  it('直接渲染分节（无 Modal 根）：三 tab、默认工作区与选择条都在', () => {
+  it('直接渲染分节（无 Modal 根）：三 tab、份额决定的行集与选择条都在', () => {
     const view = renderManager()
 
     // 分节不拥有弹窗：DOM 里没有 dialog 角色，也没有 Modal 的 portal 节点；
-    // 标题、遮罩、Escape 与关闭按钮全部由 holder 的统一弹窗提供。
+    // 标题、遮罩与页面级选择框全部由 holder 提供。
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(view.container.querySelector('[data-modal="true"]')).toBeNull()
+    // 节内不再有工作区选择框（唯一入口归 holder 页面，③ 3.9 / Q8）。
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(view.container.querySelector('[aria-haspopup="menu"]')).toBeNull()
 
     expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
       zh['manager.tab.active'],
@@ -301,19 +327,23 @@ describe('分节挂载与软降级', () => {
       zh['manager.tab.migrated'],
     ])
     expect(selectedTabLabel()).toBe(zh['manager.tab.active'])
-    // 默认工作区：两份快照里最近使用时间最大的工作区 A。
-    expect(workspaceTrigger().textContent).toContain('项目甲')
+    // 份额 `workspace` 的 id 决定行集：工作区 A 的活跃会话在列。
     expect(screen.getByRole('checkbox', { name: '甲一' })).toBeDefined()
     // 已归档行只出现在「已归档」域，不在活跃域。
     expect(screen.queryByRole('checkbox', { name: '甲归档一' })).toBeNull()
     expect(screen.getByText(translate('manager.selected', { count: 0 }))).toBeDefined()
   })
 
-  it('取消按钮调用座位 owner 的 close()（弹窗开合归 holder）', () => {
-    const view = renderManager()
+  it('select 阶段没有取消按钮：footer 只剩当前 tab 的动作按钮（Q7）', () => {
+    renderManager()
 
-    fireEvent.click(screen.getByText(zh['dialog.cancel']))
-    expect(view.close).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: zh['dialog.cancel'] })).toBeNull()
+    expect(screen.getByRole('button', { name: zh['manager.action.archive'] })).toBeDefined()
+
+    fireEvent.click(screen.getByRole('tab', { name: zh['manager.tab.archived'] }))
+    expect(screen.getByRole('button', { name: zh['manager.action.dispose'] })).toBeDefined()
+    expect(screen.getByRole('button', { name: zh['manager.action.unarchive'] })).toBeDefined()
+    expect(screen.queryByRole('button', { name: zh['dialog.cancel'] })).toBeNull()
   })
 
   it('client 缺席时渲染 manager.unavailable 空态，而不是什么都不出现（D9）', () => {
@@ -333,7 +363,7 @@ describe('分节挂载与软降级', () => {
     expect(screen.getByText(zh['manager.unavailable'])).toBeDefined()
   })
 
-  it('running 阶段关闭即关闭：分节不自绘遮罩，holder 关闭后重开回到选择阶段（D16）', () => {
+  it('running 阶段没有关闭出口：取消禁用且不接回调，分节不自绘遮罩（D16）', () => {
     const preview = deferred<DeleteBatchPreview>()
     const client = fakeClient({ previewBatch: vi.fn(() => preview.promise) })
     const view = renderManager({ client })
@@ -343,61 +373,45 @@ describe('分节挂载与软降级', () => {
     fireEvent.click(screen.getByRole('button', { name: zh['manager.action.dispose'] }))
     expect(screen.getByText(zh['manager.running'])).toBeDefined()
 
-    // 分节不画弹窗 / 遮罩：Escape 与遮罩点击只可能由 holder 处理，分节没有拦截面，
-    // 因此 running 也挡不住关闭（旧壳的「running 忽略关闭」不再成立，D16）。
+    // 分节不画弹窗 / 遮罩：Escape 与页面离开都归 holder，分节没有拦截面。
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(document.querySelector('[data-modal="true"]')).toBeNull()
-    // 行内「取消」仍禁用：请求已经发出，界面无法撤销它。
-    expect((screen.getByRole('button', { name: zh['dialog.cancel'] }) as HTMLButtonElement).disabled).toBe(true)
+    // 行内「取消」仍禁用且不接 onClick：请求已经发出，界面无法撤销它（③ 3.10）。
+    const cancel = screen.getByRole('button', { name: zh['dialog.cancel'] }) as HTMLButtonElement
+    expect(cancel.disabled).toBe(true)
+    fireEvent.click(cancel)
+    expect(client.disposeBatch).not.toHaveBeenCalled()
 
-    // holder 关闭：座位 owner 的 close 直通（分节不按 phase 否决），然后卸载分节。
-    view.close()
-    expect(view.close).toHaveBeenCalledTimes(1)
+    // 重新挂载 = 页面重进：阶段、选择、预览全部复位，结果由宿主侧继续完成。
     view.unmount()
-
-    // 重开是全新挂载：阶段、选择、预览全部复位，结果列表由宿主侧继续完成。
     renderManager()
     expect(selectedTabLabel()).toBe(zh['manager.tab.active'])
     expect(screen.getByText(translate('manager.selected', { count: 0 }))).toBeDefined()
   })
 })
 
-describe('工作区选择器与伪选项', () => {
-  it('默认选中最近使用的工作区；Menu 打开、换选后回填并切换列表', async () => {
-    renderManager()
+describe('workspace 份额三态', () => {
+  it('workspace：行集来自份额的 id，换 id 即换行集', () => {
+    const view = renderManager()
 
-    expect(workspaceTrigger().textContent).toContain('项目甲')
-    expect(workspaceTrigger().getAttribute('aria-expanded')).toBe('false')
-    expect(screen.queryByRole('menu')).toBeNull()
+    expect(screen.getByRole('checkbox', { name: '甲一' })).toBeDefined()
+    expect(screen.queryByRole('checkbox', { name: '乙一' })).toBeNull()
 
-    fireEvent.click(workspaceTrigger())
-    expect(workspaceTrigger().getAttribute('aria-expanded')).toBe('true')
-    const menu = screen.getByRole('menu')
-    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
-      '项目甲',
-      '项目乙',
-      zh['manager.workspace.unassigned'],
-    ])
-    // 选中行走 `data-selected`；portal 出去的列表落在 body 下（A13 默认开启）。
-    expect(within(menu).getByRole('menuitem', { name: '项目甲' }).getAttribute('data-selected')).toBe('true')
-    expect(menu.parentElement).toBe(document.body)
+    view.rerender(<SessionManagerSection {...managerProps({ workspace: WORKSPACE_B })} />)
 
-    fireEvent.click(within(menu).getByRole('menuitem', { name: '项目乙' }))
-    expect(screen.queryByRole('menu')).toBeNull()
-    expect(workspaceTrigger().getAttribute('aria-expanded')).toBe('false')
-    expect(workspaceTrigger().textContent).toContain('项目乙')
     expect(screen.getByRole('checkbox', { name: '乙一' })).toBeDefined()
     expect(screen.queryByRole('checkbox', { name: '甲一' })).toBeNull()
   })
 
-  it('伪选项：活跃域专属空态，已归档域聚合孤儿行且可参与动作', async () => {
-    renderManager()
+  it('unassigned：活跃域空态，已归档域聚合孤儿行且可参与动作', () => {
+    renderManager({ workspace: WORKSPACE_UNASSIGNED })
 
-    chooseWorkspace(zh['manager.workspace.unassigned'])
-    expect(workspaceTrigger().textContent).toContain(zh['manager.workspace.unassigned'])
     expect(screen.getByText(zh['manager.empty.unassigned'])).toBeDefined()
+    expect(screen.queryByRole('checkbox', { name: '甲一' })).toBeNull()
 
     fireEvent.click(screen.getByRole('tab', { name: zh['manager.tab.archived'] }))
+    // 真实工作区的已归档成员不出现在「未分配」域。
+    expect(screen.queryByRole('checkbox', { name: '甲归档一' })).toBeNull()
     const orphan = screen.getByRole('checkbox', { name: '孤儿归档' }) as HTMLInputElement
     expect(orphan.disabled).toBe(false)
     fireEvent.click(orphan)
@@ -405,6 +419,36 @@ describe('工作区选择器与伪选项', () => {
     expect(screen.getByText(translate('manager.selected', { count: 1 }))).toBeDefined()
     expect((screen.getByRole('button', { name: zh['manager.action.dispose'] }) as HTMLButtonElement).disabled).toBe(false)
     expect((screen.getByRole('button', { name: zh['manager.action.unarchive'] }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('none：渲染 manager.unavailable 空态，不渲染 tab 也不发寻址请求', () => {
+    const client = fakeClient()
+    renderManager({ workspace: WORKSPACE_NONE, client })
+
+    expect(screen.getByText(zh['manager.unavailable'])).toBeDefined()
+    expect(screen.queryByRole('tab')).toBeNull()
+    expect(screen.queryByRole('checkbox')).toBeNull()
+    expect(client.listMigrated).not.toHaveBeenCalled()
+  })
+
+  it('换 workspace 即重挂：阶段回 select、选择集合与 tab 全部复位', async () => {
+    const client = fakeClient()
+    const view = renderManager({ client })
+
+    fireEvent.click(screen.getByRole('tab', { name: zh['manager.tab.archived'] }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '甲归档一' }))
+    fireEvent.click(screen.getByRole('button', { name: zh['manager.action.dispose'] }))
+    await flush()
+    expect(screen.getByRole('button', { name: zh['manager.confirm.run'] })).toBeDefined()
+
+    // holder 选择框换选 = 份额变化 → `key` 重挂分节：确认页离场、回到默认 tab 与空选择。
+    view.rerender(<SessionManagerSection {...managerProps({ workspace: WORKSPACE_B })} />)
+
+    expect(screen.queryByRole('button', { name: zh['manager.confirm.run'] })).toBeNull()
+    expect(selectedTabLabel()).toBe(zh['manager.tab.active'])
+    expect(screen.getByText(translate('manager.selected', { count: 0 }))).toBeDefined()
+    expect(screen.getByRole('checkbox', { name: '乙一' })).toBeDefined()
+    expect(screen.getByRole('button', { name: zh['manager.action.archive'] })).toBeDefined()
   })
 })
 
@@ -425,7 +469,7 @@ describe('tab 切换与按需拉取', () => {
     expect(client.listMigrated).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('radio')).toBeNull()
     expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe('web-ux-manager-tab-migrated')
-    // 真实工作区选项下只列匹配到该工作区的条目，无主目录归伪选项。
+    // 份额给的工作区选项下只列匹配到该工作区的条目，无主目录归「未分配」。
     expect(screen.queryByRole('checkbox', { name: MIGRATED_ORPHAN })).toBeNull()
 
     // 离开再回来：列表已加载，不重发。
@@ -474,7 +518,11 @@ describe('选择与单批上限', () => {
 
   it('超过单批上限时只选前 500 个并给出截断提示', async () => {
     const bulk = makeBulkFixture(MAX_BATCH_TARGETS + 1)
-    renderManager({ workspaces: fakeWorkspaces(bulk.workspaces), sessions: fakeSessions(bulk.sessions) })
+    renderManager({
+      workspace: bulk.workspace,
+      workspaces: fakeWorkspaces(bulk.workspaces),
+      sessions: fakeSessions(bulk.sessions),
+    })
 
     expect(screen.getByText(translate('manager.truncated', { count: MAX_BATCH_TARGETS }))).toBeDefined()
     expect(screen.queryByText(translate('manager.truncated', { count: MAX_BATCH_TARGETS + 1 }))).toBeNull()
@@ -500,7 +548,7 @@ describe('阶段机：处置（已归档删除）', () => {
       previewBatch: vi.fn(() => preview.promise),
       disposeBatch: vi.fn(() => disposal.promise),
     })
-    const view = renderManager({ client })
+    renderManager({ client })
 
     fireEvent.click(screen.getByRole('tab', { name: zh['manager.tab.archived'] }))
     fireEvent.click(screen.getByRole('checkbox', { name: '甲归档一' }))
@@ -512,7 +560,6 @@ describe('阶段机：处置（已归档删除）', () => {
     expect((screen.getByRole('button', { name: zh['dialog.cancel'] }) as HTMLButtonElement).disabled).toBe(true)
     expect(screen.queryByRole('button', { name: zh['manager.action.dispose'] })).toBeNull()
     expect(screen.queryByRole('checkbox')).toBeNull()
-    expect(workspaceTrigger().disabled).toBe(true)
     expect((screen.getByRole('radio', { name: zh['dialog.mode.archive'] }) as HTMLInputElement).disabled).toBe(true)
     // 在途点 tab 不切走，也不触发迁移列表拉取。
     fireEvent.click(screen.getByRole('tab', { name: zh['manager.tab.migrated'] }))
@@ -552,12 +599,15 @@ describe('阶段机：处置（已归档删除）', () => {
     })
 
     expect(screen.getByText(translate('manager.done.dispose', { count: 1 }))).toBeDefined()
-    expect(screen.getByText(zh['manager.close'])).toBeDefined()
+    expect(screen.getByRole('button', { name: zh['manager.finish'] })).toBeDefined()
     expect(screen.queryByRole('button', { name: zh['manager.action.dispose'] })).toBeNull()
 
-    // 完成态的「关闭」同样接到座位 owner：分节只发关闭请求，卸载由 holder 执行。
-    fireEvent.click(screen.getByRole('button', { name: zh['manager.close'] }))
-    expect(view.close).toHaveBeenCalledTimes(1)
+    // 完成 = 终点态的出口：阶段回 select（结果离场、动作按钮重现），页面本身不被关闭。
+    fireEvent.click(screen.getByRole('button', { name: zh['manager.finish'] }))
+    expect(screen.queryByText(translate('manager.done.dispose', { count: 1 }))).toBeNull()
+    expect(screen.getByRole('button', { name: zh['manager.action.dispose'] })).toBeDefined()
+    expect(screen.getByText(translate('manager.selected', { count: 0 }))).toBeDefined()
+    expect(selectedTabLabel()).toBe(zh['manager.tab.archived'])
   })
 
   it('执行被整单拒绝：落 failed 展示首个失败码与宿主 message，返回后保留选择', async () => {
@@ -583,6 +633,32 @@ describe('阶段机：处置（已归档删除）', () => {
     expect(screen.getByText(translate('manager.selected', { count: 1 }))).toBeDefined()
     expect(selectedTabLabel()).toBe(zh['manager.tab.archived'])
     expect(screen.queryByRole('button', { name: zh['manager.confirm.run'] })).toBeNull()
+  })
+
+  it('failed 的「完成」回到 select：失败面板离场，页面不被关闭', async () => {
+    const client = fakeClient({
+      previewBatch: vi.fn(async () => previewOf([ARCHIVED_A1])),
+      disposeBatch: vi.fn(async (): Promise<DeleteOutcome> => {
+        throw new DeleteError('internal', 'host exploded')
+      }),
+    })
+    renderManager({ client })
+
+    fireEvent.click(screen.getByRole('tab', { name: zh['manager.tab.archived'] }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '甲归档一' }))
+    fireEvent.click(screen.getByRole('button', { name: zh['manager.action.dispose'] }))
+    await flush()
+    fireEvent.click(screen.getByRole('button', { name: zh['manager.confirm.run'] }))
+
+    const failedText = translate('manager.failed', { reason: zh['error.internal'] })
+    await waitFor(() => expect(screen.getByText(failedText)).toBeDefined())
+    expect(screen.getByRole('button', { name: zh['manager.confirm.back'] })).toBeDefined()
+    expect(screen.getByRole('button', { name: zh['manager.finish'] })).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: zh['manager.finish'] }))
+    expect(screen.queryByText(failedText)).toBeNull()
+    expect(screen.getByRole('button', { name: zh['manager.action.dispose'] })).toBeDefined()
+    expect(selectedTabLabel()).toBe(zh['manager.tab.archived'])
   })
 
   it('模式切换不重发预览：回 select 改档后计数仍为 1，下一次动作才重新预览', async () => {

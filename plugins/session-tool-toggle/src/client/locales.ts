@@ -134,9 +134,11 @@ export const zh = {
   'defaults.clear': '清空默认档',
   'defaults.clearConfirm': '再点一次确认清空',
 
-  // —— 工作区默认档（设计 §3.4 / C2；面板分区与侧栏对话框共用同一组键） ——
+  // —— 工作区默认档（设计 §3.4 / C2；面板分区与页面分节共用同一组键） ——
   'workspace.title': '工作区默认档',
-  'workspace.select': '选择工作区',
+  // 页面级选择框没有给出有效目标（未分配 / 工作区服务未就绪）时的空态：本节不发任何寻址
+  // 请求，也不渲染编辑器（选择动作归 holder 页面的唯一选择框，节内不再自带下拉）。
+  'workspace.noTarget': '请先在上方选择一个工作区',
   'workspace.key': '工作区键',
   'workspace.path': '工作区档文件',
   'workspace.registered': '已登记工作区',
@@ -304,7 +306,9 @@ export const en = {
 
   // —— 工作区默认档 ——
   'workspace.title': 'Workspace defaults',
-  'workspace.select': 'Choose a workspace',
+  // Empty state when the page-level picker gives no valid target (unassigned / service not ready):
+  // the section sends no addressing request and no longer renders a picker of its own.
+  'workspace.noTarget': 'Choose a workspace above first',
   'workspace.key': 'Workspace key',
   'workspace.path': 'Workspace file',
   'workspace.registered': 'Registered workspace',
