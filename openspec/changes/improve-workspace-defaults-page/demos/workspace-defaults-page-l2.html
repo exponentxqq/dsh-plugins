@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>improve-workspace-defaults-page · L2 · 界面演示</title>
+<style>
+  :root{
+    /* DSH 设计令牌兜底值（演示页静态模拟；实现走 var(--dsw-alias-*)） */
+    --ink:#000; --ink2:#545557; --ink3:#7f8287;
+    --line1:rgb(0 0 0 / 6%); --line2:rgb(0 0 0 / 12%);
+    --bg:#f7f7f8; --card:#f7f7f8; --bg1:#fff;
+    --blue:#1a67e0; --green:#16955f; --warn:#dd8629; --red:#ec1313;
+    --fs1:18px; --fs2:14px; --fs3:13px; --fs4:12px; --fs5:11px;
+    --sp:6px; --sp2:10px; --sp3:14px; --r:12px;
+    --mono:ui-monospace,"SF Mono",Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#fff;color:var(--ink);font:var(--fs3)/1.6 system-ui,"PingFang SC","Microsoft YaHei",sans-serif}
+  .bar{position:sticky;top:0;z-index:9;padding:10px 24px;background:#0f172a;color:#fff;font-size:var(--fs4)}
+  .bar p{margin:2px 0}
+  .wrap{max-width:960px;margin:0 auto;padding:20px 16px 48px}
+  h1,h2,h3{margin:0 0 var(--sp2);line-height:1.35} h1{font-size:var(--fs1)} h2{font-size:15px} h3{font-size:var(--fs3)}
+  .muted{color:var(--ink2)} .tiny{color:var(--ink3);font-size:var(--fs4)}
+  .note{margin:0;color:var(--ink3);font-size:var(--fs4);line-height:18px}
+  .card{background:var(--card);border:1px solid var(--line1);border-radius:var(--r);padding:var(--sp3) 16px;display:flex;flex-direction:column;gap:var(--sp2)}
+  .gap{display:flex;flex-direction:column;gap:16px}
+  .cardHeader{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .cardTitle{margin:0;color:var(--ink);font-size:var(--fs3);font-weight:600;line-height:20px}
+  .badge{padding:0 6px;border:1px solid var(--line2);border-radius:999px;color:var(--ink3);font-size:var(--fs5);line-height:16px}
+  .push{margin-left:auto}
+  .btn{padding:4px 12px;border:1px solid var(--line2);border-radius:6px;background:var(--bg1);color:var(--ink);font:inherit;font-size:var(--fs4);cursor:pointer}
+  .btn:hover:not(:disabled){background:rgb(0 0 0 / 6%)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn.primary{border-color:var(--blue);color:var(--blue)}
+  .facts{display:grid;gap:4px;margin:0}
+  .fact{display:flex;gap:8px;align-items:baseline;font-size:var(--fs4);line-height:18px}
+  .factTerm{color:var(--ink3);flex:none}
+  .factValue{color:var(--ink2);font-family:var(--mono);word-break:break-all;min-width:0}
+  .counts{margin:0;color:var(--ink2);font-size:var(--fs4);font-variant-numeric:tabular-nums}
+  .counts b{color:var(--ink);font-weight:600}
+  .warnline{margin:0;color:var(--warn);font-size:var(--fs4);line-height:18px}
+  .listHeader{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .listHeader .cardTitle{flex:none}
+  .filter{margin-left:auto;width:min(260px,100%);padding:5px 10px;border:1px solid var(--line2);border-radius:6px;font:inherit;font-size:var(--fs4);background:var(--bg1)}
+  .groups{display:flex;flex-direction:column;margin:0;padding:0;list-style:none}
+  .group{display:flex;flex-direction:column;gap:2px;border-top:1px solid var(--line1)}
+  .group:first-child{border-top:none}
+  .groupHeader{display:flex;align-items:center;gap:8px;min-height:32px}
+  .groupToggle{display:flex;flex:1 1 auto;align-items:center;gap:8px;min-width:0;padding:4px 6px;font:inherit;text-align:left;cursor:pointer;background:none;border:0;border-radius:8px}
+  .groupToggle:hover{background:rgb(0 0 0 / 6%)}
+  .groupToggle .chev{color:var(--ink3);font-size:10px;flex:none}
+  .groupTitle{color:var(--ink);font-size:var(--fs3);font-weight:600;white-space:nowrap}
+  .groupName{overflow:hidden;color:var(--ink2);font-family:var(--mono);font-size:var(--fs4);white-space:nowrap;text-overflow:ellipsis}
+  .groupCounts{color:var(--ink3);font-size:var(--fs4);white-space:nowrap}
+  .rows{display:flex;flex-direction:column;margin:0 0 6px;padding:0 6px 0 24px;list-style:none}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:30px;padding:3px 0}
+  .rowMain{display:flex;flex-direction:column;gap:2px;min-width:0}
+  .rowNameLine{display:flex;align-items:center;gap:6px;min-width:0}
+  .name{overflow:hidden;color:var(--ink);font-family:var(--mono);font-size:var(--fs4);white-space:nowrap;text-overflow:ellipsis}
+  .rowDescription{overflow:hidden;color:var(--ink3);font-size:var(--fs5);line-height:16px;white-space:nowrap;text-overflow:ellipsis}
+  .tag{flex:none;padding:0 6px;color:var(--ink3);font-size:var(--fs5);line-height:16px;border:1px solid var(--line2);border-radius:999px}
+  .tag.src{color:var(--ink3)}
+  .tag.off{color:var(--blue);border-color:var(--blue)}
+  .rowTags{display:flex;flex-wrap:wrap;gap:4px}
+  /* 静态开关视觉（演示用；实现为官方 Switch 组件） */
+  .sw{flex:none;width:32px;height:18px;border-radius:999px;background:var(--blue);position:relative}
+  .sw::after{content:"";position:absolute;top:2px;left:16px;width:14px;height:14px;border-radius:50%;background:#fff}
+  .sw.off{background:rgb(0 0 0 / 15%)} .sw.off::after{left:2px;background:var(--ink3)}
+  .sw.dis{background:rgb(0 0 0 / 10%);opacity:.6} .sw.dis::after{left:2px;background:#fff}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
+  .chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:2px 4px 2px 8px;background:var(--bg1);border:1px solid var(--line1);border-radius:999px}
+  .address{font-family:var(--mono);font-size:var(--fs4);color:var(--ink2);word-break:break-all}
+  .emptyBlock{padding:12px;border:1px dashed var(--line2);border-radius:8px;background:var(--bg1);display:flex;flex-direction:column;gap:4px}
+  .emptyTitle{margin:0;color:var(--ink);font-size:var(--fs3);font-weight:500}
+  .commandRow{display:flex;align-items:flex-start;gap:8px}
+  .command{flex:1;margin:0;padding:8px 10px;background:var(--bg1);border:1px solid var(--line1);border-radius:8px;font-family:var(--mono);font-size:var(--fs4);line-height:18px;white-space:pre-wrap;word-break:break-all}
+  .footnotes{display:flex;flex-direction:column;gap:2px}
+  .actions{display:flex;align-items:center;gap:10px;margin-top:4px}
+  .saved{color:var(--green);font-size:var(--fs4);line-height:18px}
+  .alert{border:1px solid rgb(236 19 19 / 25%);border-radius:8px;padding:10px 12px;background:rgb(236 19 19 / 4%)}
+  .err{margin:0;color:var(--red);font-size:var(--fs3);line-height:20px}
+  .errDetail{margin:4px 0 0;color:var(--ink3);font-size:var(--fs4);word-break:break-word}
+  .tabs{display:flex;gap:6px;border-bottom:1px solid var(--line1);margin:8px 0 16px;flex-wrap:wrap}
+  .tabs a{padding:8px 12px;color:var(--ink2);text-decoration:none;border-bottom:2px solid transparent;font-size:var(--fs3)}
+  .tabs a:hover{color:var(--ink)}
+  .tabs a:target{color:var(--blue);border-color:var(--blue)}
+  .brief li{margin:2px 0}
+  .tree{font-family:var(--mono);font-size:var(--fs4);line-height:1.7;color:var(--ink2);white-space:pre;overflow-x:auto}
+  .vs{display:grid;gap:10px;grid-template-columns:1fr 1fr}
+  .vs .cell{border:1px solid var(--line1);border-radius:8px;padding:10px 12px;font-size:var(--fs4)}
+  .vs .cell p{margin:0 0 4px}
+  .vs .bad{background:rgb(236 19 19 / 3%)}
+  .vs .good{background:rgb(22 149 95 / 4%)}
+  @media (max-width:480px){
+    .wrap{padding:16px 8px}
+    .vs{grid-template-columns:1fr}
+    .bar{font-size:12px;padding:8px 12px}
+    .tabs{overflow-x:auto}
+    .filter{margin-left:0}
+  }
+</style>
+</head>
+<body>
+<!-- 演示约束条 -->
+<header class="bar">
+  <p>变更名 <b>improve-workspace-defaults-page</b> · 分档 <b>L2</b> · 生成 <b>2026-11-08 23:20</b> · <b>界面演示，非最终实现</b></p>
+  <p>示意数据：本页工作区、工具、技能、计数均为虚构，仅用于确认布局与视觉；开关为静态视觉，交互以实现为准。</p>
+</header>
+<main class="wrap gap">
+
+  <!-- ══════════ 方案速览 ══════════ -->
+  <section id="brief" class="gap">
+    <h1>工作区默认档页面优化 · 方案速览</h1>
+    <div class="card">
+      <p class="cardTitle">当前页面的问题（实测与代码核对）</p>
+      <ul class="brief">
+        <li><b>能力缺失</b>：页面形态下宿主契约返回空宇宙（D-24），分组开关清单从不渲染——页面上只能看/删存量条目，<b>无法添加默认关闭项</b>；而面板里同一编辑器却有完整清单。</li>
+        <li><b>信息平铺</b>：约 8 行纯文本（key/文件/三计数/降级文案/命令提示/两句说明）以相近视觉权重纵向堆叠，无卡片无分块，主次不分。</li>
+        <li><b>标题冗余</b>：分节正文顶部 h3 与 tab 名「工作区默认档」重复。</li>
+        <li><b>交互缺口</b>：无刷新入口（只能切 tab 重挂）；命令提示是纯文本不可复制；空档时页面近乎空白。</li>
+      </ul>
+    </div>
+    <div class="card">
+      <p class="cardTitle">参考「会话工具面」的思路（参考但不照搬）</p>
+      <ul class="brief">
+        <li><b>保留</b>：三段式分组（MCP 服务器 / 技能 / 内置工具）、组开关 + 行开关两级粒度、组头计数摘要、保护行禁用 + 标签、残留 chip 只能移除、保存不追溯语义。</li>
+        <li><b>超越</b>（面板做不好、页面能做好的）：Modal 六段纵排 → 三卡分层（概要 / 清单 / 命令）；全局过滤（面板只有内置组过滤）覆盖组行/技能/内置/残留；行下描述次行 + 技能调用标签（面板无详情）；刷新入口；可复制命令块；空档/降级/无匹配三种空态。</li>
+      </ul>
+    </div>
+    <div class="card">
+      <p class="cardTitle">具体优化点（交互 × 视觉）</p>
+      <ul class="brief">
+        <li><b>交互</b>：A2 宿主按工作区算宇宙（清单恢复可开关，/inventory 同款归组口径）；C1 全局过滤；C3 概要卡刷新；C4 命令卡 + 复制按钮；C6 空档可视化块；两段式清空保留。</li>
+        <li><b>视觉</b>：B1 单列三卡（与同页「工作区文件夹」分节视觉语言对齐，bg-layer-2 卡片 + 12px 圆角）；三计数徽章化数字；登记态徽章；行下灰字描述；技能标签（模型可调 / 仅用户调用 / 来源）。</li>
+      </ul>
+    </div>
+    <div class="card">
+      <p class="cardTitle">改造后页面结构</p>
+      <div class="tree">分节正文（tabpanel 内，无重复 h3）
+├─ 概要卡  工作区名 + 登记/未登记徽章 + 刷新 | key · 档文件 | 清单 N · 默认关 M · 残留 K | 损坏警告
+├─ 清单卡  全局过滤框 | 开关语义提示 | 空档块(C6)
+│          ├─ MCP 服务器组（折叠 + 组开关 + 行开关 + 行下描述）
+│          ├─ 技能组（整档开关 + 行 + 调用方式/来源标签）
+│          ├─ 内置工具组（行 + Protected 禁用）
+│          ├─ 残留 chips（只能移除）
+│          └─ 注记：全局并集近似 · 未归组计数 · 技能观测不完整
+├─ 命令卡  目标工作区注释 + /tools workspace off 命令块 + 复制 + 边界说明
+├─ 脚注    不追溯(scope) · 并集(union)
+└─ 页脚    两段式清空 + 已保存提示 + 失败 alert</div>
+    </div>
+    <div class="card vs-wrap">
+      <p class="cardTitle">前后对照</p>
+      <div class="vs">
+        <div class="cell bad"><p><b>改造前</b>（实测降级态）</p><p class="tiny">Workspace key · /home/…/dsh-plugins · 已登记<br>Workspace file · ~/.dsh/…/workspaces.json<br>0 listed · 0 off by default · 0 residual<br><span style="color:var(--warn)">本会话工具清单暂不可用：只能查看/移除档内条目</span><br>本页只列本会话可见工具；跨清单新关用 /tools workspace off 命令<br>作用域：仅本工作区之后新建的会话…<br>新会话初始关闭 = 用户级 ∪ 本工作区默认档<br>[清空工作区默认档(禁用)]<br>——8 行平铺，无清单、无卡片、无刷新</p></div>
+        <div class="cell good"><p><b>改造后</b>（三卡 + 完整清单）</p><p class="tiny">概要卡：身份/事实/三计数/刷新<br>清单卡：全局过滤 + 三组开关 + 行详情 + 残留<br>命令卡：可复制命令 + 边界说明<br>脚注与页脚收纳低频说明<br>——每层一个职责，操作对象就在手边</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ 状态演示 tabs ══════════ -->
+  <nav class="tabs">
+    <a href="#s-loaded">① 有档态</a>
+    <a href="#s-empty">② 空档态</a>
+    <a href="#s-filtered">③ 过滤中</a>
+    <a href="#s-degraded">④ 降级态</a>
+    <a href="#s-error">⑤ 失败态</a>
+  </nav>
+
+  <!-- ══════════ ① 有档态（主形态） ══════════ -->
+  <section id="s-loaded" class="gap">
+    <h2>① 有档态 · 三卡完整形态</h2>
+    <div class="gap">
+
+      <div class="card">
+        <div class="cardHeader">
+          <p class="cardTitle">dsh-plugins</p>
+          <span class="badge">已登记工作区</span>
+          <span class="push"></span>
+          <button class="btn" type="button">刷新</button>
+        </div>
+        <dl class="facts">
+          <div class="fact"><dt class="factTerm">工作区键</dt><dd class="factValue">/home/xuqinqin/develop/person/dsh-plugins</dd></div>
+          <div class="fact"><dt class="factTerm">档文件</dt><dd class="factValue">/home/docker/.dsh/session-tool-toggle/workspaces.json</dd></div>
+        </dl>
+        <p class="counts">可切换 <b>128</b> · 默认关 <b>3</b> · 残留 <b>2</b></p>
+      </div>
+
+      <div class="card">
+        <div class="listHeader">
+          <p class="cardTitle">默认关闭项</p>
+          <input class="filter" type="search" placeholder="过滤：名称 / 地址 / 描述 / 组…" aria-label="全局过滤">
+        </div>
+        <p class="note">开关表达「新会话默认是否可用」：关 = 写入本工作区档，立即生效、不追溯既有会话。</p>
+
+        <ul class="groups">
+          <li class="group">
+            <div class="groupHeader">
+              <button class="groupToggle" type="button" aria-expanded="false"><span class="chev">▶</span><span class="groupTitle">MCP 服务器</span><span class="groupName">chrome-shared</span><span class="groupCounts">32 项 · 1 默认关</span></button>
+              <span class="sw" role="img" aria-label="chrome-shared 组开关：开"></span>
+            </div>
+          </li>
+          <li class="group">
+            <div class="groupHeader">
+              <button class="groupToggle" type="button" aria-expanded="true"><span class="chev">▼</span><span class="groupTitle">MCP 服务器</span><span class="groupName">figma-dev</span><span class="groupCounts">24 项 · 整组默认关</span></button>
+              <span class="sw off" role="img" aria-label="figma-dev 组开关：关"></span>
+            </div>
+            <ul class="rows">
+              <li class="row">
+                <div class="rowMain">
+                  <div class="rowNameLine"><code class="name">get_file</code><span class="tag">整组默认关</span></div>
+                  <p class="rowDescription">Fetch the content of a Figma file by key（示意描述）</p>
+                </div>
+                <span class="sw dis" role="img" aria-label="get_file：整组在档，行禁用"></span>
+              </li>
+              <li class="row">
+                <div class="rowMain">
+                  <div class="rowNameLine"><code class="name">export_asset</code><span class="tag">整组默认关</span></div>
+                  <p class="rowDescription">Export a node as image asset（示意描述）</p>
+                </div>
+                <span class="sw dis" role="img" aria-label="export_asset：整组在档，行禁用"></span>
+              </li>
+            </ul>
+          </li>
+          <li class="group">
+            <div class="groupHeader">
+              <button class="groupToggle" type="button" aria-expanded="true"><span class="chev">▼</span><span class="groupTitle">技能</span><span class="groupCounts">26 项 · 1 默认关</span></button>
+              <span class="sw" role="img" aria-label="技能整档开关：开"></span>
+            </div>
+            <ul class="rows">
+              <li class="row">
+                <div class="rowMain">
+                  <div class="rowNameLine"><code class="name">spec-plan</code></div>
+                  <p class="rowDescription">spec 规划半程：四阶段流水线产出 OpenSpec 变更工件（示意描述）</p>
+                  <div class="rowTags"><span class="tag">模型可调</span><span class="tag src">来源：用户</span></div>
+                </div>
+                <span class="sw" role="img" aria-label="spec-plan 开关：开"></span>
+              </li>
+              <li class="row">
+                <div class="rowMain">
+                  <div class="rowNameLine"><code class="name">openspec-propose</code></div>
+                  <p class="rowDescription">把探索结论落成 OpenSpec 变更提案（示意描述）</p>
+                  <div class="rowTags"><span class="tag">模型可调</span><span class="tag src">来源：项目</span></div>
+                </div>
+                <span class="sw" role="img" aria-label="openspec-propose 开关：开"></span>
+              </li>
+              <li class="row">
+                <div class="rowMain">
+                  <div class="rowNameLine"><code class="name">my-note-helper</code><span class="tag off">默认关</span></div>
+                  <p class="rowDescription">个人笔记整理助手（示意描述）</p>
+                  <div class="rowTags"><span class="tag">仅用户调用 /my-note-helper</span><span class="tag src">来源：项目</span></div>
+                </div>
+                <span class="sw off" role="img" aria-label="my-note-helper 开关：关"></span>
+              </li>
+            </ul>
+          </li>
+          <li class="group">
+            <div class="groupHeader">
+              <button class="groupToggle" type="button" aria-expanded="true"><span class="chev">▼</span><span class="groupTitle">内置工具</span><span class="groupCounts">78 项 · 1 默认关</span></button>
+            </div>
+            <ul class="rows">
+              <li class="row">
+                <div class="rowMain">
+                  <div class="rowNameLine"><code class="name">bash</code><span class="tag">受保护</span></div>
+                  <p class="rowDescription">Execute a shell command（示意描述）</p>
+                </div>
+                <span class="sw dis" role="img" aria-label="bash：保护名单，不可关"></span>
+              </li>
+              <li class="row">
+                <div class="rowMain">
+                  <div class="rowNameLine"><code class="name">task_board_create</code><span class="tag off">默认关</span></div>
+                  <p class="rowDescription">Create a task on the DSH task board（示意描述）</p>
+                </div>
+                <span class="sw off" role="img" aria-label="task_board_create 开关：关"></span>
+              </li>
+              <li class="row">
+                <div class="rowMain">
+                  <div class="rowNameLine"><code class="name">todo_write</code></div>
+                  <p class="rowDescription">Record and update a task list（示意描述）</p>
+                </div>
+                <span class="sw" role="img" aria-label="todo_write 开关：开"></span>
+              </li>
+            </ul>
+          </li>
+        </ul>
+
+        <p class="note">残留地址（不在当前清单；只能移除）：</p>
+        <ul class="chips">
+          <li class="chip"><code class="address">mcp:yunxiao-old</code><button class="btn" type="button">移除</button></li>
+          <li class="chip"><code class="address">skill:legacy-helper</code><button class="btn" type="button">移除</button></li>
+        </ul>
+
+        <p class="note">清单为全局工具注册表并集：可能包含其他工作区的项目级服务器，写入后仅保留意图（示意）。</p>
+        <p class="note">另有 1 个 MCP 工具名无法归组到服务器（示意）。</p>
+      </div>
+
+      <div class="card">
+        <p class="cardTitle">命令兜底</p>
+        <p class="note">清单外的地址用命令关闭；命令只写「本会话所属工作区」，为其他工作区预置请手改档文件。</p>
+        <div class="commandRow">
+          <pre class="command"><code># 目标工作区：/home/xuqinqin/develop/person/dsh-plugins
+/tools workspace off mcp:figma-dev</code></pre>
+          <button class="btn primary" type="button">复制命令</button>
+        </div>
+      </div>
+
+      <div class="footnotes">
+        <p class="note">作用域：仅本工作区之后新建的会话；既有会话（含当前）不变。</p>
+        <p class="note">新会话初始关闭 = 用户级默认档 ∪ 本工作区默认档（工作区只追加，不反开用户级）。</p>
+      </div>
+
+      <div class="actions">
+        <button class="btn" type="button">清空本工作区默认档</button>
+        <span class="saved">已保存（本会话不变）</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ ② 空档态 ══════════ -->
+  <section id="s-empty" class="gap">
+    <h2>② 空档态 · C6 空档可视化</h2>
+    <div class="gap">
+      <div class="card">
+        <div class="cardHeader">
+          <p class="cardTitle">dotfiles</p>
+          <span class="badge">已登记工作区</span>
+          <span class="push"></span>
+          <button class="btn" type="button">刷新</button>
+        </div>
+        <dl class="facts">
+          <div class="fact"><dt class="factTerm">工作区键</dt><dd class="factValue">/home/xuqinqin/develop/dotfiles</dd></div>
+        </dl>
+        <p class="counts">可切换 <b>121</b> · 默认关 <b>0</b> · 残留 <b>0</b></p>
+        <p class="warnline">（示意）档文件曾损坏，已按空档处理并告警。</p>
+      </div>
+      <div class="card">
+        <div class="listHeader">
+          <p class="cardTitle">默认关闭项</p>
+          <input class="filter" type="search" placeholder="过滤：名称 / 地址 / 描述 / 组…" aria-label="全局过滤">
+        </div>
+        <div class="emptyBlock">
+          <p class="emptyTitle">这个工作区还没有默认关闭项</p>
+          <p class="note">展开下方分组，把不需要的工具/技能关掉——新会话将默认不带它们启动；或使用命令 <code>/tools workspace off &lt;地址&gt;</code>。</p>
+        </div>
+        <ul class="groups">
+          <li class="group">
+            <div class="groupHeader">
+              <button class="groupToggle" type="button" aria-expanded="false"><span class="chev">▶</span><span class="groupTitle">MCP 服务器</span><span class="groupName">chrome-shared</span><span class="groupCounts">32 项</span></button>
+              <span class="sw" role="img" aria-label="chrome-shared 组开关：开"></span>
+            </div>
+          </li>
+          <li class="group">
+            <div class="groupHeader">
+              <button class="groupToggle" type="button" aria-expanded="false"><span class="chev">▶</span><span class="groupTitle">技能</span><span class="groupCounts">22 项</span></button>
+              <span class="sw" role="img" aria-label="技能整档开关：开"></span>
+            </div>
+          </li>
+          <li class="group">
+            <div class="groupHeader">
+              <button class="groupToggle" type="button" aria-expanded="false"><span class="chev">▶</span><span class="groupTitle">内置工具</span><span class="groupCounts">67 项</span></button>
+            </div>
+          </li>
+        </ul>
+      </div>
+      <div class="actions">
+        <button class="btn" type="button" disabled>清空本工作区默认档</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ ③ 过滤中 ══════════ -->
+  <section id="s-filtered" class="gap">
+    <h2>③ 过滤中 · 全局过滤（C1）</h2>
+    <p class="muted">输入「task」后：所有组强制展开、组头不可折叠、隐藏各组本地过滤；匹配范围 = 名称 / 地址 / 描述 / 组键；残差仍按未过滤口径计算。</p>
+    <div class="gap">
+      <div class="card">
+        <div class="listHeader">
+          <p class="cardTitle">默认关闭项</p>
+          <input class="filter" type="search" value="task" aria-label="全局过滤">
+        </div>
+        <ul class="groups">
+          <li class="group">
+            <div class="groupHeader">
+              <span class="groupToggle" style="cursor:default"><span class="chev">▼</span><span class="groupTitle">内置工具</span><span class="groupCounts">78 项 · 匹配 4</span></span>
+            </div>
+            <ul class="rows">
+              <li class="row">
+                <div class="rowMain">
+                  <div class="rowNameLine"><code class="name">task_board_create</code><span class="tag off">默认关</span></div>
+                  <p class="rowDescription">Create a task on the DSH task board（示意描述）</p>
+                </div>
+                <span class="sw off" role="img" aria-label="task_board_create 开关：关"></span>
+              </li>
+              <li class="row">
+                <div class="rowMain">
+                  <div class="rowNameLine"><code class="name">task_board_list</code></div>
+                  <p class="rowDescription">List tasks on the DSH task board（示意描述）</p>
+                </div>
+                <span class="sw" role="img" aria-label="task_board_list 开关：开"></span>
+              </li>
+              <li class="row">
+                <div class="rowMain">
+                  <div class="rowNameLine"><code class="name">team_task_update</code></div>
+                  <p class="rowDescription">Compare-and-set a shared task（示意描述）</p>
+                </div>
+                <span class="sw" role="img" aria-label="team_task_update 开关：开"></span>
+              </li>
+            </ul>
+          </li>
+        </ul>
+        <p class="note">「MCP 服务器 / 技能」两组无匹配，已隐藏（示意）。</p>
+      </div>
+      <div class="card">
+        <div class="listHeader">
+          <p class="cardTitle">默认关闭项</p>
+          <input class="filter" type="search" value="zzz-no-match" aria-label="全局过滤">
+        </div>
+        <div class="emptyBlock">
+          <p class="emptyTitle">没有匹配「zzz-no-match」的条目</p>
+          <p class="note">换个关键词，或用命令 <code>/tools workspace off &lt;地址&gt;</code> 关闭清单外的地址。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ ④ 降级态 ══════════ -->
+  <section id="s-degraded" class="gap">
+    <h2>④ 降级态 · 宇宙暂不可用（读失败 / 混合版本兜底）</h2>
+    <div class="gap">
+      <div class="card">
+        <div class="cardHeader">
+          <p class="cardTitle">ship-v2</p>
+          <span class="badge">已登记工作区</span>
+          <span class="push"></span>
+          <button class="btn" type="button">刷新</button>
+        </div>
+        <p class="counts">可切换 <b>0</b> · 默认关 <b>0</b> · 残留 <b>3</b></p>
+      </div>
+      <div class="card">
+        <p class="cardTitle">默认关闭项</p>
+        <div class="emptyBlock">
+          <p class="emptyTitle">工具清单暂时不可用</p>
+          <p class="note">读取工具宇宙失败（或宿主为旧版本）：暂时只能查看和移除档内已有条目；可点「刷新」重试。写入不受影响。</p>
+        </div>
+        <p class="note">残留地址（只能移除）：</p>
+        <ul class="chips">
+          <li class="chip"><code class="address">mcp:figma-dev</code><button class="btn" type="button">移除</button></li>
+          <li class="chip"><code class="address">mcp:yunxiao-old</code><button class="btn" type="button">移除</button></li>
+          <li class="chip"><code class="address">skill:legacy-helper</code><button class="btn" type="button">移除</button></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ ⑤ 失败态 ══════════ -->
+  <section id="s-error" class="gap">
+    <h2>⑤ 失败态 · 写入失败（stale-while-revalidate：旧数据仍在）</h2>
+    <div class="gap">
+      <div class="card">
+        <div class="cardHeader">
+          <p class="cardTitle">dsh-plugins</p>
+          <span class="badge">已登记工作区</span>
+          <span class="push"></span>
+          <button class="btn" type="button">刷新</button>
+        </div>
+        <p class="counts">可切换 <b>128</b> · 默认关 <b>3</b> · 残留 <b>2</b>（上次成功读取）</p>
+      </div>
+      <div class="card">
+        <p class="cardTitle">默认关闭项</p>
+        <p class="note">清单与开关保持上次读取的样子（示意，折叠组省略）。</p>
+      </div>
+      <div class="alert" role="alert">
+        <p class="err">工作区默认档文件暂不可写，本次修改未生效。</p>
+        <p class="errDetail">workspace-unwritable：EACCES: permission denied, open '/home/docker/.dsh/session-tool-toggle/workspaces.json'（宿主原文，示意）</p>
+      </div>
+      <div class="actions">
+        <button class="btn" type="button" disabled>清空本工作区默认档</button>
+        <span class="tiny">写在途时操作区禁用（示意）</span>
+      </div>
+    </div>
+  </section>
+
+</main>
+</body>
+</html>
