@@ -266,6 +266,75 @@ describe('createDirectoryPicker：三级信号分类（顺序固定）', () => {
   })
 })
 
+describe('DirectoryBrowser：receiver 绑定（上游实例方法 this 敏感，2026-11-09 真机回归）', () => {
+  /**
+   * 上游真实形态的 fixture：`listDirectory` / `createDirectory` 与上游
+   * `UiWorkspaceService` 一样是读实例状态（`this.directoryPicker`）的方法
+   * 简写。端口的解构裸引用调用会丢 `this` 并以 TypeError 收场——2026-11-09
+   * 真机「目录浏览失败」的根因；本组用例在修复前必红，是防回归锚。
+   */
+  function upstreamShapedService(): DirectoryPickerService & { calls: string[] } {
+    const calls: string[] = []
+    const service = {
+      calls,
+      directoryPicker: {
+        list: async (path?: string) => {
+          calls.push(`list:${path ?? '(home)'}`)
+          return HOME_LISTING
+        },
+        create: async (path: string, name: string) => {
+          calls.push(`create:${path}/${name}`)
+          return `${path}/${name}`
+        },
+      },
+      pickDirectory: async () => {
+        throw new Error(BROWSE_MESSAGE)
+      },
+      listDirectory(path?: string, signal?: AbortSignal) {
+        void signal
+        return this.directoryPicker.list(path)
+      },
+      createDirectory(path: string, name: string) {
+        return this.directoryPicker.create(path, name)
+      },
+    }
+    return service
+  }
+
+  it('② message 降级后的 browsing.list / browsing.create 真实走通（receiver 已绑定）', async () => {
+    const service = upstreamShapedService()
+    const outcome = expectKind(await createDirectoryPicker(() => service)(), 'browse')
+    const listing = await outcome.browsing.list(undefined)
+    expect(listing.path).toBe(HOME_LISTING.path)
+    const created = await outcome.browsing.create('/home/me', 'newdir')
+    expect(created).toBe('/home/me/newdir')
+    expect(service.calls).toEqual(['list:(home)', 'create:/home/me/newdir'])
+  })
+
+  it('③ 结构探测（message 改形失配）的零参探测直调同样保留 receiver', async () => {
+    const service = upstreamShapedService()
+    service.pickDirectory = async () => {
+      throw new Error(RESHAPED_MESSAGE)
+    }
+    const outcome = expectKind(await createDirectoryPicker(() => service)(), 'browse')
+    expect(outcome.listing?.path).toBe(HOME_LISTING.path)
+    expect(service.calls).toEqual(['list:(home)'])
+  })
+
+  it('能力缓存实例失效重判后，新实例的端口同样 this 正确', async () => {
+    const first = upstreamShapedService()
+    const second = upstreamShapedService()
+    let current = first
+    const picker = createDirectoryPicker(() => current)
+    expectKind(await picker(), 'browse')
+    current = second
+    const outcome = expectKind(await picker(), 'browse')
+    await outcome.browsing.list(undefined)
+    expect(second.calls).toEqual(['list:(home)'])
+    expect(first.calls).toEqual([])
+  })
+})
+
 describe('DirectoryBrowser：错误归一化与 abort', () => {
   it.each([
     { via: 'list', wire: 'directory-picker/unreadable', local: 'picker-unreadable', message: 'no such directory' },

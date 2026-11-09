@@ -218,7 +218,7 @@ docs/             需求、架构、决策记录（ADR）、计划、开发工�
 - 裸模糊搜索不跨根：附加根只以「根目录候选 + 绝对路径钻入」两种方式参与 `@` 补全，`@` 加文件名片段的模糊查询仍只搜主根（附加根大目录首查全量索引卡顿、跨根排名无语义）。取舍与理由见 [ADR-0012](./docs/decisions/ADR-0012-additional-root-file-references.md)。
 - 命令的输出文案为英文（host 侧没有活动语言信息），面板文案中英双语跟随界面语言。
 - 面板挂载点是统一「工作区配置」页面里的 `workspace-config.section` 分节（由 `dsh-plugin-workspace-config` 在注册 `main` 独立页面时用 `children` 声明），不是独立全屏面板，也不再占用 `sidebar.footer.action`（该入口已删除）：页面、页面级工作区选择框与 tab 导航都归 holder，本插件只提交分节内容——因此本插件不需要感知面板行 / 页面的座位是否可用，也不自行维护选择状态。Files tab 紧凑入口（无页面份额）与 `/workspace-folders` 保留；未装 workspace-config 时面板没有 GUI 入口（推荐四包同装）。取舍见 [ADR-0013](./docs/decisions/ADR-0013-workspace-config-section-mount.md)。
-- 应用内目录浏览对话框在当前上游组合（`0.2.2-rc.1`，directory-picker auto 后端）的真机实测里无法列出目录：pick 被宿主以结构化拒绝正确引导改用 browse、host 端 `list` 端点探活健康，但浏览器侧的 `list` 调用在**上游 client 集成面**中断、未到达网络层（2026-11-09 实测留痕，见 [ADR-0015](./docs/decisions/ADR-0015-in-app-directory-picker.md) 的 Context）。表现为：点「添加目录」打开对话框后显示浏览失败——此时走手输路径添加，完全不受影响；上游修复后无需本插件改动即自动恢复。native 分支（OS 选择框路径）真机不可覆盖（容器无显示会话），由适配器单测模拟，是已声明的验证缺口。
+- 应用内目录浏览对话框的「目录浏览失败」曾为真机缺陷：浏览端口把上游实例方法解构成裸引用调用而丢失 `this`（2026-11-09 定位并修复；初诊误记为上游集成面断点，更正与确证过程见 [ADR-0015](./docs/decisions/ADR-0015-in-app-directory-picker.md) 的 Context）。修复后 browse 部署（headless / 远程浏览器）的浏览与新建走应用内对话框可用；手输路径添加始终可用。native 分支（OS 选择框路径）真机不可覆盖（容器无显示会话），由适配器单测模拟，是已声明的验证缺口。
 
 ## 文档
 

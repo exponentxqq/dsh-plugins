@@ -21,7 +21,7 @@ Accepted（2026-11-09）
 两条实测事实约束了设计：
 
 1. **P-1（能力信号在 pick 层取不到）**：`@deepseek-ai/dsh-client-ui-workspace` 的 `lib/client.js` 中 `pickDirectory` 的实现把失败折叠成 `new Error("directory picker failed: <message>")`——`code` 与 `details`（含 `capability`）在该层被丢弃。仅当 `list` / `create` 失败时，`rpcError` 才可靠携带 `details.capability`。这条事实推翻了设计留痕早期「`details.capability` 是唯一信号」的假设（OpenSpec 变更 `2026-11-08-workspace-folders-picker` 的待决问题 P-1）。
-2. **真机集成面断点（2026-11-09 实测）**：headless 容器 + 上游 auto 后端的组合里，pick 被宿主以结构化拒绝应答（提示客户端改用 browse，`details.capability: "browse"` 正常携带），host 端 `list` 端点手动探活完全健康；但浏览器侧发起的 `list` 调用在客户端集成面中断、从未到达网络层——应用内浏览对话框在当前上游版本（`0.2.2-rc.1`）打开后显示浏览失败。手输路径添加不受影响。该断点位于上游 client 集成面，不在本插件代码路径内；上游修复后本插件的三级降级链自动恢复完整。
+2. **浏览调用必须保留 receiver 绑定（2026-11-09 实测并确证）**：headless 容器 + 上游 auto 后端的组合里，pick 被宿主以结构化拒绝应答（提示客户端改用 browse，`details.capability: "browse"` 正常携带），host 端 `list` 端点探活健康，remote receiver 本体直调亦能正常返回 home listing；但上游 `UiWorkspaceService` 的 `listDirectory` / `createDirectory` 是读实例状态（`this.directoryPicker`）的实例方法，首版实现曾把它们解构成裸引用传入浏览端口，调用时丢失 `this` 即 TypeError——应用内浏览对话框因此显示浏览失败（该现象初诊误记为「上游 client 集成面断点」，同日经页面探针确证为本插件端口缺陷并修复：端口引用一律 `bind(service)`，探测直调一律 `.call(service)`，this-敏感 fixture 在适配器单测里守护）。手输路径添加不受影响。
 
 同时，分节的呈现需要把配置授予的通用根（`commonRoots`，见 `docs/reference/common-additional-roots.md`）与登记的附属根分开表达，而 wire 契约（不变式 4、10）与宿主半必须零改动。
 
@@ -51,7 +51,7 @@ Accepted（2026-11-09）
 - 手输路径保留为兜底入口；拾取失败不清空手输框。
 - 上游 message 改形的最坏后果从「功能消失」降为「多一次 `list` 调用」；上游若在 pick 层保留 `details`，①分支自动接管。
 - 自绘对话框的 Escape/焦点/portal 语义由本插件的对话框 spec 守护，代价是这部分 a11y 逻辑需要自行维护（宿主原语升级不自动跟随）。
-- 在当前上游版本（`0.2.2-rc.1`）的真机组合里，应用内浏览对话框因上文 Context 第 2 条的集成面断点无法列出目录；用户经手输路径添加不受影响。上游修复后无需本插件改动即恢复。
+- 浏览端口对上游原语持有的是**绑定后的引用**：上游 `listDirectory` / `createDirectory` 是读实例状态的实例方法（this 敏感），今后任何直调或转手都必须保留 receiver（`.bind` / `.call(service)`），this-敏感 fixture 在适配器单测里守护这条纪律；疏忽的后果是 browse 部署的浏览/新建全数失败而单测全绿（mock 不读 `this` 时无法暴露），2026-11-09 已发生一次并修复。
 
 ## Related Documents
 

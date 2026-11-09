@@ -179,12 +179,14 @@ async function classifyPickFailure(
 
   // ③ 结构探测：零参 list = 宿主 home，成功即 browse（listing 复用为对话框首帧）。
   //    探测直调原始方法而非 browsing.list：要从原始 rpcError 读 capability，
-  //    归一化会把 wire 码折成 picker-failed、丢掉该信号。
+  //    归一化会把 wire 码折成 picker-failed、丢掉该信号。直调必须经 `.call(service)`
+  //    保留 receiver——上游原语是实例方法，this 敏感（2026-11-09 真机教训）。
   const list = service.listDirectory
-  if (list === undefined || service.createDirectory === undefined) return { kind: 'unavailable' }
-  const browsing = browsePort(list, service.createDirectory)
+  const create = service.createDirectory
+  if (list === undefined || create === undefined) return { kind: 'unavailable' }
+  const browsing = browsePort(list.bind(service), create.bind(service))
   try {
-    const listing = await list()
+    const listing = await list.call(service)
     remember(service, 'browse')
     return { kind: 'browse', browsing, listing }
   } catch (probeError) {
@@ -208,10 +210,17 @@ function degradeToBrowse(
 function browseOf(service: DirectoryPickerService): DirectoryBrowser | undefined {
   const { listDirectory: list, createDirectory: create } = service
   if (list === undefined || create === undefined) return undefined
-  return browsePort(list, create)
+  return browsePort(list.bind(service), create.bind(service))
 }
 
-/** 在已窄化的两个原语上构造浏览端口（`browseOf` 与探测分支共用）。 */
+/**
+ * 在已窄化的两个原语上构造浏览端口（`browseOf` 与探测分支共用）。
+ *
+ * 两个原语必须先 `bind(service)` 再传入：上游 `uiWorkspace` 的 `listDirectory`
+ * / `createDirectory` 是读实例状态（`this.directoryPicker`）的实例方法，解构
+ * 成裸引用调用会丢 `this` 并以 TypeError 收场——pick 走方法调用语法幸免，
+ * 端口路径必须显式保留 receiver（2026-11-09 真机修复，ADR-0015 Consequences）。
+ */
 function browsePort(
   list: NonNullable<DirectoryPickerService['listDirectory']>,
   create: NonNullable<DirectoryPickerService['createDirectory']>,
