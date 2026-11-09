@@ -29,6 +29,7 @@ Architecture Decision Records（ADR），用于记录重要架构与工程决策
 - [ADR-0012-additional-root-file-references.md](./ADR-0012-additional-root-file-references.md) — 附加根进入 `@` 文件提及补全：additive 包装 `fileReferences.list`、主根取不可变 session cwd、动态导入复用 `WorkspaceFileSearch`、空 query 每根一条绝对候选、绝对钻入与前缀匹配、裸模糊不跨根、optional peer 降级不抛（Accepted）。
 - [ADR-0013-workspace-config-section-mount.md](./ADR-0013-workspace-config-section-mount.md) — 面板挂载座位从 `sidebar.footer.action` 迁到统一「工作区配置」弹窗的 `workspace-config.section` 分节：座位由 holder 用 `children` 声明、贡献方软注册、holder 仅作编译期类型依赖；Files tab 紧凑入口与 `/workspace-folders` 保留（Accepted）。
 - [ADR-0014-fork-divergence-and-single-language.md](./ADR-0014-fork-divergence-and-single-language.md) — 中文单语化（10 份 `.en.md` 删除、双语三项检查退役）、终止对外部上游的同步（演进以本仓为准）、`docs:check` 薄化为仓级共享内核 `scripts/lib/doc-checks.mjs` 的消费方（Accepted）。
+- [ADR-0015-in-app-directory-picker.md](./ADR-0015-in-app-directory-picker.md) — 面板目录拾取的自适应双模：pick 先行三级信号降级 + 结构探测兜底、应用内浏览对话框自绘（portal 到 body，拾取浮层不属 holder 分节壳）、分组为纯客户端按 `source === 'common'` 拆分、手输路径保留为兜底（Accepted）。
 
 不要提前创建空的 ADR 文件；仅在做出真实决策时新增。
 

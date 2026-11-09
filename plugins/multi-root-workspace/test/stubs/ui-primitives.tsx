@@ -32,7 +32,9 @@ function icon(name: string): (props: IconProps) => ReactNode {
 }
 
 export const IconChevronDownOutline14 = icon('chevron-down')
+export const IconChevronRightOutline14 = icon('chevron-right')
 export const IconChevronUpOutline14 = icon('chevron-up')
+export const IconCloseOutline16 = icon('close')
 export const IconCopyOutline16 = icon('copy')
 export const IconEditOutline16 = icon('edit')
 export const IconEllipsisOutline16 = icon('ellipsis')

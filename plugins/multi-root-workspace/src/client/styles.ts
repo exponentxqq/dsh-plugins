@@ -4,11 +4,14 @@
  * The host ships its design tokens as CSS custom properties on `body`
  * (`--dsw-alias-*` semantics, `--dsw-elevation-*` shadows, `--ds-*` motion and
  * code-font tokens), so this sheet names no color of its own: light and dark
- * theme follow the host automatically. It carries only the panel body and its
- * capsule controls: the dialog shell (mask, card, header, close button) and the
- * sidebar footer trigger belong to the workspace-config holder since ADR-0013,
- * and the Modal primitive already styles them — this sheet deliberately has no
- * rule for either.
+ * theme follow the host automatically. It carries the panel body, its capsule
+ * controls, and the panel's own directory picker overlay — a self-drawn
+ * floating layer whose mask, card and elevation copy the host Modal.module.css
+ * recipe token for token (group hints and empty states reuse .mrfw-note).
+ * The workspace-config section's dialog shell (mask, card, header, close
+ * button) and the sidebar footer trigger still belong to the workspace-config
+ * holder since ADR-0013, and the Modal primitive already styles those — this
+ * sheet deliberately has no rule for either.
  *
  * @module dsh-plugin-multi-root-workspace/client/styles
  */
@@ -262,5 +265,182 @@ export const STYLES = /* css */ `
 .mrfw-filePreview { max-height: 320px; overflow: auto; padding: 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font-size: 12px; }
 .mrfw-actions .mrfw-iconBtn {
   width: 32px;
+}
+
+/* The directory picker's self-drawn overlay. The layer is the panel's own
+ * floating surface, not the holder's dialog shell, and its mask, card and
+ * elevation copy the host Modal.module.css recipe token for token:
+ * mask-1 + mask-blur on the overlay, layer-2 + radius-panel +
+ * elevation-prominent on the card. The close button, breadcrumb buttons,
+ * inputs and actions all reuse the capsule family and .mrfw-input below. */
+
+/* Portal root: full-viewport, centered, 24px of air on every side — the top
+   and bottom widen to the frame's overlay inset when the host declares one.
+   The card sizes against this padding box, never a viewport calc of its own. */
+.mrfw-pickerOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(24px, var(--dsh-frame-overlay-top, 24px)) 24px;
+}
+
+.mrfw-pickerMask {
+  position: absolute;
+  inset: 0;
+  background: var(--dsw-alias-bg-mask-1);
+  backdrop-filter: var(--dsw-mask-blur);
+  animation: mrfwPickerEnter var(--ds-transition-duration) var(--ds-ease-in-out);
+}
+
+.mrfw-pickerCard {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: min(560px, 100%);
+  border-radius: var(--dsw-radius-panel);
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-elevation-prominent);
+  overflow: hidden;
+  animation: mrfwPickerEnter var(--ds-transition-duration) var(--ds-ease-in-out);
+}
+
+@keyframes mrfwPickerEnter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mrfw-pickerMask,
+  .mrfw-pickerCard {
+    animation: none;
+  }
+}
+
+/* Header row: title left, close right, the host header's pads. The close
+   button reuses .mrfw-btn/.mrfw-iconBtn and only takes the host close's
+   secondary ink. */
+.mrfw-pickerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 22px 14px 12px 24px;
+}
+
+.mrfw-pickerHeader .mrfw-iconBtn {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.mrfw-pickerTitle {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Breadcrumbs: a wrapping flex line of ghost capsule buttons
+   (.mrfw-btn .mrfw-btnGhost .mrfw-pickerCrumb) tightened to 24px; the current
+   crumb carries aria-current and steps down to the secondary ink. The
+   separator is a dimmed chevron glyph. */
+.mrfw-pickerCrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 0 24px 8px;
+}
+
+.mrfw-pickerCrumb {
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 999px;
+}
+
+.mrfw-pickerCrumb[aria-current] {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.mrfw-pickerCrumbSeparator {
+  flex: none;
+  color: var(--dsw-alias-label-dimmed);
+}
+
+/* The one-level listing: a fixed growth band with its own scroll; the empty
+   layer speaks through .mrfw-note. */
+.mrfw-pickerList {
+  flex: 1 1 auto;
+  min-height: 160px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+/* One subfolder row: a full-width transparent button with the file-entry
+   recipe (inherited font, left-aligned) and the shared hover wash. */
+.mrfw-pickerRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 16px;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mrfw-pickerRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.mrfw-pickerRow:focus-visible {
+  outline: 1px solid var(--dsw-alias-brand-primary);
+}
+
+/* Footer: the current path in the code font's tertiary voice, plus the
+   confirm/close actions as reused capsules. */
+.mrfw-pickerFooter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.mrfw-pickerPath {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* The inline new-folder row: a wrapping flex line around a reused .mrfw-input
+   and capsule buttons. */
+.mrfw-pickerCreate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 8px;
 }
 `

@@ -47,6 +47,27 @@ export declare const zh: {
     'panel.reveal': string;
     'panel.moveUp': string;
     'panel.moveDown': string;
+    'panel.common': string;
+    'panel.commonHint': string;
+    'panel.commonEmpty': string;
+    'picker.title': string;
+    'picker.close': string;
+    'picker.crumbs': string;
+    'picker.home': string;
+    'picker.current': string;
+    'picker.showHidden': string;
+    'picker.empty': string;
+    'picker.truncated': string;
+    'picker.create': string;
+    'picker.createName': string;
+    'picker.createConfirm': string;
+    'picker.cancel': string;
+    'picker.confirm': string;
+    'picker.unavailable': string;
+    'picker.error.unreadable': string;
+    'picker.error.exists': string;
+    'picker.error.create-failed': string;
+    'picker.error.failed': string;
     'state.available': string;
     'state.missing': string;
     'state.redirected': string;
@@ -74,6 +95,8 @@ export declare const zh: {
 };
 /** The canonical key set. */
 export type Key = keyof typeof zh;
+/** Translate one key of this plugin's namespace. */
+export type Translate = (key: Key, params?: Record<string, unknown>) => string;
 /** English copy, pinned to the Chinese key set. */
 export declare const en: {
     'files.browse': string;
@@ -111,6 +134,27 @@ export declare const en: {
     'panel.reveal': string;
     'panel.moveUp': string;
     'panel.moveDown': string;
+    'panel.common': string;
+    'panel.commonHint': string;
+    'panel.commonEmpty': string;
+    'picker.title': string;
+    'picker.close': string;
+    'picker.crumbs': string;
+    'picker.home': string;
+    'picker.current': string;
+    'picker.showHidden': string;
+    'picker.empty': string;
+    'picker.truncated': string;
+    'picker.create': string;
+    'picker.createName': string;
+    'picker.createConfirm': string;
+    'picker.cancel': string;
+    'picker.confirm': string;
+    'picker.unavailable': string;
+    'picker.error.unreadable': string;
+    'picker.error.exists': string;
+    'picker.error.create-failed': string;
+    'picker.error.failed': string;
     'state.available': string;
     'state.missing': string;
     'state.redirected': string;

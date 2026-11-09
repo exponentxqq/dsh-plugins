@@ -13,10 +13,12 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createElement } from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorkspaceConfigWorkspaceContext } from '@dsh-plugins/contracts'
 import { PANEL_CHANNEL, type PanelRequest, type RevealedView, type RootView, type RootsView } from '../src/contract.ts'
+// 仅类型：browse 替身返回的宿主 home 层（TG5 要点 1 的 fixture 形状）。
+import type { DirectoryListing } from '../src/client/directory-picker.ts'
 import * as client from '../src/client/index.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
 
@@ -61,6 +63,17 @@ interface Harness {
   setFailure: (failure: { code: string; message: string } | undefined) => void
   /** What the next `reveal` answers (the real host answers a `RevealedView`). */
   setRevealed: (value: unknown) => void
+  /**
+   * `uiWorkspace` 拾取替身的三态（任务 4.2，TG5 要点 1）。`native`（默认）保持
+   * 既有语义：pick 成功返回 `/repos/picked`；`browse` 是 pick 抛错 + 浏览原语
+   * 可用的降级面（适配器走 message 兜底判定）；`unavailable` 是服务缺席。
+   * 适配器每次拾取都经 `read()` 现读服务，切换即刻生效。
+   */
+  setPickerMode: (mode: PickerMode) => void
+  /** browse 替身收到的 `listDirectory` path 实参记录（`undefined` = 宿主 home）。 */
+  readonly browseListCalls: (string | undefined)[]
+  /** pick 端口被点击触发的次数（native 与 browse 替身都计数）。 */
+  pickAttemptCount: () => number
   /** Make the NEXT channel call hang until `release` is called. */
   holdNextCall: () => void
   /** Release a call held by `holdNextCall`. */
@@ -83,6 +96,41 @@ const ROOT_C: RootView = {
   state: 'redirected',
   detail: 'the path now resolves to "/repos/other"',
 }
+
+/** 由插件 `commonRoots` 配置授予的通用根（不进 store，面板只读呈现）。 */
+const COMMON_ROOT: RootView = {
+  ordinal: 3,
+  id: 'common:/repos/cache',
+  path: '/repos/cache',
+  addedAt: '2026-10-10T00:00:00.000Z',
+  state: 'available',
+  source: 'common',
+}
+
+/** 拾取替身的三态（任务 4.2）。 */
+type PickerMode = 'native' | 'browse' | 'unavailable'
+
+/**
+ * browse 替身的宿主 home 层（TG5 要点 1 的 fixture：home `/home/me`、crumbs、
+ * entries、含一个隐藏项；形状是 `directory-picker.ts` 的上游结构镜像）。
+ */
+const BROWSE_HOME_LISTING: DirectoryListing = {
+  path: '/home/me',
+  home: '/home/me',
+  crumbs: [{ name: 'me', path: '/home/me', hidden: false }],
+  entries: [
+    { name: 'repos', path: '/home/me/repos', hidden: false },
+    { name: '.cache', path: '/home/me/.cache', hidden: true },
+  ],
+  truncated: false,
+}
+
+/**
+ * 上游 `pickDirectory` 失败的实测文案（code-design ②：pick 层只抛 message，
+ * code/details 被丢弃）。锚定 message 兜底正则的 `serves "browse"` 片段。
+ */
+const BROWSE_PICK_MESSAGE =
+  'directoryPicker.pickDirectory needs the pick capability; the composed picker serves "browse"'
 
 /**
  * The owner share the holder page passes to a section: a real workspace.
@@ -149,6 +197,12 @@ function mount(withFilesActions = false, deferSection = false): Harness {
   let gate: Promise<void> | undefined
   let releaseGate: (() => void) | undefined
   const picked: string | null = '/repos/picked'
+  // 拾取替身三态（默认 native = 既有语义）。适配器每次拾取经 read() 现读
+  // ctx.get('uiWorkspace')，切换即刻生效；服务实例更换即失效其能力缓存。
+  let pickerMode: PickerMode = 'native'
+  let pickAttempts = 0
+  /** browse 替身收到的 `listDirectory` path 实参记录（undefined = 宿主 home）。 */
+  const browseListCalls: (string | undefined)[] = []
 
   const connection = {
     rpc: {
@@ -217,7 +271,34 @@ function mount(withFilesActions = false, deferSection = false): Harness {
     },
     get: (name: string) => {
       if (name === 'connection') return connection
-      if (name === 'uiWorkspace') return { pickDirectory: async () => picked }
+      if (name === 'uiWorkspace') {
+        // 三态替身（任务 4.2）：unavailable = 服务缺席（read() → undefined，
+        // 适配器返回 unavailable 且不缓存）；browse = pick 抛实测文案 + 浏览
+        // 原语可用（适配器 message 兜底判定后缓存 browse）；native = 既有语义。
+        if (pickerMode === 'unavailable') return undefined
+        if (pickerMode === 'browse') {
+          return {
+            pickDirectory: async () => {
+              pickAttempts += 1
+              // 上游事实：pick 层只抛 message（Error 实例，无 rpcError 载体）。
+              throw new Error(BROWSE_PICK_MESSAGE)
+            },
+            listDirectory: async (path?: string) => {
+              browseListCalls.push(path)
+              return { ...BROWSE_HOME_LISTING }
+            },
+            // panel 面只走「浏览 + 采纳」链路；exists 注入属于对话框契约，由
+            // client-directory-dialog.spec.tsx 的替身覆盖。
+            createDirectory: async () => '/home/me/created',
+          }
+        }
+        return {
+          pickDirectory: async () => {
+            pickAttempts += 1
+            return picked
+          },
+        }
+      }
       if (name === 'sessions') {
         return {
           list: {
@@ -244,6 +325,9 @@ function mount(withFilesActions = false, deferSection = false): Harness {
     setCatalog: rows => { catalog = rows },
     setFailure: next => { failure = next },
     setRevealed: next => { revealed = next },
+    setPickerMode: mode => { pickerMode = mode },
+    browseListCalls,
+    pickAttemptCount: () => pickAttempts,
     holdNextCall: () => { gate = new Promise<void>(resolve => { releaseGate = resolve }) },
     release: () => { releaseGate?.(); releaseGate = undefined },
     warnings,
@@ -262,6 +346,33 @@ function registrationOf(harness: Harness, seat: string): Registration {
   const registration = harness.registrations.find(item => item.options.name === seat)
   if (registration === undefined) throw new Error(`the ${seat} seat was not registered`)
   return registration
+}
+
+/**
+ * 按组标题找 `.mrfw-section` 元素（分组呈现后 body 内三个组：primary /
+ * additional / common）。动作行（拾取 + 手输）归入附属组末尾（D-06），
+ * `within(section)` 归属断言以本函数为入口。
+ */
+function sectionByTitle(title: string): HTMLElement {
+  const section = Array.from(document.querySelectorAll<HTMLElement>('.mrfw-section'))
+    .find(node => node.querySelector('.mrfw-sectionTitle')?.textContent === title)
+  if (section === undefined) throw new Error(`the "${title}" section was not rendered`)
+  return section
+}
+
+/** 主工作目录组（primary 行所在组）。 */
+function primarySectionOf(): HTMLElement {
+  return sectionByTitle(`${NS}.panel.primary`)
+}
+
+/** 附属工作目录组（登记根 + 动作行所在组）。 */
+function additionalSectionOf(): HTMLElement {
+  return sectionByTitle(`${NS}.panel.additional`)
+}
+
+/** 通用工作目录组（commonRoots 授予的根所在组）。 */
+function commonSectionOf(): HTMLElement {
+  return sectionByTitle(`${NS}.panel.common`)
 }
 
 /**
@@ -602,7 +713,9 @@ describe('the panel section', () => {
       entry: { ordinal: 1, id: 'a', path: '/repos/payments', addedAt: '2026-09-12T00:00:00.000Z' },
     })
 
-    fireEvent.click(screen.getAllByRole('button', { name: `${NS}.panel.copyPath` })[0]!)
+    // primary 行自任务 4.1 起也有「复制路径」，行级选择器须圈定附属组（语义不变：
+    // 复制的仍是这一登记根）。
+    fireEvent.click(within(additionalSectionOf()).getAllByRole('button', { name: `${NS}.panel.copyPath` })[0]!)
     await waitFor(() => { expect(navigator.clipboard.writeText).toHaveBeenCalledWith('/repos/payments') })
     // The action is an icon button: the success swaps the accessible name.
     await waitFor(() => { expect(screen.getAllByRole('button', { name: `${NS}.panel.copied` })[0]).toBeTruthy() })
@@ -641,7 +754,8 @@ describe('the panel section', () => {
     await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
 
     vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'))
-    fireEvent.click(screen.getAllByRole('button', { name: `${NS}.panel.copyPath` })[0]!)
+    // 行操作语义不变：拒绝发生在附属行复制上（primary 行的复制按钮是 4.1 新增面）。
+    fireEvent.click(within(additionalSectionOf()).getAllByRole('button', { name: `${NS}.panel.copyPath` })[0]!)
 
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe(`${NS}.error.copy-failed`) })
   })
@@ -906,5 +1020,247 @@ describe('四格安装组合矩阵（multi-root-workspace 侧）', () => {
       endpoint: 'list',
       payload: { sessionId: 'session-1' },
     })
+  })
+})
+
+/**
+ * 分组呈现与拾取升级（任务 4.2，code-design TG3 验收）。
+ *
+ * 组 4 把单列表拆成「附属 / 通用」两组（D-05：纯客户端按 `source === 'common'`
+ * 拆分，wire 零改动）、动作行收进附属组末尾（D-06）、拾取升级为带文案主按钮而
+ * 手输确认降为次要变体（D-07）、primary 行补「复制路径」且不补 reveal（D-08）、
+ * 能力不可用隐藏拾取入口并常驻手输提示（D-09）、browse 结局打开应用内拾取对话
+ * （D-03/D-10：自绘 + portal 到 body，`role="dialog"` 可经 screen 查询）。
+ *
+ * harness 的 `uiWorkspace` 替身扩成三态（native/browse/unavailable，TG5 要点 1）；
+ * wire 错误 fixture 按 tasks 附录 R1 的形状纪律构造。
+ */
+describe('分组呈现与拾取升级（TG3）', () => {
+  it('纯附属态：通用组只有标题与「没配置」说明，不出现 hint', async () => {
+    const harness = mount()
+    harness.setView({ primaryRoot: '/repos/primary', roots: [ROOT_A, ROOT_B] })
+    renderSection(harness)
+    await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
+
+    const common = commonSectionOf()
+    expect(within(common).getByText(`${NS}.panel.commonEmpty`)).toBeTruthy()
+    expect(within(common).queryByText(`${NS}.panel.commonHint`)).toBeNull()
+    expect(within(common).queryByText('/repos/cache')).toBeNull()
+  })
+
+  it('纯通用态：附属组空态说明与通用组行并存，通用组说明切到 hint', async () => {
+    const harness = mount()
+    harness.setView({ primaryRoot: '/repos/primary', roots: [COMMON_ROOT] })
+    renderSection(harness)
+    await waitFor(() => { expect(screen.getByText('/repos/cache')).toBeTruthy() })
+
+    const additional = additionalSectionOf()
+    // 空态说明是一段拼接文本（empty + emptyHint），按 note 元素整体断言。
+    const notes = Array.from(additional.querySelectorAll('.mrfw-note')).map(node => node.textContent ?? '')
+    expect(notes.some(text => text.includes(`${NS}.panel.empty`) && text.includes(`${NS}.panel.emptyHint`))).toBe(true)
+    expect(within(additional).queryByRole('button', { name: `${NS}.panel.reveal` })).toBeNull()
+
+    const common = commonSectionOf()
+    expect(within(common).getByText(`${NS}.panel.commonHint`)).toBeTruthy()
+    expect(within(common).queryByText(`${NS}.panel.commonEmpty`)).toBeNull()
+    expect(within(common).getByText(`${NS}.root.sourceCommon`)).toBeTruthy()
+  })
+
+  it('混合态：附属行 DOM 顺序先于通用行，通用行上移/下移 disabled', async () => {
+    const harness = mount()
+    harness.setView({ primaryRoot: '/repos/primary', roots: [ROOT_A, ROOT_B, COMMON_ROOT] })
+    renderSection(harness)
+    await waitFor(() => { expect(screen.getByText('/repos/cache')).toBeTruthy() })
+
+    // 验收断言一：附属行在前、通用行在后（primary 行的 bare 行不参与比较）。
+    const rows = Array.from(document.querySelectorAll('.mrfw-row'))
+    const indexOfPath = (path: string): number =>
+      rows.findIndex(node => node.querySelector('.mrfw-rootPath')?.textContent === path)
+    const firstAdditional = indexOfPath('/repos/payments')
+    const secondAdditional = indexOfPath('/repos/website')
+    const commonRow = indexOfPath('/repos/cache')
+    expect(firstAdditional).toBeGreaterThan(-1)
+    expect(secondAdditional).toBeGreaterThan(firstAdditional)
+    expect(commonRow).toBeGreaterThan(secondAdditional)
+
+    // 通用行仍在第二组：附属组里没有通用行，通用组里有。
+    expect(within(additionalSectionOf()).queryByText('/repos/cache')).toBeNull()
+    expect(within(commonSectionOf()).getByText('/repos/cache')).toBeTruthy()
+
+    // 验收断言二：通用行上移/下移 disabled。
+    const commonRowNode = rows[commonRow]!
+    expect(within(commonRowNode).getByRole('button', { name: `${NS}.panel.moveUp` })).toHaveProperty('disabled', true)
+    expect(within(commonRowNode).getByRole('button', { name: `${NS}.panel.moveDown` })).toHaveProperty('disabled', true)
+
+    // 附属组内锚点按组内数组计算：首行不可上移、末行不可下移、中间行双向可移。
+    const firstAdditionalNode = rows[firstAdditional]!
+    expect(within(firstAdditionalNode).getByRole('button', { name: `${NS}.panel.moveUp` })).toHaveProperty('disabled', true)
+    expect(within(firstAdditionalNode).getByRole('button', { name: `${NS}.panel.moveDown` })).toHaveProperty('disabled', false)
+    const secondAdditionalNode = rows[secondAdditional]!
+    expect(within(secondAdditionalNode).getByRole('button', { name: `${NS}.panel.moveUp` })).toHaveProperty('disabled', false)
+    expect(within(secondAdditionalNode).getByRole('button', { name: `${NS}.panel.moveDown` })).toHaveProperty('disabled', true)
+
+    // 徽章与组说明照旧：通用行带 [common] 徽章，说明切到 hint。
+    expect(within(commonRowNode).getByText(`${NS}.root.sourceCommon`)).toBeTruthy()
+    expect(screen.getByText(`${NS}.panel.commonHint`)).toBeTruthy()
+    expect(screen.queryByText(`${NS}.panel.commonEmpty`)).toBeNull()
+  })
+
+  it('双空态：两个组标题都在，两组说明各不相同', async () => {
+    const harness = mount()
+    harness.setView({ primaryRoot: '/repos/primary', roots: [] })
+    renderSection(harness)
+    await waitFor(() => { expect(screen.getByText(`${NS}.panel.commonEmpty`)).toBeTruthy() })
+
+    expect(screen.getByText(`${NS}.panel.additional`)).toBeTruthy()
+    expect(screen.getByText(`${NS}.panel.common`)).toBeTruthy()
+    const notes = Array.from(document.querySelectorAll('.mrfw-note')).map(node => node.textContent ?? '')
+    const additionalNote = notes.find(text => text.includes(`${NS}.panel.empty`))
+    const commonNote = notes.find(text => text.includes(`${NS}.panel.commonEmpty`))
+    expect(additionalNote).toBeTruthy()
+    expect(commonNote).toBeTruthy()
+    expect(additionalNote).not.toBe(commonNote)
+  })
+
+  it('加载中不渲染任何组说明（避免把「还没读到」说成「没配置」）', async () => {
+    const harness = mount()
+    harness.setView({ primaryRoot: '/repos/primary', roots: [ROOT_A] })
+    harness.holdNextCall()
+    renderSection(harness)
+
+    // 首次 list 挂起：view 未到，附属组显示 loading，两组说明一个都不出现。
+    await waitFor(() => { expect(screen.getByText(`${NS}.panel.loading`)).toBeTruthy() })
+    expect(screen.queryByText(`${NS}.panel.commonEmpty`)).toBeNull()
+    expect(screen.queryByText(`${NS}.panel.commonHint`)).toBeNull()
+    const notes = Array.from(document.querySelectorAll('.mrfw-note')).map(node => node.textContent ?? '')
+    expect(notes.some(text => text.includes(`${NS}.panel.empty`))).toBe(false)
+
+    harness.release()
+    await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
+  })
+
+  it('动作行归属附属组：拾取按钮与手输控件在附属组 section 内、不在通用组内', async () => {
+    const harness = mount()
+    renderSection(harness)
+    await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
+
+    const additional = additionalSectionOf()
+    expect(within(additional).getByRole('button', { name: `${NS}.panel.add` })).toBeTruthy()
+    expect(within(additional).getByPlaceholderText(`${NS}.panel.addManual`)).toBeTruthy()
+    expect(within(additional).getByRole('button', { name: `${NS}.panel.addConfirm` })).toBeTruthy()
+    expect(within(additional).getByRole('button', { name: `${NS}.panel.retry` })).toBeTruthy()
+
+    const common = commonSectionOf()
+    expect(within(common).queryByRole('button', { name: `${NS}.panel.add` })).toBeNull()
+    expect(within(common).queryByPlaceholderText(`${NS}.panel.addManual`)).toBeNull()
+    expect(within(common).queryByRole('button', { name: `${NS}.panel.addConfirm` })).toBeNull()
+  })
+
+  it('拾取是带文案的主按钮，手输确认降为次要变体且仍提交输入框内容', async () => {
+    const harness = mount()
+    renderSection(harness)
+    await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
+
+    const add = within(additionalSectionOf()).getByRole('button', { name: `${NS}.panel.add` })
+    expect(add.className).toContain('mrfw-btnPrimary')
+    fireEvent.click(add)
+    await waitFor(() => { expect(harness.calls.some(call => call.endpoint === 'add')).toBe(true) })
+    expect(harness.calls.find(call => call.endpoint === 'add')?.payload).toEqual({
+      sessionId: 'session-1',
+      path: '/repos/picked',
+    })
+
+    const confirm = within(additionalSectionOf()).getByRole('button', { name: `${NS}.panel.addConfirm` })
+    expect(confirm.className).toContain('mrfw-btnOutline')
+    fireEvent.change(screen.getByPlaceholderText(`${NS}.panel.addManual`), { target: { value: '/repos/typed' } })
+    fireEvent.click(within(additionalSectionOf()).getByRole('button', { name: `${NS}.panel.addConfirm` }))
+    await waitFor(() => { expect(harness.calls.filter(call => call.endpoint === 'add')).toHaveLength(2) })
+    expect(harness.calls.filter(call => call.endpoint === 'add')[1]?.payload).toEqual({
+      sessionId: 'session-1',
+      path: '/repos/typed',
+    })
+  })
+
+  it('browse 结局：拾取降级为应用内对话框，采纳当前层发出 add', async () => {
+    const harness = mount()
+    harness.setPickerMode('browse')
+    renderSection(harness)
+    await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
+    // 对话框只在拾取发生时出现（portal 到 body，screen 的 body 查询能覆盖）。
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: `${NS}.panel.add` }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(harness.pickAttemptCount()).toBe(1)
+    // 首帧 = 宿主 home：message 兜底分支不带探测 listing，对话框自己零参 list。
+    expect(harness.browseListCalls).toEqual([undefined])
+    await waitFor(() => { expect(dialog.querySelector('.mrfw-pickerPath')?.textContent).toBe('/home/me') })
+
+    fireEvent.click(within(dialog).getByRole('button', { name: `${NS}.picker.confirm` }))
+
+    await waitFor(() => { expect(harness.calls.some(call => call.endpoint === 'add')).toBe(true) })
+    expect(harness.calls.find(call => call.endpoint === 'add')?.payload).toEqual({
+      sessionId: 'session-1',
+      path: '/home/me',
+    })
+  })
+
+  it('browse 结局的采纳失败：失败句在对话框内显示且对话框保持打开', async () => {
+    const harness = mount()
+    harness.setPickerMode('browse')
+    harness.setFailure({ code: 'nested', message: 'host prose the dialog must localize' })
+    renderSection(harness)
+    // 首次 list 落地（分节 alert 出现 = busy 复位）：在飞行中 + 是禁用的，点了不算数。
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe(`${NS}.error.nested`) })
+
+    fireEvent.click(screen.getByRole('button', { name: `${NS}.panel.add` }))
+    const dialog = await screen.findByRole('dialog')
+    await waitFor(() => { expect(dialog.querySelector('.mrfw-pickerPath')?.textContent).toBe('/home/me') })
+
+    fireEvent.click(within(dialog).getByRole('button', { name: `${NS}.picker.confirm` }))
+
+    // `mutate` 的失败经 sentenceOf 回到对话框原地显示，对话框不关闭、可重试。
+    await waitFor(() => { expect(within(dialog).getByRole('alert').textContent).toBe(`${NS}.error.nested`) })
+    expect(screen.queryByRole('dialog')).not.toBeNull()
+    expect(screen.queryByText('host prose the dialog must localize')).toBeNull()
+  })
+
+  it('unavailable 结局：拾取入口隐藏、常驻手输提示接管，同一挂载不再有拾取入口', async () => {
+    const harness = mount()
+    harness.setPickerMode('unavailable')
+    renderSection(harness)
+    await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
+    expect(screen.getByRole('button', { name: `${NS}.panel.add` })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: `${NS}.panel.add` }))
+
+    await waitFor(() => { expect(screen.getByText(`${NS}.picker.unavailable`)).toBeTruthy() })
+    expect(screen.queryByRole('button', { name: `${NS}.panel.add` })).toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    // 手输兜底仍在：Enter 发 add（payload 是输入框内容）。
+    const manual = screen.getByPlaceholderText(`${NS}.panel.addManual`)
+    fireEvent.change(manual, { target: { value: '/repos/entered' } })
+    fireEvent.keyDown(manual, { key: 'Enter' })
+    await waitFor(() => { expect(harness.calls.some(call => call.endpoint === 'add')).toBe(true) })
+    expect(harness.calls.find(call => call.endpoint === 'add')?.payload).toEqual({
+      sessionId: 'session-1',
+      path: '/repos/entered',
+    })
+  })
+
+  it('primary 行有复制路径（写入 primaryRoot）且没有在文件管理器中显示', async () => {
+    const harness = mount()
+    renderSection(harness)
+    await waitFor(() => { expect(screen.getByText('/repos/payments')).toBeTruthy() })
+
+    const primary = primarySectionOf()
+    fireEvent.click(within(primary).getByRole('button', { name: `${NS}.panel.copyPath` }))
+    await waitFor(() => { expect(navigator.clipboard.writeText).toHaveBeenCalledWith('/repos/primary') })
+    // 「已复制」高亮也落在 primary 行（copiedId === 'primary'）。
+    await waitFor(() => { expect(within(primary).getByRole('button', { name: `${NS}.panel.copied` })).toBeTruthy() })
+    // D-08：host `requireEntry` 只寻址登记根，primary 行补 reveal 就是必然失败的点击。
+    expect(within(primary).queryByRole('button', { name: `${NS}.panel.reveal` })).toBeNull()
   })
 })
