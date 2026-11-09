@@ -43,10 +43,13 @@
 - **D13 不触达 contracts/workspace-config**（A2 无需会话身份）。
 - **D14 技能来源标签用 locale 短标签表**（Q-D 裁定：进标签行；7 个 `skill.source.*` 键，未知值原样）。
 - **全局并集近似警示 = 清单卡灰字注记**（Q-B=a 裁定）；**`ungroupedMcp` 与 `skillsComplete` 都进首版**（Q-C 裁定）。
+- **D-元3（衔接裁定，2026-11-08）**：执行模式 = **auto**（用户裁定）；引擎 = **subagent**（映射文件 `engine` 预置）；apply 键 = `zcode-plan/glm-5.3-flash`（映射文件，fallback 同键）。
+- **D-元4（真机验证期增量裁定，2026-11-09）**：安装形态 = **link worktree 直连**（用户裁定——验证对象就是最终要提交的 feature 分支代码；`/tmp` 无 git 副本中转方案废弃并已清理）；**提交押后至真机验证通过**。真机复核追加三点（用户裁定，R15 批次落地）：① 页面宇宙 SHALL 按目标工作区过滤——其他工作区的项目级 MCP（dbx/figma 类）整组剔除并注记计数（推翻「跨工作区条目列出且意图容忍」的原始设计）；② MCP 组级标注来源（用户级/项目级）与「计入对话上下文」，只标 MCP 本身不标其下工具行；③ 标签按语义着色（来源蓝/项目级绿/token 橙/保护红/保留橙）。
+- 执行环境：隔离。布局：dsh-plugins → `/home/xuqinqin/develop/person/dsh-plugins/.worktrees/improve-workspace-defaults-page` @ `feature/improve-workspace-defaults-page`；装配：`pnpm install`（容器包装，pnpm store 共享）；创建于 2026-11-08
 
 ## Risks / Trade-offs
 
-- [全局并集近似：其他工作区的项目级服务器会出现在页面清单] → 灰字注记「写入仅保留意图」+ spec/README 明示；关闭不可见工具是 no-op，无破坏性。
+- [~~全局并集近似：其他工作区的项目级服务器会出现在页面清单~~] → **R15 已消解**（用户裁定推翻）：宇宙按目标工作区根集归属过滤，外来项目级组整组剔除并注记计数；归属读数失败 fail-closed（宁暂少列不误导）。残余风险只剩归属瞬时失败时的暂时缺列，页面注记与刷新可恢复。
 - [`/inventory` 归组正则跨包双份（user-commands 与本插件）] → 注释互指锚点；正则是稳定文法契约，双份漂移风险低。
 - [共用清单组件改动可能波及面板] → 参数缺省 = 旧渲染 + 既有面板断言全保留 + `git diff` 面板文件零改动断言。
 - [wire 契约扩字段遇旧 host] → 全部可选字段 + `universe: null` 保持合法，页面走降级分支。

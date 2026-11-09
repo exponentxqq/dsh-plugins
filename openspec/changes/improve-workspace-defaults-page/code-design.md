@@ -592,6 +592,8 @@ WorkspaceDefaultsSection（份额三态；kind!=='workspace' 时空态零请求�
 
 **验证**：`pnpm --filter dsh-plugin-session-tool-toggle exec vitest run test/workspace-universe.test.ts`；断言 `Object.keys(universe)` 只在 `ungroupedMcp>0`/`skillsComplete!==undefined` 时包含新键；断言 `mcp__a.b__x` 不出现在任何 `groups[].tools[].shortName`。
 
+> **G1 终形态实测（2026-11-08 执行）**：三任务全绿。①组验证 24/24 passed（333ms，干净窗口），主会话统一重跑；②`MCP_SERVER_PATTERN` 与 `inventory.ts:40` 逐字一致（grep 比对）；③模块 373 行，导出面 = `EMPTY_WORKSPACE_UNIVERSE`（冻结）/`WorkspaceUniverseFacts`/`buildWorkspaceUniverse`/`WorkspaceUniverseHostAccess`/`createWorkspaceUniverseReader`；④reader 失败矩阵实测口径：tools 缺席/抛错 → `EMPTY_WORKSPACE_UNIVERSE` + warn；skills 缺席/抛错 → `skillsAvailable:false` + `layerReady:true`（非空宇宙，受支持降级），测试如实断言；⑤运行规则：内置工具夹具的 `VisibleToolSchema.name` 用注册名（`bash`），`tool:` 只是地址前缀——写宇宙/测试夹具时不得混用；⑥panel.ts 改动面 = 2 insertions/1 deletion（签名行 + 注释），typecheck 两段绿、整包 1085 用例零破坏。
+
 ### G2 wire 契约与响应自检
 
 | 任务 | 文件 | 要点 |
@@ -601,6 +603,8 @@ WorkspaceDefaultsSection（份额三态；kind!=='workspace' 时空态零请求�
 | G2.3（并行） | `test/wire-contract.test.ts` | 正例：带完整技能字段的 entry、带两个宇宙字段的 universe；反例：只给 `modelInvocable`、`tool:bash` 带技能字段、`ungroupedMcp:-1`、未知键；`universe:null` 仍合法 |
 
 **验证**：`pnpm --filter dsh-plugin-session-tool-toggle exec vitest run test/wire-contract.test.ts`；`pnpm --filter dsh-plugin-session-tool-toggle typecheck`（两段 tsc 都过）。
+
+> **G2 终形态实测（2026-11-08 执行）**：三任务全绿，组验证 305/305 passed（既有 291 + 新增 14）+ typecheck 两段 rc 0（主会话干净窗口重跑）。①分派口径修正：G2.1（类型层）与 G2.2（parser 层）同改 `contract.ts`，按「同文件串行」分两波派发（G2.1 单发 → G2.2 与 G2.3 并发），避免 read-modify-write 竞态；②2.1 一处自主偏差（纯注释）：`DefaultsUniverse`/`WorkspaceValue` 头注释旧文案与新语义矛盾，一并对齐为「目标无关形状」口径；③parser 六条拒绝规则与失败消息（可 grep 锚点）：成对（`必须成对出现`）、skill 前缀（`只有 skill: 地址允许携带技能字段`）、source 同生（`同时在场`）、非空串（`为空`）、非负安全整数（`不是非负安全整数`）、字段集不互通（`未知字段：ungroupedMcp`）；④新增 14 用例（4 正 + 10 反）全部溯源 code-design 3.3 六规则，未弱化断言；⑤`universe:null` 分支逐字保留。
 
 ### G3 宿主接线与 RPC 行为
 
@@ -612,6 +616,8 @@ WorkspaceDefaultsSection（份额三态；kind!=='workspace' 时空态零请求�
 
 **验证**：`pnpm --filter dsh-plugin-session-tool-toggle exec vitest run test/rpc.test.ts`；断言 `reader.calls === ['/w2']`（规范化 key，不是请求原文的变体）；断言 `parseWorkspaceValue` 对 path 响应的 `.universe` 非 null。
 
+> **G3 终形态实测（2026-11-08 执行）**：三任务全绿，组验证 57/57 passed + typecheck 两段 rc 0 + lint 0/0（主会话干净窗口重跑）。①「宇宙在档动作完成后现算」与 ③3.2 设计明文（第 243/271 行）一致：读路径读完档再算、写路径写盘成功后再算，技能目录发现不阻塞开关写入；②分派实现为 `universeOfTarget` 闭包：`'session'` → 原 `universeOf` 一字未动（session 形态两条宇宙用例零回归实证）；`'path'` → `readWorkspaceUniverseOf(deps, resolved.key)` 传登记表规范键；③兜底 `readWorkspaceUniverseOf`：抛错 → warn（含错误原文）+ `EMPTY_UNIVERSE`，与 `attributionOf`/`choicesOf` 同一软降级纪律；④3.2 装配一行逐字 `readWorkspaceUniverse: createWorkspaceUniverseReader({ get: (name) => ctx.get(name), protectedNames, log })`，`inject` 未新增；⑤3.3 夹具增 `readWorkspaceUniverse` 假端口（calls 记录 + `universeReaderError` 注入），翻转 1 例 + 新增 3 例（写响应带宇宙 / 抛错降级 / session 零调用），既有用例断言语义零改动；⑥并行时序：三任务并发一次咬合，无返工。
+
 ### G4 清单组件升级（页面能力 + 面板零回归）
 
 | 任务 | 文件 | 要点 |
@@ -619,6 +625,8 @@ WorkspaceDefaultsSection（份额三态；kind!=='workspace' 时空态零请求�
 | G4.1 | `src/client/defaults-view.ts` | `DefaultsFilterResult` + `filterDefaultsView`；未过滤走 `residualOf`；过滤时先 `residualOf(universe, disabled)` 再按 `address` 筛；组级命中保留整组；空组丢弃；输出保留 `skillsAvailable/ungroupedMcp/skillsComplete` |
 | G4.2 | `src/client/DefaultsGroupList.tsx` | props `query?/showDetails?`；`copy.cliHint?/universeUnavailable?`；`useMemo` 过滤视图；`filtering` 时组头非 button + 强制展开 + 隐藏内置过滤；`DefaultsRow` 的 `showDetails` 分支（`.rowMain/.rowDescription/.rowTags`）；技能标签（invocation/source/hidden）；过滤无结果用 `defaults.filterEmpty`；降级文案用 `copy.universeUnavailable ?? t('defaults.universeUnavailable')`；`cliHint` 缺省不渲染 |
 | G4.3 | `test/defaults-view.test.ts` | 纯函数表：空查询 identity、组键命中、行命中、描述命中、残留命中、无命中、大小写/空白；残差基准不被污染 |
+
+> **G4 终形态实测（2026-11-08 执行）**：组验证 65/65 passed（defaults-view 29 + workspace-editor 36）+ 面板回归 143/143（tool-panel/panel/panel-controller/skill-panel 四套件加跑）+ 面板五文件 `git diff` 零改动（主会话干净窗口重跑）。①**一次规范偏差修复（R12 留痕）**：4.1 初版把「行命中」实现为只留命中行，与 ③3.4 第 399 行「组级命中 = 组键命中**或任一行命中**，命中即保留整组」不符——4.3 用例 3 红暴露，主会话读权威源裁决为实现偏差（非设计变更），修复子代理改 `filteredGroupOf` 为 `some` 判命中返回原组，29/29 转绿；②typecheck 13 处 TS2322/TS2345 为 G6.2 locales 键时序（`defaults.filterEmpty`、`entry.skill*` 5 字段、`skill.source.*` 7 键），G6.2 落地后应精确归零（G5/G6 核对时验证）；③落位裁量：`SOURCE_TAG_KEYS` + `sourceTagKeyOf` 就近放 `DefaultsGroupList.tsx`（渲染地在 `DefaultsRow`，页面行全部经它输出），G5.1 不重复一份——设计稿原记 `WorkspaceDefaultsPage.tsx` 作废；④缺省 DOM 逐字一致已由「非 filtering 组头 button / 内置过滤框 / rows 条件与现行等价」实现 + workspace-editor 36 例 section 断言不改语义全绿钉住。
 | G4.4（并行） | `test/workspace-editor.test.tsx`（section 部分） | 现有 section 用例全部保持；补一条「section 形态没有全局过滤框、没有描述次行」（`queryByPlaceholderText(zh['workspace.filter'])` 为 null） |
 
 **验证**：`pnpm --filter dsh-plugin-session-tool-toggle exec vitest run test/defaults-view.test.ts test/workspace-editor.test.tsx`；面板回归 `pnpm --filter dsh-plugin-session-tool-toggle exec vitest run test/tool-panel.test.tsx test/panel.test.ts test/panel-controller.test.ts` 全绿；`git diff --name-only -- plugins/session-tool-toggle/src/client | grep -E 'ToolPanelAction|ToolPanelGroups|DefaultsEditor\.tsx|DefaultsSectionFrame|panel-controller'` **无输出**（退出码 1）。
@@ -633,6 +641,8 @@ WorkspaceDefaultsSection（份额三态；kind!=='workspace' 时空态零请求�
 | G5.4 | `test/workspace-editor.test.tsx` | 删三处 heading 断言；新增：概要卡（工作区名/key/文件/计数/登记徽章）、清单卡（过滤、无匹配文案）、空档块、命令卡（代码文本含目标 key、复制调用、copied 反馈）、概要卡刷新回调、页面无 `combobox`/无 `role=dialog`/无 heading；`section` 形态刷新按钮仍在 |
 
 **验证**：`pnpm --filter dsh-plugin-session-tool-toggle exec vitest run test/workspace-editor.test.tsx`；`grep -n '<h3' plugins/session-tool-toggle/src/client/WorkspaceDefaultsEditor.tsx plugins/session-tool-toggle/src/client/WorkspaceDefaultsPage.tsx` **无输出**；`grep -n "universe.*null" plugins/session-tool-toggle/src/client/WorkspaceDefaultsEditor.tsx` 只剩「响应可能为 null 的降级」注释（无 `D-24` 旧口径）。
+
+> **G5+G6 终形态实测（2026-11-09 执行，G5/G6 联合核对）**：联合验证 workspace-editor 46/46 + 单包全量 1145/1145 + typecheck 两段 rc 0 + build rc 0 + locale-parity 10/10（干净窗口）。①G5.1 组件 379 行按 ③3.6 骨架；G5.2 委托 + 删 h3 + D-24 注释清除（`workspace.title` 剩 section 1 处）；G5.3 仅一行注释；G5.4 删 3 处 heading 断言 + G4.4 补 1 条（随本组合并落地，tasks.md 未单列）+ 页面 9 条 = 46 例；②G6.1 CSS 追加 211 行既有类零改动；`.badge` 与面板 intent 徽标重名 → 作用域规则 `.cardHeader .badge`（特异性覆盖，面板零影响）；③G6.2 locales 29 键 zh/en 同步、对账无差额、33 处 LocaleKeysOf 红点精确归零；④**两处实现 bug 修复（验收锚点 = 测试）**：4.2 内置组本地过滤框页面形态 `query=''` 时漏隐藏 → 条件改 `query === undefined && open && kind==='builtin'`（配 query 透传链，面板路径真值面不变）；5.1 复制反馈按钮与 aria-live 双渲染「已复制」→ 按钮恒 `copyCommand` 文案 + copied 态 `disabled`，aria-live 唯一播报；⑤**`<address>` 占位符裁决**：③3.6 树的 `<地址>` 采纳为 ASCII 中性常量 `COMMAND_PLACEHOLDER`（占位符是命令文法示意非文案；既有 `workspace.cliHint` 证明其 locale 属性，但扩键会突破 29 键冻结范围；测试未钉死写法）；⑥1.3 遗留 AR8（新测试未接 tsconfig include）由主会话补 `tsconfig.host.json` 一行修复（R13 留痕）。
 
 ### G6 样式与文案
 
@@ -653,6 +663,8 @@ WorkspaceDefaultsSection（份额三态；kind!=='workspace' 时空态零请求�
 
 **验证**：`pnpm spec:check`（即 `openspec validate --all --strict`）退出 0；`pnpm docs:check` 退出 0；`grep -n "universe: null\|universe：null\|已知降级" plugins/session-tool-toggle/README.md` **无输出**；`grep -n "沿用当前会话视角的清单\|分节保留下拉\|该响应不携带新宇宙" openspec/specs/dsh-session-tool-toggle/spec.md` **无输出**。
 
+> **G7 终形态实测（2026-11-09 执行）**：7.1/7.2 全绿（主会话复核 spec:check rc 0 / docs:check rc 0 / 全部 grep 锚点无输出）。①7.1 主 spec：MODIFIED 块整体替换「默认档编辑面的分组开关形态」（宇宙口径两分：面板/用户级 = 会话 scoped ∪ carried；页面分节 = 工作区宇宙；分节不带下拉落 spec），ADDED「工作区默认档页面的工作区宇宙」6 Scenario；程序化交叉核对 delta 全部内容行逐字存在且唯一；②7.2 README：universe:null 两段删除、新口径段落与三卡结构、跨工作区只写意图、边界三义务保留；一处超出行号的最小一致性修正（原 :129「两个默认档界面」→「面板两个默认档分区」并补页面分节不受影响句——不改则与改写后口径自相矛盾）；③G6.3 随组清偿：locale-parity `REQUIRED_KEYS` 补页面必读 4 键（listTitle/filter/commandTitle/copyCommand），parity 10/10；④R14：docs:check 的 2 处基线断链（他变更归档工件的示例链接）按最小清偿修复归绿（0 errors / 0 warnings）。
+
 ### G8 全量测试与门禁
 
 | 任务 | 命令 / 断言 |
@@ -666,6 +678,8 @@ WorkspaceDefaultsSection（份额三态；kind!=='workspace' 时空态零请求�
 ---
 
 ## ⑥ 设计假设与未决项
+
+> **G8 终形态实测（2026-11-09 执行，全部 22 任务完成）**：8.1 verify:all rc 0（24 文件 / 1145 用例，干净窗口）；8.2 仓级六连（test / typecheck / lint / docs:check / spec:check / dsh:check）全 rc 0；面板零回归终检**精确 basename 匹配**通过——注意 tasks.md 8.2 的 `DefaultsEditor\.tsx` grep 模式会子串误报本变更触达文件 `WorkspaceDefaultsEditor.tsx`，以 `git diff --name-only` 的 basename 精确匹配（`grep -xE`）为准，五个面板文件零改动成立。改动面 21 tracked + 3 untracked（workspace-universe.ts / WorkspaceDefaultsPage.tsx / workspace-universe.test.ts）+ lib 产物（client.js / index.js），全部落在触达面清单内；另有 R14 跨变更工件最小清偿（folders-picker code-design.md 两处断链）。执行期留痕 R12–R14 见 tasks.md 附录。
 
 ### 6.1 设计假设
 
@@ -736,3 +750,17 @@ WorkspaceDefaultsSection（份额三态；kind!=='workspace' 时空态零请求�
 - **产物**：`demos/workspace-defaults-page-l2.html`（方案速览四卡 + 前后对照 + 五状态：① 有档态三卡完整形态 ② 空档态 ③ 过滤中含无匹配 ④ 降级态 ⑤ 失败态）。
 - **自检**：29,800 字节（≤100,000）；零外链（grep 计数 0）；chrome-shared 新标签页渲染，console 无 error、无 Failed to load resource（仅 1 条非错误的表单字段 a11y 建议）；a11y 快照核对约束条/五状态/三卡/标签语义齐备；390×844 视口 `scrollWidth === clientWidth`（无横向溢出）。证据形态声明：本会话模型不声明图片输入，截图已留档但结构核对以 a11y 快照为据。
 - **用户确认**：2026-11-08 演示确认通过（①确认，转入下一步）；同轮裁定 Q-A=a / Q-B=a / Q-C=两个都进 / Q-D=进标签行 / Q-E=保留可空。
+
+---
+
+## R15 追加组段（真机验证期增量，2026-11-09，用户三点裁定）
+
+**触发**：宿主真机复核发现页面列出 dbx/figma 等**非本工作区**的 MCP；用户追加两点呈现要求（组级来源/token 标注、标签着色）。诊断结论：页面宇宙读的是未受限全局注册表（进程级并集），而 dbx/figma 已是 opc 工作区的项目级配置（project-mcp 按会话根集隔离，本工作区会话根本不可见）——原始设计「跨工作区条目列出且意图容忍」被用户推翻。
+
+### G9 项目级过滤与组级标注（已完成）
+
+1. **跨插件归属服务（project-mcp）**：`src/host/attribution-service.ts` 新增 cordis `Service` 子类，以 `projectMcp` 名注册（构造即注册、随 fiber 卸载消失，照搬 `dsh-workspace` 的 `WorkspaceRegistry` 发布形态）。公开面两条：`managedServerNames()`（全量 claim）与 `serverNamesForWorkspace(path)`（归属器根集 → manager claim；路径不被认领返回 `null` **不是空集**）。装配点一行实例化；claim 语义与 `McpManager.serverNamesForRoots` 同源（加载中也算本工作区配置的）。
+2. **宿主过滤与标注（session-tool-toggle）**：`WorkspaceUniverseFacts` 增 `projectServers`（全量声明；缺席 = 插件未装配 → 全部组标 `user`）与 `projectServersHere`（归属命中集；`null` = 归属读数失败 → **fail-closed** 项目级组整组剔除 + `foreignProjectMcp` 计数）。`buildWorkspaceUniverse` 在升序组循环里分派：项目级且不在归属集 → 丢组计数；保留组打 `source: 'user' | 'project'` 与 `countsTokens: true`（mcp 组恒真——每个可见工具 schema 与服务器指令计入每次请求）。reader 经现有 `ctx.get` 缝软读 `projectMcp`：managed 读失败 → 整层 EMPTY（来源分野不可信，同 `schemas()` 抛错纪律）；归属失败 → `projectServersHere: null` + warn 一次。`{sessionId}` 寻址（面板路径）零改动。
+3. **契约**：`DefaultsGroup` 增可选 `source`（枚举 `user`/`project`）与 `countsTokens`（布尔），**只允许 mcp 组携带**（技能/内置组携带即拒，与「技能字段只在 `skill:` 行」同款 fail-closed）；`DefaultsUniverse` 增可选 `foreignProjectMcp`（非负安全整数，>0 才出键）。strict 字段集与 parser 同步；旧形状依旧合法（wire 兼容）。
+4. **客户端**：组头 MCP 分组渲染两枚徽章——来源（用户级蓝/项目级绿，title 讲可见范围）+「计入对话上下文」（橙，title 讲 schema/指令入请求）；只标 MCP 本身，组下工具行不重复（用户裁定）。行级标签着色：`skillTagsOf` 改产 `{text, title?, tone}`，`tagToneClass` 映射 `.toneInfo/.toneSuccess/.toneWarn/.toneDanger`（CSS 变量带字面量回退，暗色安全）——技能来源七类蓝、技能占 token 橙/不占中性、保护红、保留橙、整组在档橙、档内隐藏中性。页面清单注记第四连：`foreignProjectMcp > 0` 显「另有 N 个其他工作区的项目级 MCP 服务器未列入」。locales +9 键（zh/en），REQUIRED_KEYS 同步。
+5. **门禁**：两包 verify:all 绿（project-mcp 151、session-tool-toggle 1166）+ 仓级 `dsh:check` 三组全绿；`openspec validate` 两 spec strict 绿。构建产物已重建（link worktree 直连，重启 profile 即生效）。
