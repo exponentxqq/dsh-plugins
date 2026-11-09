@@ -50,7 +50,7 @@
 
 - `plugins/multi-root-workspace/src/contract.ts`：`RootView.source?: 'common'` 已存在，`RootsView.roots` 仍单数组（invariant 10 的 append-after 顺序恰好保证两组有序）、`PanelEndpoint` 不增项。
 - `plugins/multi-root-workspace/src/command.ts`：`add` 及全部验证词汇（`not-absolute` / `missing` / `not-a-directory` / `equals-primary` / `primary-overlap` / `duplicate` / `nested` / `common-root`）、`reveal` 的 `requireEntry` 都不动；选择器只是换一种方式产出候选 path。
-- `plugins/multi-root-workspace/cordis.patch.yml`、`package.json`、`tsdown.config.ts`：不新增行、不新增依赖、不改 client 入口（新模块经 `index.ts` 被内联进 `lib/client.js`）。
+- `plugins/multi-root-workspace/cordis.patch.yml`、`package.json`、`tsdown.config.ts`：不新增行、不新增依赖、不改 client 入口（新模块经 `index.ts` 被内联进 `lib/client.js`）。【执行期修订（R2，2026-11-09 用户裁定）：`package.json` 允许为类型面补 `@types/*` devDependency 一行（本次实加 `"@types/react-dom": "catalog:"`，先例 workspace-config/test-kit）；其余约束不变】
 - 上游 `@deepseek-ai/*` 任何包：只读消费 `uiWorkspace.pickDirectory/listDirectory/createDirectory`。
 - 根仓 `plugins/workspace-config`（holder）：零改动；分节契约（`workspace-config.section`、owner share 三态）不变。
 - 根仓 `openspec/`：本仓当前没有 multi-root 业务规格，holder 规格只约束分节座位契约；本次**无 spec 增量**，且本设计不写 openspec 文件。
@@ -706,6 +706,8 @@ pnpm --filter dsh-plugin-multi-root-workspace exec vitest run test/client-direct
 - `index.ts` 装配：`client.inject` 仍等于 `['slots','locale','connection']`
   （`test/client-panel.spec.tsx` 的既有断言 `"declares the services it needs"` 必须仍通过）。
 
+**执行期终形态（2026-11-09，组 1 核对通过）**：验收全绿——`typecheck` exit 0（host+client 两段）、`client-directory-picker.spec.ts` 22/22 无 SKIPPED、`client-panel.spec.tsx` 40/40（既有装配断言在内）、`grep -c createDirectoryPicker index.ts` = 2、`lint` exit 0。实测事实与落实补强：① `normalizeBrowseFailure` 的「上游原文」取文位置落实为顶层 `message` 优先、`rpcError` 载体 `message` 回退、两者皆空 → `` `directory browse failed: <wire码>` `` 诊断句（骨架未规定取文位置，spec 22 用例按此判绿）；② 上游 rejection 真实形状 = Error 子类实例（message 顶层）+ `rpcError` 载体（wire 码/details），fixture 按此构造（oxlint 写法纪律见 tasks 附录 R1）；③ 缓存「不再调 pick」断言必须用 ③ 探测分支造判定——② message 兜底分支本就不探测，两断言互斥（1.4 spec 初稿修正）。过渡形态：任务 1.3 后 browse/unavailable 部署点击拾取钮静默无反应（对话框接线与隐藏入口为组 4 行为升级），组 4 落地后消除，中间批次属预期。
+
 ### TG2 对话框组件
 
 **文件**：新建 `src/client/DirectoryPickerDialog.tsx`；改 `src/compat/client-icons.ts`（+2）；
@@ -744,6 +746,8 @@ pnpm --filter dsh-plugin-multi-root-workspace exec vitest run test/client-icons.
 - 快速连点两个目录：只有后一次 `list` 的结果生效（用 `holdNextCall` 式延迟 fake）。
 - 关闭后焦点回到打开前的元素（`document.activeElement` 断言）。
 - `role="dialog"` + `aria-modal="true"` + `aria-labelledby` 指向标题 id。
+
+**执行期终形态（2026-11-09，组 3 核对通过）**：验收全绿——dialog spec **17/17**（≥12 达标）、icons spec 3/3、typecheck exit 0（R2 修复后）、lint 0、替身 grep=2。落实取舍与实测事实：① 隐藏开关按钮渲染在面包屑 `nav` 行尾——TG2 渲染结构未给开关位置（文档缺口），spec 仅断言 `getByRole`+`aria-pressed` 无位置断言；② 导航为 **stale-while-revalidate**：导航不清空旧层渲染，`ScanState.loading` 只在首帧出现——React 18 discrete 事件在两次点击间同步 flush，清空列表会使「快速连点」用例第二次点击落空；该语义下过期响应丢弃/前次 abort/仅最后一次生效断言全部成立；③ 防护机制落实：`scanEpoch`+`AbortController` 防过期覆盖、`confirmEpoch` 使 close 后在途 `onConfirm` 续体失效、Esc `stopPropagation` 防宿主整页关闭、焦点归还先于 `onClose`、portal 到 `document.body`（D-10）；④ 上游探测事实：基线安装树无 pixel 名（`IconCloseOutline16`/`IconChevronRightOutline14`），探测对第二候选 Regular 名命中——与既有 9 字形运行时路径一致；⑤ `@types/react-dom` 补齐见 R2（触达面 §1.1 已注记）。spec 侧关键事实（4.2 参考）：fixture 走「假 uiWorkspace 服务 → 真实 `createDirectoryPicker` 取 browsing」链路、wire 错误按 R1 构造。
 
 ### TG3 分组渲染与按钮升级
 
@@ -789,6 +793,8 @@ pnpm --filter dsh-plugin-multi-root-workspace exec vitest run test/client-panel.
 - primary 复制：点击后 `navigator.clipboard.writeText` 收到 `state.view.primaryRoot`；
   primary 行**没有** reveal 按钮。
 
+**执行期终形态（2026-11-09，组 4 核对通过）**：验收全绿——panel spec **51/51**（40 既有语义原样 + 11 新增，两条验收断言「附属行 DOM 顺序先于通用行」「通用行上移/下移 disabled」逐字在位）、typecheck exit 0、lint 0。实现细节决策（披露入档）：① `mutate` 在 panel 缺席时返回 `PanelError('unavailable','no connection')` 而非 `undefined`——保持「失败不清空手输框」现状等价；noSession/epoch 失效分支返回 `undefined`；② noSession 时动作行退化为 body 层仅 retry 一行——D-06 说动作行归附属组，但 noSession 无组可挂且既有用例断言 retry 可达；③ `Translate` 双定义过渡态已收敛（旧定义删除，type-only re-export，§3.4 落实）；④ harness 替身 `setPickerMode` 三态（native/browse/unavailable）+ 三个 section 查询 helper 供 `within(section)` 归属断言；⑤ panel 替身未保留 `createDirectory` 的 exists 注入点（无用例消费，对话框 exists 契约由 dialog spec 自身替身覆盖——TG5 要点 1 的微调偏差，验收面不受影响）。并发事实：4.1/4.2 组内并发的中间态红为预期（spec 未适配 primary 复制按钮的索引漂移），终态统一裁决后全绿。
+
 ### TG4 文案与样式
 
 **文件**：改 `src/client/locales.ts`（3.7 表）；改 `src/client/styles.ts`（3.8 表）。
@@ -808,6 +814,8 @@ grep -nE '#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(|data-ds-dark-theme' plugins/multi-
 # 期望：无输出（exit 1）。若 picker 族引入了字面色，这里会打印命中行
 grep -c "mrfw-picker" plugins/multi-root-workspace/src/client/styles.ts   # 期望 >= 10
 ```
+
+**执行期终形态（2026-11-09，组 2 核对通过）**：验收全绿——locale-parity 8/8、字面色 grep 无输出（exit 1）、`mrfw-picker` 计数 20（≥10）、typecheck exit 0。落实事实：① `Translate` 在 locales.ts 新增、WorkspaceFoldersAction.tsx 旧定义暂存——**双定义过渡态，组 4 收敛**（旧定义换成 `export type { Translate } from './locales.ts'` type-only re-export，见 §3.4）；② 实际新增 picker 类 13 个（§3.8 表全数）+ `@keyframes mrfwPickerEnter`（含 `prefers-reduced-motion` 降级），组说明复用 `.mrfw-note` 未新增类；③ overlay padding 逐值复刻宿主实际配方 `max(24px, var(--dsh-frame-overlay-top, 24px)) 24px`（宿主未声明该变量时退化恰为 §3.8 字面 `24px 24px`；几何变量非颜色，ADR-0006 不约束）；④ 补充 `.mrfw-pickerRow:focus-visible`（对齐既有 `.mrfw-fileEntry:focus-visible` 的 `--dsw-alias-brand-primary` outline 纪律）与 `.mrfw-pickerHeader .mrfw-iconBtn`（复刻宿主 close 的 label-secondary 着色），均在 ADR-0006 纪律内。
 
 ### TG5 测试
 
@@ -830,6 +838,8 @@ pnpm --filter dsh-plugin-multi-root-workspace build
 pnpm --filter dsh-plugin-multi-root-workspace exec vitest run test/client-bundle.spec.ts
 pnpm --filter dsh-plugin-multi-root-workspace test        # 全量
 ```
+
+**执行期终形态（2026-11-09，组 5 核对通过）**：终态裁决全绿——`verify:all` **exit 0**（34 spec 文件全过、479 passed｜4 skipped 为 kernel:probe 本机豁免【既有行为非本次引入】、smoke compose 46/46 + behavior 99/99 + journey 60/60）、`dsh:check` **exit 0**（基线 0.2.2-rc.1 / AR1–AR8 / B1–B5 七包，multi-root client 4 词含 react-dom）。落实事实：① bundle spec 11 用例（+1 describe「对话框只在打开时出现在 DOM」：closed 态 queryByRole null → browse 态点 + → dialog 出现首帧 /home/me → 取消后 portal 卸载）；② 实现取舍两处（最小必要）：spec 整文件切 `@vitest-environment jsdom`（文件级注解）、`REPO_ROOT` 由 temp-workspace 改 `process.cwd()`（jsdom 无 file-URL `import.meta.url`，对齐 client-panel 既有模式）；③ 产物事实：`lib/client.js` 235.84 kB、require 词恰好 4 项平台词（B 契约与 bundle spec 双重断言）；④ lib/ 重建副产物（含新增 `DirectoryPickerDialog`/`directory-picker` 两个 d.ts）随批次提交收编。并发事实：5.1/5.2 窗口内 verify:all 红（bundle spec 旧 3 词断言 vs 新 4 词产物）为预期中间态，5.1 落盘后终态裁决全绿。过程证据：`/tmp/dsh-plugins-evidence/g5-{verify-all,dsh-check}.log`。
 
 - `require` 词集合逐字等于 4 项；`workspace-config.section` / `sidebar.right.tab.files.actions` 仍在；
   `sidebar.footer.action` 仍不出现。

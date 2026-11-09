@@ -46,6 +46,8 @@
 
 **阶段 1.75 界面演示**：**触发（L2）并经用户确认通过**——C1∧C2∧C3 成立（新对话框为新布局决策），产物 `demos/workspace-folders-picker-l2.html`（18.6KB 四状态屏），自检 = chrome-shared 程序化断言（双视口零溢出、零外链、console 无 error）+ vision 子代理读 5 张截图 A–F 清单全过，确认无改稿轮次（2026-11-08 23:31）。判定与证据详见 `code-design.md` 附录。
 
+**执行环境**：隔离。布局：dsh-plugins（单仓多包，触达 `plugins/multi-root-workspace` 子目录，无独立子 git 仓）→ `/home/xuqinqin/develop/person/dsh-plugins/.worktrees/2026-11-08-workspace-folders-picker` @ `feature/2026-11-08-workspace-folders-picker`（基点 main@8916abe）；装配：`pnpm install`（容器包装、pnpm store 共享）；代码批次提交落 worktree 分支，openspec 工件提交落主仓 main；创建于 2026-11-08。
+
 ## 接口与数据形状（摘要）
 
 - `createDirectoryPicker(read: () => DirectoryPickerService | undefined): PickDirectory`；`DirectoryPickOutcome` 五态联合：`{kind:'picked',path}` / `{kind:'cancelled'}` / `{kind:'browse',browsing,listing?}` / `{kind:'unavailable'}` / `{kind:'failed',error}`
