@@ -51,6 +51,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { WorkspaceConfigSectionSeat, WorkspaceConfigSectionSlot } from '@dsh-plugins/contracts'
 import { createElement } from 'react'
 import { currentSessionIdOf } from '../compat/client-session.ts'
+import { createDirectoryPicker, type DirectoryPickerService } from './directory-picker.ts'
 import { createPanelClient, type PanelClient } from './panel-client.ts'
 import { NS, en, zh } from './locales.ts'
 import { STYLES } from './styles.ts'
@@ -125,11 +126,11 @@ export function apply(ctx: ClientContext): void {
     const connection = ctx.get('connection')
     return connection === undefined ? undefined : createPanelClient(connection)
   })()
-  const pickDirectory = async (): Promise<string | null> => {
-    const workspace = readService<{ pickDirectory?: () => Promise<string | null> }>(ctx, 'uiWorkspace')
-    if (workspace?.pickDirectory === undefined) return null
-    return await workspace.pickDirectory()
-  }
+  // 目录拾取端口：能力判定与降级收在 directory-picker.ts（D-02）。read 是
+  // thunk，服务晚到仍可用；服务实例被替换时按实例身份失效缓存。
+  const pickDirectory = createDirectoryPicker(
+    () => readService<DirectoryPickerService>(ctx, 'uiWorkspace'),
+  )
   // The selection field moved between supported releases; the probe lives in
   // compat so this entry never compares version strings.
   const sessionId = (): string | undefined => currentSessionIdOf(readService(ctx, 'sessions'))

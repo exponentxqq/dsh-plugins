@@ -29,7 +29,9 @@ type IconModule = Readonly<Record<string, PanelIcon | undefined>>;
  */
 export declare function selectIcon(module: IconModule, names: readonly string[]): PanelIcon;
 export declare const IconChevronDown: PanelIcon;
+export declare const IconChevronRight: PanelIcon;
 export declare const IconChevronUp: PanelIcon;
+export declare const IconClose: PanelIcon;
 export declare const IconCopy: PanelIcon;
 export declare const IconEdit: PanelIcon;
 export declare const IconEllipsis: PanelIcon;

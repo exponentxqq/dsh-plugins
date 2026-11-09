@@ -10,7 +10,18 @@
  * the focus trap and the dismissal action — and declares the seat from its
  * `shell.overlay` registration. This module therefore renders only the body:
  * `WorkspaceFoldersSection` has no overlay, no `role="dialog"`, no Escape/Tab
- * handling and no dismissal button.
+ * handling and no dismissal button. The one modal it does own is the
+ * application-side directory picker (`DirectoryPickerDialog`): a browse-capable
+ * deployment opens it through the pick state machine below, and it portals
+ * itself to `document.body`, so the "no dialog shell" statement is about this
+ * section's own chrome, not about overlays it raises on demand.
+ *
+ * The root list renders in two groups split client-side by
+ * `root.source === 'common'` (D-05): registrations first (`panel.additional`),
+ * configured common roots after (`panel.common`, a read-only surface whose
+ * rows keep their disabled action set and badge). The add actions render at
+ * the end of the additional group (D-06) — they can only add registrations,
+ * so they must not read as actions on the common group that follows.
  *
  * The seat's owner share is the page-level workspace context (three states,
  * {@link WorkspaceConfigWorkspaceContext}) and the page re-mounts the section
@@ -36,9 +47,9 @@
 import { type ReactNode } from 'react';
 import type { WorkspaceConfigWorkspaceContext } from '@dsh-plugins/contracts';
 import { type PanelClient } from './panel-client.ts';
-import type { Key } from './locales.ts';
-/** Translate one key of this plugin's namespace. */
-export type Translate = (key: Key, params?: Record<string, unknown>) => string;
+import type { PickDirectory } from './directory-picker.ts';
+import type { Translate } from './locales.ts';
+export type { Translate } from './locales.ts';
 /**
  * The panel body's props: the seat owner share, the framework-synthesized
  * translator, and the business face the registration injects.
@@ -67,8 +78,12 @@ export interface WorkspaceFoldersSectionProps {
     readonly t: Translate;
     /** The channel client; absent when this composition has no host Connection. */
     readonly panel: PanelClient | undefined;
-    /** Opens the composed directory picker, when one is composed. */
-    readonly pickDirectory: (() => Promise<string | null>) | undefined;
+    /**
+     * 拾取端口：永远存在（装配面经 `createDirectoryPicker` 注入，无 `uiWorkspace`
+     * 服务时调用返回 `{ kind: 'unavailable' }`）。五态结局由下方拾取状态机分派：
+     * `browse` 打开自建目录对话框、`unavailable` 隐藏拾取入口（D-09）。
+     */
+    readonly pickDirectory: PickDirectory;
     /**
      * The current session id, read when a request is built. A function rather
      * than a value because the selection changes while the panel stays mounted.

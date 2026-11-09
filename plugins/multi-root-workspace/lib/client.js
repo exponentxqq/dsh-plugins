@@ -30,6 +30,7 @@ window.__ModuleLoader__.load({
 		let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 		_deepseek_ai_dsh_client_ui_primitives = __toESM(_deepseek_ai_dsh_client_ui_primitives, 1);
 		let react_jsx_runtime = require("react/jsx-runtime");
+		let react_dom = require("react-dom");
 		//#region ../../tooling/client-kit/src/client-session.ts
 		/**
 		* 读取当前会话 id。
@@ -106,6 +107,174 @@ window.__ModuleLoader__.load({
 			const count = retainedBy.mainView;
 			return typeof count === "number" && count > 0;
 		}
+		//#endregion
+		//#region src/client/directory-picker.ts
+		/** 浏览失败：`code` 是本地稳定码（不是 wire 码），`message` 保留上游原文供诊断。 */
+		var DirectoryBrowseError = class extends Error {
+			name = "DirectoryBrowseError";
+			code;
+			constructor(code, message) {
+				super(message);
+				this.code = code;
+			}
+		};
+		/**
+		* 构造拾取端口。
+		* @param read - 每次调用现取 `ctx.uiWorkspace`（服务可能晚于 apply 就绪，也可能被替换）。
+		* @returns 可直接注入分节的 `pickDirectory`（永远存在；无服务时调用返回 unavailable）。
+		*/
+		function createDirectoryPicker(read) {
+			/** 能力缓存：以上次判定的服务实例为键（D-12），实例更换即失效。 */
+			let cached;
+			const remember = (service, kind) => {
+				cached = {
+					service,
+					kind
+				};
+			};
+			return async () => {
+				const service = read();
+				if (service === void 0) return { kind: "unavailable" };
+				if ((cached !== void 0 && cached.service === service ? cached.kind : void 0) === "browse") {
+					const browsing = browseOf(service);
+					return browsing === void 0 ? { kind: "unavailable" } : {
+						kind: "browse",
+						browsing
+					};
+				}
+				if (service.pickDirectory === void 0) {
+					const browsing = browseOf(service);
+					if (browsing === void 0) return { kind: "unavailable" };
+					remember(service, "browse");
+					return {
+						kind: "browse",
+						browsing
+					};
+				}
+				try {
+					const path = await service.pickDirectory();
+					if (path !== null && path !== "") {
+						remember(service, "native");
+						return {
+							kind: "picked",
+							path
+						};
+					}
+					return { kind: "cancelled" };
+				} catch (error) {
+					return await classifyPickFailure(service, error, remember);
+				}
+			};
+		}
+		/**
+		* pick 抛错后的三级信号分类（顺序固定）。
+		*
+		* 任意一支返回 browse 之前都要求服务确有 list+create（`browseOf` / 窄化门）：
+		* 只暴露 pick 的旧组合不许被误判成能浏览。
+		* @param service - 本次判定的服务实例。
+		* @param error - pick 原始错误（`failed` 结局必须原样上报）。
+		* @param remember - 判定成立时写入能力缓存。
+		*/
+		async function classifyPickFailure(service, error, remember) {
+			const capability = capabilityOf(failureOf(error));
+			if (capability === "native") return {
+				kind: "failed",
+				error
+			};
+			if (capability === "browse") return degradeToBrowse(service, remember);
+			const message = messageOf(error);
+			if (BROWSE_MESSAGE_PATTERNS.some((pattern) => pattern.test(message))) return degradeToBrowse(service, remember);
+			const list = service.listDirectory;
+			if (list === void 0 || service.createDirectory === void 0) return { kind: "unavailable" };
+			const browsing = browsePort(list, service.createDirectory);
+			try {
+				const listing = await list();
+				remember(service, "browse");
+				return {
+					kind: "browse",
+					browsing,
+					listing
+				};
+			} catch (probeError) {
+				if (capabilityOf(failureOf(probeError)) === "native") return {
+					kind: "failed",
+					error
+				};
+				return { kind: "unavailable" };
+			}
+		}
+		/** ①② 命中 browse 后的统一降级出口：先过 browseOf 门，再缓存并返回（不带探测 listing）。 */
+		function degradeToBrowse(service, remember) {
+			const browsing = browseOf(service);
+			if (browsing === void 0) return { kind: "unavailable" };
+			remember(service, "browse");
+			return {
+				kind: "browse",
+				browsing
+			};
+		}
+		/** 服务的浏览端口（list+create 齐备才有）；失败经 `wrapBrowse` 归一化。 */
+		function browseOf(service) {
+			const { listDirectory: list, createDirectory: create } = service;
+			if (list === void 0 || create === void 0) return void 0;
+			return browsePort(list, create);
+		}
+		/** 在已窄化的两个原语上构造浏览端口（`browseOf` 与探测分支共用）。 */
+		function browsePort(list, create) {
+			return {
+				list: (path, signal) => wrapBrowse(list(path, signal)),
+				create: (path, name) => wrapBrowse(create(path, name))
+			};
+		}
+		/**
+		* browse 原语的失败一律转成 `DirectoryBrowseError`（行为契约 7）；abort 也落
+		* `picker-failed`，对话框据 `signal.aborted` 丢弃、不渲染错误。
+		*/
+		function wrapBrowse(invocation) {
+			return invocation.catch((error) => {
+				throw normalizeBrowseFailure(error);
+			});
+		}
+		/** wire 错误码 → 本地稳定码；表外（含 `gateway/internal`、`gateway/cancelled`）一律 `picker-failed`。 */
+		const WIRE_CODE_TO_LOCAL = {
+			"directory-picker/unreadable": "picker-unreadable",
+			"directory-picker/exists": "picker-exists",
+			"directory-picker/create-failed": "picker-create-failed"
+		};
+		/** 把上游 browse 原语的拒绝归一化成本地错误：`code` 稳定、`message` 保留上游原文供诊断。 */
+		function normalizeBrowseFailure(error) {
+			const failure = failureOf(error);
+			const wireCode = typeof failure?.code === "string" ? failure.code : void 0;
+			const code = wireCode !== void 0 ? WIRE_CODE_TO_LOCAL[wireCode] ?? "picker-failed" : "picker-failed";
+			const topLevel = messageOf(error);
+			const message = topLevel !== "" ? topLevel : typeof failure?.message === "string" ? failure.message : "";
+			return new DirectoryBrowseError(code, message !== "" ? message : `directory browse failed: ${wireCode ?? "unknown failure"}`);
+		}
+		/** 读取一个值上的 DSH 远程失败视图：值本身带 string `code`，或经 `rpcError` 载体携带；都不是则 undefined。 */
+		function failureOf(value) {
+			if (value === null || typeof value !== "object") return void 0;
+			const direct = value;
+			if (typeof direct.code === "string") return direct;
+			const carrier = value.rpcError;
+			return carrier !== null && typeof carrier === "object" && typeof carrier.code === "string" ? carrier : void 0;
+		}
+		/** 结构化信号里的 `details.capability`（details 缺席或非对象 → undefined）。 */
+		function capabilityOf(failure) {
+			const details = failure?.details;
+			if (details === null || typeof details !== "object") return void 0;
+			return details.capability;
+		}
+		/** 任意失败上的 message 原文（Error 或带 string message 的对象；取不到返回空串）。 */
+		function messageOf(value) {
+			if (value instanceof Error) return value.message;
+			if (value !== null && typeof value === "object") {
+				const message = value.message;
+				if (typeof message === "string") return message;
+			}
+			return "";
+		}
+		/** message 兜底正则：锚定上游「composed picker serves "browse"」模板的两处片段；上游文案非契约。 */
+		const BROWSE_MESSAGE_PATTERNS = [/\bserves\s+["']?browse["']?/i, /["']capability["']\s*:\s*["']browse["']/i];
 		//#endregion
 		//#region ../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/core.js
 		var _a$1;
@@ -4399,6 +4568,27 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			"panel.reveal": "在文件管理器中显示",
 			"panel.moveUp": "上移",
 			"panel.moveDown": "下移",
+			"panel.common": "通用工作目录",
+			"panel.commonHint": "由插件配置的 commonRoots 授予，对所有工作空间生效；修改请编辑插件配置（cordis.patch.yml）。",
+			"panel.commonEmpty": "没有配置通用工作目录；在插件配置（cordis.patch.yml）的 commonRoots 中添加即可对所有工作空间生效。",
+			"picker.title": "选择工作目录",
+			"picker.close": "关闭",
+			"picker.crumbs": "目录层级",
+			"picker.home": "主目录",
+			"picker.current": "当前路径",
+			"picker.showHidden": "显示隐藏目录",
+			"picker.empty": "这里没有子目录",
+			"picker.truncated": "条目过多，列表已截断",
+			"picker.create": "新建文件夹",
+			"picker.createName": "文件夹名称",
+			"picker.createConfirm": "创建",
+			"picker.cancel": "取消",
+			"picker.confirm": "选择此目录",
+			"picker.unavailable": "当前部署没有可用的目录选择器；请直接在下方输入绝对路径。",
+			"picker.error.unreadable": "无法读取该目录；它可能已不存在或没有访问权限。",
+			"picker.error.exists": "该目录下已有同名文件夹。",
+			"picker.error.create-failed": "新建文件夹失败。",
+			"picker.error.failed": "目录浏览失败。",
 			"state.available": "可写",
 			"state.missing": "目录不存在，暂不授予",
 			"state.redirected": "登记目录已被替换（现在指向别处），暂不授予",
@@ -4461,6 +4651,27 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			"panel.reveal": "Reveal in file manager",
 			"panel.moveUp": "Move up",
 			"panel.moveDown": "Move down",
+			"panel.common": "Common working directories",
+			"panel.commonHint": "Granted by the plugin's commonRoots configuration and applied to every workspace; edit that configuration (cordis.patch.yml) to change it.",
+			"panel.commonEmpty": "No common working directories are configured; add them under commonRoots in the plugin configuration (cordis.patch.yml) to apply them to every workspace.",
+			"picker.title": "Choose a working directory",
+			"picker.close": "Close",
+			"picker.crumbs": "Directory path",
+			"picker.home": "Home",
+			"picker.current": "Current path",
+			"picker.showHidden": "Show hidden folders",
+			"picker.empty": "No subfolders here",
+			"picker.truncated": "Too many entries; the list is truncated",
+			"picker.create": "New folder",
+			"picker.createName": "Folder name",
+			"picker.createConfirm": "Create",
+			"picker.cancel": "Cancel",
+			"picker.confirm": "Use this folder",
+			"picker.unavailable": "This deployment offers no directory picker; enter an absolute path below.",
+			"picker.error.unreadable": "That directory could not be read; it may no longer exist or not be accessible.",
+			"picker.error.exists": "A folder with that name already exists.",
+			"picker.error.create-failed": "Could not create the folder.",
+			"picker.error.failed": "Browsing failed.",
 			"state.available": "Writable",
 			"state.missing": "Directory is absent; not granted",
 			"state.redirected": "Registration was replaced (it now points elsewhere); not granted",
@@ -4553,11 +4764,14 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		* The host ships its design tokens as CSS custom properties on `body`
 		* (`--dsw-alias-*` semantics, `--dsw-elevation-*` shadows, `--ds-*` motion and
 		* code-font tokens), so this sheet names no color of its own: light and dark
-		* theme follow the host automatically. It carries only the panel body and its
-		* capsule controls: the dialog shell (mask, card, header, close button) and the
-		* sidebar footer trigger belong to the workspace-config holder since ADR-0013,
-		* and the Modal primitive already styles them — this sheet deliberately has no
-		* rule for either.
+		* theme follow the host automatically. It carries the panel body, its capsule
+		* controls, and the panel's own directory picker overlay — a self-drawn
+		* floating layer whose mask, card and elevation copy the host Modal.module.css
+		* recipe token for token (group hints and empty states reuse .mrfw-note).
+		* The workspace-config section's dialog shell (mask, card, header, close
+		* button) and the sidebar footer trigger still belong to the workspace-config
+		* holder since ADR-0013, and the Modal primitive already styles those — this
+		* sheet deliberately has no rule for either.
 		*
 		* @module dsh-plugin-multi-root-workspace/client/styles
 		*/
@@ -4811,6 +5025,183 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 .mrfw-actions .mrfw-iconBtn {
   width: 32px;
 }
+
+/* The directory picker's self-drawn overlay. The layer is the panel's own
+ * floating surface, not the holder's dialog shell, and its mask, card and
+ * elevation copy the host Modal.module.css recipe token for token:
+ * mask-1 + mask-blur on the overlay, layer-2 + radius-panel +
+ * elevation-prominent on the card. The close button, breadcrumb buttons,
+ * inputs and actions all reuse the capsule family and .mrfw-input below. */
+
+/* Portal root: full-viewport, centered, 24px of air on every side — the top
+   and bottom widen to the frame's overlay inset when the host declares one.
+   The card sizes against this padding box, never a viewport calc of its own. */
+.mrfw-pickerOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(24px, var(--dsh-frame-overlay-top, 24px)) 24px;
+}
+
+.mrfw-pickerMask {
+  position: absolute;
+  inset: 0;
+  background: var(--dsw-alias-bg-mask-1);
+  backdrop-filter: var(--dsw-mask-blur);
+  animation: mrfwPickerEnter var(--ds-transition-duration) var(--ds-ease-in-out);
+}
+
+.mrfw-pickerCard {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: min(560px, 100%);
+  border-radius: var(--dsw-radius-panel);
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-elevation-prominent);
+  overflow: hidden;
+  animation: mrfwPickerEnter var(--ds-transition-duration) var(--ds-ease-in-out);
+}
+
+@keyframes mrfwPickerEnter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mrfw-pickerMask,
+  .mrfw-pickerCard {
+    animation: none;
+  }
+}
+
+/* Header row: title left, close right, the host header's pads. The close
+   button reuses .mrfw-btn/.mrfw-iconBtn and only takes the host close's
+   secondary ink. */
+.mrfw-pickerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 22px 14px 12px 24px;
+}
+
+.mrfw-pickerHeader .mrfw-iconBtn {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.mrfw-pickerTitle {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Breadcrumbs: a wrapping flex line of ghost capsule buttons
+   (.mrfw-btn .mrfw-btnGhost .mrfw-pickerCrumb) tightened to 24px; the current
+   crumb carries aria-current and steps down to the secondary ink. The
+   separator is a dimmed chevron glyph. */
+.mrfw-pickerCrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 0 24px 8px;
+}
+
+.mrfw-pickerCrumb {
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 999px;
+}
+
+.mrfw-pickerCrumb[aria-current] {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.mrfw-pickerCrumbSeparator {
+  flex: none;
+  color: var(--dsw-alias-label-dimmed);
+}
+
+/* The one-level listing: a fixed growth band with its own scroll; the empty
+   layer speaks through .mrfw-note. */
+.mrfw-pickerList {
+  flex: 1 1 auto;
+  min-height: 160px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+/* One subfolder row: a full-width transparent button with the file-entry
+   recipe (inherited font, left-aligned) and the shared hover wash. */
+.mrfw-pickerRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 16px;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mrfw-pickerRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.mrfw-pickerRow:focus-visible {
+  outline: 1px solid var(--dsw-alias-brand-primary);
+}
+
+/* Footer: the current path in the code font's tertiary voice, plus the
+   confirm/close actions as reused capsules. */
+.mrfw-pickerFooter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.mrfw-pickerPath {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* The inline new-folder row: a wrapping flex line around a reused .mrfw-input
+   and capsule buttons. */
+.mrfw-pickerCreate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 8px;
+}
 `;
 		//#endregion
 		//#region src/compat/client-icons.ts
@@ -4841,7 +5232,9 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			return selectIcon(installed, [pixelName, regularName]);
 		}
 		const IconChevronDown = icon("IconChevronDownOutline14", "IconChevronDownOutlineRegular");
+		const IconChevronRight = icon("IconChevronRightOutline14", "IconChevronRightOutlineRegular");
 		const IconChevronUp = icon("IconChevronUpOutline14", "IconChevronUpOutlineRegular");
+		const IconClose = icon("IconCloseOutline16", "IconCloseOutlineRegular");
 		const IconCopy = icon("IconCopyOutline16", "IconCopyOutlineRegular");
 		const IconEdit = icon("IconEditOutline16", "IconEditOutlineRegular");
 		const IconEllipsis = icon("IconEllipsisOutline16", "IconEllipsisOutlineRegular");
@@ -4993,6 +5386,439 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			})] }) }))] });
 		}
 		//#endregion
+		//#region src/client/DirectoryPickerDialog.tsx
+		/**
+		* 「工作区文件夹」分节的应用内单栏目录拾取对话框（client 半）。
+		*
+		* D-03：模态自绘（遮罩 / 卡片 / Escape / Tab 焦点环 / 焦点归还），不用
+		* ui-primitives 的 `Modal`——测试替身不承载其焦点语义，且分节内的拾取浮层
+		* 与 holder 的对话框壳不重叠（ADR-0013 删掉的是分节壳，不是任何浮层）；视觉
+		* 逐值复刻宿主 Modal.module.css 配方，token 全部来自 `styles.ts` 的
+		* `.mrfw-picker*` 族（ADR-0006：无字面色）。D-10：portal 到 `document.body`，
+		* 避开宿主侧栏抽屉的 transform 动画对 fixed 定位的退化。
+		*
+		* 行为契约（code-design §3.3）：
+		*
+		* 1. `open` 翻 true：重置全部瞬态；有 `initialListing` 直接 ready，否则零参
+		*    `list()`（Host home）；记录 opener 并把焦点移到卡片根。`browser` /
+		*    `initialListing` 在打开瞬间快照，打开后属性变化不重扫、不换端口。
+		* 2. 导航（点行 / 点面包屑）：`scanEpoch` 递增并 abort 上一次请求；过期响应
+		*    与 abort 响应都丢弃。
+		* 3. 隐藏项默认过滤（`entry.hidden`），开关（`aria-pressed`）只改渲染。
+		* 4. `truncated` 时显示 `picker.truncated`。
+		* 5. 新建对当前层 `listing.path` 发起；成功收起新建行并导航进入创建出的目录
+		*    （D-04：导航进入是防误采纳父目录的最小代价）；失败原地显示码对应文案。
+		* 6. 采纳：`await onConfirm(listing.path)`；返回字符串 = 本地化失败句，原地
+		*    显示、保持打开；返回 `undefined` = 成功，关闭。
+		* 7. 关闭路径（Esc / 取消 / 遮罩）一律不采纳，且归还 opener 焦点后再通知父
+		*    组件（焦点归还发生在父组件可能触发的卸载之前）。
+		* 8. Tab / Shift+Tab 在卡片内可聚焦元素间环绕；`role="dialog"` +
+		*    `aria-modal="true"` + `aria-labelledby` 指向标题。
+		* 9. 父组件卸载即 abort 当前扫描。
+		*
+		* 对话框不负责：`add` 请求、错误码 → 文案（浏览错误除外）、能力判定、记住
+		* 上次目录（每次打开都从 Host home 开始）。
+		*
+		* @module dsh-plugin-multi-root-workspace/client/DirectoryPickerDialog
+		*/
+		/** 新建行的收起态（导航/重置共用同一常量，保持引用稳定）。 */
+		const CREATE_CLOSED = {
+			open: false,
+			name: "",
+			busy: false,
+			error: void 0
+		};
+		/** 标题元素 id：同一时刻至多一个对话框实例（portal 到 body），常量即可。 */
+		const TITLE_ID = "mrfw-directory-picker-title";
+		/** 卡片内可聚焦元素的查询选择器（Tab 焦点环用）。 */
+		const FOCUSABLE_SELECTOR = "button, input, select, textarea, a[href], [tabindex]";
+		/** 浏览失败码 → 文案键：对话框唯一承担的错误映射（§3.7 的 `picker.error.*`）。 */
+		function browseErrorKey(code) {
+			switch (code) {
+				case "picker-unreadable": return "picker.error.unreadable";
+				case "picker-exists": return "picker.error.exists";
+				case "picker-create-failed": return "picker.error.create-failed";
+				case "picker-failed": return "picker.error.failed";
+			}
+		}
+		/** 任意失败上的本地码：适配器契约承诺 `DirectoryBrowseError`，其余归 `picker-failed`。 */
+		function browseCodeOf(error) {
+			return error instanceof DirectoryBrowseError ? error.code : "picker-failed";
+		}
+		/** 任意失败上的 message 原文（进 `ScanState.failed.message` 供诊断，不直接渲染）。 */
+		function diagnosticMessageOf(error) {
+			return error instanceof Error ? error.message : String(error);
+		}
+		/**
+		* 目录拾取对话框。挂载与否由父组件决定；本组件只按 `open` 决定渲染浮层，
+		* 全部 hooks 无条件调用以满足 hooks 规则。
+		*/
+		function DirectoryPickerDialog(props) {
+			const [scan, setScan] = (0, react.useState)({ kind: "loading" });
+			const [showHidden, setShowHidden] = (0, react.useState)(false);
+			const [create, setCreate] = (0, react.useState)(CREATE_CLOSED);
+			const [commitError, setCommitError] = (0, react.useState)(void 0);
+			const [confirming, setConfirming] = (0, react.useState)(false);
+			const dialogRef = (0, react.useRef)(null);
+			const openerRef = (0, react.useRef)(null);
+			const scanAbortRef = (0, react.useRef)(null);
+			/** 扫描序号：只有最新一次导航的响应才允许写 `scan`（行为契约 2）。 */
+			const scanEpochRef = (0, react.useRef)(0);
+			/** 采纳序号：close 使在途 `onConfirm` 的续体失效，防关闭后写状态（行为契约 6/7）。 */
+			const confirmEpochRef = (0, react.useRef)(0);
+			/** 打开瞬间快照的浏览端口（TG2 要点 1：不随属性变化换端口）。 */
+			const browserRef = (0, react.useRef)(void 0);
+			/**
+			* 导航到一层：`scanEpoch` 递增、abort 上一次、`list(path)`；`path` 缺席 =
+			* 宿主 home（首帧）。过期响应（序号落后）与 abort 响应（`signal.aborted`）
+			* 都丢弃——前者防旧覆盖新，后者防「已取消的扫描报错误」。
+			*
+			* 导航**不清空旧层**（stale-while-revalidate）：`loading` 只属于首帧占位，
+			* 旧层渲染保留到新响应或失败覆盖为止。这让「快速连点」真实可用——挂起期间
+			* 上一层的行仍可点（React 18 的 discrete 事件在两次点击之间同步 flush，
+			* 清空会让第二次点击落空）；旧内容短暂滞留是单栏拾取可接受的代价。
+			*/
+			const navigate = (path) => {
+				const epoch = ++scanEpochRef.current;
+				scanAbortRef.current?.abort();
+				const controller = new AbortController();
+				scanAbortRef.current = controller;
+				const browser = browserRef.current;
+				if (browser === void 0) {
+					setScan({
+						kind: "failed",
+						code: "picker-failed",
+						message: ""
+					});
+					return;
+				}
+				browser.list(path, controller.signal).then((listing) => {
+					if (epoch === scanEpochRef.current) setScan({
+						kind: "ready",
+						listing
+					});
+				}, (error) => {
+					if (epoch !== scanEpochRef.current || controller.signal.aborted) return;
+					setScan({
+						kind: "failed",
+						code: browseCodeOf(error),
+						message: diagnosticMessageOf(error)
+					});
+				});
+			};
+			/**
+			* 关闭：使在途采纳失效、归还 opener 焦点（同步，发生在父组件可能触发的
+			* 卸载之前——行为契约 7），再通知父组件。
+			*/
+			const close = () => {
+				confirmEpochRef.current += 1;
+				const opener = openerRef.current;
+				openerRef.current = null;
+				opener?.focus();
+				props.onClose();
+			};
+			/** 采纳当前层（行为契约 6）。失败句原地显示并恢复按钮；成功即关闭。 */
+			const confirm = async () => {
+				if (confirming || scan.kind !== "ready") return;
+				const path = scan.listing.path;
+				setCommitError(void 0);
+				setConfirming(true);
+				const epoch = confirmEpochRef.current;
+				try {
+					const failure = await props.onConfirm(path);
+					if (epoch !== confirmEpochRef.current) return;
+					if (failure === void 0) {
+						close();
+						return;
+					}
+					setCommitError(failure);
+					setConfirming(false);
+				} catch {
+					if (epoch !== confirmEpochRef.current) return;
+					setCommitError(props.t("error.fallback"));
+					setConfirming(false);
+				}
+			};
+			/** 新建对当前层发起（行为契约 5）：成功导航进入创建出的目录，失败原地显示。 */
+			const submitCreate = async () => {
+				const browser = browserRef.current;
+				if (create.busy || scan.kind !== "ready" || browser === void 0) return;
+				const name = create.name;
+				if (name.trim() === "") return;
+				setCreate({
+					open: true,
+					name,
+					busy: true,
+					error: void 0
+				});
+				try {
+					const created = await browser.create(scan.listing.path, name);
+					setCreate(CREATE_CLOSED);
+					navigate(created);
+				} catch (error) {
+					setCreate({
+						open: true,
+						name,
+						busy: false,
+						error: props.t(browseErrorKey(browseCodeOf(error)))
+					});
+				}
+			};
+			/**
+			* `open` 的翻转副作用（TG2 要点 1）：只依赖 `open`，`browser` /
+			* `initialListing` 在打开瞬间快照，打开后的属性变化不触发重扫。
+			*/
+			(0, react.useEffect)(() => {
+				if (!props.open) return;
+				browserRef.current = props.browser;
+				setShowHidden(false);
+				setCreate(CREATE_CLOSED);
+				setCommitError(void 0);
+				setConfirming(false);
+				confirmEpochRef.current += 1;
+				openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+				const initial = props.initialListing;
+				if (initial !== void 0) setScan({
+					kind: "ready",
+					listing: initial
+				});
+				else navigate(void 0);
+				dialogRef.current?.focus();
+			}, [props.open]);
+			/** 父组件卸载即 abort 当前扫描（行为契约 9）。 */
+			(0, react.useEffect)(() => () => {
+				scanAbortRef.current?.abort();
+			}, []);
+			/** Esc 只关本浮层（阻断冒泡，防宿主把同一按键解释成「关闭整页」）；Tab 环绕。 */
+			const onKeyDown = (event) => {
+				if (event.key === "Escape") {
+					event.stopPropagation();
+					close();
+					return;
+				}
+				if (event.key !== "Tab") return;
+				const card = dialogRef.current;
+				if (card === null) return;
+				const focusables = Array.from(card.querySelectorAll(FOCUSABLE_SELECTOR)).filter((element) => !element.hasAttribute("disabled") && element.tabIndex >= 0);
+				const first = focusables[0];
+				const last = focusables[focusables.length - 1];
+				if (first === void 0 || last === void 0) return;
+				const active = document.activeElement;
+				if (event.shiftKey && (active === first || active === card)) {
+					event.preventDefault();
+					last.focus();
+					return;
+				}
+				if (!event.shiftKey && active === last) {
+					event.preventDefault();
+					first.focus();
+				}
+			};
+			if (!props.open) return null;
+			const listing = scan.kind === "ready" ? scan.listing : void 0;
+			const visibleEntries = listing === void 0 ? [] : listing.entries.filter((entry) => showHidden || !entry.hidden);
+			const lastCrumbIndex = listing === void 0 ? -1 : listing.crumbs.length - 1;
+			return (0, react_dom.createPortal)(/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: "mrfw-pickerOverlay",
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: "mrfw-pickerMask",
+					"aria-hidden": "true",
+					onClick: close
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					ref: dialogRef,
+					className: "mrfw-pickerCard",
+					role: "dialog",
+					"aria-modal": "true",
+					"aria-labelledby": TITLE_ID,
+					tabIndex: -1,
+					onKeyDown,
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("header", {
+							className: "mrfw-pickerHeader",
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h2", {
+								id: TITLE_ID,
+								className: "mrfw-pickerTitle",
+								children: props.t("picker.title")
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: "mrfw-btn mrfw-iconBtn",
+								title: props.t("picker.close"),
+								"aria-label": props.t("picker.close"),
+								disabled: confirming,
+								onClick: close,
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconClose, {})
+							})]
+						}),
+						listing === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("nav", {
+							className: "mrfw-pickerCrumbs",
+							"aria-label": props.t("picker.crumbs"),
+							children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: "mrfw-btn mrfw-btnGhost mrfw-pickerCrumb",
+									onClick: () => {
+										navigate(listing.home);
+									},
+									children: props.t("picker.home")
+								}),
+								listing.crumbs.map((crumb, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: "mrfw-pickerCrumbSeparator",
+									"aria-hidden": "true",
+									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconChevronRight, {})
+								}), index === lastCrumbIndex ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: "mrfw-btn mrfw-btnGhost mrfw-pickerCrumb",
+									"aria-current": "page",
+									onClick: () => {
+										navigate(crumb.path);
+									},
+									children: crumb.name
+								}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: "mrfw-btn mrfw-btnGhost mrfw-pickerCrumb",
+									onClick: () => {
+										navigate(crumb.path);
+									},
+									children: crumb.name
+								})] }, crumb.path)),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: "mrfw-btn mrfw-btnGhost mrfw-pickerCrumb",
+									"aria-pressed": showHidden,
+									onClick: () => {
+										setShowHidden((value) => !value);
+									},
+									children: props.t("picker.showHidden")
+								})
+							]
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("ul", {
+							className: "mrfw-pickerList",
+							children: [
+								scan.kind === "loading" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("li", {
+									className: "mrfw-note",
+									children: props.t("panel.loading")
+								}) : null,
+								scan.kind === "failed" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("li", {
+									role: "alert",
+									className: "mrfw-alert",
+									children: props.t(browseErrorKey(scan.code))
+								}) : null,
+								scan.kind === "ready" && visibleEntries.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("li", {
+									className: "mrfw-note",
+									children: props.t("picker.empty")
+								}) : null,
+								scan.kind === "ready" ? visibleEntries.map((entry) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("li", { children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+									type: "button",
+									className: "mrfw-pickerRow",
+									onClick: () => {
+										navigate(entry.path);
+									},
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										"aria-hidden": "true",
+										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconFolderClose, {})
+									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: entry.name })]
+								}) }, entry.path)) : null,
+								scan.kind === "ready" && listing?.truncated === true ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("li", {
+									className: "mrfw-note",
+									children: props.t("picker.truncated")
+								}) : null
+							]
+						}),
+						scan.kind === "ready" && create.open ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: "mrfw-pickerCreate",
+							children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+									autoFocus: true,
+									className: "mrfw-input mrfw-inputInline",
+									value: create.name,
+									placeholder: props.t("picker.createName"),
+									onChange: (event) => {
+										setCreate((current) => ({
+											...current,
+											name: event.target.value
+										}));
+									},
+									onKeyDown: (event) => {
+										if (event.key === "Enter") submitCreate();
+									}
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: "mrfw-btn mrfw-btnPrimary",
+									disabled: create.busy || create.name.trim() === "",
+									onClick: () => {
+										submitCreate();
+									},
+									children: props.t("picker.createConfirm")
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: "mrfw-btn mrfw-btnGhost",
+									disabled: create.busy,
+									onClick: () => {
+										setCreate(CREATE_CLOSED);
+									},
+									children: props.t("picker.cancel")
+								})
+							]
+						}) : null,
+						scan.kind === "ready" && !create.open ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: "mrfw-pickerCreate",
+							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: "mrfw-btn mrfw-btnGhost",
+								onClick: () => {
+									setCreate({
+										open: true,
+										name: "",
+										busy: false,
+										error: void 0
+									});
+								},
+								children: props.t("picker.create")
+							})
+						}) : null,
+						create.error === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+							role: "alert",
+							className: "mrfw-alert",
+							children: create.error
+						}),
+						commitError === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+							role: "alert",
+							className: "mrfw-alert",
+							children: commitError
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("footer", {
+							className: "mrfw-pickerFooter",
+							children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: "mrfw-pickerPath",
+									"aria-label": props.t("picker.current"),
+									children: listing?.path ?? ""
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: "mrfw-btn mrfw-btnGhost",
+									onClick: close,
+									children: props.t("picker.cancel")
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: "mrfw-btn mrfw-btnPrimary",
+									disabled: confirming || scan.kind !== "ready",
+									onClick: () => {
+										confirm();
+									},
+									children: props.t("picker.confirm")
+								})
+							]
+						})
+					]
+				})]
+			}), document.body);
+		}
+		//#endregion
 		//#region src/client/WorkspaceFoldersAction.tsx
 		/**
 		* The Workspace Folders panel body: this session's primary workspace root and
@@ -5006,7 +5832,18 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		* the focus trap and the dismissal action — and declares the seat from its
 		* `shell.overlay` registration. This module therefore renders only the body:
 		* `WorkspaceFoldersSection` has no overlay, no `role="dialog"`, no Escape/Tab
-		* handling and no dismissal button.
+		* handling and no dismissal button. The one modal it does own is the
+		* application-side directory picker (`DirectoryPickerDialog`): a browse-capable
+		* deployment opens it through the pick state machine below, and it portals
+		* itself to `document.body`, so the "no dialog shell" statement is about this
+		* section's own chrome, not about overlays it raises on demand.
+		*
+		* The root list renders in two groups split client-side by
+		* `root.source === 'common'` (D-05): registrations first (`panel.additional`),
+		* configured common roots after (`panel.common`, a read-only surface whose
+		* rows keep their disabled action set and badge). The add actions render at
+		* the end of the additional group (D-06) — they can only add registrations,
+		* so they must not read as actions on the common group that follows.
 		*
 		* The seat's owner share is the page-level workspace context (three states,
 		* {@link WorkspaceConfigWorkspaceContext}) and the page re-mounts the section
@@ -5082,6 +5919,18 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		*/
 		function displayNameOf(root) {
 			return root.alias ?? basename(root.path);
+		}
+		/**
+		* One failure rendered as a full sentence (§3.5): the localized copy for the
+		* code, plus the raw host prose only for the two diagnostic codes — the
+		* transport failure and the host's own internal error are the only places
+		* where the message carries facts the copy cannot name. The section alert and
+		* the picker dialog's `onConfirm` failure share this one renderer, so a
+		* failure reads identically no matter which surface reported it.
+		*/
+		function sentenceOf(error, t) {
+			const base = t(errorKeyOf(error.code));
+			return error.code === "unavailable" || error.code === "panel/internal" ? `${base} (${error.message})` : base;
 		}
 		/**
 		* The legacy Files-tab entry: a compact capsule that expands the same panel
@@ -5179,6 +6028,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			const [aliasDraft, setAliasDraft] = (0, react.useState)("");
 			const [copiedId, setCopiedId] = (0, react.useState)(void 0);
 			const [menuFor, setMenuFor] = (0, react.useState)(void 0);
+			const [picker, setPicker] = (0, react.useState)({ kind: "closed" });
+			const [picking, setPicking] = (0, react.useState)(false);
 			const requestEpoch = (0, react.useRef)(0);
 			const mounted = (0, react.useRef)(true);
 			(0, react.useEffect)(() => () => {
@@ -5239,11 +6090,21 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			}, [refresh]);
 			/**
 			* Submit one change to the host and adopt the view it answers with.
-			* @returns whether the host accepted it (the caller decides whether to clear
-			*   the input it came from).
+			* @returns `undefined` on success; the renderable failure otherwise (the
+			*   caller decides whether to clear the input it came from, and the picker
+			*   dialog turns it into a sentence shown in place).
 			*/
 			const mutate = (0, react.useCallback)(async (endpoint, payload) => {
-				if (panel === void 0) return false;
+				if (panel === void 0) {
+					const failure = new PanelError("unavailable", "no connection");
+					setState((previous) => ({
+						...previous,
+						error: failure,
+						busy: false,
+						noSession: false
+					}));
+					return failure;
+				}
 				const base = requestBase();
 				if (base === void 0) {
 					setState({
@@ -5252,7 +6113,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 						busy: false,
 						noSession: true
 					});
-					return false;
+					return;
 				}
 				const epoch = ++requestEpoch.current;
 				setState((previous) => ({
@@ -5265,45 +6126,87 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 						...base,
 						...payload
 					});
-					if (!mounted.current || epoch !== requestEpoch.current) return false;
+					if (!mounted.current || epoch !== requestEpoch.current) return void 0;
 					setState({
 						view,
 						error: void 0,
 						busy: false,
 						noSession: false
 					});
-					return true;
+					return;
 				} catch (error) {
-					if (!mounted.current || epoch !== requestEpoch.current) return false;
+					const failure = asPanelError(error);
+					if (!mounted.current || epoch !== requestEpoch.current) return void 0;
 					setState((previous) => ({
 						...previous,
-						error: asPanelError(error),
+						error: failure,
 						busy: false
 					}));
-					return false;
+					return failure;
 				}
 			}, [panel, requestBase]);
 			/**
-			* Open the composed picker and add whatever it returns. A picker that is not
-			* composed, or a dialog the operator dismissed, adds nothing — it never falls
-			* back to the manual field, because the operator who clicked "Add folder…"
-			* asked for the picker, not for the text they may have typed earlier.
+			* 拾取入口（五态分派 + `picking` 防双击）：点「添加目录」后调拾取端口，按
+			* 结局分派——`picked` 走既有 `add`；`browse` 打开自建目录对话框（探测已
+			* 取得的 home 层复用为首帧，零次重复 `list`）；`cancelled` 无动作；
+			* `unavailable` 记入状态机（`+` 消失、显示手输提示，D-09）；`failed` 把
+			* 失败句送进分节 alert。拾取从不回落到手输框：点「添加目录」的操作员要的
+			* 是拾取器，不是他可能早已输入的文本。
 			*/
-			const addViaPicker = (0, react.useCallback)(async () => {
-				if (props.pickDirectory === void 0) return;
-				let picked = null;
+			const openPicker = (0, react.useCallback)(async () => {
+				if (picking) return;
+				setPicking(true);
+				let outcome;
 				try {
-					picked = await props.pickDirectory();
+					outcome = await props.pickDirectory();
 				} catch (error) {
 					setState((previous) => ({
 						...previous,
 						error: asPanelError(error)
 					}));
 					return;
+				} finally {
+					setPicking(false);
 				}
-				if (picked === null || picked.trim() === "") return;
-				await mutate("add", { path: picked });
-			}, [mutate, props]);
+				switch (outcome.kind) {
+					case "picked": {
+						const path = outcome.path;
+						if (path.trim() === "") return;
+						await mutate("add", { path });
+						return;
+					}
+					case "browse":
+						setPicker({
+							kind: "open",
+							browsing: outcome.browsing,
+							...outcome.listing ? { listing: outcome.listing } : {}
+						});
+						return;
+					case "cancelled": return;
+					case "unavailable":
+						setPicker({ kind: "unavailable" });
+						return;
+					case "failed":
+						setState((previous) => ({
+							...previous,
+							error: asPanelError(outcome.error)
+						}));
+						return;
+				}
+			}, [
+				picking,
+				props.pickDirectory,
+				mutate
+			]);
+			/**
+			* The picker dialog's adopt handler: submit the path as an `add` and let the
+			* dialog render the failure in place — a string return keeps the dialog open
+			* (the operator may want to pick a different directory), `undefined` closes.
+			*/
+			const confirmPickedPath = (0, react.useCallback)(async (path) => {
+				const failure = await mutate("add", { path });
+				return failure === void 0 ? void 0 : sentenceOf(failure, t);
+			}, [mutate, t]);
 			/**
 			* Add the path in the manual field — the one the operator typed. The picker
 			* plays no part here: this is the entry point the confirm button and the
@@ -5312,7 +6215,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			const addManualPath = (0, react.useCallback)(async () => {
 				const path = manualPath.trim();
 				if (path === "") return;
-				if (await mutate("add", { path })) setManualPath("");
+				if (await mutate("add", { path }) === void 0) setManualPath("");
 			}, [manualPath, mutate]);
 			/** Reveal one root: the answer is the revealed path, not a new view. */
 			const reveal = (0, react.useCallback)(async (root) => {
@@ -5353,10 +6256,15 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					}));
 				}
 			}, [panel, requestBase]);
-			const copyPath = (0, react.useCallback)(async (root) => {
+			/**
+			* Copy one absolute path to the clipboard. `key` is the highlight identity
+			* of the button that asked — a row's `rowKey`, or `'primary'` for the
+			* primary row (D-08) — so the 「已复制」 swap lands on the right button even
+			* though two rows could otherwise share a path.
+			*/
+			const copyPath = (0, react.useCallback)(async (path, key) => {
 				try {
-					await navigator.clipboard.writeText(root.path);
-					const key = rowKey(root);
+					await navigator.clipboard.writeText(path);
 					setCopiedId(key);
 					setState((previous) => ({
 						...previous,
@@ -5379,27 +6287,231 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					beforeEntry: entryOf(before)
 				});
 			}, [mutate]);
-			const roots = state.view?.roots ?? [];
+			const view = state.view;
+			const roots = view?.roots ?? [];
+			const registered = roots.filter((root) => root.source !== "common");
+			const commons = roots.filter((root) => root.source === "common");
+			/**
+			* Render one group's rows: one closure consumes one array, and the move
+			* anchors are taken from that array's own neighbours (§3.5 — the one real
+			* behavior fix of the group split). A common row keeps its full but disabled
+			* action set: the group split is presentational, so its rows still cannot
+			* move, rename or remove, and the badge still says why.
+			*/
+			const renderRows = (rows) => rows.map((root, index) => {
+				const key = rowKey(root);
+				const isCommon = root.source === "common";
+				const canMoveUp = !isCommon && index > 0;
+				const canMoveDown = !isCommon && index < rows.length - 1;
+				return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: "mrfw-row",
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: "mrfw-rootText",
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: "mrfw-rootName",
+								children: displayNameOf(root)
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: "mrfw-rootPath",
+								children: root.path
+							})]
+						}),
+						isCommon ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							title: t("root.sourceCommonTitle"),
+							className: "mrfw-sourceBadge",
+							children: t("root.sourceCommon")
+						}) : null,
+						root.state === "available" ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							title: root.detail,
+							className: "mrfw-stateWarn",
+							children: t(stateKey(root.state))
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
+							onClick: () => {
+								copyPath(root.path, key);
+							},
+							icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconCopy, {}),
+							label: copiedId === key ? t("panel.copied") : t("panel.copyPath")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
+							disabled: state.busy,
+							onClick: () => {
+								reveal(root);
+							},
+							icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconFolderOpen, {}),
+							label: t("panel.reveal")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
+							disabled: state.busy || !canMoveUp,
+							onClick: () => {
+								move(root, rows[index - 1]);
+							},
+							icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconChevronUp, {}),
+							label: t("panel.moveUp")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
+							disabled: state.busy || !canMoveDown,
+							onClick: () => {
+								move(root, rows[index + 2]);
+							},
+							icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconChevronDown, {}),
+							label: t("panel.moveDown")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Menu, {
+							open: menuFor === key,
+							onClose: () => {
+								setMenuFor(void 0);
+							},
+							closeOnPointerLeave: true,
+							items: [{
+								id: "rename",
+								label: t("panel.rename"),
+								icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconEdit, {}),
+								disabled: state.busy || isCommon
+							}, {
+								id: "remove",
+								label: t("panel.remove"),
+								icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconTrash, {}),
+								danger: true,
+								disabled: state.busy || isCommon
+							}],
+							onSelect: (id) => {
+								setMenuFor(void 0);
+								if (id === "rename") {
+									setAliasFor(key);
+									setAliasDraft(root.alias ?? "");
+								}
+								if (id === "remove") mutate("remove", { entry: entryOf(root) });
+							},
+							portal: true,
+							align: "end",
+							anchor: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
+								disabled: state.busy,
+								onClick: () => {
+									setMenuFor((current) => current === key ? void 0 : key);
+								},
+								icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconEllipsis, {}),
+								label: t("panel.more")
+							})
+						}),
+						aliasFor === key ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+							className: "mrfw-aliasEditor",
+							children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+									autoFocus: true,
+									className: "mrfw-input mrfw-inputInline",
+									value: aliasDraft,
+									placeholder: t("panel.aliasPlaceholder"),
+									onChange: (event) => {
+										setAliasDraft(event.target.value);
+									}
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Action, {
+									disabled: state.busy,
+									onClick: () => {
+										mutate("alias", {
+											entry: entryOf(root),
+											alias: aliasDraft
+										});
+										setAliasFor(void 0);
+									},
+									children: t("panel.aliasSave")
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Action, {
+									onClick: () => {
+										setAliasFor(void 0);
+									},
+									children: t("panel.aliasCancel")
+								})
+							]
+						}) : null,
+						root.state === "available" && panel !== void 0 && props.sessionId !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(RootFileTree, {
+							panel,
+							entry: entryOf(root),
+							sessionId: props.sessionId,
+							t
+						})
+					]
+				}, key);
+			});
+			/** 动作行（D-06）：拾取按钮、手输、重试与能力提示，归入附属组末尾。 */
+			const renderActions = () => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: "mrfw-actions",
+				children: [
+					picker.kind !== "unavailable" ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(Action, {
+						variant: "primary",
+						disabled: state.busy || picking,
+						onClick: () => {
+							openPicker();
+						},
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							"aria-hidden": "true",
+							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconPlus, {})
+						}), t("panel.add")]
+					}) : null,
+					picker.kind === "unavailable" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: "mrfw-note",
+						children: t("picker.unavailable")
+					}) : null,
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+						className: "mrfw-input",
+						value: manualPath,
+						placeholder: t("panel.addManual"),
+						onChange: (event) => {
+							setManualPath(event.target.value);
+						},
+						onKeyDown: (event) => {
+							if (event.key === "Enter") addManualPath();
+						}
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Action, {
+						onClick: () => {
+							addManualPath();
+						},
+						disabled: state.busy || manualPath.trim() === "",
+						variant: "outline",
+						children: t("panel.addConfirm")
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Action, {
+						onClick: () => {
+							refresh();
+						},
+						disabled: state.busy,
+						variant: "outline",
+						children: t("panel.retry")
+					})
+				]
+			});
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 				className: "mrfw-body mrfw-sectionBody",
 				"aria-label": t("panel.title"),
-				children: [state.noSession ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+				children: [state.noSession ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 					className: "mrfw-note",
 					children: t("panel.noSession")
-				}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: "mrfw-actions",
+					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Action, {
+						onClick: () => {
+							refresh();
+						},
+						disabled: state.busy,
+						variant: "outline",
+						children: t("panel.retry")
+					})
+				})] }) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 						className: "mrfw-description",
 						children: t("panel.subtitle")
 					}),
-					state.error === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
+					state.error === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 						role: "alert",
 						className: "mrfw-alert",
-						children: [t(errorKeyOf(state.error.code)), state.error.code === "unavailable" || state.error.code === "panel/internal" ? ` (${state.error.message})` : ""]
+						children: sentenceOf(state.error, t)
 					}),
-					state.view?.unavailable === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+					view?.unavailable === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 						role: "alert",
 						className: "mrfw-alert",
-						children: state.view.unavailable
+						children: view.unavailable
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 						className: "mrfw-section",
@@ -5412,18 +6524,24 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 								className: "mrfw-sectionNote",
 								children: t("panel.primaryNote")
 							})]
-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 							className: "mrfw-row mrfw-rowBare",
-							children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 								className: "mrfw-rootText",
 								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 									className: "mrfw-rootName",
-									children: state.view === void 0 ? "…" : state.view.primaryName ?? basename(state.view.primaryRoot)
+									children: view === void 0 ? "…" : view.primaryName ?? basename(view.primaryRoot)
 								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 									className: "mrfw-rootPath",
-									children: state.view?.primaryRoot ?? "…"
+									children: view?.primaryRoot ?? "…"
 								})]
-							})
+							}), view === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
+								onClick: () => {
+									copyPath(view.primaryRoot, "primary");
+								},
+								icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconCopy, {}),
+								label: copiedId === "primary" ? t("panel.copied") : t("panel.copyPath")
+							})]
 						})]
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
@@ -5436,11 +6554,11 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 									children: t("panel.additional")
 								})
 							}),
-							state.view === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+							view === void 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 								className: "mrfw-note",
 								children: t("panel.loading")
 							}) : null,
-							state.view !== void 0 && roots.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
+							view !== void 0 && registered.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
 								className: "mrfw-note",
 								children: [
 									t("panel.empty"),
@@ -5448,184 +6566,38 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 									t("panel.emptyHint")
 								]
 							}) : null,
-							roots.map((root, index) => {
-								const key = rowKey(root);
-								const isCommon = root.source === "common";
-								const canMoveUp = !isCommon && index > 0;
-								const canMoveDown = !isCommon && index < roots.length - 1 && roots[index + 1]?.source !== "common";
-								return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-									className: "mrfw-row",
-									children: [
-										/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-											className: "mrfw-rootText",
-											children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-												className: "mrfw-rootName",
-												children: displayNameOf(root)
-											}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-												className: "mrfw-rootPath",
-												children: root.path
-											})]
-										}),
-										isCommon ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-											title: t("root.sourceCommonTitle"),
-											className: "mrfw-sourceBadge",
-											children: t("root.sourceCommon")
-										}) : null,
-										root.state === "available" ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-											title: root.detail,
-											className: "mrfw-stateWarn",
-											children: t(stateKey(root.state))
-										}),
-										/* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
-											onClick: () => {
-												copyPath(root);
-											},
-											icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconCopy, {}),
-											label: copiedId === key ? t("panel.copied") : t("panel.copyPath")
-										}),
-										/* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
-											disabled: state.busy,
-											onClick: () => {
-												reveal(root);
-											},
-											icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconFolderOpen, {}),
-											label: t("panel.reveal")
-										}),
-										/* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
-											disabled: state.busy || !canMoveUp,
-											onClick: () => {
-												move(root, roots[index - 1]);
-											},
-											icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconChevronUp, {}),
-											label: t("panel.moveUp")
-										}),
-										/* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
-											disabled: state.busy || !canMoveDown,
-											onClick: () => {
-												move(root, roots[index + 2]);
-											},
-											icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconChevronDown, {}),
-											label: t("panel.moveDown")
-										}),
-										/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Menu, {
-											open: menuFor === key,
-											onClose: () => {
-												setMenuFor(void 0);
-											},
-											closeOnPointerLeave: true,
-											items: [{
-												id: "rename",
-												label: t("panel.rename"),
-												icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconEdit, {}),
-												disabled: state.busy || isCommon
-											}, {
-												id: "remove",
-												label: t("panel.remove"),
-												icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconTrash, {}),
-												danger: true,
-												disabled: state.busy || isCommon
-											}],
-											onSelect: (id) => {
-												setMenuFor(void 0);
-												if (id === "rename") {
-													setAliasFor(key);
-													setAliasDraft(root.alias ?? "");
-												}
-												if (id === "remove") mutate("remove", { entry: entryOf(root) });
-											},
-											portal: true,
-											align: "end",
-											anchor: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
-												disabled: state.busy,
-												onClick: () => {
-													setMenuFor((current) => current === key ? void 0 : key);
-												},
-												icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconEllipsis, {}),
-												label: t("panel.more")
-											})
-										}),
-										aliasFor === key ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-											className: "mrfw-aliasEditor",
-											children: [
-												/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-													autoFocus: true,
-													className: "mrfw-input mrfw-inputInline",
-													value: aliasDraft,
-													placeholder: t("panel.aliasPlaceholder"),
-													onChange: (event) => {
-														setAliasDraft(event.target.value);
-													}
-												}),
-												/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Action, {
-													disabled: state.busy,
-													onClick: () => {
-														mutate("alias", {
-															entry: entryOf(root),
-															alias: aliasDraft
-														});
-														setAliasFor(void 0);
-													},
-													children: t("panel.aliasSave")
-												}),
-												/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Action, {
-													onClick: () => {
-														setAliasFor(void 0);
-													},
-													children: t("panel.aliasCancel")
-												})
-											]
-										}) : null,
-										root.state === "available" && panel !== void 0 && props.sessionId !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(RootFileTree, {
-											panel,
-											entry: entryOf(root),
-											sessionId: props.sessionId,
-											t
-										})
-									]
-								}, key);
-							})
+							renderRows(registered),
+							renderActions()
+						]
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+						className: "mrfw-section",
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								className: "mrfw-sectionTitleRow",
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: "mrfw-sectionTitle",
+									title: t("root.sourceCommonTitle"),
+									children: t("panel.common")
+								})
+							}),
+							view === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+								className: "mrfw-note",
+								children: commons.length === 0 ? t("panel.commonEmpty") : t("panel.commonHint")
+							}),
+							renderRows(commons)
 						]
 					})
-				] }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-					className: "mrfw-actions",
-					children: [
-						state.noSession || props.pickDirectory === void 0 ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconButton, {
-							variant: "outline",
-							disabled: state.busy,
-							onClick: () => {
-								addViaPicker();
-							},
-							icon: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconPlus, {}),
-							label: t("panel.add")
-						}),
-						state.noSession ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-							className: "mrfw-input",
-							value: manualPath,
-							placeholder: t("panel.addManual"),
-							onChange: (event) => {
-								setManualPath(event.target.value);
-							},
-							onKeyDown: (event) => {
-								if (event.key === "Enter") addManualPath();
-							}
-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Action, {
-							onClick: () => {
-								addManualPath();
-							},
-							disabled: state.busy || manualPath.trim() === "",
-							variant: "primary",
-							children: t("panel.addConfirm")
-						})] }),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Action, {
-							onClick: () => {
-								refresh();
-							},
-							disabled: state.busy,
-							variant: "outline",
-							children: t("panel.retry")
-						})
-					]
-				})]
+				] }), picker.kind === "open" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(DirectoryPickerDialog, {
+					open: true,
+					t,
+					browser: picker.browsing,
+					...picker.listing ? { initialListing: picker.listing } : {},
+					onConfirm: confirmPickedPath,
+					onClose: () => {
+						setPicker({ kind: "closed" });
+					}
+				}) : null]
 			});
 		}
 		/** Normalize any thrown value into a `PanelError` the panel can render. */
@@ -5683,11 +6655,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				const connection = ctx.get("connection");
 				return connection === void 0 ? void 0 : createPanelClient(connection);
 			})();
-			const pickDirectory = async () => {
-				const workspace = readService(ctx, "uiWorkspace");
-				if (workspace?.pickDirectory === void 0) return null;
-				return await workspace.pickDirectory();
-			};
+			const pickDirectory = createDirectoryPicker(() => readService(ctx, "uiWorkspace"));
 			const sessionId = () => currentSessionIdOf(readService(ctx, "sessions"));
 			const t = ctx.locale.bind(NS);
 			ctx.slots.inject(SECTION_SEAT, () => {

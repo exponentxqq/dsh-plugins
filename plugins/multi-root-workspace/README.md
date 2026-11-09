@@ -158,7 +158,7 @@ Workspace root (primary; access follows the current sandbox mode): /home/me/mono
 Writable additional roots: 2 of 2.
 ```
 
-**面板**（Web GUI）：统一「工作区配置」页面里的 **工作区文件夹** 分节（`workspace-config.section`，由 workspace-config 的 `main` 页面声明并渲染；作用工作区由页面的统一选择框决定，份额为「未分配」或「无上下文」时本节显示「尚未选择工作区」空态）列出主根与附加根，支持添加（走组合好的目录选择器或手输路径）、移除、别名、复制路径、在文件管理器中显示与上下移排序；文案中英双语跟随界面语言。存在 `sidebar.right.tab.files.actions` 的旧界面仍保留就地展开同一分节的紧凑入口（无页面份额，直接渲染正文），`/workspace-folders` 命令不变；未装 workspace-config 时面板没有 GUI 入口（推荐四包同装）。根目录的状态会如实显示：`missing`（暂时不存在）、`redirected`（被替换成指向别处的符号链接）的根**保留登记但暂不授予**，目录恢复后 `list` 或面板刷新即自动重新授予，无需重启。
+**面板**（Web GUI）：统一「工作区配置」页面里的 **工作区文件夹** 分节（`workspace-config.section`，由 workspace-config 的 `main` 页面声明并渲染；作用工作区由页面的统一选择框决定，份额为「未分配」或「无上下文」时本节显示「尚未选择工作区」空态）列出主根与附加根，按来源分成**附属**与**通用**两组各自呈现（通用组标题与说明常驻，分组为纯客户端拆分、不进 wire 契约，见 [ADR-0015](./docs/decisions/ADR-0015-in-app-directory-picker.md)）；主根行提供复制路径，附属根行支持添加、移除、别名、复制路径、在文件管理器中显示与上下移排序（上下移按组内顺序）。添加走**自适应双模拾取**：优先组合好的目录选择器，browse 部署自动降级为应用内目录浏览对话框（单栏列表 + 面包屑 + 新建文件夹 + 选择此目录，浮层自绘、见 [ADR-0015](./docs/decisions/ADR-0015-in-app-directory-picker.md)），手输路径始终保留为兜底且拾取失败不清空手输框；文案中英双语跟随界面语言。存在 `sidebar.right.tab.files.actions` 的旧界面仍保留就地展开同一分节的紧凑入口（无页面份额，直接渲染正文），`/workspace-folders` 命令不变；未装 workspace-config 时面板没有 GUI 入口（推荐四包同装）。根目录的状态会如实显示：`missing`（暂时不存在）、`redirected`（被替换成指向别处的符号链接）的根**保留登记但暂不授予**，目录恢复后 `list` 或面板刷新即自动重新授予，无需重启。
 
 **模型侧**：附加根拓扑经 `systemPrompt.context` 快照随每次请求告知模型（同 workspace、cwd 不变），无需新增内省工具。授权规则（canonical 化、`recordedPath` 防符号链接转移、冲突拒绝）的完整语义见[架构文档](./docs/architecture/multi-root-workspace.md)。
 
@@ -183,7 +183,7 @@ src/
   compat/         适配层：版本差异（dsh-version / sandbox-confine / agent-instructions / llm-message）与 @ 检索载体（file-reference-search），可选 peer 均按需加载
   command.ts      /workspace-folders 命令与面板 RPC 的 host 半部
   contract.ts     面板线协议（zod 双端校验，可内联进浏览器 bundle）
-  client/         浏览器半部：工作区文件夹分节（workspace-config.section）、Files tab 紧凑入口、双语词典
+  client/         浏览器半部：工作区文件夹分节（workspace-config.section）、Files tab 紧凑入口、能力自适应目录拾取与单栏浏览对话框（directory-picker / DirectoryPickerDialog）、双语词典
 test/            差分 parity、方言真实执行矩阵、契约往返、组件与 locale 门禁、跨进程 lease e2e、指令注入
 scripts/          冒烟（compose / behavior / journey）、文档与内核 runner 检查、兼容性契约检查、升级流程
 docs/             需求、架构、决策记录（ADR）、计划、开发工作流
@@ -218,6 +218,7 @@ docs/             需求、架构、决策记录（ADR）、计划、开发工�
 - 裸模糊搜索不跨根：附加根只以「根目录候选 + 绝对路径钻入」两种方式参与 `@` 补全，`@` 加文件名片段的模糊查询仍只搜主根（附加根大目录首查全量索引卡顿、跨根排名无语义）。取舍与理由见 [ADR-0012](./docs/decisions/ADR-0012-additional-root-file-references.md)。
 - 命令的输出文案为英文（host 侧没有活动语言信息），面板文案中英双语跟随界面语言。
 - 面板挂载点是统一「工作区配置」页面里的 `workspace-config.section` 分节（由 `dsh-plugin-workspace-config` 在注册 `main` 独立页面时用 `children` 声明），不是独立全屏面板，也不再占用 `sidebar.footer.action`（该入口已删除）：页面、页面级工作区选择框与 tab 导航都归 holder，本插件只提交分节内容——因此本插件不需要感知面板行 / 页面的座位是否可用，也不自行维护选择状态。Files tab 紧凑入口（无页面份额）与 `/workspace-folders` 保留；未装 workspace-config 时面板没有 GUI 入口（推荐四包同装）。取舍见 [ADR-0013](./docs/decisions/ADR-0013-workspace-config-section-mount.md)。
+- 应用内目录浏览对话框在当前上游组合（`0.2.2-rc.1`，directory-picker auto 后端）的真机实测里无法列出目录：pick 被宿主以结构化拒绝正确引导改用 browse、host 端 `list` 端点探活健康，但浏览器侧的 `list` 调用在**上游 client 集成面**中断、未到达网络层（2026-11-09 实测留痕，见 [ADR-0015](./docs/decisions/ADR-0015-in-app-directory-picker.md) 的 Context）。表现为：点「添加目录」打开对话框后显示浏览失败——此时走手输路径添加，完全不受影响；上游修复后无需本插件改动即自动恢复。native 分支（OS 选择框路径）真机不可覆盖（容器无显示会话），由适配器单测模拟，是已声明的验证缺口。
 
 ## 文档
 

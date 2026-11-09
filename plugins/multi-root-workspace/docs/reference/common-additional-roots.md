@@ -52,6 +52,9 @@ registry 行（`cordis.patch.yml` 的 `multi-root-registry`）新增一个键：
   提示去改配置。用 `add` 登记一个已由配置授予的目录报 `duplicate`（文案指向配置）。
 - **列表标记**：`/workspace-folders list` 与面板都以 `[common]` / "通用" 标记来源，
   报告末尾单独计数并说明改动位置。
+- **面板单独成组**：面板按来源把列表拆成「附属」与「通用」两组呈现，通用根单独成组、
+  组说明取自配置（即本文件的 `commonRoots` 语义），分组是纯客户端拆分、不进 wire 契约
+  （见 [ADR-0015](../decisions/ADR-0015-in-app-directory-picker.md)）。
 - **嵌套不做拦截**：通用根落在某主根之下（或包含登记根）时照常授予——
   它不扩大可写范围（并集），只是冗余；本分支不为它增加规则。
 
