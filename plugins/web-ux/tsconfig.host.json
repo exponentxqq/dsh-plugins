@@ -7,12 +7,14 @@
     "src/index.ts",
     "src/migrated.ts",
     "src/project-key.ts",
+    "src/session-log-title.ts",
     "test/bundle.test.ts",
     "test/config.test.ts",
     "test/contract.test.ts",
     "test/delete-session.test.ts",
     "test/index.test.ts",
     "test/migrated.test.ts",
-    "test/project-key.test.ts"
+    "test/project-key.test.ts",
+    "test/session-log-title.test.ts"
   ]
 }

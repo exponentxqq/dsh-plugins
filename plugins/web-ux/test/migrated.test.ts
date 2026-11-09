@@ -8,6 +8,7 @@
  */
 
 import { basename, dirname, join } from 'node:path'
+import { zstdCompressSync, zstdDecompressSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import {
   MAX_LISTED_MIGRATED,
@@ -17,6 +18,7 @@ import {
   type RestoreOutcome,
 } from '../src/contract.ts'
 import {
+  MIGRATED_PROBE_CONCURRENCY,
   SESSION_ADDED_EVENT,
   createArchiveFiles,
   deleteMigrated,
@@ -25,10 +27,12 @@ import {
   restoreMigrated,
   sessionIdOfEntry,
   type MigratedFileOps,
+  type MigratedLogOps,
   type MigratedPorts,
   type MigratedWorkspace,
 } from '../src/migrated.ts'
 import { projectKey } from '../src/project-key.ts'
+import { INITIAL_LOG_PREFIX_BYTES } from '../src/session-log-title.ts'
 
 /** 测试用的固定 DSH_HOME。 */
 const HOME = '/home/tester/.dsh'
@@ -307,14 +311,16 @@ function warnSink(): WarningSink {
  * @param fake - 内存文件系统。
  * @param warn - 告警出口，默认丢弃。
  * @param archiveRoot - 归档根，默认 {@link ARCHIVE_ROOT}。
+ * @param log - 可选的日志读取端口（缺省 = 不做标题探测）。
  * @returns 列表结论。
  */
 async function listingOf(
   fake: FakeFs,
   warn: (message: string) => void = () => {},
   archiveRoot: string = ARCHIVE_ROOT,
+  log?: MigratedLogOps,
 ): Promise<MigratedListing> {
-  const result = await listMigrated({ archiveRoot, fs: fake.ops, warn })
+  const result = await listMigrated({ archiveRoot, fs: fake.ops, warn, log })
   if (!result.ok) throw new Error(`expected a listing, got ${result.code}: ${result.message}`)
   return result.listing
 }
@@ -608,6 +614,215 @@ describe('listMigrated', () => {
       { sessionId: BARE_ID, dirName: BARE_ID, projectDir: PROJECT_DIR, bytes: 0, updatedAt: 0 },
     ])
     expect(sink.messages).toEqual([`${session}: EACCES: permission denied`])
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* 标题探测（log 端口）                                                  */
+/* ------------------------------------------------------------------ */
+
+/** 纯 JSONL 前缀：header 行（`createdAt`）+ title 行，可直接被探测解码。 */
+const JSONL_WITH_TITLE =
+  '{"type":"session","createdAt":1700000000000}\n{"type":"session/title","data":{"title":"标题"}}\n'
+
+/** 压缩容器前缀：同一份 JSONL 逐帧 zstd 压缩后拼接（两个完整帧，探测命中第一帧即止）。 */
+const ZSTD_FRAMES_WITH_TITLE = Buffer.concat([
+  zstdCompressSync(Buffer.from(JSONL_WITH_TITLE)),
+  zstdCompressSync(Buffer.from(JSONL_WITH_TITLE)),
+])
+
+/** UTF-8 编码助手（JSONL 夹具 → 字节）。 */
+function encodeUtf8(text: string): Uint8Array {
+  return new TextEncoder().encode(text)
+}
+
+/** fake 日志端口的观察面。 */
+interface FakeLog {
+  /** 交给 `listMigrated` 的 log 端口。 */
+  readonly ops: MigratedLogOps
+  /** 每次 `readPrefix` 的记录（路径 + 请求长度）。 */
+  readonly reads: { readonly path: string; readonly length: number }[]
+  /** 某条路径的 `readPrefix` 调用次数。 */
+  countOf(path: string): number
+  /** `readPrefix` 的在途峰值（tick 模式下观察 worker 池上限）。 */
+  peakCount(): number
+}
+
+/** fake 日志端口的可调行为。 */
+interface FakeLogOptions {
+  /** 给定时 `readPrefix` 一律 reject（探测的读失败降级）。 */
+  readonly readError?: string
+  /** 给定时 `decompressFrame` 一律抛（解压失败降级）。 */
+  readonly decompressError?: string
+  /** 覆盖首次前缀长度（驱动两段读取）。 */
+  readonly initialPrefixBytes?: number
+  /** 覆盖前缀硬上限。 */
+  readonly maxPrefixBytes?: number
+  /** true = 每次 `readPrefix` 挂一拍 macrotask，让 worker 池的在途交错可观察。 */
+  readonly tick?: boolean
+}
+
+/**
+ * 建一个内存 log 端口：按 `length` 截断返回预设前缀（真 reader 的 EOF 语义），解压
+ * 默认委托真实 zlib（纯 JSONL 用例根本不会走到解压）。
+ */
+function createFakeLog(contents: ReadonlyMap<string, Uint8Array>, options: FakeLogOptions = {}): FakeLog {
+  const reads: { path: string; length: number }[] = []
+  const counts = new Map<string, number>()
+  let inFlight = 0
+  let peak = 0
+  const ops: MigratedLogOps = {
+    readPrefix: async (path, length) => {
+      reads.push({ path, length })
+      counts.set(path, (counts.get(path) ?? 0) + 1)
+      inFlight += 1
+      peak = Math.max(peak, inFlight)
+      if (options.tick) await new Promise((resolve) => { setTimeout(resolve, 0) })
+      inFlight -= 1
+      if (options.readError !== undefined) throw new Error(options.readError)
+      return (contents.get(path) ?? new Uint8Array(0)).subarray(0, length)
+    },
+    decompressFrame: (frame) => {
+      if (options.decompressError !== undefined) throw new Error(options.decompressError)
+      return zstdDecompressSync(frame)
+    },
+    ...(options.initialPrefixBytes === undefined ? {} : { initialPrefixBytes: options.initialPrefixBytes }),
+    ...(options.maxPrefixBytes === undefined ? {} : { maxPrefixBytes: options.maxPrefixBytes }),
+  }
+  return { ops, reads, countOf: (path) => counts.get(path) ?? 0, peakCount: () => peak }
+}
+
+describe('listMigrated:标题探测(log 端口)', () => {
+  it('纯 JSONL 命中：条目携带 title 与 createdAt，其余字段逐项不变', async () => {
+    const fake = createFakeFs()
+    const session = addArchived(fake, PROJECT_DIR, BARE_ID, 1_700_000_123_456)
+    const logPath = join(session, 'session.jsonl')
+    fake.addFile(logPath, 64)
+    const log = createFakeLog(new Map([[logPath, encodeUtf8(JSONL_WITH_TITLE)]]))
+    const sink = warnSink()
+
+    expect(await listingOf(fake, sink.warn, ARCHIVE_ROOT, log.ops)).toEqual({
+      archiveRoot: ARCHIVE_ROOT,
+      entries: [{
+        sessionId: BARE_ID,
+        dirName: BARE_ID,
+        projectDir: PROJECT_DIR,
+        bytes: 64,
+        updatedAt: 1_700_000_123_456,
+        title: '标题',
+        createdAt: 1_700_000_000_000,
+      }],
+      truncated: false,
+    })
+    expect(log.reads).toEqual([{ path: logPath, length: INITIAL_LOG_PREFIX_BYTES }])
+    expect(sink.messages).toEqual([])
+  })
+
+  it('压缩日志命中：真实 zstd 帧拼接经端口解出同一字段', async () => {
+    const fake = createFakeFs()
+    const session = addArchived(fake, PROJECT_DIR, PREFIXED_ID)
+    const logPath = join(session, 'session.v4.jsonl.zstd')
+    fake.addFile(logPath, ZSTD_FRAMES_WITH_TITLE.byteLength)
+    const log = createFakeLog(new Map([[logPath, ZSTD_FRAMES_WITH_TITLE]]))
+
+    const listing = await listingOf(fake, () => {}, ARCHIVE_ROOT, log.ops)
+    expect(listing.entries[0]).toMatchObject({
+      sessionId: PREFIXED_ID,
+      title: '标题',
+      createdAt: 1_700_000_000_000,
+    })
+  })
+
+  it('不注入 log 端口 ⇒ title 与 createdAt 两个键都不存在（列表行为与变更前一致）', async () => {
+    const fake = createFakeFs()
+    const session = addArchived(fake, PROJECT_DIR, BARE_ID)
+    fake.addFile(join(session, 'session.jsonl'), 64)
+    const listing = await listingOf(fake)
+    const entry = listing.entries[0]
+    expect(entry).toBeDefined()
+    expect('title' in entry).toBe(false)
+    expect('createdAt' in entry).toBe(false)
+  })
+
+  it('目录里只有 session.lock（无规范日志名）⇒ 零 readPrefix 调用，条目照常列出', async () => {
+    const fake = createFakeFs()
+    const session = addArchived(fake, PROJECT_DIR, BARE_ID)
+    fake.addFile(join(session, 'session.lock'), 4)
+    const log = createFakeLog(new Map())
+
+    const listing = await listingOf(fake, () => {}, ARCHIVE_ROOT, log.ops)
+    expect(log.reads).toEqual([])
+    expect(listing.entries).toHaveLength(1)
+    expect(listing.entries[0]).not.toHaveProperty('title')
+    expect(listing.entries[0]).not.toHaveProperty('createdAt')
+  })
+
+  it('readPrefix reject ⇒ 列表照常、字段缺省、零 warning', async () => {
+    const fake = createFakeFs()
+    const session = addArchived(fake, PROJECT_DIR, BARE_ID)
+    const logPath = join(session, 'session.jsonl')
+    fake.addFile(logPath, 64)
+    const log = createFakeLog(new Map([[logPath, encodeUtf8(JSONL_WITH_TITLE)]]), {
+      readError: 'EACCES: permission denied',
+    })
+    const sink = warnSink()
+
+    const listing = await listingOf(fake, sink.warn, ARCHIVE_ROOT, log.ops)
+    expect(listing.entries[0]).toMatchObject({ sessionId: BARE_ID, bytes: 64 })
+    expect('title' in listing.entries[0]).toBe(false)
+    expect('createdAt' in listing.entries[0]).toBe(false)
+    expect(sink.messages).toEqual([])
+  })
+
+  it('decompressFrame 抛错 ⇒ 停止扫描、列表照常、字段缺省、零 warning', async () => {
+    const fake = createFakeFs()
+    const session = addArchived(fake, PROJECT_DIR, PREFIXED_ID)
+    const logPath = join(session, 'session.v4.jsonl.zstd')
+    fake.addFile(logPath, ZSTD_FRAMES_WITH_TITLE.byteLength)
+    const log = createFakeLog(new Map([[logPath, ZSTD_FRAMES_WITH_TITLE]]), { decompressError: 'boom' })
+    const sink = warnSink()
+
+    const listing = await listingOf(fake, sink.warn, ARCHIVE_ROOT, log.ops)
+    expect(listing.entries[0]).toMatchObject({ sessionId: PREFIXED_ID, bytes: ZSTD_FRAMES_WITH_TITLE.byteLength })
+    expect('title' in listing.entries[0]).toBe(false)
+    expect('createdAt' in listing.entries[0]).toBe(false)
+    expect(sink.messages).toEqual([])
+  })
+
+  it(`worker 池在途峰值恰为 ${MIGRATED_PROBE_CONCURRENCY}（7 条条目不超上限）`, async () => {
+    const fake = createFakeFs()
+    for (let index = 0; index < 7; index += 1) {
+      const session = addArchived(fake, PROJECT_DIR, `session-concurrent-${index}`)
+      fake.addFile(join(session, 'session.jsonl'), 8)
+    }
+    const log = createFakeLog(new Map(), { tick: true })
+
+    const listing = await listingOf(fake, () => {}, ARCHIVE_ROOT, log.ops)
+    expect(listing.entries).toHaveLength(7)
+    expect(log.reads).toHaveLength(7)
+    expect(log.peakCount()).toBe(MIGRATED_PROBE_CONCURRENCY)
+  })
+
+  it('单条目 readPrefix 至多两次：首段读满未命中才补读；只有 header ⇒ 只携带 createdAt', async () => {
+    const fake = createFakeFs()
+    const session = addArchived(fake, PROJECT_DIR, BARE_ID)
+    const logPath = join(session, 'session.jsonl')
+    fake.addFile(logPath, 20)
+    // 33 字节的纯 header 行：小预算（16 读满 ⇒ 补读 40 容纳全量）驱动两段读取路径。
+    const noTitle = '{"type":"session","createdAt":1}\n'
+    const log = createFakeLog(new Map([[logPath, encodeUtf8(noTitle)]]), {
+      initialPrefixBytes: 16,
+      maxPrefixBytes: 40,
+    })
+
+    const listing = await listingOf(fake, () => {}, ARCHIVE_ROOT, log.ops)
+    expect(log.reads).toEqual([
+      { path: logPath, length: 16 },
+      { path: logPath, length: 40 },
+    ])
+    expect(log.countOf(logPath)).toBeLessThanOrEqual(2)
+    expect(listing.entries[0]).toMatchObject({ sessionId: BARE_ID, createdAt: 1 })
+    expect('title' in listing.entries[0]).toBe(false)
   })
 })
 

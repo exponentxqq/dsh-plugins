@@ -11,9 +11,11 @@
  *   `archive` 把日志目录迁移到归档根——再为每个受影响会话广播移除事件。
  * - **批量**：`preview-delete-batch` / `delete-session-batch`，与单会话共用同一套校验与
  *   执行循环，只是目标从 1 个扩成一批（并集统计、整单拒绝、逐项 warnings）。
- * - **已迁移**：`list-migrated` 枚举归档根下的条目，`delete-migrated` 物理删除条目，
- *   `restore-migrated` 把条目搬回 `<home>/sessions` 并挂回工作区；恢复成功后再按
- *   **真实会话头**广播 `api-session/added`，浏览器会话列表因此即时补行。
+ * - **已迁移**：`list-migrated` 枚举归档根下的条目（日志端口在场时对每条条目的规范
+ *   日志前缀做有界标题探测，`title` / `createdAt` 条件并入条目；端口缺省或探测失败都
+ *   只是字段缺省），`delete-migrated` 物理删除条目，`restore-migrated` 把条目搬回
+ *   `<home>/sessions` 并挂回工作区；恢复成功后再按**真实会话头**广播 `api-session/added`，
+ *   浏览器会话列表因此即时补行。
  *
  * 归档根由 `./config.ts` 的 {@link resolveArchiveRoot} 从插件配置解析：缺省跟随
  * `$DSH_HOME`（`archive/sessions`），支持绝对路径与 `~/`；相对路径告警后回落缺省。
@@ -37,8 +39,12 @@
  * @module dsh-plugin-web-ux
  */
 
-import { copyFile, lstat, mkdir, readdir, rename, rm, unlink } from 'node:fs/promises'
+import { copyFile, lstat, mkdir, open, readdir, rename, rm, unlink } from 'node:fs/promises'
 import { homedir } from 'node:os'
+// 命名空间 import 是**必需**的形态：老 Node 缺 `zstdDecompressSync` 时，命名导入
+//（`import { zstdDecompressSync } from 'node:zlib'`）会在模块链接期直接抛 SyntaxError，
+// 而命名空间 import 只得到 undefined——{@link createNodeLogOps} 的特性探测才有意义。
+import * as zlib from 'node:zlib'
 // `symbols` 是本文件唯一的 cordis 值 import（`callerConnectionOf` 解包原始服务实例用）；
 // 构建时 esbuild 会把它连同 `@deepseek-ai/cosmokit` 一并内联进产物，产物仍自包含。
 // cordis 的 `symbols` 全部经 `Symbol.for` 全局注册表定义，内联副本与宿主那份 cordis
@@ -80,6 +86,7 @@ import {
   deleteMigrated,
   listMigrated,
   restoreMigrated,
+  type MigratedLogOps,
   type MigratedPorts,
 } from './migrated.ts'
 
@@ -271,6 +278,42 @@ const nodeFileSystem: FileSystemOps = {
 }
 
 /**
+ * 归档日志端口：`readPrefix` 用 `open` / `read` 做有界读取，`decompressFrame` 绑 zlib
+ * 的 zstd。模块加载时求值一次（{@link nodeLogOps}）：它不持有状态，永远绑定同一个
+ * `node:zlib`。
+ *
+ * 特性探测：engines 地板 22.19 > zstd 进入 zlib 的 22.15，但更老的 Node 装载本插件时
+ * 不应因缺 API 崩掉——缺 API 就让 log 端口缺省（标题不可得，列表照常）。
+ * @returns 端口；宿主 zlib 不提供 `zstdDecompressSync` 时 `undefined`。
+ */
+function createNodeLogOps(): MigratedLogOps | undefined {
+  if (typeof zlib.zstdDecompressSync !== 'function') return undefined
+  return {
+    readPrefix: async (path, length) => {
+      const handle = await open(path, 'r')
+      try {
+        const size = (await handle.stat()).size
+        const wanted = Math.min(length, Math.max(size, 0))
+        const buffer = Buffer.allocUnsafe(wanted)
+        let read = 0
+        while (read < wanted) {
+          const { bytesRead } = await handle.read(buffer, read, wanted - read, read)
+          if (bytesRead === 0) break
+          read += bytesRead
+        }
+        return buffer.subarray(0, read)
+      } finally {
+        await handle.close()
+      }
+    },
+    decompressFrame: (frame) => zlib.zstdDecompressSync(frame),
+  }
+}
+
+/** 进程内唯一的一份日志端口（`undefined` = 该宿主不支持 zstd，标题字段一律缺省）。 */
+const nodeLogOps = createNodeLogOps()
+
+/**
  * 单对象同时满足两个域（{@link DeletePorts} 与 {@link MigratedPorts}），端点各自取切片。
  *
  * 归档根与端口在**同一次装配**里解析并同行返回，调用方因此不必为了拿根再读一次 home
@@ -321,6 +364,8 @@ function createPorts(ctx: Context, config: WebUxConfig | undefined): HostPorts |
     archiveRoot,
     homePath,
     fs: nodeFileSystem,
+    // 缺省 = 宿主不支持 zstd（或更老的 Node）：不出现该键，列表行为与变更前逐字节一致。
+    ...(nodeLogOps === undefined ? {} : { log: nodeLogOps }),
     listStoredHeaders: async () => (await ctx.sessionPersistence.list()).map((snapshot) => snapshot.header),
     isLive: (sessionId) => ctx.get('sessions')?.get(sessionId as SessionId) !== undefined,
     isArchived: (sessionId) => ctx.workspaceRegistry.archivedSessionIds.includes(sessionId as SessionId),

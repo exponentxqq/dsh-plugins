@@ -1,6 +1,7 @@
 // src/index.ts
-import { copyFile, lstat, mkdir, readdir, rename, rm, unlink } from "node:fs/promises";
+import { copyFile, lstat, mkdir, open, readdir, rename, rm, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
+import * as zlib from "node:zlib";
 
 // ../../node_modules/.pnpm/@deepseek-ai+cosmokit@1.9.0/node_modules/@deepseek-ai/cosmokit/lib/index.js
 function isNullable(value) {
@@ -3278,8 +3279,166 @@ function workspaceForProjectDir(projectDir, workspaces) {
   return owner?.workspaceId ?? null;
 }
 
+// src/session-log-title.ts
+var TITLE_TEXT_BUDGET_BYTES = 256 * 1024;
+var INITIAL_LOG_PREFIX_BYTES = 128 * 1024;
+var MAX_LOG_PREFIX_BYTES = 512 * 1024;
+var CANONICAL_LOG_NAME = /^session(?:\.v([1-9][0-9]*))?\.jsonl(?:\.zstd)?$/;
+function chooseSessionLogName(names) {
+  let best;
+  let bestVersion = -1;
+  for (const name2 of names) {
+    const match = CANONICAL_LOG_NAME.exec(name2);
+    if (match === null) continue;
+    const version = match[1] === void 0 ? 0 : Number(match[1]);
+    if (!Number.isSafeInteger(version)) continue;
+    const compressed = name2.endsWith(".zstd");
+    if (version > bestVersion || version === bestVersion && best !== void 0 && compressed && !best.compressed) {
+      best = { name: name2, compressed };
+      bestVersion = version;
+    }
+  }
+  return best;
+}
+var ZSTD_MAGIC = 4247762216;
+function* iterateZstdFrames(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const end = bytes.byteLength;
+  let offset = 0;
+  while (offset < end) {
+    const start = offset;
+    if (end - offset < 4) return;
+    if (view.getUint32(offset, true) !== ZSTD_MAGIC) return;
+    offset += 4;
+    if (offset === end) return;
+    const descriptor = view.getUint8(offset);
+    offset += 1;
+    if ((descriptor & 24) !== 0) return;
+    const contentSizeFlag = descriptor >>> 6;
+    const singleSegment = (descriptor & 32) !== 0;
+    const checksum = (descriptor & 4) !== 0;
+    const dictionaryFlag = descriptor & 3;
+    const dictionaryBytes = dictionaryFlag === 3 ? 4 : dictionaryFlag;
+    const contentSizeBytes = contentSizeFlag === 0 ? singleSegment ? 1 : 0 : 1 << contentSizeFlag;
+    const remainingHeaderBytes = (singleSegment ? 0 : 1) + dictionaryBytes + contentSizeBytes;
+    if (end - offset < remainingHeaderBytes) return;
+    offset += remainingHeaderBytes;
+    for (; ; ) {
+      if (end - offset < 3) return;
+      const blockHeader = view.getUint8(offset) | view.getUint8(offset + 1) << 8 | view.getUint8(offset + 2) << 16;
+      offset += 3;
+      const lastBlock = (blockHeader & 1) !== 0;
+      const blockType = blockHeader >>> 1 & 3;
+      const blockSize = blockHeader >>> 3;
+      if (blockType === 3) return;
+      const payloadBytes = blockType === 1 ? 1 : blockSize;
+      if (end - offset < payloadBytes) return;
+      offset += payloadBytes;
+      if (lastBlock) break;
+    }
+    if (checksum) {
+      if (end - offset < 4) return;
+      offset += 4;
+    }
+    yield { start, end: offset };
+  }
+}
+function probeSessionLogPrefix(bytes, log, ports) {
+  const budget = ports.textBudgetBytes ?? TITLE_TEXT_BUDGET_BYTES;
+  const decoder = new TextDecoder();
+  let title = null;
+  let createdAt = null;
+  let consumed = 0;
+  let carry = "";
+  const consumeLine = (line) => {
+    const trimmed = line.trim();
+    if (trimmed === "") return false;
+    let record;
+    try {
+      record = JSON.parse(trimmed);
+    } catch {
+      return false;
+    }
+    if (typeof record !== "object" || record === null || Array.isArray(record)) return false;
+    const shape = record;
+    if (shape["type"] === "session/title") {
+      const data = shape["data"];
+      if (typeof data === "object" && data !== null && !Array.isArray(data)) {
+        const raw = data["title"];
+        if (typeof raw === "string") {
+          const value = raw.trim();
+          if (value !== "") {
+            title = value;
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+    if (shape["type"] === "session") {
+      const value = shape["createdAt"];
+      if (typeof value === "number" && Number.isFinite(value) && value > 0) createdAt = value;
+    }
+    return false;
+  };
+  const consumeText = (text) => {
+    const lines = (carry + text).split("\n");
+    carry = lines.pop() ?? "";
+    for (const line of lines) {
+      if (consumeLine(line)) return true;
+    }
+    return false;
+  };
+  if (log.compressed) {
+    for (const range of iterateZstdFrames(bytes)) {
+      let plaintext;
+      try {
+        plaintext = ports.decompressFrame(bytes.subarray(range.start, range.end));
+      } catch {
+        break;
+      }
+      consumed += plaintext.byteLength;
+      if (consumeText(decoder.decode(plaintext))) {
+        return { title, createdAt, budgetExhausted: false };
+      }
+      if (consumed >= budget) {
+        return { title, createdAt, budgetExhausted: true };
+      }
+    }
+  } else {
+    consumed = bytes.byteLength;
+    if (consumeText(decoder.decode(bytes))) {
+      return { title, createdAt, budgetExhausted: false };
+    }
+    if (consumed >= budget) {
+      return { title, createdAt, budgetExhausted: true };
+    }
+  }
+  if (carry.trim() !== "" && consumeLine(carry)) {
+    return { title, createdAt, budgetExhausted: false };
+  }
+  return { title, createdAt, budgetExhausted: false };
+}
+var EMPTY_PROBE = { title: null, createdAt: null, budgetExhausted: false };
+async function probeSessionLog(path, log, ports) {
+  const initial = ports.initialPrefixBytes ?? INITIAL_LOG_PREFIX_BYTES;
+  const max = ports.maxPrefixBytes ?? MAX_LOG_PREFIX_BYTES;
+  try {
+    const bytes = await ports.readPrefix(path, initial);
+    let probe = probeSessionLogPrefix(bytes, log, ports);
+    if (probe.title === null && !probe.budgetExhausted && bytes.length === initial) {
+      const second = await ports.readPrefix(path, max);
+      probe = probeSessionLogPrefix(second, log, ports);
+    }
+    return probe;
+  } catch {
+    return EMPTY_PROBE;
+  }
+}
+
 // src/migrated.ts
 var SESSION_ADDED_EVENT = "api-session/added";
+var MIGRATED_PROBE_CONCURRENCY = 3;
 function ownerOfProjectDir(projectDir, workspaces) {
   return workspaceForProjectDir(projectDir, workspaces);
 }
@@ -3307,6 +3466,21 @@ function isCrossDevice2(error) {
 }
 function reasonOf2(error) {
   return error instanceof Error ? error.message : String(error);
+}
+async function mapLimit(items, limit, worker) {
+  let cursor = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const item = items[cursor];
+      cursor += 1;
+      if (item === void 0) break;
+      try {
+        await worker(item);
+      } catch {
+      }
+    }
+  });
+  await Promise.all(runners);
 }
 function updatedAtOf(stats) {
   const value = stats.mtimeMs;
@@ -3389,7 +3563,7 @@ function uniqueTargets2(targets) {
   }
   return unique;
 }
-async function listArchiveEntries(fs, archiveRoot, warn) {
+async function listArchiveEntries(fs, archiveRoot, warn, log) {
   let projects;
   try {
     projects = await fs.readdir(archiveRoot);
@@ -3398,6 +3572,7 @@ async function listArchiveEntries(fs, archiveRoot, warn) {
     throw error;
   }
   const entries = [];
+  const pending = [];
   let truncated = false;
   projectLoop: for (const project of projects) {
     const projectPath = joinUnder(archiveRoot, project.name);
@@ -3457,6 +3632,12 @@ async function listArchiveEntries(fs, archiveRoot, warn) {
         } catch {
         }
       }
+      if (log !== void 0) {
+        const picked = chooseSessionLogName(members.map((member) => member.name));
+        if (picked !== void 0) {
+          pending.push({ index: entries.length, path: joinUnder(sessionPath, picked.name), log: picked });
+        }
+      }
       entries.push({
         sessionId: sessionIdOfEntry(session.name),
         dirName: session.name,
@@ -3465,6 +3646,17 @@ async function listArchiveEntries(fs, archiveRoot, warn) {
         updatedAt: updatedAtOf(stats)
       });
     }
+  }
+  if (log !== void 0 && pending.length > 0) {
+    await mapLimit(pending, MIGRATED_PROBE_CONCURRENCY, async (item) => {
+      const probe = await probeSessionLog(item.path, item.log, log);
+      if (probe.title === null && probe.createdAt === null) return;
+      entries[item.index] = {
+        ...entries[item.index],
+        ...probe.title === null ? {} : { title: probe.title },
+        ...probe.createdAt === null ? {} : { createdAt: probe.createdAt }
+      };
+    });
   }
   return { entries, truncated };
 }
@@ -3542,7 +3734,7 @@ async function listMigrated(ports) {
     return { ok: false, code: "archive-unavailable", message: "the archive root is empty" };
   }
   try {
-    const { entries, truncated } = await listArchiveEntries(ports.fs, ports.archiveRoot, ports.warn);
+    const { entries, truncated } = await listArchiveEntries(ports.fs, ports.archiveRoot, ports.warn, ports.log);
     return { ok: true, listing: { archiveRoot: ports.archiveRoot, entries, truncated } };
   } catch (error) {
     return {
@@ -3729,6 +3921,30 @@ var nodeFileSystem = {
     await copyFile(from2, to);
   }
 };
+function createNodeLogOps() {
+  if (typeof zlib.zstdDecompressSync !== "function") return void 0;
+  return {
+    readPrefix: async (path, length) => {
+      const handle = await open(path, "r");
+      try {
+        const size = (await handle.stat()).size;
+        const wanted = Math.min(length, Math.max(size, 0));
+        const buffer = Buffer.allocUnsafe(wanted);
+        let read = 0;
+        while (read < wanted) {
+          const { bytesRead } = await handle.read(buffer, read, wanted - read, read);
+          if (bytesRead === 0) break;
+          read += bytesRead;
+        }
+        return buffer.subarray(0, read);
+      } finally {
+        await handle.close();
+      }
+    },
+    decompressFrame: (frame) => zlib.zstdDecompressSync(frame)
+  };
+}
+var nodeLogOps = createNodeLogOps();
 function createPorts(ctx, config) {
   const homePath = ctx.dshHomePath;
   if (homePath === void 0) {
@@ -3748,6 +3964,8 @@ function createPorts(ctx, config) {
     archiveRoot,
     homePath,
     fs: nodeFileSystem,
+    // 缺省 = 宿主不支持 zstd（或更老的 Node）：不出现该键，列表行为与变更前逐字节一致。
+    ...nodeLogOps === void 0 ? {} : { log: nodeLogOps },
     listStoredHeaders: async () => (await ctx.sessionPersistence.list()).map((snapshot2) => snapshot2.header),
     isLive: (sessionId) => ctx.get("sessions")?.get(sessionId) !== void 0,
     isArchived: (sessionId) => ctx.workspaceRegistry.archivedSessionIds.includes(sessionId),

@@ -520,6 +520,52 @@ describe('parseMigratedListing', () => {
     expect(parseMigratedListing(value)).toEqual({ ok: true, value })
   })
 
+  it('条目不含 title / createdAt 键时，结果条目也不出现这两个键（缺省不占位）', () => {
+    const parsed = parseMigratedListing(valid)
+    expect(parsed).toEqual({ ok: true, value: valid })
+    expect(parsed.ok).toBe(true)
+    if (parsed.ok) {
+      expect(parsed.value.entries.length).toBe(1)
+      expect('title' in parsed.value.entries[0]).toBe(false)
+      expect('createdAt' in parsed.value.entries[0]).toBe(false)
+    }
+  })
+
+  it('接受合法 title：trim 后非空即收下，wire 层原样保留（不 trim）', () => {
+    const value = { ...valid, entries: [{ ...entry, title: '  标题  ' }] }
+    const parsed = parseMigratedListing(value)
+    expect(parsed).toEqual({ ok: true, value })
+    expect(parsed.ok && parsed.value.entries[0].title === '  标题  ').toBe(true)
+    if (parsed.ok) expect(parsed.value.entries[0].title).toBe('  标题  ')
+  })
+
+  it.each([
+    ['title 为空串', ''],
+    ['title 是纯空白', '   '],
+    ['title 不是字符串', 7],
+  ])('拒绝非法 title：%s', (_label, title) => {
+    const parsed = parseMigratedListing({ ...valid, entries: [{ ...entry, title }] })
+    expect(parsed.ok).toBe(false)
+    if (!parsed.ok) expect(parsed.message).toContain('title')
+  })
+
+  it('接受合法 createdAt：正 epoch ms 原样收下', () => {
+    const value = { ...valid, entries: [{ ...entry, createdAt: 1700000000000 }] }
+    expect(parseMigratedListing(value)).toEqual({ ok: true, value })
+  })
+
+  it.each([
+    ['createdAt 为 0（0 会渲染成 1970，必须缺键而不是写 0）', 0],
+    ['createdAt 为负数', -1],
+    ['createdAt 为 NaN', Number.NaN],
+    ['createdAt 为 Infinity', Number.POSITIVE_INFINITY],
+    ['createdAt 不是数字', '1700'],
+  ])('拒绝非法 createdAt：%s', (_label, createdAt) => {
+    const parsed = parseMigratedListing({ ...valid, entries: [{ ...entry, createdAt }] })
+    expect(parsed.ok).toBe(false)
+    if (!parsed.ok) expect(parsed.message).toContain('createdAt')
+  })
+
   it.each([
     ['archiveRoot 缺失', { entries: [], truncated: false }],
     ['archiveRoot 为空串', { ...valid, archiveRoot: '' }],

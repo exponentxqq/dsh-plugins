@@ -31,9 +31,9 @@
  *
  * 本模块不 import React、cordis、locale、connection 或任何 store：输入全是 Plain
  * 数据（`ctx.workspaces.list` / `ctx.sessions.list` / `list-migrated` 响应的投影），
- * 输出也全是 Plain 数据，因此可以在纯 node 环境下逐条断言。它只 import 两个同样纯的
- * 模块：`../contract.ts`（共享类型与上限常量）与 `../project-key.ts`（`projectKey`
- * 正推匹配）。
+ * 输出也全是 Plain 数据，因此可以在纯 node 环境下逐条断言。它只 import 三个同样纯的
+ * 模块：`../contract.ts`（共享类型与上限常量）、`../project-key.ts`（`projectKey`
+ * 正推匹配）与 `./display-format.ts`（短码 / 路径尾段等显示形状）。
  *
  * 本地化文案不在这里：行里的 `title` 可能是空串（视图用 `manager.untitled` 兜底），
  * 伪选项没有文案（空态文案由分节给），`running` / `blank` 只是标记（视图渲染
@@ -57,6 +57,7 @@ import {
   type MigratedTarget,
 } from '../contract.ts'
 import { workspaceForProjectDir } from '../project-key.ts'
+import { shortCodeOf, tailSegmentOf } from './display-format.ts'
 
 /** 三个会话域，数组顺序即界面 tab 顺序（活跃 / 已归档 / 已迁移）。 */
 export const MANAGER_TABS = ['active', 'archived', 'migrated'] as const
@@ -114,6 +115,10 @@ export interface SessionRowViewInput {
   readonly blank: boolean
   /** 粗粒度来源；`'subagent'` 的行不进管理面（D14）。 */
   readonly origin?: 'subagent'
+  /** 会话工作目录（SessionSummary.cwd）；缺失时行次行只有时间。 */
+  readonly cwd?: string
+  /** fork 的父会话 id（SessionSummary.parentId）。 */
+  readonly parentId?: string
 }
 
 /** 会话列表快照投影：`ctx.sessions.list.getSnapshot()` 的切片。 */
@@ -145,6 +150,12 @@ export interface SessionRowView {
   readonly selectable: boolean
   /** 归属工作区；伪选项下的孤儿已归档行为 `null`。 */
   readonly workspaceId: string | null
+  /** 会话工作目录全路径（次行只显示尾段，悬停用全路径）；无 cwd 为 null。 */
+  readonly cwd: string | null
+  /** cwd 的尾段（次行显示）；无 cwd 为 null。 */
+  readonly projectDirTail: string | null
+  /** fork 徽标：parentId 非空且 origin !== 'subagent'。 */
+  readonly isFork: boolean
 }
 
 /** 已迁移域的一行（归档根下的一条会话目录）。 */
@@ -165,6 +176,16 @@ export interface MigratedRowView {
   readonly workspaceId: string | null
   /** 已迁移行恒可选（目录里没有运行态概念，处置由宿主校验兜底）。 */
   readonly selectable: boolean
+  /** 首行主标识：日志标题；缺失时回退 {@link shortCodeOf}。恒非空。 */
+  readonly title: string
+  /** 标题来源：'log' = 读到的标题（次行可回显 id），'dirname' = 回退短码（次行不再重复 id）。 */
+  readonly titleSource: 'log' | 'dirname'
+  /** 创建时间（header.createdAt）；缺省归一为 null，只进悬停。 */
+  readonly createdAt: number | null
+  /** 命中工作区时的显示名；无归属或标题为空 ⇒ null（视图回退 projectDir）。 */
+  readonly workspaceTitle: string | null
+  /** 目录名短码（次行弱化显示；渲染与否由 {@link MigratedRowView.titleSource} 决定）。 */
+  readonly shortId: string
 }
 
 /** 选择与全选能处理的行：两个域的行集在「标识 + 可勾选」上同形。 */
@@ -214,6 +235,33 @@ function memberSet(workspaces: WorkspacesSnapshotView): Set<string> {
 }
 
 /**
+ * 已迁移行的首行主标识：日志标题 trim 后非空优先，缺失时回退目录名短码。
+ *
+ * 标题回退只在这里判一次（{@link entryKeyOf} 之外的第二个派生点都不许再判
+ * `entry.title`），来源随行下传，视图据此决定次行是否回显短码。
+ * @param entry - 宿主返回的归档条目。
+ * @returns 标题与来源（'log' 次行可回显 id；'dirname' 次行不再重复 id）。
+ */
+function titleOfMigrated(entry: MigratedEntry): { title: string; titleSource: 'log' | 'dirname' } {
+  const title = entry.title?.trim() ?? ''
+  if (title !== '') return { title, titleSource: 'log' }
+  return { title: shortCodeOf(entry.dirName), titleSource: 'dirname' }
+}
+
+/**
+ * 已迁移行的工作区显示名：命中工作区后取其标题；未命中或标题为空串都归一为 null
+ * （视图再回退 projectDir）。
+ * @param owner - 正推匹配到的工作区 id；未匹配为 null。
+ * @param workspaces - 工作区快照投影。
+ * @returns 工作区显示名或 null。
+ */
+function workspaceTitleOf(owner: string | null, workspaces: WorkspacesSnapshotView): string | null {
+  if (owner === null) return null
+  const title = workspaces.items.find((workspace) => workspace.workspaceId === owner)?.title
+  return title !== undefined && title !== '' ? title : null
+}
+
+/**
  * 造一条活跃 / 已归档行。
  * @param tab - 行所属域（活跃或已归档）。
  * @param workspaceId - 归属工作区；伪选项下为 `null`。
@@ -237,16 +285,28 @@ function sessionRow(
     // D15：运行中的行不删，只置灰；全选与动作输入按 selectable 跳过。
     selectable: !summary.running,
     workspaceId,
+    // 工作目录：次行只画尾段，悬停用全路径；无 cwd 两处都是 null。
+    cwd: summary.cwd ?? null,
+    projectDirTail: tailSegmentOf(summary.cwd),
+    // fork 徽标：子代理行进不了管理面（D14），这一项是防御性的（判据不依赖 D14）。
+    isFork:
+      summary.parentId !== undefined && summary.parentId !== '' && summary.origin !== 'subagent',
   }
 }
 
 /**
  * 造一行「已迁移」视图。
  * @param entry - 宿主返回的归档条目。
- * @param workspaceId - 正推匹配到的工作区；匹配不到为 `null`。
+ * @param owner - 正推匹配到的工作区 id；匹配不到为 `null`。
+ * @param workspaces - 工作区快照投影（工作区显示名的查找输入）。
  * @returns 行视图。
  */
-function migratedRow(entry: MigratedEntry, workspaceId: string | null): MigratedRowView {
+function migratedRow(
+  entry: MigratedEntry,
+  owner: string | null,
+  workspaces: WorkspacesSnapshotView,
+): MigratedRowView {
+  const heading = titleOfMigrated(entry)
   return {
     key: entryKeyOf('migrated', entry.dirName, entry.projectDir),
     sessionId: entry.sessionId,
@@ -254,8 +314,15 @@ function migratedRow(entry: MigratedEntry, workspaceId: string | null): Migrated
     projectDir: entry.projectDir,
     bytes: entry.bytes,
     updatedAt: entry.updatedAt,
-    workspaceId,
+    workspaceId: owner,
     selectable: true,
+    title: heading.title,
+    titleSource: heading.titleSource,
+    // 契约保证 createdAt 存在时恒 > 0；缺省归一为 null（视图只进悬停）。
+    createdAt: entry.createdAt ?? null,
+    workspaceTitle: workspaceTitleOf(owner, workspaces),
+    // 短码恒有值；渲染是否显示由 titleSource 决定，模型不替视图做排版决定。
+    shortId: shortCodeOf(entry.dirName),
   }
 }
 
@@ -427,12 +494,113 @@ export function migratedRows(
     const owner = workspaceForProjectDir(entry.projectDir, workspaces.items)
     const matched = choice === UNASSIGNED_CHOICE ? owner === null : owner === choice
     if (!matched) continue
-    const row = migratedRow(entry, owner)
+    const row = migratedRow(entry, owner, workspaces)
     if (seen.has(row.key)) continue
     seen.add(row.key)
     rows.push(row)
   }
   return rows.sort(compareMigrated)
+}
+
+/** 三个域各自的过滤词（切 tab 保留；空串 = 不过滤）。 */
+export type ManagerFilters = Readonly<Record<ManagerTab, string>>
+
+/**
+ * 空过滤：三个域都是空串。
+ *
+ * `Readonly` 只是类型约束，运行时仍可能被误写；需要「重置」时用
+ * {@link withTabFilter} 或展开产生新对象，不要原地改写这份共享常量。
+ */
+export const EMPTY_FILTERS: ManagerFilters = { active: '', archived: '', migrated: '' }
+
+/**
+ * 归一化过滤词：trim().toLowerCase()；空串表示不过滤。
+ *
+ * 匹配判据只消费这里产出的串——调用方不做自己的小写化，保证「输入框原样词 → 匹配」
+ * 只有一条路径。
+ * @param query - 输入框原样过滤词。
+ * @returns 归一化后的过滤词。
+ */
+export function normalizeFilterQuery(query: string): string {
+  return query.trim().toLowerCase()
+}
+
+/**
+ * 换掉某一个 tab 的过滤词，其余 tab 原样保留（identity 不变，与既有
+ * {@link withTabSelection} 同风格）——切 tab 不清过滤，各域互不串扰。
+ * @param filters - 当前过滤词集合。
+ * @param tab - 要替换的 tab。
+ * @param query - 该 tab 的新过滤词（原样存，匹配时才归一化）。
+ * @returns 新的过滤词集合。
+ */
+export function withTabFilter(
+  filters: ManagerFilters,
+  tab: ManagerTab,
+  query: string,
+): ManagerFilters {
+  return {
+    active: tab === 'active' ? query : filters.active,
+    archived: tab === 'archived' ? query : filters.archived,
+    migrated: tab === 'migrated' ? query : filters.migrated,
+  }
+}
+
+/**
+ * 过滤匹配内核：haystack 用 `\n` 连接（null 段跳过）、整体小写后做子串判定。
+ *
+ * 不做分词、不做拼音 / 模糊匹配；`normalized` 必须来自
+ * {@link normalizeFilterQuery}，调用方已对空串短路（空查询返回原数组保 identity）。
+ * @param parts - 参与匹配的字段；null 段跳过。
+ * @param normalized - 归一化后的非空过滤词。
+ * @returns 是否命中。
+ */
+function matchesFilter(parts: readonly (string | null)[], normalized: string): boolean {
+  const haystack = parts
+    .filter((part) => part !== null)
+    .join('\n')
+    .toLowerCase()
+  return haystack.includes(normalized)
+}
+
+/**
+ * 活跃 / 已归档域过滤：标题 + 会话 id + 工作目录全路径（cwd），大小写不敏感子串匹配。
+ *
+ * cwd 按**全路径**参与匹配——按尾段或中间段（如 `/home/dev/alpha` 里的 `alpha`）
+ * 都能命中。空查询返回原数组（保 identity，供 useMemo 短路）。
+ * @param rows - 当前 tab 的行集。
+ * @param query - 输入框原样过滤词。
+ * @returns 命中的行（行序不变）。
+ */
+export function filterSessionRows(
+  rows: readonly SessionRowView[],
+  query: string,
+): readonly SessionRowView[] {
+  const normalized = normalizeFilterQuery(query)
+  if (normalized === '') return rows
+  return rows.filter((row) => matchesFilter([row.title, row.sessionId, row.cwd], normalized))
+}
+
+/**
+ * 已迁移域过滤：标题 + 会话 id + 目录名 + 项目目录 + 工作区名，大小写不敏感子串匹配。
+ *
+ * 标题与短码两个面都在（回退标题即短码，两份输入不会漏）；工作区名未命中行带 null，
+ * 不参与匹配。空查询返回原数组（保 identity）。
+ * @param rows - 当前 tab 的行集。
+ * @param query - 输入框原样过滤词。
+ * @returns 命中的行（行序不变）。
+ */
+export function filterMigratedRows(
+  rows: readonly MigratedRowView[],
+  query: string,
+): readonly MigratedRowView[] {
+  const normalized = normalizeFilterQuery(query)
+  if (normalized === '') return rows
+  return rows.filter((row) =>
+    matchesFilter(
+      [row.title, row.sessionId, row.dirName, row.projectDir, row.workspaceTitle],
+      normalized,
+    ),
+  )
 }
 
 /**

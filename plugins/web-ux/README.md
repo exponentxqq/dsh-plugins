@@ -246,9 +246,13 @@ rm -f  ~/.dsh/storages/session_projcache/sessions/<会话id>.json
 | --- | --- | --- |
 | **活跃** | 所选工作区的成员、未归档、在 Host 会话列表中，滤掉 `origin === 'subagent'`；运行中的行保留但置灰不可选 | 「归档所选」——客户端逐个调用上游 `archiveSession`，逐项报告 |
 | **已归档** | `archivedSessionIds ∩ 所选工作区 sessionIds`（伪选项下改为孤儿集合），滤掉 subagent；运行中的行同样置灰 | 「处置所选」——按当前处置模式删除（**移动到归档目录**（默认）/ **永久删除**，单选复用单会话对话框的文案；预览 → 确认 → 执行）；「取消归档所选」——客户端逐个调用上游 `unarchiveSession`，逐项报告。两动作共享同一选择集合、任一在途时互斥 |
-| **已迁移** | 归档根下「项目目录 / 会话目录」两层条目，按 `projectDir` 正推匹配工作区；目录名即会话 id（不做 `session-` 前缀归一），体积只算目录内一层文件、时间取目录 mtime、按 `updatedAt` 倒序；不读日志头，不承诺会话标题 | 「永久删除所选」与「恢复所选」——确认后一次调用；删除没有预览端点（条数与体积在客户端聚合），恢复有校验阶段（见[「恢复语义」](#恢复语义)） |
+| **已迁移** | 归档根下「项目目录 / 会话目录」两层条目，按 `projectDir` 正推匹配工作区；目录名即会话 id（不做 `session-` 前缀归一），体积只算目录内一层文件、时间取目录 mtime、按 `updatedAt` 倒序；标题从日志前缀**尽力**提取（取首个 `session/title` 事件，缺失回退目录名短码，限制见[「边界与已知限制」](#边界与已知限制)） | 「永久删除所选」与「恢复所选」——确认后一次调用；删除没有预览端点（条数与体积在客户端聚合），恢复有校验阶段（见[「恢复语义」](#恢复语义)） |
 
-行标题取 `displayTitle`，空标题显示「（无标题）」；`running` / `blank` 以徽标标出。**管理面不出现子代理会话**（与侧栏一致）：它们的处置依赖父会话级联；父会话已删的孤立归档子代理因此没有入口（已接受的代价）。运行中的行置灰不可选，服务端拒绝仍是竞态兜底。
+行视图为**两行式**：首行 = Checkbox（其可访问名即行内唯一可访问名）+ 徽标（`aria-hidden`，不进可访问名）；次行 `.rowMetaRow` 承载弱化 meta。徽标三种：`running` / `blank` 沿用既有语义，`fork` 判据是 `parentId` 非空且 `origin !== 'subagent'`。**管理面不出现子代理会话**（与侧栏一致）：它们的处置依赖父会话级联；父会话已删的孤立归档子代理因此没有入口（已接受的代价）。运行中的行置灰不可选，服务端拒绝仍是竞态兜底。
+
+首行主标识与次行 meta 按域区分：**活跃 / 已归档**行主标识取 `displayTitle`，空标题显示「（无标题）」，次行 = 项目目录尾段（悬停见全路径工作目录）· 更新时间（悬停完整时间串）；**已迁移**行主标识 = 日志标题（尽力提取，缺失回退目录名短码——会话 id 取 16 字符 + `…`），次行 = 会话 id 短码（仅标题来自日志时显示，回退行的首行标识本身已是短码）· 工作区名或项目目录 · 体积 · 紧凑时间（当年 `MM-DD HH:mm`、跨年带完整日期，悬停完整串；迁移行悬停为迁移时间与创建时间两段）。
+
+每个 tab 配一个**过滤框**（大小写不敏感子串；三域过滤词各自独立保存、互不串扰）：活跃 / 已归档匹配标题 + 会话 id + 工作目录，已迁移匹配标题 + 会话 id + 目录名 + 项目目录 + 工作区名；全选与批量动作只作用过滤后的可见行；被筛空时空态文案回显查询词。tab 名旁的**计数徽标**随过滤实时显示可见行数（`aria-hidden`，不进可访问名；已迁移列表未加载时不渲染）。「已迁移」tab 工具栏 = 刷新按钮 + 归档根路径显示（悬停全路径）。
 
 ### 伪选项：未匹配工作区
 
@@ -312,7 +316,9 @@ holder 页面选择框的末项**恒为**「未分配」（伪选项：即使当
 
 ### 边界与已知限制
 
-- 「已迁移」tab 不轮询：用「刷新归档列表」手动取数；purge / restore 成功后自动重发一次。
+- 「已迁移」tab 不轮询：用「刷新归档列表」手动取数；purge / restore 成功后自动重发一次；标题提取也只在列表时对日志前缀读一次，不做轮询或增量重读。
+- **标题是尽力显示，不是准确值**：宿主枚举时读日志压缩前缀（128KiB 起、不足再放宽到 512KiB，按 zstd 帧边界截断），解压文本预算 256KiB（帧粒度早停，首个 `session/title` 命中即停）——取的是前缀里**首个**标题事件，不承诺最新，改过题的会话约 6.1% 显示旧题；约 0.5% 的条目在预算内解不出标题，回退目录名短码。
+- **环境不支持 zstd 时标题不可得**：Node < 22.15 或宿主 zlib 缺 `zstdDecompressSync` 时，加载期特性探测命中缺失分支，标题功能静默降级（应答中 `title` / `createdAt` 一律缺省），列表行为与变更前逐字节一致。
 - 不做 undo：恢复可再归档，物理删除不可逆（danger 色 + 确认页已明示）。
 - 其余边界不在此重复：停止并删除与共享附件见[「非目标（本能力）」](#非目标本能力)，subagent 无入口见[「工作区与三个 tab」](#工作区与三个-tab)，虚拟滚动与列表上限见[「500 上限与分批操作」](#500-上限与分批操作)，置顶与空目录见[「恢复语义」](#恢复语义)，`api-session/added` 降级见[「入口与降级」](#入口与降级)。
 
@@ -349,8 +355,10 @@ src/contract.ts                       双端共享契约：通道 / 7 端点 / �
 src/project-key.ts                    双端共享纯函数：projectKey 本地镜像 + projectDir → 工作区正推匹配（零 import）
 src/delete-session.ts                 宿主处置流程：单会话与批量删除 / 迁移共用 DI 纯流程 + 文件操作工厂
 src/migrated.ts                       宿主已迁移域：枚举归档根、物理删除、恢复（两阶段；rename 优先、EXDEV 回退复制）
+src/session-log-title.ts              宿主标题提取纯逻辑：规范日志名挑选 / zstd 帧边界惰性扫描 / 压缩前缀探测（零 import）
 src/client/                           浏览器半：provider 徽章 + 删除入口 / 确认框 + 会话管理分节 + 命令通知卡 + locale + CSS module
 src/client/session-manager-model.ts   管理面纯派生：三域行集、伪选项聚合、500 上限（工作区选项与默认档已迁 holder 的 workspace-choice）
+src/client/display-format.ts          浏览器面展示纯函数：id 短码 / 路径尾段 / 紧凑时间戳（零 import）
 src/client/SessionManagerDialog.tsx   会话管理分节：五阶段机 + 三 tab + 批量动作（作用工作区由页面级选择框经份额传入，无 Modal 外壳）
 src/client/session-manager.module.css 分节样式（复用 --dsw-alias-* 令牌）
 test/                                 单测：宿主 *.test.ts（node 环境）与浏览器 *.test.tsx（jsdom）
@@ -367,8 +375,8 @@ test/                                 单测：宿主 *.test.ts（node 环境）
 
 类型工程是一个 solution（`tsconfig.json` 只汇总 references）+ 两个只 `extends` 根基准 `../../tsconfig.plugin.base.json` 的子工程（`include` 是唯一差异面：不重声明编译选项、不带 `composite`）；两个子工程都是 `noEmit` 纯检查（不产 d.ts，只留 `.tsbuildinfo`，已被 `.gitignore` 忽略）：
 
-- `tsconfig.host.json` — 宿主面（node 环境）：`src/index.ts`、`src/config.ts`、`src/contract.ts`、`src/delete-session.ts`、`src/migrated.ts`、`src/project-key.ts` 与宿主测试 `test/{bundle,config,contract,delete-session,index,migrated,project-key}.test.ts`。
-- `tsconfig.client.json` — 浏览器面（jsdom 环境的用例自带 `// @vitest-environment jsdom`）：`src/client/**`、`src/contract.ts`（两端共享的边界 parser）、`src/project-key.ts`（两端共享的匹配纯函数）、`test/**/*.test.tsx` 与 `test/{client-apply,delete-client,delete-store,locale-parity,notice-store,notice-visibility,session-manager-model}.test.ts`、`test/stubs/ui-primitives.tsx`（vitest alias 的 primitives 替身）。
+- `tsconfig.host.json` — 宿主面（node 环境）：`src/index.ts`、`src/config.ts`、`src/contract.ts`、`src/delete-session.ts`、`src/migrated.ts`、`src/project-key.ts`、`src/session-log-title.ts` 与宿主测试 `test/{bundle,config,contract,delete-session,index,migrated,project-key,session-log-title}.test.ts`。
+- `tsconfig.client.json` — 浏览器面（jsdom 环境的用例自带 `// @vitest-environment jsdom`）：`src/client/**`、`src/contract.ts`（两端共享的边界 parser）、`src/project-key.ts`（两端共享的匹配纯函数）、`test/**/*.test.tsx` 与 `test/{client-apply,delete-client,delete-store,display-format,locale-parity,notice-store,notice-visibility,session-manager-model}.test.ts`、`test/stubs/ui-primitives.tsx`（vitest alias 的 primitives 替身）。
 
 两个工程都按宿主 / 浏览器归属逐条列出测试文件：同一份用例只进一个程序（宿主工程要 node 面，浏览器工程要 DOM / JSX），因此不用 `test/**/*.ts` 宽通配把两端混进同一个 program。
 
@@ -436,6 +444,11 @@ docker exec dsh dsh --profile web --dump-config | grep -A2 'id: web-ux'
 
 - **升级**：holder 的入口从「侧栏 footer 单入口 + `shell.overlay` 弹窗」换成「侧栏面板行（`sidebar.panellist`）+ `main` 独立页面」，本包的**分节注册面不变**（仍是 `workspace-config.section`、order 30），但 owner 份额从 `{ close }` 换成 `{ workspace }`：节内工作区 Menu、`WORKSPACE_MENU_PORTAL` 与「取消 / 关闭」按钮随之删除，`manager.close` 改为 `manager.finish`（完成），`manager.workspace.label` / `manager.workspace.unassigned` 两条文案出列（`manager.workspace.empty` 保留）；`session-manager-model.ts` 的工作区选项与默认档函数迁至 holder 的 `workspace-choice.ts`。`dsh.client.inject`、peer 范围、`/web-ux` 七端点与 `archiveRoot` 配置零变化。**必须与 holder（及另两个贡献方）同一发布 tag 同装**：旧版 holder 弹窗 ↔ 新版分节的 `close` 缺失组合不受支持（同 tag 安装是唯一受支持组合）。
 - **回滚**：改指上一发布 tag 重装并重启，分节随旧版 holder 的弹窗形态回来；本变更不迁移任何落盘数据、不改配置键，回滚无数据影响。
+
+### 版本迁移（会话信息展示）
+
+- **升级**：本批变更给「会话管理」分节补会话信息展示：行视图改两行式（首行 Checkbox + 徽标，次行弱化 meta）、三 tab 各配过滤框与计数徽标、「已迁移」行首行尽力显示日志标题（缺失回退目录名短码）、已迁移 tab 工具栏补归档根显示。`MigratedEntry` 契约新增**可选** `title` / `createdAt`（存在即合法、缺失即不写键），端点集、失败码、配置键与 `dsh.client.inject` 零变化，零新增依赖（标题提取只依赖内建 `node:zlib`；宿主缺该能力时静默降级，列表照常）。按 tag 重装并重启 web profile 即可。
+- **回滚**：改指上一发布 tag 重装并重启即可。契约向后兼容：可选字段缺失即不写键，旧 client 按缺省回退渲染（迁移行回退目录名短码，其余 meta 照旧）；本批不迁移任何落盘数据、不改配置键，回滚无数据影响。部署 / 回滚走常规插件 tag 流程。
 
 ## 非目标（本版本）
 

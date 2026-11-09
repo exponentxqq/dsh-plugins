@@ -14,6 +14,7 @@ import { existsSync } from 'node:fs'
 import { lstat, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { zstdCompressSync } from 'node:zlib'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ConnectionRpcResult } from '@deepseek-ai/dsh-client-connection'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -798,6 +799,42 @@ describe('createDispatcher：list-migrated', () => {
     expect(listing.truncated).toBe(true)
     expect(new Set(listing.entries.map((entry) => entry.sessionId)).size).toBe(MAX_LISTED_MIGRATED)
     expect(listing.entries.every((entry) => entry.projectDir === PROJECT_DIR)).toBe(true)
+    expect(host.warnings).toEqual([])
+  })
+
+  it('真链路：真实 zstd 帧拼接的日志解出 title/createdAt；坏字节日志降级缺省且零 warning', async () => {
+    const home = await createEmptyHome()
+    const archiveRoot = archiveRootOf(home)
+    // 规范日志文件名 + 真实 zstd 容器：header 行与 title 行各自压缩成一帧后拼接（JSONL
+    // 逐帧压缩的真实部署形态——每行以 \n 结尾；Single_Segment 缺省帧探测同样能解）。
+    const goodDir = join(archiveRoot, PROJECT_DIR, PREFIXED_ID)
+    await mkdir(goodDir, { recursive: true })
+    await writeFile(join(goodDir, 'session.jsonl.zstd'), Buffer.concat([
+      zstdCompressSync(Buffer.from('{"type":"session","createdAt":1700000000000}\n')),
+      zstdCompressSync(Buffer.from('{"type":"session/title","data":{"title":"真链路标题"}}\n')),
+    ]))
+    // 坏字节（非 zstd 魔数）日志：条目照常返回，两字段缺省。
+    const badDir = join(archiveRoot, PROJECT_DIR, BARE_ID)
+    await mkdir(badDir, { recursive: true })
+    await writeFile(join(badDir, 'session.jsonl.zstd'), Buffer.from('corrupted-bytes'))
+
+    const host = createFakeHost({ homePath: home })
+    const listing = parsedOf(await createDispatcher(host.ctx)(LIST_MIGRATED_ENDPOINT, {}, SIGNAL), parseMigratedListing)
+
+    expect(listing.archiveRoot).toBe(archiveRoot)
+    expect(listing.truncated).toBe(false)
+    const byId = new Map(listing.entries.map((entry) => [entry.sessionId, entry]))
+    expect(byId.get(PREFIXED_ID)).toMatchObject({
+      sessionId: PREFIXED_ID,
+      projectDir: PROJECT_DIR,
+      title: '真链路标题',
+      createdAt: 1700000000000,
+    })
+    const bareEntry = byId.get(BARE_ID)
+    if (bareEntry === undefined) throw new Error('the bare-id entry is missing from the listing')
+    expect('title' in bareEntry).toBe(false)
+    expect('createdAt' in bareEntry).toBe(false)
+    // 探测的任何失败都不产生 warning：既有迁移告警语义零变化。
     expect(host.warnings).toEqual([])
   })
 })

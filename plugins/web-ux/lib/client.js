@@ -157,6 +157,14 @@ window.__ModuleLoader__.load({
 		  if (typeof value !== "string" || value === "") return { ok: false, message: `${subject} \u7F3A\u5931\u6216\u4E0D\u662F\u975E\u7A7A\u5B57\u7B26\u4E32` };
 		  return { ok: true, value };
 		}
+		function readOptionalNonEmptyString(record, key, subject) {
+		  const value = record[key];
+		  if (value === void 0) return { ok: true, value: void 0 };
+		  if (typeof value !== "string" || value === "" || value.trim() === "") {
+		    return { ok: false, message: `${subject} \u7684 ${key} \u4E0D\u662F trim \u540E\u7684\u975E\u7A7A\u5B57\u7B26\u4E32` };
+		  }
+		  return { ok: true, value };
+		}
 		function readNonNegativeNumber(record, key, subject) {
 		  const value = record[key];
 		  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
@@ -168,6 +176,14 @@ window.__ModuleLoader__.load({
 		  const value = record[key];
 		  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
 		    return { ok: false, message: `${subject} \u7684 ${key} \u4E0D\u662F\u975E\u8D1F\u5B89\u5168\u6574\u6570` };
+		  }
+		  return { ok: true, value };
+		}
+		function readOptionalPositiveNumber(record, key, subject) {
+		  const value = record[key];
+		  if (value === void 0) return { ok: true, value: void 0 };
+		  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+		    return { ok: false, message: `${subject} \u7684 ${key} \u4E0D\u662F\u6B63\u6709\u9650\u6570` };
 		  }
 		  return { ok: true, value };
 		}
@@ -266,12 +282,18 @@ window.__ModuleLoader__.load({
 		    if (!bytes.ok) return bytes;
 		    const updatedAt = readNonNegativeNumber(entry.value, "updatedAt", subject);
 		    if (!updatedAt.ok) return updatedAt;
+		    const title = readOptionalNonEmptyString(entry.value, "title", subject);
+		    if (!title.ok) return title;
+		    const createdAt = readOptionalPositiveNumber(entry.value, "createdAt", subject);
+		    if (!createdAt.ok) return createdAt;
 		    items.push({
 		      sessionId: sessionId.value,
 		      dirName: dirName.value,
 		      projectDir: projectDir.value,
 		      bytes: bytes.value,
-		      updatedAt: updatedAt.value
+		      updatedAt: updatedAt.value,
+		      ...title.ok && title.value !== void 0 ? { title: title.value } : {},
+		      ...createdAt.ok && createdAt.value !== void 0 ? { createdAt: createdAt.value } : {}
 		    });
 		  }
 		  const truncated = record["truncated"];
@@ -389,6 +411,7 @@ window.__ModuleLoader__.load({
 		  "manager.tab.archived": "\u5DF2\u5F52\u6863",
 		  "manager.tab.migrated": "\u5DF2\u8FC1\u79FB",
 		  "manager.tabs.label": "\u4F1A\u8BDD\u5206\u533A",
+		  "manager.filter.placeholder": "\u8FC7\u6EE4\u6807\u9898\u3001\u4F1A\u8BDD id\u3001\u9879\u76EE\u76EE\u5F55\u6216\u5DE5\u4F5C\u533A\u540D",
 		  "manager.selectAll": "\u5168\u9009",
 		  "manager.clear": "\u6E05\u7A7A",
 		  "manager.selected": "\u5DF2\u9009 {count} \u4E2A",
@@ -396,13 +419,18 @@ window.__ModuleLoader__.load({
 		  "manager.empty.active": "\u8BE5\u5DE5\u4F5C\u533A\u6CA1\u6709\u6D3B\u8DC3\u4F1A\u8BDD\u3002",
 		  "manager.empty.archived": "\u8BE5\u5DE5\u4F5C\u533A\u6CA1\u6709\u5DF2\u5F52\u6863\u4F1A\u8BDD\u3002",
 		  "manager.empty.migrated": "\u5F52\u6863\u76EE\u5F55\u91CC\u6CA1\u6709\u53EF\u7BA1\u7406\u7684\u6761\u76EE\u3002",
+		  "manager.empty.filtered": "\u6CA1\u6709\u5339\u914D\u300C{query}\u300D\u7684\u6761\u76EE\u3002",
 		  "manager.empty.unassigned": "\u8BE5\u9009\u9879\u53EA\u5305\u542B\u65E0\u6CD5\u5339\u914D\u5DE5\u4F5C\u533A\u7684\u5DF2\u8FC1\u79FB\u5F52\u6863\uFF1B\u5F53\u524D\u6CA1\u6709\u8FD9\u7C7B\u6761\u76EE\u3002",
 		  "manager.empty.unassigned.archived": "\u8BE5\u9009\u9879\u4E0B\u6CA1\u6709\u4E0D\u5C5E\u4E8E\u4EFB\u4F55\u5DE5\u4F5C\u533A\u7684\u5DF2\u5F52\u6863\u4F1A\u8BDD\u3002",
 		  "manager.badge.running": "\u8FD0\u884C\u4E2D",
 		  "manager.badge.blank": "\u7A7A\u767D",
+		  "manager.badge.fork": "Fork",
 		  "manager.untitled": "\uFF08\u65E0\u6807\u9898\uFF09",
 		  "manager.meta.size": "{size}",
 		  "manager.meta.time": "{time}",
+		  "manager.meta.updated": "\u66F4\u65B0\u65F6\u95F4\uFF1A{time}",
+		  "manager.meta.archived": "\u8FC1\u79FB\u65F6\u95F4\uFF1A{time}",
+		  "manager.meta.created": "\u521B\u5EFA\u65F6\u95F4\uFF1A{time}",
 		  "manager.refresh": "\u5237\u65B0\u5F52\u6863\u5217\u8868",
 		  "manager.truncated": "\u6761\u76EE\u8FC7\u591A\uFF0C\u53EA\u5217\u51FA\u524D {count} \u4E2A\uFF1B\u8BF7\u5148\u6E05\u7406\u518D\u5237\u65B0\u3002",
 		  // —— 会话管理面：动作与确认 ——
@@ -497,19 +525,25 @@ window.__ModuleLoader__.load({
 		  "manager.tab.archived": "Archived",
 		  "manager.tab.migrated": "Migrated",
 		  "manager.tabs.label": "Session sections",
+		  "manager.filter.placeholder": "Filter by title, session id, project directory, or workspace name",
 		  "manager.selectAll": "Select all",
 		  "manager.clear": "Clear",
 		  "manager.selected": "{count} selected",
 		  "manager.empty.active": "This workspace has no active sessions.",
 		  "manager.empty.archived": "This workspace has no archived sessions.",
 		  "manager.empty.migrated": "The archive directory has no manageable entries.",
+		  "manager.empty.filtered": "No entries match \u201C{query}\u201D.",
 		  "manager.empty.unassigned": "This option only lists migrated archives that match no workspace; there are none right now.",
 		  "manager.empty.unassigned.archived": "This option has no archived sessions outside every workspace.",
 		  "manager.badge.running": "Running",
 		  "manager.badge.blank": "Blank",
+		  "manager.badge.fork": "Fork",
 		  "manager.untitled": "(untitled)",
 		  "manager.meta.size": "{size}",
 		  "manager.meta.time": "{time}",
+		  "manager.meta.updated": "Updated: {time}",
+		  "manager.meta.archived": "Archived: {time}",
+		  "manager.meta.created": "Created: {time}",
 		  "manager.refresh": "Refresh archive list",
 		  "manager.truncated": "Too many entries; only the first {count} are listed. Clean up, then refresh.",
 		  "manager.action.archive": "Archive selected",
@@ -1020,6 +1054,30 @@ window.__ModuleLoader__.load({
 		var import_react5 = require("react");
 		var import_dsh_client_ui_primitives3 = require("@deepseek-ai/dsh-client-ui-primitives");
 
+		// src/client/display-format.ts
+		var SHORT_CODE_LENGTH = 16;
+		function shortCodeOf(value) {
+		  return value.length > SHORT_CODE_LENGTH ? `${value.slice(0, SHORT_CODE_LENGTH)}\u2026` : value;
+		}
+		function tailSegmentOf(path) {
+		  if (path === void 0) return null;
+		  const trimmed = path.replace(/[\\/]+$/, "");
+		  if (trimmed === "") return null;
+		  const cut = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+		  const segment = cut < 0 ? trimmed : trimmed.slice(cut + 1);
+		  return segment === "" ? null : segment;
+		}
+		function formatCompactTimestamp(epochMs, now = /* @__PURE__ */ new Date()) {
+		  if (!Number.isFinite(epochMs) || epochMs <= 0) return { text: "\u2014", full: "" };
+		  const date = new Date(epochMs);
+		  if (Number.isNaN(date.getTime())) return { text: "\u2014", full: "" };
+		  const pad = (value) => String(value).padStart(2, "0");
+		  const clock = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+		  const day = `${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+		  const text = date.getFullYear() === now.getFullYear() ? `${day} ${clock}` : `${date.getFullYear()}-${day} ${clock}`;
+		  return { text, full: date.toLocaleString() };
+		}
+
 		// src/project-key.ts
 		function projectKey(cwd) {
 		  if (cwd.length === 0) throw new Error("cannot encode an empty project path");
@@ -1060,6 +1118,16 @@ window.__ModuleLoader__.load({
 		  }
 		  return members;
 		}
+		function titleOfMigrated(entry) {
+		  const title = entry.title?.trim() ?? "";
+		  if (title !== "") return { title, titleSource: "log" };
+		  return { title: shortCodeOf(entry.dirName), titleSource: "dirname" };
+		}
+		function workspaceTitleOf(owner, workspaces) {
+		  if (owner === null) return null;
+		  const title = workspaces.items.find((workspace) => workspace.workspaceId === owner)?.title;
+		  return title !== void 0 && title !== "" ? title : null;
+		}
 		function sessionRow(tab, workspaceId, sessionId, summary) {
 		  return {
 		    key: entryKeyOf(tab, sessionId),
@@ -1070,10 +1138,16 @@ window.__ModuleLoader__.load({
 		    blank: summary.blank,
 		    // D15：运行中的行不删，只置灰；全选与动作输入按 selectable 跳过。
 		    selectable: !summary.running,
-		    workspaceId
+		    workspaceId,
+		    // 工作目录：次行只画尾段，悬停用全路径；无 cwd 两处都是 null。
+		    cwd: summary.cwd ?? null,
+		    projectDirTail: tailSegmentOf(summary.cwd),
+		    // fork 徽标：子代理行进不了管理面（D14），这一项是防御性的（判据不依赖 D14）。
+		    isFork: summary.parentId !== void 0 && summary.parentId !== "" && summary.origin !== "subagent"
 		  };
 		}
-		function migratedRow(entry, workspaceId) {
+		function migratedRow(entry, owner, workspaces) {
+		  const heading = titleOfMigrated(entry);
 		  return {
 		    key: entryKeyOf("migrated", entry.dirName, entry.projectDir),
 		    sessionId: entry.sessionId,
@@ -1081,8 +1155,15 @@ window.__ModuleLoader__.load({
 		    projectDir: entry.projectDir,
 		    bytes: entry.bytes,
 		    updatedAt: entry.updatedAt,
-		    workspaceId,
-		    selectable: true
+		    workspaceId: owner,
+		    selectable: true,
+		    title: heading.title,
+		    titleSource: heading.titleSource,
+		    // 契约保证 createdAt 存在时恒 > 0；缺省归一为 null（视图只进悬停）。
+		    createdAt: entry.createdAt ?? null,
+		    workspaceTitle: workspaceTitleOf(owner, workspaces),
+		    // 短码恒有值；渲染是否显示由 titleSource 决定，模型不替视图做排版决定。
+		    shortId: shortCodeOf(entry.dirName)
 		  };
 		}
 		function compareMigrated(left, right) {
@@ -1159,12 +1240,42 @@ window.__ModuleLoader__.load({
 		    const owner = workspaceForProjectDir(entry.projectDir, workspaces.items);
 		    const matched = choice === UNASSIGNED_CHOICE ? owner === null : owner === choice;
 		    if (!matched) continue;
-		    const row = migratedRow(entry, owner);
+		    const row = migratedRow(entry, owner, workspaces);
 		    if (seen.has(row.key)) continue;
 		    seen.add(row.key);
 		    rows.push(row);
 		  }
 		  return rows.sort(compareMigrated);
+		}
+		var EMPTY_FILTERS = { active: "", archived: "", migrated: "" };
+		function normalizeFilterQuery(query) {
+		  return query.trim().toLowerCase();
+		}
+		function withTabFilter(filters, tab, query) {
+		  return {
+		    active: tab === "active" ? query : filters.active,
+		    archived: tab === "archived" ? query : filters.archived,
+		    migrated: tab === "migrated" ? query : filters.migrated
+		  };
+		}
+		function matchesFilter(parts, normalized) {
+		  const haystack = parts.filter((part) => part !== null).join("\n").toLowerCase();
+		  return haystack.includes(normalized);
+		}
+		function filterSessionRows(rows, query) {
+		  const normalized = normalizeFilterQuery(query);
+		  if (normalized === "") return rows;
+		  return rows.filter((row) => matchesFilter([row.title, row.sessionId, row.cwd], normalized));
+		}
+		function filterMigratedRows(rows, query) {
+		  const normalized = normalizeFilterQuery(query);
+		  if (normalized === "") return rows;
+		  return rows.filter(
+		    (row) => matchesFilter(
+		      [row.title, row.sessionId, row.dirName, row.projectDir, row.workspaceTitle],
+		      normalized
+		    )
+		  );
 		}
 		function actionsForTab(tab, mode = "archive") {
 		  switch (tab) {
@@ -1249,7 +1360,7 @@ window.__ModuleLoader__.load({
 		}
 
 		// src/client/session-manager.module.css
-		var cssText4 = "/*\n * \u4F1A\u8BDD\u7BA1\u7406\u5206\u8282\u7684\u6837\u5F0F\uFF08\u300C\u5DE5\u4F5C\u533A\u914D\u7F6E\u300D\u9875\u9762\u91CC\u7684\u5206\u8282\u5361\u7247\u4E3B\u4F53\uFF09\u3002\n *\n * \u53EA\u8865\u5B98\u65B9 primitives \u7ED9\u4E0D\u4E86\u7684\u4E1C\u897F\uFF1A\u5206\u8282\u5BB9\u5668\u4E0E\u884C\u5185\u52A8\u4F5C\u6761\u3001\u5DE5\u5177\u680F\uFF08\u8282\u5185\u57DF tab \u884C\uFF09\u3001\n * \u5217\u8868\u884C\u4E0E\u884C\u5185\u5FBD\u6807\u3001\u9009\u62E9\u6761\u3001\u786E\u8BA4\u4E0E\u7ED3\u679C\u533A\u7684\u6587\u5B57\u5C42\u7EA7\u3002\u9875\u9762\u5916\u58F3\uFF08\u9875\u5934\u3001\u5DE5\u5177\u680F\u3001\u9875\u7EA7\n * tab\uFF09\u7531 holder \u7684\u9875\u9762\u8D1F\u8D23\uFF0CButton / SegmentedTabs / Checkbox \u7684\u9AA8\u67B6\u3001\u5C3A\u5BF8\u4E0E\u7126\u70B9\u73AF\n * \u5168\u90E8\u7531 primitives \u8D1F\u8D23\uFF0C\u8FD9\u91CC\u4E0D\u590D\u5236\u5B83\u4EEC\u7684\u914D\u8272\uFF0C\u4E5F\u4E0D\u4E0E\u5220\u9664\u786E\u8BA4\u5BF9\u8BDD\u6846\u7684\u6837\u5F0F\u6587\u4EF6\u6DF7\u7528\n * \uFF08\u4E24\u5904\u89C6\u89C9\u8BED\u4E49\u4E0D\u540C\uFF0C\u4E14 bundle \u7684\u6837\u5F0F\u6CE8\u5165\u5668\u6309\u6A21\u5757\u5404\u81EA\u8BA1\u6570\uFF09\u3002\n *\n * \u989C\u8272\u7EAA\u5F8B\uFF1A\u6BCF\u4E00\u5904\u989C\u8272\u90FD\u662F `var(--dsw-alias-*, <\u515C\u5E95>, )` \u5F62\u6001\u2014\u2014\u515C\u5E95\u503C\u53EA\u7528 CSS \u5173\u952E\u5B57\n * \uFF08`currentColor`\u3001\u5177\u540D\u8272\uFF09\u4E0E `color-mix()`\uFF0C\u4E0D\u5199\u6B7B\u5177\u4F53\u8272\u503C\u3002\u8FD9\u6837\u4EE4\u724C\u6574\u4F53\u7F3A\u5E2D\u65F6\u6700\u574F\n * \u9000\u5316\u6210\u300C\u5F53\u524D\u6587\u5B57\u8272\u7684\u6DF1\u6D45\u53D8\u5316\u300D\uFF0C\u800C\u4E0D\u662F\u67D0\u4E00\u79CD\u4E3B\u9898\u4E0B\u7684\u56FA\u5B9A\u989C\u8272\uFF08\u6DF1\u8272\u4E3B\u9898\u4E0B\u4E0D\u4F1A\u51FA\u73B0\n * \u767D\u5E95\u767D\u5B57\uFF09\u3002\u5C3A\u5BF8\u4E0E\u5706\u89D2\u540C\u6837\u4F18\u5148\u53D6\u4EE4\u724C\uFF0C\u4EE4\u724C\u7F3A\u5931\u65F6\u9000\u56DE px\u3002\n *\n * \u7C7B\u540D\u5951\u7EA6\uFF08\u5206\u8282\u7EC4\u4EF6\u6309\u6B64\u6E05\u5355\u6D88\u8D39\uFF1B\u5747\u6309 CSS Modules \u5C40\u90E8\u7C7B\u5F15\u7528\uFF09\uFF1A\n *   sectionBody\u3001actions                                  \u2014\u2014 \u5206\u8282\u5BB9\u5668\u4E0E\u6B63\u6587\u672B\u5C3E\u52A8\u4F5C\u6761\n *   toolbar\u3001tabsRow                                      \u2014\u2014 \u5DE5\u5177\u680F\u4E0E\u8282\u5185\u57DF tab \u884C\n *   modes\u3001modeRow\u3001modeText                              \u2014\u2014 tab 2 \u7684\u5904\u7F6E\u65B9\u5F0F\u5355\u9009\n *   selectionBar\u3001list\u3001row\u3001rowSelected\u3001rowDisabled     \u2014\u2014 \u9009\u62E9\u6761\u4E0E\u5217\u8868\n *   rowMeta\u3001badge\u3001badgeRunning\u3001badgeBlank              \u2014\u2014 \u884C\u5185\u5143\u4FE1\u606F\u4E0E\u5FBD\u6807\n *   empty\u3001truncated\u3001muted                               \u2014\u2014 \u7A7A\u6001 / \u622A\u65AD / \u8FC7\u7A0B\u6587\u6848\n *   summary\u3001rejected                                     \u2014\u2014 \u786E\u8BA4\u9636\u6BB5\u7684\u6458\u8981\u4E0E\u88AB\u62D2\u6E05\u5355\n *   result\u3001warnings\u3001failure\u3001detail\u3001danger             \u2014\u2014 \u7ED3\u679C\u533A\u4E0E\u5E95\u90E8\u5371\u9669\u6309\u94AE\n *\n * \u6784\u5EFA\u671F\u7C7B\u540D\u7531\u6784\u5EFA\u811A\u672C\u7684 cssModulesPlugin \u91CD\u5199\u4E3A `wux_<local>_<hash>`\u3002\n */\n\n/* \u2014\u2014 \u5206\u8282\u5BB9\u5668\uFF1A\u7EB5\u5411 flex\uFF0C\u6B63\u6587\u4E0E\u52A8\u4F5C\u6761\u4E4B\u95F4\u4E0D\u7559\u9690\u5F0F\u95F4\u9699 \u2014\u2014 */\n.wux_sectionBody_0f32fb {\n  box-sizing: border-box;\n  display: flex;\n  flex-direction: column;\n  gap: 0;\n  min-width: 0;\n  /* \u5185\u5BB9\u5217\u7531 holder \u7684\u9875\u9762\u8D1F\u8D23\u6EDA\u52A8\uFF1B\u8FD9\u91CC\u53EA\u4FDD\u8BC1 flex \u6536\u7F29\u4E0D\u6491\u7834\u5361\u7247\u3002 */\n  min-height: 0;\n}\n\n/* \u2014\u2014 \u884C\u5185\u52A8\u4F5C\u6761\uFF1A\u5206\u8282\u6CA1\u6709\u72EC\u7ACB footer\uFF0C\u9636\u6BB5\u52A8\u4F5C\u8DDF\u5728\u6B63\u6587\u4E4B\u540E\u3001\u53F3\u4E0B\u5BF9\u9F50 \u2014\u2014 */\n.wux_actions_0f32fb {\n  display: flex;\n  flex-wrap: wrap;\n  justify-content: flex-end;\n  gap: 8px;\n  margin-top: 12px;\n  padding-top: 12px;\n  border-top: 1px solid var(--dsw-alias-border-l1, gray);\n}\n\n/* \u2014\u2014 \u5DE5\u5177\u680F\uFF1A\u53EA\u5269\u8282\u5185\u4E09\u4E2A\u57DF tab\uFF08\u5DE5\u4F5C\u533A\u9009\u62E9\u5F52\u9875\u9762\u5DE5\u5177\u680F\u7684\u9009\u62E9\u6846\uFF0C\u6362\u5DE5\u4F5C\u533A = \u5206\u8282\u91CD\u6302\uFF09 \u2014\u2014 */\n.wux_toolbar_0f32fb {\n  display: flex;\n  flex-direction: column;\n  gap: 10px;\n  margin: 0 0 12px;\n}\n\n/* SegmentedTabs \u7684\u653E\u7F6E\u7C7B\uFF1A\u4E09\u6BB5\u7B49\u5206\uFF0C\u4E0E\u5DE5\u5177\u680F\u540C\u5BBD\u3002 */\n.wux_tabsRow_0f32fb {\n  width: 100%;\n  min-width: 0;\n}\n\n/* \u2014\u2014 tab 2 \u7684\u5904\u7F6E\u65B9\u5F0F\u5355\u9009\uFF1A\u590D\u7528\u65E2\u6709\u5904\u7F6E\u65B9\u5F0F\u6587\u6848\u952E\uFF0C\u4F46\u7ED3\u6784\u5728\u672C\u6A21\u5757\u5185\u81EA\u7ED8 \u2014\u2014 */\n/* fieldset \u81EA\u5E26\u8FB9\u6846\u4E0E\u5185\u8FB9\u8DDD\uFF0C\u8FD9\u91CC\u5168\u90E8\u62B9\u5E73\u53EA\u7559\u5206\u7EC4\u95F4\u8DDD\u3002 */\n.wux_modes_0f32fb {\n  margin: 0 0 10px;\n  padding: 0;\n  border: 0;\n  min-inline-size: 0;\n}\n\n/* legend \u662F\u539F\u751F\u8BED\u4E49\u5143\u7D20\u3001\u6CA1\u6709 className\uFF0C\u53EA\u80FD\u5728\u540E\u4EE3\u91CC\u5BF9\u9F50\u5206\u533A\u6807\u9898\u7684\u5B57\u7EA7\u3002 */\n.wux_modes_0f32fb legend {\n  display: block;\n  margin: 0 0 4px;\n  padding: 0;\n  color: var(--dsw-alias-label-secondary, currentColor);\n  font-size: 13px;\n  font-weight: 600;\n  line-height: 20px;\n}\n\n/* \u9009\u9879\u884C\uFF1A\u6574\u884C\u662F label\uFF0C\u70B9\u6587\u5B57\u7B49\u4E8E\u70B9 radio\u3002 */\n.wux_modeRow_0f32fb {\n  display: flex;\n  align-items: flex-start;\n  gap: 8px;\n  padding: 2px 0;\n  cursor: pointer;\n}\n\n/* \u539F\u751F radio \u53EA\u6539\u5F3A\u8C03\u8272\uFF0C\u5C3A\u5BF8\u4E0E\u547D\u4E2D\u533A\u4FDD\u6301\u7CFB\u7EDF\u9ED8\u8BA4\u3002 */\n.wux_modeRow_0f32fb input {\n  flex: none;\n  margin: 3px 0 0;\n  accent-color: var(--dsw-alias-state-business-primary, currentColor);\n}\n\n.wux_modeText_0f32fb {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n  color: var(--dsw-alias-label-primary, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n/* \u6267\u884C\u4E2D\uFF08fieldset disabled\uFF09\uFF1A\u6574\u7EC4\u964D\u7EA7\u5230\u5F31\u5316\u8272\uFF0C\u884C\u4E5F\u4E0D\u518D\u663E\u793A\u53EF\u70B9\u624B\u52BF\u3002 */\n.wux_modes_0f32fb:disabled .wux_modeRow_0f32fb {\n  cursor: default;\n}\n\n.wux_modes_0f32fb:disabled .wux_modeText_0f32fb {\n  color: var(--dsw-alias-label-tertiary, currentColor);\n}\n\n/* \u2014\u2014 \u9009\u62E9\u6761\uFF1A\u5168\u9009 / \u5DF2\u9009\u8BA1\u6570 / \u6E05\u7A7A\uFF0C\u4E0E\u5217\u8868\u4E4B\u95F4\u7528\u4E00\u6761\u7EC6\u7EBF\u5206\u9694 \u2014\u2014 */\n.wux_selectionBar_0f32fb {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin: 0 0 8px;\n  padding: 8px 0;\n  border-top: 1px solid var(--dsw-alias-border-l1, gray);\n  border-bottom: 1px solid var(--dsw-alias-border-l1, gray);\n  color: var(--dsw-alias-label-secondary, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n/* \u8BA1\u6570\u9760\u53F3\uFF0C\u300C\u6E05\u7A7A\u300D\u7D27\u968F\u5176\u540E\uFF1B\u9009\u62E9\u6761\u53EA\u6709\u4E00\u4E2A span\uFF0C\u4E0D\u4F1A\u8BEF\u4F24\u6309\u94AE\u3002 */\n.wux_selectionBar_0f32fb > span {\n  min-width: 0;\n  margin-left: auto;\n}\n\n/* \u2014\u2014 \u5217\u8868\u4E0E\u884C\uFF1A\u884C\u5185\u662F Checkbox\uFF08\u6807\u9898\u5373 label\uFF09+ \u5143\u4FE1\u606F + \u5FBD\u6807 \u2014\u2014 */\n.wux_list_0f32fb {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n  margin: 0;\n  padding: 0;\n  list-style: none;\n  /* \u6761\u6570\u4E0A\u9650\u7531 model \u622A\u65AD\uFF0C\u8FD9\u91CC\u53EA\u515C\u4F4F\u89C6\u53E3\u9AD8\u5EA6\uFF1A\u5217\u8868\u81EA\u5DF1\u6EDA\u52A8\uFF0CModal \u4E0D\u6574\u4F53\u957F\u9AD8\u3002 */\n  max-height: min(46vh, 420px);\n  overflow-y: auto;\n  overscroll-behavior: contain;\n}\n\n.wux_row_0f32fb {\n  display: flex;\n  align-items: flex-start;\n  gap: 8px;\n  padding: 6px 8px;\n  border-radius: var(--dsw-radius-sm, 6px);\n}\n\n.wux_row_0f32fb:hover {\n  background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentColor 6%, transparent));\n}\n\n/* \u9996\u5217\u662F Checkbox\uFF1A\u5403\u6389\u5269\u4F59\u5BBD\u5EA6\uFF0C\u5143\u4FE1\u606F\u4E0E\u5FBD\u6807\u6309\u81EA\u8EAB\u6700\u5927\u5BBD\u5EA6\u9760\u53F3\u6392\u5E03\u3002 */\n.wux_row_0f32fb > :first-child {\n  flex: 1 1 auto;\n  min-width: 0;\n}\n\n/* \u5DF2\u9009\u884C\uFF1A\u54C1\u724C\u8272\u7684\u6D45\u5C42\u5E95\uFF0C\u52FE\u9009\u6001\u4E0E\u6574\u884C\u5E95\u8272\u4E92\u4E0D\u62A2\u6CE8\u610F\u529B\u3002 */\n.wux_rowSelected_0f32fb,\n.wux_rowSelected_0f32fb:hover {\n  background: var(--dsw-alias-state-business-tertiary, color-mix(in srgb, currentColor 10%, transparent));\n}\n\n/* \u8FD0\u884C\u4E2D\u7684\u884C\u4E0D\u53EF\u52FE\u9009\uFF1A\u53D6\u6D88\u60AC\u505C\u53CD\u9988\uFF0C\u52FE\u9009\u6846\u81EA\u8EAB\u7684\u7981\u7528\u964D\u7EA7\u7531 Checkbox \u8D1F\u8D23\u3002 */\n.wux_rowDisabled_0f32fb,\n.wux_rowDisabled_0f32fb:hover {\n  background: none;\n  cursor: default;\n}\n\n/* \u884C\u5185\u5143\u4FE1\u606F\uFF08\u65F6\u95F4 / \u4F53\u79EF\uFF09\uFF1A\u7B49\u5BBD\u6570\u5B57\u5BF9\u9F50\uFF0C\u5F31\u5316\u5230\u8F85\u52A9\u5C42\u7EA7\u3002 */\n.wux_rowMeta_0f32fb {\n  flex: none;\n  align-self: center;\n  color: var(--dsw-alias-label-tertiary, currentColor);\n  font-size: 12px;\n  line-height: 18px;\n  white-space: nowrap;\n  font-variant-numeric: tabular-nums;\n}\n\n/* \u5FBD\u6807\uFF1A\u884C\u5185\u72B6\u6001\u80F6\u56CA\uFF0C\u5E95\u4E0E\u63CF\u8FB9\u90FD\u53D6\u5C42\u53E0\u8272\uFF0C\u4E0D\u5F15\u5165\u7B2C\u4E09\u79CD\u5F3A\u8C03\u8272\u3002 */\n.wux_badge_0f32fb {\n  flex: none;\n  align-self: center;\n  padding: 0 6px;\n  border: 0.5px solid var(--dsw-alias-border-l2, gray);\n  border-radius: var(--dsw-radius-sm, 6px);\n  background: var(--dsw-alias-bg-layer-3, color-mix(in srgb, currentColor 8%, transparent));\n  color: var(--dsw-alias-label-secondary, currentColor);\n  font-size: 12px;\n  line-height: 18px;\n  white-space: nowrap;\n}\n\n/* \u300C\u8FD0\u884C\u4E2D\u300D\u662F\u884C\u4E0D\u53EF\u52FE\u9009\u7684\u552F\u4E00\u539F\u56E0\uFF0C\u7528\u72B6\u6001\u8272\u800C\u4E0D\u662F\u666E\u901A\u5F31\u5316\u8272\u3002 */\n.wux_badgeRunning_0f32fb {\n  color: var(--dsw-alias-state-success-primary, currentColor);\n}\n\n/* \u300C\u7A7A\u767D\u300D\u53EA\u662F\u6CA1\u6709\u5185\u5BB9\uFF0C\u4E0D\u662F\u5F02\u5E38\uFF1A\u4FDD\u6301\u5F31\u5316\uFF0C\u4E0D\u62A5\u8B66\u3002 */\n.wux_badgeBlank_0f32fb {\n  color: var(--dsw-alias-label-tertiary, currentColor);\n}\n\n/* \u2014\u2014 \u7A7A\u6001 / \u622A\u65AD / \u8FC7\u7A0B\u6587\u6848 \u2014\u2014 */\n.wux_empty_0f32fb {\n  margin: 0;\n  padding: 20px 0;\n  color: var(--dsw-alias-label-tertiary, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n  text-align: center;\n}\n\n/* \u5217\u8868\u622A\u65AD\u63D0\u793A\uFF1A\u8FD9\u662F\u9700\u8981\u7528\u6237\u52A8\u624B\u7684\u4E8B\u5B9E\uFF0C\u7528\u8B66\u544A\u8272\u800C\u4E0D\u662F\u7070\u5B57\u3002 */\n.wux_truncated_0f32fb {\n  margin: 8px 0 0;\n  color: var(--dsw-alias-state-warn-label, currentColor);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u8FDB\u884C\u4E2D\u7B49\u8FC7\u7A0B\u6587\u6848\uFF1A\u4F4E\u8C03\uFF0C\u4E0D\u4E0E\u64CD\u4F5C\u5BF9\u8C61\u62A2\u6CE8\u610F\u529B\u3002 */\n.wux_muted_0f32fb {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n/* \u2014\u2014 \u786E\u8BA4\u9636\u6BB5\uFF1A\u6458\u8981\uFF08\u76EE\u6807\u6570 / \u7EA7\u8054\u6570 / \u4F53\u79EF / \u5F52\u6863\u6839\uFF09\u4E0E\u88AB\u62D2\u6E05\u5355 \u2014\u2014 */\n.wux_summary_0f32fb {\n  margin: 0 0 12px;\n  color: var(--dsw-alias-label-secondary, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n.wux_summary_0f32fb p {\n  margin: 0 0 4px;\n}\n\n.wux_summary_0f32fb ul {\n  margin: 0;\n  padding-left: 18px;\n}\n\n.wux_summary_0f32fb li + li {\n  margin-top: 2px;\n}\n\n/* \u88AB\u62D2\u6E05\u5355\uFF1A\u5BBF\u4E3B\u56DE\u7EDD\u7684\u6761\u76EE\uFF0C\u6267\u884C\u6309\u94AE\u4F1A\u628A\u8FD9\u4E9B\u6392\u9664\u5728\u672C\u6279\u4E4B\u5916\u3002 */\n.wux_rejected_0f32fb {\n  margin: 0 0 12px;\n  color: var(--dsw-alias-state-warn-label, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n.wux_rejected_0f32fb ul {\n  margin: 4px 0 0;\n  padding-left: 18px;\n}\n\n.wux_rejected_0f32fb li {\n  word-break: break-word;\n}\n\n/* \u2014\u2014 \u7ED3\u679C\u533A\uFF1A\u6210\u529F\u8BA1\u6570 + \u9010\u9879\u5931\u8D25 + \u534A\u5931\u8D25 warnings \u2014\u2014 */\n.wux_result_0f32fb {\n  margin: 0;\n  color: var(--dsw-alias-label-primary, currentColor);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n.wux_result_0f32fb p {\n  margin: 0 0 6px;\n}\n\n.wux_result_0f32fb ul {\n  margin: 0;\n  padding-left: 18px;\n}\n\n.wux_result_0f32fb li {\n  word-break: break-word;\n}\n\n/* warnings \u662F\u5BBF\u4E3B\u7ED9\u7684\u300C\u8DEF\u5F84: \u539F\u56E0\u300D\u673A\u5668\u53EF\u8BFB\u4E32\uFF0C\u7B49\u5BBD\u5B57\u4F53\u539F\u6837\u5217\u51FA\u3002 */\n.wux_warnings_0f32fb {\n  margin: 12px 0 0;\n  color: var(--dsw-alias-label-secondary, currentColor);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n.wux_warnings_0f32fb p {\n  margin: 0 0 4px;\n}\n\n.wux_warnings_0f32fb ul {\n  margin: 0;\n  padding-left: 18px;\n}\n\n.wux_warnings_0f32fb code {\n  font-family: var(--ds-font-family-code, monospace);\n  word-break: break-all;\n}\n\n/* \u6574\u5355\u5931\u8D25\uFF1A\u9519\u8BEF\u8272\u53EA\u7ED9\u771F\u6B63\u5931\u8D25\u7684\u90A3\u4E00\u53E5\u3002 */\n.wux_failure_0f32fb {\n  margin: 0;\n  color: var(--dsw-alias-state-error-primary, crimson);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n/* \u5BBF\u4E3B\u515C\u5E95\u8BF4\u660E\uFF08\u672A\u672C\u5730\u5316\uFF09\uFF1A\u6BD4\u5931\u8D25\u539F\u56E0\u4F4E\u4E00\u5C42\u3002 */\n.wux_detail_0f32fb {\n  margin: 6px 0 0;\n  color: var(--dsw-alias-label-tertiary, currentColor);\n  font-size: 12px;\n  line-height: 18px;\n  word-break: break-word;\n}\n\n/* \u2014\u2014 \u5371\u9669\u6309\u94AE\uFF1AButton \u6CA1\u6709 danger variant\uFF0Ctab 3 \u7684\u300C\u6C38\u4E45\u5220\u9664\u6240\u9009\u300D\u7528\u5B83\u4E0A\u8272 \u2014\u2014 */\n.wux_danger_0f32fb {\n  color: var(--dsw-alias-label-primary-foreground, white);\n  background: var(--dsw-alias-state-error-primary, crimson);\n}\n\n.wux_danger_0f32fb:hover:not(:disabled) {\n  background: var(--dsw-alias-state-error-secondary, indianred);\n}\n";
+		var cssText4 = "/*\n * \u4F1A\u8BDD\u7BA1\u7406\u5206\u8282\u7684\u6837\u5F0F\uFF08\u300C\u5DE5\u4F5C\u533A\u914D\u7F6E\u300D\u9875\u9762\u91CC\u7684\u5206\u8282\u5361\u7247\u4E3B\u4F53\uFF09\u3002\n *\n * \u53EA\u8865\u5B98\u65B9 primitives \u7ED9\u4E0D\u4E86\u7684\u4E1C\u897F\uFF1A\u5206\u8282\u5BB9\u5668\u4E0E\u884C\u5185\u52A8\u4F5C\u6761\u3001\u5DE5\u5177\u680F\uFF08\u8282\u5185\u57DF tab \u884C\uFF09\u3001\n * \u5217\u8868\u884C\u4E0E\u884C\u5185\u5FBD\u6807\u3001\u9009\u62E9\u6761\u3001\u786E\u8BA4\u4E0E\u7ED3\u679C\u533A\u7684\u6587\u5B57\u5C42\u7EA7\u3002\u9875\u9762\u5916\u58F3\uFF08\u9875\u5934\u3001\u5DE5\u5177\u680F\u3001\u9875\u7EA7\n * tab\uFF09\u7531 holder \u7684\u9875\u9762\u8D1F\u8D23\uFF0CButton / SegmentedTabs / Checkbox \u7684\u9AA8\u67B6\u3001\u5C3A\u5BF8\u4E0E\u7126\u70B9\u73AF\n * \u5168\u90E8\u7531 primitives \u8D1F\u8D23\uFF0C\u8FD9\u91CC\u4E0D\u590D\u5236\u5B83\u4EEC\u7684\u914D\u8272\uFF0C\u4E5F\u4E0D\u4E0E\u5220\u9664\u786E\u8BA4\u5BF9\u8BDD\u6846\u7684\u6837\u5F0F\u6587\u4EF6\u6DF7\u7528\n * \uFF08\u4E24\u5904\u89C6\u89C9\u8BED\u4E49\u4E0D\u540C\uFF0C\u4E14 bundle \u7684\u6837\u5F0F\u6CE8\u5165\u5668\u6309\u6A21\u5757\u5404\u81EA\u8BA1\u6570\uFF09\u3002\n *\n * \u989C\u8272\u7EAA\u5F8B\uFF1A\u6BCF\u4E00\u5904\u989C\u8272\u90FD\u662F `var(--dsw-alias-*, <\u515C\u5E95>, )` \u5F62\u6001\u2014\u2014\u515C\u5E95\u503C\u53EA\u7528 CSS \u5173\u952E\u5B57\n * \uFF08`currentColor`\u3001\u5177\u540D\u8272\uFF09\u4E0E `color-mix()`\uFF0C\u4E0D\u5199\u6B7B\u5177\u4F53\u8272\u503C\u3002\u8FD9\u6837\u4EE4\u724C\u6574\u4F53\u7F3A\u5E2D\u65F6\u6700\u574F\n * \u9000\u5316\u6210\u300C\u5F53\u524D\u6587\u5B57\u8272\u7684\u6DF1\u6D45\u53D8\u5316\u300D\uFF0C\u800C\u4E0D\u662F\u67D0\u4E00\u79CD\u4E3B\u9898\u4E0B\u7684\u56FA\u5B9A\u989C\u8272\uFF08\u6DF1\u8272\u4E3B\u9898\u4E0B\u4E0D\u4F1A\u51FA\u73B0\n * \u767D\u5E95\u767D\u5B57\uFF09\u3002\u5C3A\u5BF8\u4E0E\u5706\u89D2\u540C\u6837\u4F18\u5148\u53D6\u4EE4\u724C\uFF0C\u4EE4\u724C\u7F3A\u5931\u65F6\u9000\u56DE px\u3002\n *\n * \u7C7B\u540D\u5951\u7EA6\uFF08\u5206\u8282\u7EC4\u4EF6\u6309\u6B64\u6E05\u5355\u6D88\u8D39\uFF1B\u5747\u6309 CSS Modules \u5C40\u90E8\u7C7B\u5F15\u7528\uFF09\uFF1A\n *   sectionBody\u3001actions                                  \u2014\u2014 \u5206\u8282\u5BB9\u5668\u4E0E\u6B63\u6587\u672B\u5C3E\u52A8\u4F5C\u6761\n *   toolbar\u3001tabsRow\u3001tabCount                            \u2014\u2014 \u5DE5\u5177\u680F\u3001\u8282\u5185\u57DF tab \u884C\u4E0E\u57DF\u8BA1\u6570\u5FBD\u6807\n *   modes\u3001modeRow\u3001modeText                              \u2014\u2014 tab 2 \u7684\u5904\u7F6E\u65B9\u5F0F\u5355\u9009\n *   filterRow\u3001filterInput                                \u2014\u2014 \u57DF\u5185\u8FC7\u6EE4\u6846\uFF08\u8F93\u5165\u6846\u5916\u5C42 span\uFF09\n *   migratedBar\u3001archiveRoot                              \u2014\u2014 \u8FC1\u79FB\u5DE5\u5177\u680F\u4E0E\u5F52\u6863\u6839\u8DEF\u5F84\u884C\n *   selectionBar\u3001list\u3001row\u3001rowSelected\u3001rowDisabled     \u2014\u2014 \u9009\u62E9\u6761\u4E0E\u5217\u8868\n *   rowBadges\u3001rowMetaRow                                 \u2014\u2014 \u884C\u5185\u4E24\u884C\u7ED3\u6784\uFF1A\u5FBD\u6807\u7EC4\u4E0E\u5F31\u5316 meta \u6B21\u884C\n *   rowMeta\u3001badge\u3001badgeRunning\u3001badgeBlank\u3001badgeFork    \u2014\u2014 \u884C\u5185\u5143\u4FE1\u606F\u4E0E\u5FBD\u6807\u65CF\n *   empty\u3001truncated\u3001muted                               \u2014\u2014 \u7A7A\u6001 / \u622A\u65AD / \u8FC7\u7A0B\u6587\u6848\n *   summary\u3001rejected                                     \u2014\u2014 \u786E\u8BA4\u9636\u6BB5\u7684\u6458\u8981\u4E0E\u88AB\u62D2\u6E05\u5355\n *   result\u3001warnings\u3001failure\u3001detail\u3001danger             \u2014\u2014 \u7ED3\u679C\u533A\u4E0E\u5E95\u90E8\u5371\u9669\u6309\u94AE\n *\n * \u6784\u5EFA\u671F\u7C7B\u540D\u7531\u6784\u5EFA\u811A\u672C\u7684 cssModulesPlugin \u91CD\u5199\u4E3A `wux_<local>_<hash>`\u3002\n */\n\n/* \u2014\u2014 \u5206\u8282\u5BB9\u5668\uFF1A\u7EB5\u5411 flex\uFF0C\u6B63\u6587\u4E0E\u52A8\u4F5C\u6761\u4E4B\u95F4\u4E0D\u7559\u9690\u5F0F\u95F4\u9699 \u2014\u2014 */\n.wux_sectionBody_0f32fb {\n  box-sizing: border-box;\n  display: flex;\n  flex-direction: column;\n  gap: 0;\n  min-width: 0;\n  /* \u5185\u5BB9\u5217\u7531 holder \u7684\u9875\u9762\u8D1F\u8D23\u6EDA\u52A8\uFF1B\u8FD9\u91CC\u53EA\u4FDD\u8BC1 flex \u6536\u7F29\u4E0D\u6491\u7834\u5361\u7247\u3002 */\n  min-height: 0;\n}\n\n/* \u2014\u2014 \u884C\u5185\u52A8\u4F5C\u6761\uFF1A\u5206\u8282\u6CA1\u6709\u72EC\u7ACB footer\uFF0C\u9636\u6BB5\u52A8\u4F5C\u8DDF\u5728\u6B63\u6587\u4E4B\u540E\u3001\u53F3\u4E0B\u5BF9\u9F50 \u2014\u2014 */\n.wux_actions_0f32fb {\n  display: flex;\n  flex-wrap: wrap;\n  justify-content: flex-end;\n  gap: 8px;\n  margin-top: 12px;\n  padding-top: 12px;\n  border-top: 1px solid var(--dsw-alias-border-l1, gray);\n}\n\n/* \u2014\u2014 \u5DE5\u5177\u680F\uFF1A\u53EA\u5269\u8282\u5185\u4E09\u4E2A\u57DF tab\uFF08\u5DE5\u4F5C\u533A\u9009\u62E9\u5F52\u9875\u9762\u5DE5\u5177\u680F\u7684\u9009\u62E9\u6846\uFF0C\u6362\u5DE5\u4F5C\u533A = \u5206\u8282\u91CD\u6302\uFF09 \u2014\u2014 */\n.wux_toolbar_0f32fb {\n  display: flex;\n  flex-direction: column;\n  gap: 10px;\n  margin: 0 0 12px;\n}\n\n/* SegmentedTabs \u7684\u653E\u7F6E\u7C7B\uFF1A\u4E09\u6BB5\u7B49\u5206\uFF0C\u4E0E\u5DE5\u5177\u680F\u540C\u5BBD\u3002 */\n.wux_tabsRow_0f32fb {\n  width: 100%;\n  min-width: 0;\n}\n\n/* \u57DF\u8BA1\u6570\u5FBD\u6807\uFF1A\u8DDF\u5728 tab \u6587\u5B57\u540E\u9762\u7684\u5C0F\u6570\u5B57\uFF08aria-hidden\uFF0C\u4E0D\u8FDB\u53EF\u8BBF\u95EE\u540D\uFF09\u3002 */\n.wux_tabCount_0f32fb {\n  margin-left: 6px;\n  color: var(--dsw-alias-label-tertiary, currentColor);\n  font-variant-numeric: tabular-nums;\n}\n\n/* \u2014\u2014 \u57DF\u5185\u8FC7\u6EE4\u6846\uFF1A\u9009\u62E9\u6761\u4E4B\u524D\u7684\u4E00\u884C\u641C\u7D22\u8F93\u5165\uFF0C\u5360\u6EE1\u5DE5\u5177\u680F\u4E0E\u5217\u8868\u4E4B\u95F4\u7684\u7A7A\u9699 \u2014\u2014 */\n.wux_filterRow_0f32fb {\n  display: flex;\n  gap: 8px;\n  margin: 0 0 8px;\n}\n\n/* Input \u7684 className \u843D\u5728\u5916\u5C42 span\uFF08\u4E0E\u771F\u7EC4\u4EF6 / \u6D4B\u8BD5\u66FF\u8EAB\u540C\u5F62\uFF09\uFF0C\u8FD9\u91CC\u53EA\u7ED9\u5B83\u4F38\u7F29\u6027\u3002 */\n.wux_filterInput_0f32fb {\n  flex: 1 1 auto;\n  min-width: 0;\n}\n\n/* \u2014\u2014 \u8FC1\u79FB\u5DE5\u5177\u680F\uFF1A\u5237\u65B0\u6309\u94AE + \u5F52\u6863\u6839\u8DEF\u5F84\uFF08\u53EA\u5728\u5DF2\u8FC1\u79FB tab \u7684\u9009\u62E9\u9636\u6BB5\u51FA\u73B0\uFF09 \u2014\u2014 */\n.wux_migratedBar_0f32fb {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin: 0 0 8px;\n}\n\n/* \u5F52\u6863\u6839\u8DEF\u5F84\u884C\uFF1A\u7B49\u5BBD\u5B57\u4F53\u7684\u5B8C\u6574\u8DEF\u5F84\uFF0C\u60AC\u505C title \u4E5F\u662F\u5B83\uFF0C\u8FC7\u957F\u6298\u884C\u4E0D\u65AD\u8BCD\u3002 */\n.wux_archiveRoot_0f32fb {\n  flex: 1 1 auto;\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary, currentColor);\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  line-height: 18px;\n  word-break: break-all;\n}\n\n/* \u2014\u2014 tab 2 \u7684\u5904\u7F6E\u65B9\u5F0F\u5355\u9009\uFF1A\u590D\u7528\u65E2\u6709\u5904\u7F6E\u65B9\u5F0F\u6587\u6848\u952E\uFF0C\u4F46\u7ED3\u6784\u5728\u672C\u6A21\u5757\u5185\u81EA\u7ED8 \u2014\u2014 */\n/* fieldset \u81EA\u5E26\u8FB9\u6846\u4E0E\u5185\u8FB9\u8DDD\uFF0C\u8FD9\u91CC\u5168\u90E8\u62B9\u5E73\u53EA\u7559\u5206\u7EC4\u95F4\u8DDD\u3002 */\n.wux_modes_0f32fb {\n  margin: 0 0 10px;\n  padding: 0;\n  border: 0;\n  min-inline-size: 0;\n}\n\n/* legend \u662F\u539F\u751F\u8BED\u4E49\u5143\u7D20\u3001\u6CA1\u6709 className\uFF0C\u53EA\u80FD\u5728\u540E\u4EE3\u91CC\u5BF9\u9F50\u5206\u533A\u6807\u9898\u7684\u5B57\u7EA7\u3002 */\n.wux_modes_0f32fb legend {\n  display: block;\n  margin: 0 0 4px;\n  padding: 0;\n  color: var(--dsw-alias-label-secondary, currentColor);\n  font-size: 13px;\n  font-weight: 600;\n  line-height: 20px;\n}\n\n/* \u9009\u9879\u884C\uFF1A\u6574\u884C\u662F label\uFF0C\u70B9\u6587\u5B57\u7B49\u4E8E\u70B9 radio\u3002 */\n.wux_modeRow_0f32fb {\n  display: flex;\n  align-items: flex-start;\n  gap: 8px;\n  padding: 2px 0;\n  cursor: pointer;\n}\n\n/* \u539F\u751F radio \u53EA\u6539\u5F3A\u8C03\u8272\uFF0C\u5C3A\u5BF8\u4E0E\u547D\u4E2D\u533A\u4FDD\u6301\u7CFB\u7EDF\u9ED8\u8BA4\u3002 */\n.wux_modeRow_0f32fb input {\n  flex: none;\n  margin: 3px 0 0;\n  accent-color: var(--dsw-alias-state-business-primary, currentColor);\n}\n\n.wux_modeText_0f32fb {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n  color: var(--dsw-alias-label-primary, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n/* \u6267\u884C\u4E2D\uFF08fieldset disabled\uFF09\uFF1A\u6574\u7EC4\u964D\u7EA7\u5230\u5F31\u5316\u8272\uFF0C\u884C\u4E5F\u4E0D\u518D\u663E\u793A\u53EF\u70B9\u624B\u52BF\u3002 */\n.wux_modes_0f32fb:disabled .wux_modeRow_0f32fb {\n  cursor: default;\n}\n\n.wux_modes_0f32fb:disabled .wux_modeText_0f32fb {\n  color: var(--dsw-alias-label-tertiary, currentColor);\n}\n\n/* \u2014\u2014 \u9009\u62E9\u6761\uFF1A\u5168\u9009 / \u5DF2\u9009\u8BA1\u6570 / \u6E05\u7A7A\uFF0C\u4E0E\u5217\u8868\u4E4B\u95F4\u7528\u4E00\u6761\u7EC6\u7EBF\u5206\u9694 \u2014\u2014 */\n.wux_selectionBar_0f32fb {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin: 0 0 8px;\n  padding: 8px 0;\n  border-top: 1px solid var(--dsw-alias-border-l1, gray);\n  border-bottom: 1px solid var(--dsw-alias-border-l1, gray);\n  color: var(--dsw-alias-label-secondary, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n/* \u8BA1\u6570\u9760\u53F3\uFF0C\u300C\u6E05\u7A7A\u300D\u7D27\u968F\u5176\u540E\uFF1B\u9009\u62E9\u6761\u53EA\u6709\u4E00\u4E2A span\uFF0C\u4E0D\u4F1A\u8BEF\u4F24\u6309\u94AE\u3002 */\n.wux_selectionBar_0f32fb > span {\n  min-width: 0;\n  margin-left: auto;\n}\n\n/* \u2014\u2014 \u5217\u8868\u4E0E\u884C\uFF1A\u884C\u5185\u662F Checkbox\uFF08\u6807\u9898\u5373 label\uFF09+ \u5143\u4FE1\u606F + \u5FBD\u6807 \u2014\u2014 */\n.wux_list_0f32fb {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n  margin: 0;\n  padding: 0;\n  list-style: none;\n  /* \u6761\u6570\u4E0A\u9650\u7531 model \u622A\u65AD\uFF0C\u8FD9\u91CC\u53EA\u515C\u4F4F\u89C6\u53E3\u9AD8\u5EA6\uFF1A\u5217\u8868\u81EA\u5DF1\u6EDA\u52A8\uFF0CModal \u4E0D\u6574\u4F53\u957F\u9AD8\u3002 */\n  max-height: min(46vh, 420px);\n  overflow-y: auto;\n  overscroll-behavior: contain;\n}\n\n.wux_row_0f32fb {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: flex-start;\n  gap: 2px 8px;\n  padding: 6px 8px;\n  border-radius: var(--dsw-radius-sm, 6px);\n}\n\n.wux_row_0f32fb:hover {\n  background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentColor 6%, transparent));\n}\n\n/* \u9996\u5217\u662F Checkbox\uFF1A0 \u57FA\u51C6\u5403\u6389\u5269\u4F59\u5BBD\u5EA6\uFF0C\u4FDD\u8BC1\u957F\u6807\u9898\u53EA\u538B\u7F29\u81EA\u8EAB\u3001\u4E0D\u628A\u5FBD\u6807\u6324\u5230\u6B21\u884C\u3002 */\n.wux_row_0f32fb > :first-child {\n  flex: 1 1 0;\n  min-width: 0;\n}\n\n/* \u5FBD\u6807\u7EC4\u9884\u7559\u4F4D\uFF08\u84DD\u56FE JSX \u5951\u7EA6\u672A\u5305\u88F9\u8BE5\u7C7B\uFF0C\u5FBD\u6807\u76EE\u524D\u9010\u4E2A\u5E73\u94FA\uFF1B\u4FDD\u7559\u7C7B\u4E0E\u5B9A\u4E49\u4F5C\u4E3A\u540E\u7EED\n * \u5206\u7EC4\u6539\u9020\u7684\u843D\u70B9\uFF0C\u4E0D\u5F71\u54CD\u65E2\u6709\u884C\u4E3A\uFF09\u3002 */\n.wux_rowBadges_0f32fb {\n  flex: none;\n  display: flex;\n  gap: 4px;\n  align-self: center;\n}\n\n/* \u6B21\u884C\u5F31\u5316 meta\uFF1A\u6574\u884C\u5BBD\u5EA6\u72EC\u5360\u4E00\u884C\uFF0C\u7F29\u8FDB\u5BF9\u9F50\u6807\u9898\u6587\u5B57\uFF08Checkbox \u52FE\u9009\u6846\u4E4B\u540E\u7684\u89C6\u89C9\u8D77\u70B9\uFF09\u3002 */\n.wux_rowMetaRow_0f32fb {\n  flex: 1 1 100%;\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 2px 10px;\n  min-width: 0;\n  padding-left: 22px;\n}\n\n/* \u5DF2\u9009\u884C\uFF1A\u54C1\u724C\u8272\u7684\u6D45\u5C42\u5E95\uFF0C\u52FE\u9009\u6001\u4E0E\u6574\u884C\u5E95\u8272\u4E92\u4E0D\u62A2\u6CE8\u610F\u529B\u3002 */\n.wux_rowSelected_0f32fb,\n.wux_rowSelected_0f32fb:hover {\n  background: var(--dsw-alias-state-business-tertiary, color-mix(in srgb, currentColor 10%, transparent));\n}\n\n/* \u8FD0\u884C\u4E2D\u7684\u884C\u4E0D\u53EF\u52FE\u9009\uFF1A\u53D6\u6D88\u60AC\u505C\u53CD\u9988\uFF0C\u52FE\u9009\u6846\u81EA\u8EAB\u7684\u7981\u7528\u964D\u7EA7\u7531 Checkbox \u8D1F\u8D23\u3002 */\n.wux_rowDisabled_0f32fb,\n.wux_rowDisabled_0f32fb:hover {\n  background: none;\n  cursor: default;\n}\n\n/* \u884C\u5185\u5143\u4FE1\u606F\uFF08\u65F6\u95F4 / \u4F53\u79EF\uFF09\uFF1A\u7B49\u5BBD\u6570\u5B57\u5BF9\u9F50\uFF0C\u5F31\u5316\u5230\u8F85\u52A9\u5C42\u7EA7\u3002 */\n.wux_rowMeta_0f32fb {\n  flex: none;\n  align-self: center;\n  color: var(--dsw-alias-label-tertiary, currentColor);\n  font-size: 12px;\n  line-height: 18px;\n  white-space: nowrap;\n  font-variant-numeric: tabular-nums;\n}\n\n/* \u5FBD\u6807\uFF1A\u884C\u5185\u72B6\u6001\u80F6\u56CA\uFF0C\u5E95\u4E0E\u63CF\u8FB9\u90FD\u53D6\u5C42\u53E0\u8272\uFF0C\u4E0D\u5F15\u5165\u7B2C\u4E09\u79CD\u5F3A\u8C03\u8272\u3002 */\n.wux_badge_0f32fb {\n  flex: none;\n  align-self: center;\n  padding: 0 6px;\n  border: 0.5px solid var(--dsw-alias-border-l2, gray);\n  border-radius: var(--dsw-radius-sm, 6px);\n  background: var(--dsw-alias-bg-layer-3, color-mix(in srgb, currentColor 8%, transparent));\n  color: var(--dsw-alias-label-secondary, currentColor);\n  font-size: 12px;\n  line-height: 18px;\n  white-space: nowrap;\n}\n\n/* \u300C\u8FD0\u884C\u4E2D\u300D\u662F\u884C\u4E0D\u53EF\u52FE\u9009\u7684\u552F\u4E00\u539F\u56E0\uFF0C\u7528\u72B6\u6001\u8272\u800C\u4E0D\u662F\u666E\u901A\u5F31\u5316\u8272\u3002 */\n.wux_badgeRunning_0f32fb {\n  color: var(--dsw-alias-state-success-primary, currentColor);\n}\n\n/* \u300C\u7A7A\u767D\u300D\u53EA\u662F\u6CA1\u6709\u5185\u5BB9\uFF0C\u4E0D\u662F\u5F02\u5E38\uFF1A\u4FDD\u6301\u5F31\u5316\uFF0C\u4E0D\u62A5\u8B66\u3002 */\n.wux_badgeBlank_0f32fb {\n  color: var(--dsw-alias-label-tertiary, currentColor);\n}\n\n/* \u300CFork\u300D\u6807\u8BC6\u6D3E\u751F\u4F1A\u8BDD\uFF1A\u4E0E\u666E\u901A\u5FBD\u6807\u540C\u5C42\uFF0C\u5F31\u5316\u5373\u53EF\uFF0C\u4E0D\u5F15\u5165\u65B0\u7684\u5F3A\u8C03\u8272\u3002 */\n.wux_badgeFork_0f32fb {\n  color: var(--dsw-alias-label-secondary, currentColor);\n}\n\n/* \u2014\u2014 \u7A7A\u6001 / \u622A\u65AD / \u8FC7\u7A0B\u6587\u6848 \u2014\u2014 */\n.wux_empty_0f32fb {\n  margin: 0;\n  padding: 20px 0;\n  color: var(--dsw-alias-label-tertiary, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n  text-align: center;\n}\n\n/* \u5217\u8868\u622A\u65AD\u63D0\u793A\uFF1A\u8FD9\u662F\u9700\u8981\u7528\u6237\u52A8\u624B\u7684\u4E8B\u5B9E\uFF0C\u7528\u8B66\u544A\u8272\u800C\u4E0D\u662F\u7070\u5B57\u3002 */\n.wux_truncated_0f32fb {\n  margin: 8px 0 0;\n  color: var(--dsw-alias-state-warn-label, currentColor);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u8FDB\u884C\u4E2D\u7B49\u8FC7\u7A0B\u6587\u6848\uFF1A\u4F4E\u8C03\uFF0C\u4E0D\u4E0E\u64CD\u4F5C\u5BF9\u8C61\u62A2\u6CE8\u610F\u529B\u3002 */\n.wux_muted_0f32fb {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n/* \u2014\u2014 \u786E\u8BA4\u9636\u6BB5\uFF1A\u6458\u8981\uFF08\u76EE\u6807\u6570 / \u7EA7\u8054\u6570 / \u4F53\u79EF / \u5F52\u6863\u6839\uFF09\u4E0E\u88AB\u62D2\u6E05\u5355 \u2014\u2014 */\n.wux_summary_0f32fb {\n  margin: 0 0 12px;\n  color: var(--dsw-alias-label-secondary, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n.wux_summary_0f32fb p {\n  margin: 0 0 4px;\n}\n\n.wux_summary_0f32fb ul {\n  margin: 0;\n  padding-left: 18px;\n}\n\n.wux_summary_0f32fb li + li {\n  margin-top: 2px;\n}\n\n/* \u88AB\u62D2\u6E05\u5355\uFF1A\u5BBF\u4E3B\u56DE\u7EDD\u7684\u6761\u76EE\uFF0C\u6267\u884C\u6309\u94AE\u4F1A\u628A\u8FD9\u4E9B\u6392\u9664\u5728\u672C\u6279\u4E4B\u5916\u3002 */\n.wux_rejected_0f32fb {\n  margin: 0 0 12px;\n  color: var(--dsw-alias-state-warn-label, currentColor);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n.wux_rejected_0f32fb ul {\n  margin: 4px 0 0;\n  padding-left: 18px;\n}\n\n.wux_rejected_0f32fb li {\n  word-break: break-word;\n}\n\n/* \u2014\u2014 \u7ED3\u679C\u533A\uFF1A\u6210\u529F\u8BA1\u6570 + \u9010\u9879\u5931\u8D25 + \u534A\u5931\u8D25 warnings \u2014\u2014 */\n.wux_result_0f32fb {\n  margin: 0;\n  color: var(--dsw-alias-label-primary, currentColor);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n.wux_result_0f32fb p {\n  margin: 0 0 6px;\n}\n\n.wux_result_0f32fb ul {\n  margin: 0;\n  padding-left: 18px;\n}\n\n.wux_result_0f32fb li {\n  word-break: break-word;\n}\n\n/* warnings \u662F\u5BBF\u4E3B\u7ED9\u7684\u300C\u8DEF\u5F84: \u539F\u56E0\u300D\u673A\u5668\u53EF\u8BFB\u4E32\uFF0C\u7B49\u5BBD\u5B57\u4F53\u539F\u6837\u5217\u51FA\u3002 */\n.wux_warnings_0f32fb {\n  margin: 12px 0 0;\n  color: var(--dsw-alias-label-secondary, currentColor);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n.wux_warnings_0f32fb p {\n  margin: 0 0 4px;\n}\n\n.wux_warnings_0f32fb ul {\n  margin: 0;\n  padding-left: 18px;\n}\n\n.wux_warnings_0f32fb code {\n  font-family: var(--ds-font-family-code, monospace);\n  word-break: break-all;\n}\n\n/* \u6574\u5355\u5931\u8D25\uFF1A\u9519\u8BEF\u8272\u53EA\u7ED9\u771F\u6B63\u5931\u8D25\u7684\u90A3\u4E00\u53E5\u3002 */\n.wux_failure_0f32fb {\n  margin: 0;\n  color: var(--dsw-alias-state-error-primary, crimson);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n/* \u5BBF\u4E3B\u515C\u5E95\u8BF4\u660E\uFF08\u672A\u672C\u5730\u5316\uFF09\uFF1A\u6BD4\u5931\u8D25\u539F\u56E0\u4F4E\u4E00\u5C42\u3002 */\n.wux_detail_0f32fb {\n  margin: 6px 0 0;\n  color: var(--dsw-alias-label-tertiary, currentColor);\n  font-size: 12px;\n  line-height: 18px;\n  word-break: break-word;\n}\n\n/* \u2014\u2014 \u5371\u9669\u6309\u94AE\uFF1AButton \u6CA1\u6709 danger variant\uFF0Ctab 3 \u7684\u300C\u6C38\u4E45\u5220\u9664\u6240\u9009\u300D\u7528\u5B83\u4E0A\u8272 \u2014\u2014 */\n.wux_danger_0f32fb {\n  color: var(--dsw-alias-label-primary-foreground, white);\n  background: var(--dsw-alias-state-error-primary, crimson);\n}\n\n.wux_danger_0f32fb:hover:not(:disabled) {\n  background: var(--dsw-alias-state-error-secondary, indianred);\n}\n";
 		if (typeof document !== "undefined" && document.querySelector('style[data-dsh-plugin="dsh-plugin-web-ux"][data-dsh-css="0f32fb"]') === null) {
 		  const style = document.createElement("style");
 		  style.setAttribute("data-dsh-plugin", "dsh-plugin-web-ux");
@@ -1257,7 +1368,7 @@ window.__ModuleLoader__.load({
 		  style.textContent = cssText4;
 		  document.head.appendChild(style);
 		}
-		var session_manager_default = { "sectionBody": "wux_sectionBody_0f32fb", "actions": "wux_actions_0f32fb", "toolbar": "wux_toolbar_0f32fb", "tabsRow": "wux_tabsRow_0f32fb", "modes": "wux_modes_0f32fb", "modeRow": "wux_modeRow_0f32fb", "modeText": "wux_modeText_0f32fb", "selectionBar": "wux_selectionBar_0f32fb", "list": "wux_list_0f32fb", "row": "wux_row_0f32fb", "rowSelected": "wux_rowSelected_0f32fb", "rowDisabled": "wux_rowDisabled_0f32fb", "rowMeta": "wux_rowMeta_0f32fb", "badge": "wux_badge_0f32fb", "badgeRunning": "wux_badgeRunning_0f32fb", "badgeBlank": "wux_badgeBlank_0f32fb", "empty": "wux_empty_0f32fb", "truncated": "wux_truncated_0f32fb", "muted": "wux_muted_0f32fb", "summary": "wux_summary_0f32fb", "rejected": "wux_rejected_0f32fb", "result": "wux_result_0f32fb", "warnings": "wux_warnings_0f32fb", "failure": "wux_failure_0f32fb", "detail": "wux_detail_0f32fb", "danger": "wux_danger_0f32fb" };
+		var session_manager_default = { "sectionBody": "wux_sectionBody_0f32fb", "actions": "wux_actions_0f32fb", "toolbar": "wux_toolbar_0f32fb", "tabsRow": "wux_tabsRow_0f32fb", "tabCount": "wux_tabCount_0f32fb", "filterRow": "wux_filterRow_0f32fb", "filterInput": "wux_filterInput_0f32fb", "migratedBar": "wux_migratedBar_0f32fb", "archiveRoot": "wux_archiveRoot_0f32fb", "modes": "wux_modes_0f32fb", "modeRow": "wux_modeRow_0f32fb", "modeText": "wux_modeText_0f32fb", "selectionBar": "wux_selectionBar_0f32fb", "list": "wux_list_0f32fb", "row": "wux_row_0f32fb", "rowBadges": "wux_rowBadges_0f32fb", "rowMetaRow": "wux_rowMetaRow_0f32fb", "rowSelected": "wux_rowSelected_0f32fb", "rowDisabled": "wux_rowDisabled_0f32fb", "rowMeta": "wux_rowMeta_0f32fb", "badge": "wux_badge_0f32fb", "badgeRunning": "wux_badgeRunning_0f32fb", "badgeBlank": "wux_badgeBlank_0f32fb", "badgeFork": "wux_badgeFork_0f32fb", "empty": "wux_empty_0f32fb", "truncated": "wux_truncated_0f32fb", "muted": "wux_muted_0f32fb", "summary": "wux_summary_0f32fb", "rejected": "wux_rejected_0f32fb", "result": "wux_result_0f32fb", "warnings": "wux_warnings_0f32fb", "failure": "wux_failure_0f32fb", "detail": "wux_detail_0f32fb", "danger": "wux_danger_0f32fb" };
 
 		// src/client/SessionManagerDialog.tsx
 		var import_jsx_runtime5 = require("react/jsx-runtime");
@@ -1300,9 +1411,6 @@ window.__ModuleLoader__.load({
 		  if (code !== void 0) return t(errorKeyOf(code));
 		  if (error instanceof Error && error.message !== "") return error.message;
 		  return String(error);
-		}
-		function formatTime(updatedAt) {
-		  return new Date(updatedAt).toLocaleString();
 		}
 		function useWorkspacesSnapshot(source) {
 		  const ref = (0, import_react5.useRef)(source);
@@ -1347,6 +1455,7 @@ window.__ModuleLoader__.load({
 		  const [phase, setPhase] = (0, import_react5.useState)("select");
 		  const [tab, setTab] = (0, import_react5.useState)("active");
 		  const [selection, setSelection] = (0, import_react5.useState)(emptySelection);
+		  const [filters, setFilters] = (0, import_react5.useState)(EMPTY_FILTERS);
 		  const [mode, setMode] = (0, import_react5.useState)(DEFAULT_DISPOSAL_MODE);
 		  const [pending, setPending] = (0, import_react5.useState)(null);
 		  const [outcome, setOutcome] = (0, import_react5.useState)(null);
@@ -1390,8 +1499,27 @@ window.__ModuleLoader__.load({
 		    () => listing === null ? [] : migratedRows(choice, workspacesSnapshot, listing),
 		    [choice, listing, workspacesSnapshot]
 		  );
-		  const sessionRowList = tab === "active" ? activeRowList : archivedRowList;
-		  const rows = tab === "migrated" ? migratedRowList : sessionRowList;
+		  const activeVisible = (0, import_react5.useMemo)(
+		    () => filterSessionRows(activeRowList, filters.active),
+		    [activeRowList, filters.active]
+		  );
+		  const archivedVisible = (0, import_react5.useMemo)(
+		    () => filterSessionRows(archivedRowList, filters.archived),
+		    [archivedRowList, filters.archived]
+		  );
+		  const migratedVisible = (0, import_react5.useMemo)(
+		    () => filterMigratedRows(migratedRowList, filters.migrated),
+		    [migratedRowList, filters.migrated]
+		  );
+		  const currentQuery = filters[tab];
+		  const unfilteredRows = tab === "migrated" ? migratedRowList : tab === "active" ? activeRowList : archivedRowList;
+		  const rows = tab === "migrated" ? migratedVisible : tab === "active" ? activeVisible : archivedVisible;
+		  const sessionVisible = tab === "active" ? activeVisible : archivedVisible;
+		  const tabCounts = {
+		    active: activeVisible.length,
+		    archived: archivedVisible.length,
+		    migrated: listing === null ? null : migratedVisible.length
+		  };
 		  const effectiveCount = selectedCount(selection, tab, rows);
 		  const everySelected = allSelected(selection, tab, rows);
 		  const truncatedCount = tab === "migrated" && listing?.truncated === true ? MAX_LISTED_MIGRATED : selectionLimitReached(rows) ? MAX_BATCH_TARGETS : null;
@@ -1406,11 +1534,90 @@ window.__ModuleLoader__.load({
 		    return choice === UNASSIGNED_CHOICE ? t("manager.empty.unassigned") : t("manager.empty.migrated");
 		  })();
 		  const tabIds = TAB_IDS[tab];
+		  const tabLabel = (key, count) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+		    t(key),
+		    count !== null && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: session_manager_default.tabCount, "aria-hidden": "true", children: count })
+		  ] });
 		  const tabItems = [
-		    { value: "active", label: t("manager.tab.active"), id: TAB_IDS.active.tab, panelId: TAB_IDS.active.panel },
-		    { value: "archived", label: t("manager.tab.archived"), id: TAB_IDS.archived.tab, panelId: TAB_IDS.archived.panel },
-		    { value: "migrated", label: t("manager.tab.migrated"), id: TAB_IDS.migrated.tab, panelId: TAB_IDS.migrated.panel }
+		    { value: "active", label: tabLabel("manager.tab.active", tabCounts.active), id: TAB_IDS.active.tab, panelId: TAB_IDS.active.panel },
+		    { value: "archived", label: tabLabel("manager.tab.archived", tabCounts.archived), id: TAB_IDS.archived.tab, panelId: TAB_IDS.archived.panel },
+		    { value: "migrated", label: tabLabel("manager.tab.migrated", tabCounts.migrated), id: TAB_IDS.migrated.tab, panelId: TAB_IDS.migrated.panel }
 		  ];
+		  const timeHover = (row) => {
+		    const archived = t("manager.meta.archived", { time: formatCompactTimestamp(row.updatedAt).full });
+		    if (row.createdAt === null) return archived;
+		    return `${archived}
+		${t("manager.meta.created", { time: formatCompactTimestamp(row.createdAt).full })}`;
+		  };
+		  const renderMigratedRow = (row) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
+		    "li",
+		    {
+		      className: cx(
+		        session_manager_default.row,
+		        selection.migrated.has(row.key) && session_manager_default.rowSelected,
+		        !row.selectable && session_manager_default.rowDisabled
+		      ),
+		      children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		          import_dsh_client_ui_primitives3.Checkbox,
+		          {
+		            label: row.title,
+		            title: row.dirName,
+		            checked: selection.migrated.has(row.key),
+		            disabled: !row.selectable,
+		            onChange: () => {
+		              setSelection((current) => toggleSelection(current, "migrated", row.key));
+		            }
+		          }
+		        ),
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("span", { className: session_manager_default.rowMetaRow, children: [
+		          row.titleSource === "log" && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: session_manager_default.rowMeta, children: row.shortId }),
+		          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: session_manager_default.rowMeta, title: row.projectDir, children: row.workspaceTitle ?? row.projectDir }),
+		          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: session_manager_default.rowMeta, children: t("manager.meta.size", { size: formatSize(row.bytes, t) }) }),
+		          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: session_manager_default.rowMeta, title: timeHover(row), children: t("manager.meta.time", { time: formatCompactTimestamp(row.updatedAt).text }) })
+		        ] })
+		      ]
+		    },
+		    row.key
+		  );
+		  const renderSessionRow = (row) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
+		    "li",
+		    {
+		      className: cx(
+		        session_manager_default.row,
+		        selection[tab].has(row.key) && session_manager_default.rowSelected,
+		        !row.selectable && session_manager_default.rowDisabled
+		      ),
+		      children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		          import_dsh_client_ui_primitives3.Checkbox,
+		          {
+		            label: row.title === "" ? t("manager.untitled") : row.title,
+		            checked: selection[tab].has(row.key),
+		            disabled: !row.selectable,
+		            onChange: () => {
+		              setSelection((current) => toggleSelection(current, tab, row.key));
+		            }
+		          }
+		        ),
+		        row.running && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: cx(session_manager_default.badge, session_manager_default.badgeRunning), children: t("manager.badge.running") }),
+		        row.blank && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: cx(session_manager_default.badge, session_manager_default.badgeBlank), children: t("manager.badge.blank") }),
+		        row.isFork && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: cx(session_manager_default.badge, session_manager_default.badgeFork), children: t("manager.badge.fork") }),
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("span", { className: session_manager_default.rowMetaRow, children: [
+		          row.projectDirTail !== null && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: session_manager_default.rowMeta, title: row.cwd ?? void 0, children: row.projectDirTail }),
+		          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		            "span",
+		            {
+		              className: session_manager_default.rowMeta,
+		              title: t("manager.meta.updated", { time: formatCompactTimestamp(row.updatedAt).full }),
+		              children: t("manager.meta.time", { time: formatCompactTimestamp(row.updatedAt).text })
+		            }
+		          )
+		        ] })
+		      ]
+		    },
+		    row.key
+		  );
 		  const resetToSelect = () => {
 		    setPhase("select");
 		    setPending(null);
@@ -1656,17 +1863,33 @@ window.__ModuleLoader__.load({
 		          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: session_manager_default.modeText, children: t("dialog.mode.delete") })
 		        ] })
 		      ] }),
-		      tab === "migrated" && phase === "select" && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
-		        import_dsh_client_ui_primitives3.Button,
-		        {
-		          variant: "ghost",
-		          icon: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_dsh_client_ui_primitives3.IconRefreshOutlineRegular, {}),
-		          onClick: reloadListing,
-		          disabled: listingPhase === "loading",
-		          children: t("manager.refresh")
-		        }
-		      ),
+		      tab === "migrated" && phase === "select" && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: session_manager_default.migratedBar, children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		          import_dsh_client_ui_primitives3.Button,
+		          {
+		            variant: "ghost",
+		            icon: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(import_dsh_client_ui_primitives3.IconRefreshOutlineRegular, {}),
+		            onClick: reloadListing,
+		            disabled: listingPhase === "loading",
+		            children: t("manager.refresh")
+		          }
+		        ),
+		        listing !== null && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: session_manager_default.archiveRoot, title: listing.archiveRoot, children: t("manager.confirm.archiveRoot", { path: listing.archiveRoot }) })
+		      ] }),
 		      phase === "select" && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+		        (unfilteredRows.length > 0 || currentQuery !== "") && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: session_manager_default.filterRow, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		          import_dsh_client_ui_primitives3.Input,
+		          {
+		            type: "search",
+		            className: session_manager_default.filterInput,
+		            value: currentQuery,
+		            placeholder: t("manager.filter.placeholder"),
+		            "aria-label": t("manager.filter.placeholder"),
+		            onChange: (event) => {
+		              setFilters((current) => withTabFilter(current, tab, event.target.value));
+		            }
+		          }
+		        ) }),
 		        /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: session_manager_default.selectionBar, children: [
 		          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
 		            import_dsh_client_ui_primitives3.Checkbox,
@@ -1695,59 +1918,13 @@ window.__ModuleLoader__.load({
 		        tab === "migrated" && listing === null ? (
 		          // 拉取中沿用「正在执行…」的过程文案（locales 没有专门的列表加载键）。
 		          listingError === null ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: session_manager_default.muted, children: t("manager.running") }) : null
-		        ) : rows.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: session_manager_default.empty, children: emptyText }) : tab === "migrated" ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("ul", { className: session_manager_default.list, children: migratedRowList.map((row) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
-		          "li",
-		          {
-		            className: cx(
-		              session_manager_default.row,
-		              selection.migrated.has(row.key) && session_manager_default.rowSelected,
-		              !row.selectable && session_manager_default.rowDisabled
-		            ),
-		            children: [
-		              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
-		                import_dsh_client_ui_primitives3.Checkbox,
-		                {
-		                  label: row.sessionId,
-		                  checked: selection.migrated.has(row.key),
-		                  disabled: !row.selectable,
-		                  onChange: () => {
-		                    setSelection((current) => toggleSelection(current, "migrated", row.key));
-		                  }
-		                }
-		              ),
-		              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: session_manager_default.rowMeta, title: row.projectDir, children: row.projectDir }),
-		              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: session_manager_default.rowMeta, children: t("manager.meta.size", { size: formatSize(row.bytes, t) }) }),
-		              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: session_manager_default.rowMeta, children: t("manager.meta.time", { time: formatTime(row.updatedAt) }) })
-		            ]
-		          },
-		          row.key
-		        )) }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("ul", { className: session_manager_default.list, children: sessionRowList.map((row) => /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(
-		          "li",
-		          {
-		            className: cx(
-		              session_manager_default.row,
-		              selection[tab].has(row.key) && session_manager_default.rowSelected,
-		              !row.selectable && session_manager_default.rowDisabled
-		            ),
-		            children: [
-		              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
-		                import_dsh_client_ui_primitives3.Checkbox,
-		                {
-		                  label: row.title === "" ? t("manager.untitled") : row.title,
-		                  checked: selection[tab].has(row.key),
-		                  disabled: !row.selectable,
-		                  onChange: () => {
-		                    setSelection((current) => toggleSelection(current, tab, row.key));
-		                  }
-		                }
-		              ),
-		              /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: session_manager_default.rowMeta, children: t("manager.meta.time", { time: formatTime(row.updatedAt) }) }),
-		              row.running && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: cx(session_manager_default.badge, session_manager_default.badgeRunning), children: t("manager.badge.running") }),
-		              row.blank && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: cx(session_manager_default.badge, session_manager_default.badgeBlank), children: t("manager.badge.blank") })
-		            ]
-		          },
-		          row.key
-		        )) }),
+		        ) : rows.length === 0 ? (
+		          // 区分「本来就空」与「被过滤筛空」：前者给域专属解释，后者回显查询词。
+		          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: session_manager_default.empty, children: unfilteredRows.length === 0 ? emptyText : t("manager.empty.filtered", { query: currentQuery }) })
+		        ) : tab === "migrated" ? (
+		          // 渲染的都是过滤后的可见行集（unfilteredRows 只参与空态判定）。
+		          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("ul", { className: session_manager_default.list, children: migratedVisible.map(renderMigratedRow) })
+		        ) : /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("ul", { className: session_manager_default.list, children: sessionVisible.map(renderSessionRow) }),
 		        truncatedCount !== null && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: session_manager_default.truncated, children: t("manager.truncated", { count: truncatedCount }) })
 		      ] }),
 		      phase === "confirm" && pending !== null && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(

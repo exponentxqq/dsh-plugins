@@ -18,7 +18,9 @@
 
 import { describe, expect, it } from 'vitest'
 import { MAX_BATCH_TARGETS, type MigratedEntry, type MigratedListing } from '../src/contract.ts'
+import { shortCodeOf } from '../src/client/display-format.ts'
 import {
+  EMPTY_FILTERS,
   MANAGER_TABS,
   UNASSIGNED_CHOICE,
   actionsForTab,
@@ -28,7 +30,10 @@ import {
   clearSelection,
   emptySelection,
   entryKeyOf,
+  filterMigratedRows,
+  filterSessionRows,
   migratedRows,
+  normalizeFilterQuery,
   selectedCount,
   selectedMigratedTargets,
   selectedSessionIds,
@@ -36,6 +41,7 @@ import {
   selectAllSelection,
   toggleSelection,
   unarchiveSelected,
+  withTabFilter,
   type SessionRowViewInput,
   type SessionsSnapshotView,
   type WorkspaceRowView,
@@ -91,14 +97,15 @@ function makeWorkspaces(
   return { items, archivedSessionIds }
 }
 
-/** 造一条归档根条目；`sessionId` 与 `dirName` 当前恒等（D12）。 */
+/** 造一条归档根条目；`sessionId` 与 `dirName` 当前恒等（D12）；`title`/`createdAt` 可覆盖。 */
 function makeMigratedEntry(
   dirName: string,
   projectDir: string,
   updatedAt = 0,
   bytes = 0,
+  overrides: Partial<MigratedEntry> = {},
 ): MigratedEntry {
-  return { sessionId: dirName, dirName, projectDir, bytes, updatedAt }
+  return { sessionId: dirName, dirName, projectDir, bytes, updatedAt, ...overrides }
 }
 
 /** 造一份 `list-migrated` 响应。 */
@@ -159,6 +166,9 @@ describe('三域行集：活跃 / 已归档 / 已迁移', () => {
       blank: false,
       selectable: true,
       workspaceId: 'ws-a',
+      cwd: null,
+      projectDirTail: null,
+      isFork: false,
     })
     // 运行中的行不删，只置灰（D15）。
     expect(rows[1]).toMatchObject({
@@ -273,6 +283,11 @@ describe('三域行集：活跃 / 已归档 / 已迁移', () => {
       updatedAt: 300,
       workspaceId: 'ws-a',
       selectable: true,
+      title: 'alpha-new',
+      titleSource: 'dirname',
+      createdAt: null,
+      workspaceTitle: 'ws-a',
+      shortId: 'alpha-new',
     })
 
     expect(idsOf(migratedRows('ws-b', workspaces, listing))).toEqual(['beta-1'])
@@ -599,5 +614,190 @@ describe('双动作分派', () => {
       { projectDir: PROJECT_A, dirName: 'alpha-old' },
     ])
     expect(selectedMigratedTargets(rows, new Set())).toEqual([])
+  })
+})
+
+describe('行视图扩展字段（title / cwd / fork）', () => {
+  it('已迁移行标题：无 title 回退目录短码（dirname），有 title 用日志标题（log）并带 createdAt', () => {
+    const workspaces = makeWorkspaces([makeWorkspace('ws-a', PATH_A, [])])
+    const rows = migratedRows(
+      'ws-a',
+      workspaces,
+      makeMigratedListing([
+        makeMigratedEntry('session-0123456789ab', PROJECT_A, 300),
+        makeMigratedEntry('titled', PROJECT_A, 200, 0, {
+          title: '  落档标题  ',
+          createdAt: 1700000000000,
+        }),
+      ]),
+    )
+
+    const fallback = rows.find((row) => row.dirName === 'session-0123456789ab')
+    expect(fallback).toMatchObject({
+      title: shortCodeOf('session-0123456789ab'),
+      titleSource: 'dirname',
+      shortId: shortCodeOf('session-0123456789ab'),
+      createdAt: null,
+    })
+    const logged = rows.find((row) => row.dirName === 'titled')
+    expect(logged).toMatchObject({
+      title: '落档标题',
+      titleSource: 'log',
+      createdAt: 1700000000000,
+      shortId: 'titled',
+    })
+  })
+
+  it('已迁移行 workspaceTitle：命中工作区取标题，空串标题与孤儿都归 null', () => {
+    const workspaces = makeWorkspaces([
+      makeWorkspace('ws-a', PATH_A, [], 'Alpha 工作区'),
+      makeWorkspace('ws-b', PATH_B, [], ''),
+    ])
+    const listing = makeMigratedListing([
+      makeMigratedEntry('e1', PROJECT_A, 30),
+      makeMigratedEntry('e2', PROJECT_B, 20),
+      makeMigratedEntry('e3', PROJECT_ORPHAN, 10),
+    ])
+
+    expect(migratedRows('ws-a', workspaces, listing)[0]).toMatchObject({
+      workspaceId: 'ws-a',
+      workspaceTitle: 'Alpha 工作区',
+    })
+    expect(migratedRows('ws-b', workspaces, listing)[0]).toMatchObject({
+      workspaceId: 'ws-b',
+      workspaceTitle: null,
+    })
+    expect(
+      migratedRows(UNASSIGNED_CHOICE, workspaces, listing).map((row) => row.workspaceTitle),
+    ).toEqual([null])
+  })
+
+  it('会话行：cwd 全路径 + 尾段下传；fork 徽标按 parentId / origin 判定', () => {
+    const workspaces = makeWorkspaces([
+      makeWorkspace('ws-a', PATH_A, ['fork', 'tail', 'noid', 'empty']),
+    ])
+    const rows = activeRows('ws-a', workspaces, makeSessions({
+      fork: makeSession('Fork 会话', { parentId: 'parent-1', cwd: '/home/dev/alpha/x' }),
+      tail: makeSession('尾分隔符', { cwd: '/home/dev/alpha/x/' }),
+      noid: makeSession('普通会话'),
+      empty: makeSession('空 parentId', { parentId: '' }),
+    }))
+    const byId = new Map(rows.map((row) => [row.sessionId, row]))
+
+    expect(byId.get('fork')).toMatchObject({
+      cwd: '/home/dev/alpha/x',
+      projectDirTail: 'x',
+      isFork: true,
+    })
+    expect(byId.get('tail')).toMatchObject({ cwd: '/home/dev/alpha/x/', projectDirTail: 'x' })
+    expect(byId.get('noid')).toMatchObject({ cwd: null, projectDirTail: null, isFork: false })
+    expect(byId.get('empty')).toMatchObject({ isFork: false })
+  })
+
+  it('子代理行带 parentId 也进不了管理面（D14 先滤；isFork 的 subagent 分支是防御性的）', () => {
+    const workspaces = makeWorkspaces([makeWorkspace('ws-a', PATH_A, ['sub'])])
+    const rows = activeRows(
+      'ws-a',
+      workspaces,
+      makeSessions({ sub: makeSession('子代理', { origin: 'subagent', parentId: 'p' }) }),
+    )
+    expect(rows).toEqual([])
+  })
+})
+
+describe('过滤（ManagerFilters 一族）', () => {
+  it('EMPTY_FILTERS 三域空串；normalizeFilterQuery 做 trim + 小写', () => {
+    expect(EMPTY_FILTERS).toEqual({ active: '', archived: '', migrated: '' })
+    expect(normalizeFilterQuery('  AbC  ')).toBe('abc')
+    expect(normalizeFilterQuery('   ')).toBe('')
+  })
+
+  it('withTabFilter 只换当前 tab，其余 tab 原样保留（切 tab 互不串扰）', () => {
+    const first = withTabFilter(EMPTY_FILTERS, 'active', '一')
+    expect(first).toEqual({ active: '一', archived: '', migrated: '' })
+    const second = withTabFilter(first, 'archived', '二')
+    expect(second).toEqual({ active: '一', archived: '二', migrated: '' })
+    expect(second.active).toBe(first.active)
+    expect(withTabFilter(second, 'active', '')).toEqual({
+      active: '',
+      archived: '二',
+      migrated: '',
+    })
+  })
+
+  it('filterSessionRows：标题 / 会话 id / cwd 全路径大小写不敏感命中；空查询保 identity', () => {
+    const workspaces = makeWorkspaces([makeWorkspace('ws-a', PATH_A, ['甲一', '乙二', 'case'])])
+    const rows = activeRows('ws-a', workspaces, makeSessions({
+      甲一: makeSession('甲一会话', { cwd: '/home/dev/alpha/workspace' }),
+      乙二: makeSession('无题'),
+      case: makeSession('Zeta 行', { cwd: '/home/dev/beta/deep' }),
+    }))
+
+    // 标题面（中文子串）。
+    expect(idsOf(filterSessionRows(rows, '甲一'))).toEqual(['甲一'])
+    // cwd 中间段与尾段都能命中。
+    expect(idsOf(filterSessionRows(rows, 'alpha'))).toEqual(['甲一'])
+    expect(idsOf(filterSessionRows(rows, 'deep'))).toEqual(['case'])
+    // 会话 id 面：'乙二' 行的标题是「无题」，命中的只能是 id。
+    expect(idsOf(filterSessionRows(rows, '乙二'))).toEqual(['乙二'])
+    // 大小写不敏感。
+    expect(idsOf(filterSessionRows(rows, 'ZETA'))).toEqual(['case'])
+    // 空查询返回原数组（保 identity，供 useMemo 短路）。
+    expect(filterSessionRows(rows, '')).toBe(rows)
+    expect(filterSessionRows(rows, '   ')).toBe(rows)
+  })
+
+  it('filterMigratedRows：标题 / 项目目录 / 工作区名命中；空查询保 identity', () => {
+    const workspaces = makeWorkspaces([
+      makeWorkspace('ws-a', PATH_A, [], 'Alpha WS'),
+      makeWorkspace('ws-b', PATH_B, [], 'Beta WS'),
+    ])
+    const listing = makeMigratedListing([
+      makeMigratedEntry('one', PROJECT_A, 40, 0, { title: 'Alpha 遗留' }),
+      makeMigratedEntry('two', PROJECT_A, 30),
+      makeMigratedEntry('three', PROJECT_B, 20, 0, { title: 'Bravo 标题' }),
+      makeMigratedEntry('orphan-x', PROJECT_ORPHAN, 10),
+    ])
+    const rows = [
+      ...migratedRows('ws-a', workspaces, listing),
+      ...migratedRows('ws-b', workspaces, listing),
+      ...migratedRows(UNASSIGNED_CHOICE, workspaces, listing),
+    ]
+    expect(rows).toHaveLength(4)
+
+    // 蓝图样例：trim + 大小写不敏感命中标题含 Alpha 的行；孤儿行无命中面不进结果。
+    expect(idsOf(filterMigratedRows(rows, '  ALPHA '))).toEqual(['one', 'two'])
+    // projectDir 面：'two' 行的标题 / id / 目录名都不含该串，命中的只能是项目目录。
+    expect(idsOf(filterMigratedRows(rows, '--home-dev-alpha--'))).toEqual(['one', 'two'])
+    // 工作区名面：'three' 行唯一含 'beta ws' 的字段是 workspaceTitle。
+    expect(idsOf(filterMigratedRows(rows, 'beta ws'))).toEqual(['three'])
+    // 标题面。
+    expect(idsOf(filterMigratedRows(rows, 'bravo'))).toEqual(['three'])
+    expect(filterMigratedRows(rows, '')).toBe(rows)
+  })
+
+  it('全选与动作输入按可见行投影：隐藏行的选中键不计入', () => {
+    const workspaces = makeWorkspaces(
+      [makeWorkspace('ws-a', PATH_A, ['a', 'b', 'c'])],
+      ['a', 'b', 'c'],
+    )
+    const allRows = archivedRows('ws-a', workspaces, makeSessions({
+      a: makeSession('A 行', { updatedAt: 3 }),
+      b: makeSession('B 行', { updatedAt: 2 }),
+      c: makeSession('C 行', { updatedAt: 1 }),
+    }))
+    const visible = filterSessionRows(allRows, 'A')
+    expect(idsOf(visible)).toEqual(['a'])
+
+    let selection = emptySelection()
+    selection = selectAllSelection(emptySelection(), 'archived', visible)
+    expect([...selection.archived]).toEqual(['archived:a'])
+    // 模拟过滤词变化前留下的选择：b 已选但现在被过滤隐藏。
+    selection = toggleSelection(selection, 'archived', 'archived:b')
+
+    expect(selectedSessionIds(visible, selection.archived)).toEqual(['a'])
+    expect(selectedCount(selection, 'archived', visible)).toBe(1)
+    // 对照：可见行集换成全集时，残留键重新可见（模型不丢弃选择，只是投影口径收窄）。
+    expect(selectedCount(selection, 'archived', allRows)).toBe(2)
   })
 })

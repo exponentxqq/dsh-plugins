@@ -65,6 +65,13 @@ const REQUIRED_KEYS = [
   'manager.tabs.label',
   'manager.empty.unassigned.archived',
   'manager.truncated',
+  // —— 会话管理面：过滤框、徽标与行 meta（两行式行渲染） ——
+  'manager.filter.placeholder',
+  'manager.empty.filtered',
+  'manager.badge.fork',
+  'manager.meta.updated',
+  'manager.meta.archived',
+  'manager.meta.created',
   // —— 会话管理面：动作与确认 ——
   'manager.action.archive',
   'manager.action.dispose',

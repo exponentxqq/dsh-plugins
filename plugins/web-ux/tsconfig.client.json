@@ -9,6 +9,7 @@
     "test/client-apply.test.ts",
     "test/delete-client.test.ts",
     "test/delete-store.test.ts",
+    "test/display-format.test.ts",
     "test/locale-parity.test.ts",
     "test/notice-store.test.ts",
     "test/notice-visibility.test.ts",

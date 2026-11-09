@@ -36,6 +36,7 @@ import {
   type RestoreOutcome,
 } from '../src/contract.ts'
 import { DeleteError, type SessionManagerClient } from '../src/client/delete-client.ts'
+import { formatCompactTimestamp } from '../src/client/display-format.ts'
 import {
   SessionManagerSection,
   type SessionManagerSectionProps,
@@ -138,14 +139,15 @@ function makeWorkspaces(
   return { items, archivedSessionIds }
 }
 
-/** 造一条归档根条目；`sessionId` 与 `dirName` 当前恒等（D12）。 */
+/** 造一条归档根条目；`sessionId` 与 `dirName` 当前恒等（D12），标题/创建时间按需给。 */
 function makeMigratedEntry(
   dirName: string,
   projectDir: string,
   updatedAt: number,
   bytes: number,
+  overrides: Partial<Pick<MigratedEntry, 'title' | 'createdAt'>> = {},
 ): MigratedEntry {
-  return { sessionId: dirName, dirName, projectDir, bytes, updatedAt }
+  return { sessionId: dirName, dirName, projectDir, bytes, updatedAt, ...overrides }
 }
 
 /** 造一份 `list-migrated` 响应。 */
@@ -289,9 +291,22 @@ function renderManager(options: RenderOptions = {}) {
   return render(<SessionManagerSection {...managerProps(options)} />)
 }
 
-/** 当前选中的 tab 文案。 */
+/**
+ * 元素的可见文本（可访问名口径）：跳过 `aria-hidden="true"` 的子树。
+ * tab 的计数徽标是 aria-hidden 的数字——textContent 会带上它，可访问名不会。
+ */
+function accessibleLabelOf(element: Element): string {
+  let label = ''
+  for (const node of Array.from(element.childNodes)) {
+    if (node instanceof Element && node.getAttribute('aria-hidden') === 'true') continue
+    label += node.textContent ?? ''
+  }
+  return label
+}
+
+/** 当前选中的 tab 的可访问名（不含 aria-hidden 计数徽标）。 */
 function selectedTabLabel(): string | null {
-  return screen.getByRole('tab', { selected: true }).textContent
+  return accessibleLabelOf(screen.getByRole('tab', { selected: true }))
 }
 
 /** 造一份超过单批上限的活跃域快照（全选截断用例）。 */
@@ -321,7 +336,8 @@ describe('分节挂载与软降级', () => {
     expect(screen.queryByRole('menu')).toBeNull()
     expect(view.container.querySelector('[aria-haspopup="menu"]')).toBeNull()
 
-    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+    // 可访问名仍是纯文案（计数徽标 aria-hidden，不进 tab 名）。
+    expect(screen.getAllByRole('tab').map(accessibleLabelOf)).toEqual([
       zh['manager.tab.active'],
       zh['manager.tab.archived'],
       zh['manager.tab.migrated'],
@@ -869,5 +885,184 @@ describe('tab 3 已迁移：永久删除与恢复', () => {
     expect(screen.getByText(zh['manager.warnings'])).toBeDefined()
     expect(screen.getByText(warning)).toBeDefined()
     await waitFor(() => expect(client.listMigrated).toHaveBeenCalledTimes(2))
+  })
+})
+
+describe('两行式行渲染：行信息、徽标与计数', () => {
+  it('已迁移行：标题进 Checkbox 可访问名，次行是 短码 id · 工作区名 · 体积 · 紧凑时间', async () => {
+    const listing = makeListing([
+      makeMigratedEntry(MIGRATED_A1, PROJECT_A, 4000, 2048, { title: '日志标题', createdAt: 1000 }),
+      makeMigratedEntry(MIGRATED_A2, PROJECT_A, 3000, 1024),
+    ])
+    const client = fakeClient({ listMigrated: vi.fn(async () => listing) })
+    renderManager({ client })
+
+    fireEvent.click(screen.getByRole('tab', { name: zh['manager.tab.migrated'] }))
+    const checkbox = await waitFor(() => screen.getByRole('checkbox', { name: '日志标题' }))
+    const row = checkbox.closest('li')
+    expect(row).not.toBeNull()
+
+    // 两行式结构：`.row` 下存在 `.rowMetaRow` 次行。
+    const metaRow = row!.querySelector('[class*="rowMetaRow"]')
+    expect(metaRow).not.toBeNull()
+    const metaText = metaRow!.textContent ?? ''
+    // 标题来自日志（titleSource = 'log'）：次行回显短码 id、工作区名、体积与紧凑时间。
+    expect(metaText).toContain(MIGRATED_A1)
+    expect(metaText).toContain('项目甲')
+    expect(metaText).toContain('2 KB')
+    expect(metaText).toContain(formatCompactTimestamp(4000).text)
+
+    // 时间元素的 title 同时含「迁移时间：」与「创建时间：」两段全串（创建时间只进悬停）。
+    const timeMeta = Array.from(metaRow!.children)
+      .find((child) => (child.getAttribute('title') ?? '').startsWith('迁移时间：'))
+    expect(timeMeta).not.toBeUndefined()
+    expect(timeMeta!.getAttribute('title')).toContain('创建时间：')
+
+    // 无标题条目回退短码标题，照常可选。
+    expect(screen.getByRole('checkbox', { name: MIGRATED_A2 })).toBeDefined()
+  })
+
+  it('回退行：目录名 17 字符且无标题 → checkbox 名回退 16 字符短码，次行不再重复该短码', async () => {
+    // 's-migrated-orphan' 恰好 17 字符：标题回退 = 前 16 字符 + `…`。
+    const entry = makeMigratedEntry(MIGRATED_ORPHAN, PROJECT_ORPHAN, 2000, 512)
+    const client = fakeClient({ listMigrated: vi.fn(async () => makeListing([entry])) })
+    renderManager({ client, workspace: WORKSPACE_UNASSIGNED })
+
+    fireEvent.click(screen.getByRole('tab', { name: zh['manager.tab.migrated'] }))
+    const fallback = 's-migrated-orpha…'
+    const checkbox = await waitFor(() => screen.getByRole('checkbox', { name: fallback }))
+    const metaText = checkbox.closest('li')!.querySelector('[class*="rowMetaRow"]')!.textContent ?? ''
+    // titleSource = 'dirname'：次行不再回显短码，只留目录、体积与时间。
+    expect(metaText).not.toContain('s-migrated-orpha')
+    expect(metaText).toContain(PROJECT_ORPHAN)
+    expect(metaText).toContain('512 B')
+  })
+
+  it('活跃行：fork 徽标在首行徽标区，工作目录尾段可见且 title 是全路径', () => {
+    const sessions = makeSessions({
+      's-fork-1': makeSession('分叉会话', {
+        updatedAt: 3000,
+        cwd: '/home/dev/alpha/packages/core',
+        parentId: 's-parent',
+      }),
+      's-plain-1': makeSession('普通会话', { updatedAt: 2000 }),
+    }, ['s-fork-1', 's-plain-1'])
+    const workspaces = makeWorkspaces([makeWorkspace('ws-a', '项目甲', PATH_A, ['s-fork-1', 's-plain-1'])])
+    renderManager({ workspaces: fakeWorkspaces(workspaces), sessions: fakeSessions(sessions) })
+
+    const forkRow = screen.getByRole('checkbox', { name: '分叉会话' }).closest('li')!
+    const badge = forkRow.querySelector('[class*="badgeFork"]')
+    expect(badge).not.toBeNull()
+    expect(badge!.textContent).toBe(zh['manager.badge.fork'])
+    // 徽标在首行（Checkbox 之后），不在次行 metaRow 里。
+    expect(badge!.closest('[class*="rowMetaRow"]')).toBeNull()
+
+    // 次行 meta：cwd 尾段可见，title 悬停是全路径；另一段是紧凑时间。
+    const metaRow = forkRow.querySelector('[class*="rowMetaRow"]')!
+    const tail = Array.from(metaRow.children).find((child) => child.textContent === 'core')
+    expect(tail).not.toBeUndefined()
+    expect(tail!.getAttribute('title')).toBe('/home/dev/alpha/packages/core')
+    expect(metaRow.textContent).toContain(formatCompactTimestamp(3000).text)
+
+    // 普通行（无 parentId）：没有 fork 徽标。
+    expect(screen.getAllByText(zh['manager.badge.fork'])).toHaveLength(1)
+  })
+
+  it('tab 计数徽标：aria-hidden 数字 = 可见行数，可访问名保持纯文案，未加载的迁移 tab 无数字', async () => {
+    const client = fakeClient()
+    renderManager({ client })
+
+    const activeTab = screen.getByRole('tab', { name: zh['manager.tab.active'] })
+    // 活跃可见行：甲一、甲二、甲运行（运行中仍显示）= 3。
+    expect(activeTab.textContent).toBe(`${zh['manager.tab.active']}3`)
+    expect(activeTab.querySelector('[aria-hidden="true"]')?.textContent).toBe('3')
+    // 已归档可见行：甲归档一、甲归档二 = 2。
+    expect(screen.getByRole('tab', { name: zh['manager.tab.archived'] }).textContent)
+      .toBe(`${zh['manager.tab.archived']}2`)
+    // 迁移列表未加载 ≠ 0：迁移 tab 无数字。
+    const migratedTab = screen.getByRole('tab', { name: zh['manager.tab.migrated'] })
+    expect(migratedTab.textContent).toBe(zh['manager.tab.migrated'])
+    expect(migratedTab.querySelector('[aria-hidden="true"]')).toBeNull()
+
+    // 加载迁移列表后出现数字（ws-a 份额匹配 2 条）。
+    fireEvent.click(migratedTab)
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: MIGRATED_A1 })).toBeDefined())
+    expect(screen.getByRole('tab', { name: zh['manager.tab.migrated'] }).textContent)
+      .toBe(`${zh['manager.tab.migrated']}2`)
+
+    // 过滤让可见行数变化，徽标跟着变；aria-hidden 保证按纯文案查 tab 不受影响。
+    fireEvent.click(screen.getByRole('tab', { name: zh['manager.tab.active'] }))
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: '甲一' } })
+    expect(screen.getByRole('tab', { name: zh['manager.tab.active'] }).textContent)
+      .toBe(`${zh['manager.tab.active']}1`)
+    expect(screen.getAllByRole('tab', { name: zh['manager.tab.active'] })).toHaveLength(1)
+  })
+})
+
+describe('域内过滤', () => {
+  it('过滤：输入收窄可见行，全选只选可见行，可见已选为 0 时动作禁用', () => {
+    renderManager()
+    const filter = screen.getByRole('searchbox') as HTMLInputElement
+    fireEvent.change(filter, { target: { value: '甲一' } })
+
+    // 行收窄：只剩标题 / 会话 id 命中的行。
+    expect(screen.getByRole('checkbox', { name: '甲一' })).toBeDefined()
+    expect(screen.queryByRole('checkbox', { name: '甲二' })).toBeNull()
+    expect(screen.queryByRole('checkbox', { name: '甲运行' })).toBeNull()
+
+    // 全选只选可见行（甲一）。
+    fireEvent.click(screen.getByRole('checkbox', { name: zh['manager.selectAll'] }))
+    expect(screen.getByText(translate('manager.selected', { count: 1 }))).toBeDefined()
+    expect(
+      (screen.getByRole('button', { name: zh['manager.action.archive'] }) as HTMLButtonElement).disabled,
+    ).toBe(false)
+
+    // 已选行被过滤出可见集合 → 可见已选 0：动作禁用。
+    fireEvent.change(filter, { target: { value: '甲运行' } })
+    expect(
+      (screen.getByRole('button', { name: zh['manager.action.archive'] }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+  })
+
+  it('过滤空态与记忆：筛空给专属文案（含查询词），切 tab 再切回过滤词仍在', () => {
+    renderManager()
+    const filter = screen.getByRole('searchbox') as HTMLInputElement
+    fireEvent.change(filter, { target: { value: '不存在的词' } })
+
+    // 被过滤筛空 ≠ 本来就空：给含查询词的专属空态，不给域专属解释。
+    expect(screen.getByText(translate('manager.empty.filtered', { query: '不存在的词' }))).toBeDefined()
+    expect(screen.queryByText(zh['manager.empty.active'])).toBeNull()
+
+    // 切到已归档：过滤词按 tab 分开，archived 是空的。
+    fireEvent.click(screen.getByRole('tab', { name: zh['manager.tab.archived'] }))
+    expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('')
+
+    // 切回活跃：过滤词还在。
+    fireEvent.click(screen.getByRole('tab', { name: zh['manager.tab.active'] }))
+    expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('不存在的词')
+    expect(screen.getByText(translate('manager.empty.filtered', { query: '不存在的词' }))).toBeDefined()
+
+    // 清空过滤词恢复全部行。
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: '' } })
+    expect(screen.getByRole('checkbox', { name: '甲二' })).toBeDefined()
+  })
+})
+
+describe('已迁移工具栏：归档根行', () => {
+  it('归档根文案与 title 都是完整路径；确认页仍只有一处该文案', async () => {
+    const client = fakeClient()
+    renderManager({ client })
+
+    fireEvent.click(screen.getByRole('tab', { name: zh['manager.tab.migrated'] }))
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: MIGRATED_A1 })).toBeDefined())
+
+    const rootSpan = screen.getByText(translate('manager.confirm.archiveRoot', { path: ARCHIVE_ROOT }))
+    expect(rootSpan.getAttribute('title')).toBe(ARCHIVE_ROOT)
+
+    // 进入确认页后选择阶段的工具栏离场，摘要里恰好一处归档根文案。
+    fireEvent.click(screen.getByRole('checkbox', { name: zh['manager.selectAll'] }))
+    fireEvent.click(screen.getByRole('button', { name: zh['manager.action.restore'] }))
+    expect(screen.getAllByText(translate('manager.confirm.archiveRoot', { path: ARCHIVE_ROOT })))
+      .toHaveLength(1)
   })
 })

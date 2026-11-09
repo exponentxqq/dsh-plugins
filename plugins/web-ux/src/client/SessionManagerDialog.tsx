@@ -49,8 +49,10 @@
  *
  * 三份 Plain 快照（`workspaces.list` / `sessions.list` / `list-migrated`）经
  * `session-manager-model.ts` 投影成行集、选项、选择与动作输入。本组件**不写任何过滤
- * 判据**（子代理过滤、归档交集、伪选项聚合、500 上限、running 置灰全部在 model），只做
- * 「把派生结果画出来 + 按阶段分派调用」两件事：
+ * 判据**（子代理过滤、归档交集、伪选项聚合、500 上限、running 置灰、域内过滤词匹配
+ * 全部在 model），只持三个域各自的原样过滤词并调用 model 过滤函数；渲染面是两行式：
+ * 首行 Checkbox（标题 = 行内唯一可访问名）+ 状态徽标，次行 `.rowMetaRow` 弱化 meta
+ * （短码 id / 工作区名或目录、体积、紧凑绝对时间，全路径与时间全串进悬停）：
  *
  * - tab 1 `active`：`activeRows` + 批量归档（逐项调用上游 `archiveSession`）；
  * - tab 2 `archived`：`archivedRows` + **双动作**（按本地处置模式 `disposeBatch`；批量
@@ -91,6 +93,7 @@ import {
   Button,
   Checkbox,
   IconRefreshOutlineRegular,
+  Input,
   SegmentedTabs,
   type SegmentedTab,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -111,14 +114,19 @@ import { DeleteError, errorKeyOf, type SessionManagerClient } from './delete-cli
 // 复用既有对话框的两个纯工具：默认档（迁移归档，与单会话删除一致）与体积格式化
 // （`format.bytes|kb|mb` 的同一套四舍五入）。两者都不带状态，跨文件复用不引入耦合。
 import { DEFAULT_DISPOSAL_MODE, formatSize } from './DeleteSessionDialog.tsx'
+// 紧凑时间（行内短串 + 悬停全串）来自共享的显示格式模块——避免组件内再造一套时间格式。
+import { formatCompactTimestamp } from './display-format.ts'
 import {
   UNASSIGNED_CHOICE,
+  EMPTY_FILTERS,
   actionsForTab,
   activeRows,
   allSelected,
   archivedRows,
   clearSelection,
   emptySelection,
+  filterMigratedRows,
+  filterSessionRows,
   migratedRows,
   selectedCount,
   selectedMigratedTargets,
@@ -127,10 +135,13 @@ import {
   selectionLimitReached,
   toggleSelection,
   unarchiveSelected,
+  withTabFilter,
   type ManagerAction,
+  type ManagerFilters,
   type ManagerRow,
   type ManagerSelection,
   type ManagerTab,
+  type MigratedRowView,
   type SessionRowView,
   type SessionsSnapshotView,
   type WorkspaceChoiceId,
@@ -344,16 +355,6 @@ function reasonOf(error: unknown, t: Translate): string {
 }
 
 /**
- * 行时间：本地化日期时间串（设计明确不用 primitives 的 `relativeTime`，避免给测试替身
- * 再加一个导出）。
- * @param updatedAt - epoch ms。
- * @returns `toLocaleString()` 的结果。
- */
-function formatTime(updatedAt: number): string {
-  return new Date(updatedAt).toLocaleString()
-}
-
-/**
  * 订阅工作区快照。
  *
  * 注入面可能每次渲染都是新对象（渲染期软读），而订阅与读取必须稳定：两者都骑 `ref`，
@@ -458,6 +459,9 @@ function SessionManagerContent({ choice, client, workspaces, sessions, t }: Sess
   const [phase, setPhase] = useState<ManagerPhase>('select')
   const [tab, setTab] = useState<ManagerTab>('active')
   const [selection, setSelection] = useState<ManagerSelection>(emptySelection)
+  // 域内过滤词：三 tab 各存各的（切 tab 保留、互不串扰）；换工作区由 `key={choice}` 重挂整体复位。
+  // 匹配判据全部在 model（`filterSessionRows` / `filterMigratedRows`），视图只持原样词。
+  const [filters, setFilters] = useState<ManagerFilters>(EMPTY_FILTERS)
   // tab 2 的处置模式：默认迁移归档（与既有单会话删除一致），切换即丢弃上批预览。
   const [mode, setMode] = useState<DisposalMode>(DEFAULT_DISPOSAL_MODE)
   const [pending, setPending] = useState<PendingBatch | null>(null)
@@ -507,9 +511,33 @@ function SessionManagerContent({ choice, client, workspaces, sessions, t }: Sess
     () => (listing === null ? [] : migratedRows(choice, workspacesSnapshot, listing)),
     [choice, listing, workspacesSnapshot],
   )
-  // 列表与选择条共用的「当前行集」：活跃 / 已归档两个域的行同形，已迁移域另成一支。
-  const sessionRowList: readonly SessionRowView[] = tab === 'active' ? activeRowList : archivedRowList
-  const rows: readonly ManagerRow[] = tab === 'migrated' ? migratedRowList : sessionRowList
+  // 域内过滤后的可见行集（匹配内核在 model；空查询返回原数组保 identity）。
+  const activeVisible = useMemo(
+    () => filterSessionRows(activeRowList, filters.active),
+    [activeRowList, filters.active],
+  )
+  const archivedVisible = useMemo(
+    () => filterSessionRows(archivedRowList, filters.archived),
+    [archivedRowList, filters.archived],
+  )
+  const migratedVisible = useMemo(
+    () => filterMigratedRows(migratedRowList, filters.migrated),
+    [migratedRowList, filters.migrated],
+  )
+  // 当前 tab 的过滤词、未过滤行集与可见行集：过滤框的显隐 / 空态区分 / 列表渲染各用一份。
+  const currentQuery = filters[tab]
+  const unfilteredRows = tab === 'migrated' ? migratedRowList : tab === 'active' ? activeRowList : archivedRowList
+  // 列表与选择条共用的「当前行集」（过滤后的可见行）：全选、已选计数与动作启用都只看它。
+  const rows: readonly ManagerRow[] =
+    tab === 'migrated' ? migratedVisible : tab === 'active' ? activeVisible : archivedVisible
+  // 非迁移域的可见会话行（渲染窄类型视图：`rows` 的联合收窄不了，两处语义等价）。
+  const sessionVisible: readonly SessionRowView[] = tab === 'active' ? activeVisible : archivedVisible
+  // tab 计数徽标：过滤后的可见行数；迁移列表未加载 ≠ 0，给 null（不渲染徽标）。
+  const tabCounts: Readonly<Record<ManagerTab, number | null>> = {
+    active: activeVisible.length,
+    archived: archivedVisible.length,
+    migrated: listing === null ? null : migratedVisible.length,
+  }
   const effectiveCount = selectedCount(selection, tab, rows)
   const everySelected = allSelected(selection, tab, rows)
   const truncatedCount = tab === 'migrated' && listing?.truncated === true
@@ -538,11 +566,104 @@ function SessionManagerContent({ choice, client, workspaces, sessions, t }: Sess
   })()
 
   const tabIds = TAB_IDS[tab]
+
+  /**
+   * tab 标签：文案 + 域计数徽标。
+   * 徽标 `aria-hidden`：数字只作视觉提示，可访问名保持纯文案（读屏读「活跃」，
+   * 不读「活跃 3」——计数随过滤实时变化，语义上不是 tab 名的一部分）。
+   */
+  const tabLabel = (key: Key, count: number | null): ReactNode => (
+    <>{t(key)}{count !== null && <span className={css.tabCount} aria-hidden="true">{count}</span>}</>
+  )
+
   const tabItems: readonly [SegmentedTab<ManagerTab>, ...SegmentedTab<ManagerTab>[]] = [
-    { value: 'active', label: t('manager.tab.active'), id: TAB_IDS.active.tab, panelId: TAB_IDS.active.panel },
-    { value: 'archived', label: t('manager.tab.archived'), id: TAB_IDS.archived.tab, panelId: TAB_IDS.archived.panel },
-    { value: 'migrated', label: t('manager.tab.migrated'), id: TAB_IDS.migrated.tab, panelId: TAB_IDS.migrated.panel },
+    { value: 'active', label: tabLabel('manager.tab.active', tabCounts.active), id: TAB_IDS.active.tab, panelId: TAB_IDS.active.panel },
+    { value: 'archived', label: tabLabel('manager.tab.archived', tabCounts.archived), id: TAB_IDS.archived.tab, panelId: TAB_IDS.archived.panel },
+    { value: 'migrated', label: tabLabel('manager.tab.migrated', tabCounts.migrated), id: TAB_IDS.migrated.tab, panelId: TAB_IDS.migrated.panel },
   ]
+
+  /**
+   * 迁移行的时间悬停：迁移时间全串 +（可得时）创建时间全串。
+   * 创建时间只进悬停（次行主显迁移时间），未知（null / 非法值）整段省略。
+   */
+  const timeHover = (row: MigratedRowView): string => {
+    const archived = t('manager.meta.archived', { time: formatCompactTimestamp(row.updatedAt).full })
+    if (row.createdAt === null) return archived
+    return `${archived}\n${t('manager.meta.created', { time: formatCompactTimestamp(row.createdAt).full })}`
+  }
+
+  /** 已迁移行的 DOM 契约：首行 Checkbox（标题即唯一可访问名）+ 次行弱化 meta。 */
+  const renderMigratedRow = (row: MigratedRowView): ReactNode => (
+    <li
+      key={row.key}
+      className={cx(
+        css.row,
+        selection.migrated.has(row.key) && css.rowSelected,
+        !row.selectable && css.rowDisabled,
+      )}
+    >
+      {/* 标题由 model 派生恒非空（回退短码），目录名进 title 供悬停比对（D9：唯一可访问名）。 */}
+      <Checkbox
+        label={row.title}
+        title={row.dirName}
+        checked={selection.migrated.has(row.key)}
+        disabled={!row.selectable}
+        onChange={() => {
+          setSelection((current) => toggleSelection(current, 'migrated', row.key))
+        }}
+      />
+      <span className={css.rowMetaRow}>
+        {/* 回退短码做标题时次行不再重复 id（titleSource 由 model 判定一次）。 */}
+        {row.titleSource === 'log' && <span className={css.rowMeta}>{row.shortId}</span>}
+        <span className={css.rowMeta} title={row.projectDir}>{row.workspaceTitle ?? row.projectDir}</span>
+        <span className={css.rowMeta}>{t('manager.meta.size', { size: formatSize(row.bytes, t) })}</span>
+        <span className={css.rowMeta} title={timeHover(row)}>
+          {t('manager.meta.time', { time: formatCompactTimestamp(row.updatedAt).text })}
+        </span>
+      </span>
+    </li>
+  )
+
+  /** 活跃 / 已归档行的 DOM 契约：首行 Checkbox + 徽标，次行弱化 meta（目录尾段 + 时间）。 */
+  const renderSessionRow = (row: SessionRowView): ReactNode => (
+    <li
+      key={row.key}
+      className={cx(
+        css.row,
+        selection[tab].has(row.key) && css.rowSelected,
+        !row.selectable && css.rowDisabled,
+      )}
+    >
+      <Checkbox
+        label={row.title === '' ? t('manager.untitled') : row.title}
+        checked={selection[tab].has(row.key)}
+        disabled={!row.selectable}
+        onChange={() => {
+          setSelection((current) => toggleSelection(current, tab, row.key))
+        }}
+      />
+      {row.running && (
+        <span className={cx(css.badge, css.badgeRunning)}>{t('manager.badge.running')}</span>
+      )}
+      {row.blank && (
+        <span className={cx(css.badge, css.badgeBlank)}>{t('manager.badge.blank')}</span>
+      )}
+      {row.isFork && (
+        <span className={cx(css.badge, css.badgeFork)}>{t('manager.badge.fork')}</span>
+      )}
+      <span className={css.rowMetaRow}>
+        {row.projectDirTail !== null && (
+          <span className={css.rowMeta} title={row.cwd ?? undefined}>{row.projectDirTail}</span>
+        )}
+        <span
+          className={css.rowMeta}
+          title={t('manager.meta.updated', { time: formatCompactTimestamp(row.updatedAt).full })}
+        >
+          {t('manager.meta.time', { time: formatCompactTimestamp(row.updatedAt).text })}
+        </span>
+      </span>
+    </li>
+  )
 
   /** 回到选择阶段并丢弃确认页与结果（tab / 模式变化、`[返回]` / `[完成]` 共用）。 */
   const resetToSelect = (): void => {
@@ -878,20 +999,43 @@ function SessionManagerContent({ choice, client, workspaces, sessions, t }: Sess
           </fieldset>
         )}
 
-        {/* 「已迁移」列表按需拉取：只在选择阶段提供手动刷新，其余阶段不打断当前动作。 */}
+        {/* 「已迁移」工具栏：手动刷新 + 归档根路径（只在选择阶段出现，不打断当前动作）。 */}
         {tab === 'migrated' && phase === 'select' && (
-          <Button
-            variant="ghost"
-            icon={<IconRefreshOutlineRegular />}
-            onClick={reloadListing}
-            disabled={listingPhase === 'loading'}
-          >
-            {t('manager.refresh')}
-          </Button>
+          <div className={css.migratedBar}>
+            <Button
+              variant="ghost"
+              icon={<IconRefreshOutlineRegular />}
+              onClick={reloadListing}
+              disabled={listingPhase === 'loading'}
+            >
+              {t('manager.refresh')}
+            </Button>
+            {listing !== null && (
+              <span className={css.archiveRoot} title={listing.archiveRoot}>
+                {t('manager.confirm.archiveRoot', { path: listing.archiveRoot })}
+              </span>
+            )}
+          </div>
         )}
 
         {phase === 'select' && (
           <>
+            {/* 域内过滤框：无行且无过滤词时不渲染（空列表不需要过滤入口）。 */}
+            {(unfilteredRows.length > 0 || currentQuery !== '') && (
+              <div className={css.filterRow}>
+                <Input
+                  type="search"
+                  className={css.filterInput}
+                  value={currentQuery}
+                  placeholder={t('manager.filter.placeholder')}
+                  aria-label={t('manager.filter.placeholder')}
+                  onChange={(event) => {
+                    setFilters((current) => withTabFilter(current, tab, event.target.value))
+                  }}
+                />
+              </div>
+            )}
+
             <div className={css.selectionBar}>
               <Checkbox
                 label={t('manager.selectAll')}
@@ -921,68 +1065,15 @@ function SessionManagerContent({ choice, client, workspaces, sessions, t }: Sess
               // 拉取中沿用「正在执行…」的过程文案（locales 没有专门的列表加载键）。
               listingError === null ? <p className={css.muted}>{t('manager.running')}</p> : null
             ) : rows.length === 0 ? (
-              <p className={css.empty}>{emptyText}</p>
+              // 区分「本来就空」与「被过滤筛空」：前者给域专属解释，后者回显查询词。
+              <p className={css.empty}>
+                {unfilteredRows.length === 0 ? emptyText : t('manager.empty.filtered', { query: currentQuery })}
+              </p>
             ) : tab === 'migrated' ? (
-              <ul className={css.list}>
-                {migratedRowList.map((row) => (
-                  <li
-                    key={row.key}
-                    className={cx(
-                      css.row,
-                      selection.migrated.has(row.key) && css.rowSelected,
-                      !row.selectable && css.rowDisabled,
-                    )}
-                  >
-                    {/* 行标题由 Checkbox 的 label 承载（D9：唯一可访问名，不再放第二个 title）。 */}
-                    <Checkbox
-                      label={row.sessionId}
-                      checked={selection.migrated.has(row.key)}
-                      disabled={!row.selectable}
-                      onChange={() => {
-                        setSelection((current) => toggleSelection(current, 'migrated', row.key))
-                      }}
-                    />
-                    <span className={css.rowMeta} title={row.projectDir}>{row.projectDir}</span>
-                    <span className={css.rowMeta}>
-                      {t('manager.meta.size', { size: formatSize(row.bytes, t) })}
-                    </span>
-                    <span className={css.rowMeta}>
-                      {t('manager.meta.time', { time: formatTime(row.updatedAt) })}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              // 渲染的都是过滤后的可见行集（unfilteredRows 只参与空态判定）。
+              <ul className={css.list}>{migratedVisible.map(renderMigratedRow)}</ul>
             ) : (
-              <ul className={css.list}>
-                {sessionRowList.map((row) => (
-                  <li
-                    key={row.key}
-                    className={cx(
-                      css.row,
-                      selection[tab].has(row.key) && css.rowSelected,
-                      !row.selectable && css.rowDisabled,
-                    )}
-                  >
-                    <Checkbox
-                      label={row.title === '' ? t('manager.untitled') : row.title}
-                      checked={selection[tab].has(row.key)}
-                      disabled={!row.selectable}
-                      onChange={() => {
-                        setSelection((current) => toggleSelection(current, tab, row.key))
-                      }}
-                    />
-                    <span className={css.rowMeta}>
-                      {t('manager.meta.time', { time: formatTime(row.updatedAt) })}
-                    </span>
-                    {row.running && (
-                      <span className={cx(css.badge, css.badgeRunning)}>{t('manager.badge.running')}</span>
-                    )}
-                    {row.blank && (
-                      <span className={cx(css.badge, css.badgeBlank)}>{t('manager.badge.blank')}</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              <ul className={css.list}>{sessionVisible.map(renderSessionRow)}</ul>
             )}
 
             {/* 截断提示：列表上限（2000）与单批上限（500）共用一句「只列出前 N 个」。 */}

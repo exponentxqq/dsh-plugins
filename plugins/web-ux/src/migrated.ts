@@ -20,6 +20,10 @@
  *   → `attachToWorkspace`（匹配不到或无匹配工作区 ⇒ warning，仍计已恢复）→
  *   `readdToArchiveSet`（失败 ⇒ warning）→ 记入 `restored[]`；循环结束只调一次
  *   {@link MigratedPorts.announceRestored}，其异常只告警。
+ * - **标题探测是纯增强**：仅当 {@link MigratedPorts.log} 端口在场，枚举阶段才从每条
+ *   条目的成员名里挑规范日志，对它的压缩前缀做有界探测（并发 {@link MIGRATED_PROBE_CONCURRENCY}），
+ *   把 `title` / `createdAt` 条件并入条目。端口缺省、日志不可读、探测失败都只是这两
+ *   个字段缺省——列表不失败、也**不产生任何 warning**（既有迁移告警断言零变化）。
  *
  * @module dsh-plugin-web-ux/migrated
  */
@@ -40,6 +44,12 @@ import {
   type FileSystemOps,
 } from './delete-session.ts'
 import { workspaceForProjectDir } from './project-key.ts'
+import {
+  chooseSessionLogName,
+  probeSessionLog,
+  type SessionLogEntryName,
+  type SessionLogReadPorts,
+} from './session-log-title.ts'
 
 /**
  * 宿主广播的会话新增事件名；与 `delete-session.ts` 的 `SESSION_REMOVED_EVENT` 同址
@@ -66,6 +76,14 @@ export type MigratedFileOps = Pick<
   'readdir' | 'lstat' | 'rm' | 'mkdir' | 'rename' | 'copyFile'
 >
 
+/** 迁移域的日志读取端口（= 读取器端口，命名对齐本域）。 */
+export type MigratedLogOps = SessionLogReadPorts
+
+/**
+ * 标题探测的并发上限（镜像上游 list 并发默认值 3，不引入 p-limit）。
+ */
+export const MIGRATED_PROBE_CONCURRENCY = 3
+
 /** 迁移域的全部外部动作：流程只通过这组端口触碰上游与磁盘。 */
 export interface MigratedPorts {
   /** 宿主解析后的归档根（绝对路径）。 */
@@ -74,6 +92,11 @@ export interface MigratedPorts {
   readonly homePath: (...segments: string[]) => string
   /** 文件原语；`lstat` 需带 `mtimeMs`。 */
   readonly fs: MigratedFileOps
+  /**
+   * 归档日志读取端口。缺省 = 不读标题（字段缺省、列表行为与本次变更前逐字节一致）；
+   * 宿主不支持 zstd（Node 特性探测失败）时也走缺省。
+   */
+  readonly log?: MigratedLogOps
   /** 当前工作区（`workspaceRegistry.list()` 的投影）；抛错时恢复全部按「未分组」处理。 */
   listWorkspaces(): readonly MigratedWorkspace[]
   /** 把恢复的会话挂回工作区（上游会按 header cwd 二次校验）；拒绝时抛错。 */
@@ -200,6 +223,42 @@ function isCrossDevice(error: unknown): boolean {
 /** 把任意抛出物压成一句可读原因。 */
 function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * 有界并发的 worker 池（不引入 p-limit）：同一时刻最多 `limit` 个任务在途，任一条的
+ * 失败被就地折叠、不阻断其余条目。{@link probeSessionLog} 契约上永不 reject，这层
+ * `catch` 只是对池本身的兜底纪律。
+ */
+async function mapLimit<T>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  let cursor = 0
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const item = items[cursor]
+      cursor += 1
+      if (item === undefined) break
+      try {
+        await worker(item)
+      } catch {
+        // 单条探测失败只让该条的字段缺省，绝不让列表失败。
+      }
+    }
+  })
+  await Promise.all(runners)
+}
+
+/** 标题探测的一条待办：条目在 `entries` 里的下标、日志绝对路径与选中的规范日志名。 */
+interface PendingProbe {
+  /** 该条目在 `entries` 数组里的下标（阶段 A 枚举顺序）。 */
+  readonly index: number
+  /** 规范日志文件的绝对路径。 */
+  readonly path: string
+  /** {@link chooseSessionLogName} 选出的规范日志名（决定压缩形态）。 */
+  readonly log: SessionLogEntryName
 }
 
 /**
@@ -355,10 +414,16 @@ function uniqueTargets(targets: readonly MigratedTarget[]): MigratedTarget[] {
  * - `updatedAt` 取会话目录自身的 mtime，缺失按 0。
  * - 一旦已列出 {@link MAX_LISTED_MIGRATED} 条、又遇到新的合法条目，就置
  *   `truncated: true` 并停止枚举。
+ * - 仅当 `log` 端口在场（阶段 B）：从每条条目的成员名里 {@link chooseSessionLogName}
+ *   挑规范日志，以 {@link MIGRATED_PROBE_CONCURRENCY} 的 worker 池对它们做
+ *   {@link probeSessionLog}（永不抛），把结论里的 `title` / `createdAt` 条件并入条目；
+ *   全部失败都只是字段缺省，不产生任何 warning。端口缺省时整个阶段不执行，列表行为
+ *   与没有这个端口时逐字节一致。
  *
  * @param fs - 文件原语。
  * @param archiveRoot - 宿主解析后的归档根。
  * @param warn - 跳过条目与读取失败的告警出口。
+ * @param log - 归档日志读取端口；缺省 = 不做标题探测。
  * @returns 条目（最多 `MAX_LISTED_MIGRATED` 条）与截断标志。
  * @throws 归档根存在但不可读（非 ENOENT）时抛出。
  */
@@ -366,6 +431,7 @@ async function listArchiveEntries(
   fs: MigratedFileOps,
   archiveRoot: string,
   warn: (message: string) => void,
+  log?: MigratedLogOps,
 ): Promise<ArchiveEntries> {
   let projects: readonly DirectoryEntry[]
   try {
@@ -375,6 +441,7 @@ async function listArchiveEntries(
     throw error
   }
   const entries: MigratedEntry[] = []
+  const pending: PendingProbe[] = []
   let truncated = false
   projectLoop: for (const project of projects) {
     const projectPath = joinUnder(archiveRoot, project.name)
@@ -435,6 +502,12 @@ async function listArchiveEntries(
           // 一层体积只是给用户的参考数字：单个文件读不到就跳过，不打断整次枚举。
         }
       }
+      if (log !== undefined) {
+        const picked = chooseSessionLogName(members.map((member) => member.name))
+        if (picked !== undefined) {
+          pending.push({ index: entries.length, path: joinUnder(sessionPath, picked.name), log: picked })
+        }
+      }
       entries.push({
         sessionId: sessionIdOfEntry(session.name),
         dirName: session.name,
@@ -443,6 +516,17 @@ async function listArchiveEntries(
         updatedAt: updatedAtOf(stats),
       })
     }
+  }
+  if (log !== undefined && pending.length > 0) {
+    await mapLimit(pending, MIGRATED_PROBE_CONCURRENCY, async (item) => {
+      const probe = await probeSessionLog(item.path, item.log, log) // 契约：永不 reject
+      if (probe.title === null && probe.createdAt === null) return
+      entries[item.index] = {
+        ...entries[item.index],
+        ...(probe.title === null ? {} : { title: probe.title }),
+        ...(probe.createdAt === null ? {} : { createdAt: probe.createdAt }),
+      }
+    })
   }
   return { entries, truncated }
 }
@@ -588,18 +672,20 @@ export function createArchiveFiles(layout: ArchiveFileLayout): {
  *
  * 只读：不创建归档根、不改动任何条目。归档根不存在（ENOENT）返回空列表；存在但不可读
  * 返回 `archive-unavailable`。跳过的非目录 / 符号链接与读取失败都只经 `warn` 记录。
+ * `log` 端口在场时还会做有界标题探测（见 {@link listArchiveEntries}）；缺省时列表行为
+ * 与本次变更前逐字节一致，探测的任何失败都不进 `warn`。
  *
- * @param ports - 归档根、文件原语与告警出口。
+ * @param ports - 归档根、文件原语、告警出口与可选的日志读取端口。
  * @returns 列表（含归档根回声与截断标志）或稳定失败码。
  */
 export async function listMigrated(
-  ports: Pick<MigratedPorts, 'archiveRoot' | 'fs' | 'warn'>,
+  ports: Pick<MigratedPorts, 'archiveRoot' | 'fs' | 'warn' | 'log'>,
 ): Promise<MigratedListingResult> {
   if (ports.archiveRoot === '') {
     return { ok: false, code: 'archive-unavailable', message: 'the archive root is empty' }
   }
   try {
-    const { entries, truncated } = await listArchiveEntries(ports.fs, ports.archiveRoot, ports.warn)
+    const { entries, truncated } = await listArchiveEntries(ports.fs, ports.archiveRoot, ports.warn, ports.log)
     return { ok: true, listing: { archiveRoot: ports.archiveRoot, entries, truncated } }
   } catch (error: unknown) {
     return {

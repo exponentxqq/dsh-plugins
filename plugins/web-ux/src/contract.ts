@@ -198,6 +198,16 @@ export interface MigratedEntry {
   readonly bytes: number
   /** 目录 mtime（epoch ms）。 */
   readonly updatedAt: number
+  /**
+   * 会话日志前缀内**首个** `session/title` 事件的标题（已 trim）。
+   * 不承诺是日志里的最新标题（近似语义）；不可得时缺省。
+   */
+  readonly title?: string
+  /**
+   * 会话日志 header 行的 `createdAt`（epoch ms，恒 > 0）。
+   * header 不可读时缺省；**不会**写 0（0 在界面上会渲染成 1970）。
+   */
+  readonly createdAt?: number
 }
 
 /** 已迁移列表响应。 */
@@ -323,6 +333,26 @@ function readNonEmptyString(value: unknown, subject: string): Parsed<string> {
   return { ok: true, value }
 }
 
+/**
+ * 读一个可选的「trim 后非空」字符串字段；键缺失返回 undefined。
+ *
+ * 与 {@link readNonEmptyString} 的差别在可选性：字段读不出来时宿主不写键，client 据
+ * undefined 做回退，而不是拿空串占位。键存在但非字符串、空串或纯空白都算坏响应；
+ * 合法值原样收下（不在 wire 层 trim），长度与字符不加白名单。
+ */
+function readOptionalNonEmptyString(
+  record: Record<string, unknown>,
+  key: string,
+  subject: string,
+): Parsed<string | undefined> {
+  const value = record[key]
+  if (value === undefined) return { ok: true, value: undefined }
+  if (typeof value !== 'string' || value === '' || value.trim() === '') {
+    return { ok: false, message: `${subject} 的 ${key} 不是 trim 后的非空字符串` }
+  }
+  return { ok: true, value }
+}
+
 /** 读一个非负有限数字段。 */
 function readNonNegativeNumber(
   record: Record<string, unknown>,
@@ -341,6 +371,25 @@ function readCount(record: Record<string, unknown>, key: string, subject: string
   const value = record[key]
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
     return { ok: false, message: `${subject} 的 ${key} 不是非负安全整数` }
+  }
+  return { ok: true, value }
+}
+
+/**
+ * 读一个可选的正有限数字段（epoch ms）；键缺失返回 undefined。
+ *
+ * 与 {@link readNonNegativeNumber} 的差别有二：键缺失合法（返回 undefined），且合法值
+ * 必须严格 > 0（0 会在界面上渲染成 1970，宿主读到不了 header 时应缺键而不是写 0）。
+ */
+function readOptionalPositiveNumber(
+  record: Record<string, unknown>,
+  key: string,
+  subject: string,
+): Parsed<number | undefined> {
+  const value = record[key]
+  if (value === undefined) return { ok: true, value: undefined }
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return { ok: false, message: `${subject} 的 ${key} 不是正有限数` }
   }
   return { ok: true, value }
 }
@@ -628,12 +677,18 @@ export function parseMigratedListing(value: unknown): Parsed<MigratedListing> {
     if (!bytes.ok) return bytes
     const updatedAt = readNonNegativeNumber(entry.value, 'updatedAt', subject)
     if (!updatedAt.ok) return updatedAt
+    const title = readOptionalNonEmptyString(entry.value, 'title', subject)
+    if (!title.ok) return title
+    const createdAt = readOptionalPositiveNumber(entry.value, 'createdAt', subject)
+    if (!createdAt.ok) return createdAt
     items.push({
       sessionId: sessionId.value,
       dirName: dirName.value,
       projectDir: projectDir.value,
       bytes: bytes.value,
       updatedAt: updatedAt.value,
+      ...(title.ok && title.value !== undefined ? { title: title.value } : {}),
+      ...(createdAt.ok && createdAt.value !== undefined ? { createdAt: createdAt.value } : {}),
     })
   }
   const truncated = record['truncated']

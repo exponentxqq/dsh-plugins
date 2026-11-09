@@ -14,10 +14,13 @@
  *
  * 类名契约（分节组件按此清单消费；均按 CSS Modules 局部类引用）：
  *   sectionBody、actions                                  —— 分节容器与正文末尾动作条
- *   toolbar、tabsRow                                      —— 工具栏与节内域 tab 行
+ *   toolbar、tabsRow、tabCount                            —— 工具栏、节内域 tab 行与域计数徽标
  *   modes、modeRow、modeText                              —— tab 2 的处置方式单选
+ *   filterRow、filterInput                                —— 域内过滤框（输入框外层 span）
+ *   migratedBar、archiveRoot                              —— 迁移工具栏与归档根路径行
  *   selectionBar、list、row、rowSelected、rowDisabled     —— 选择条与列表
- *   rowMeta、badge、badgeRunning、badgeBlank              —— 行内元信息与徽标
+ *   rowBadges、rowMetaRow                                 —— 行内两行结构：徽标组与弱化 meta 次行
+ *   rowMeta、badge、badgeRunning、badgeBlank、badgeFork    —— 行内元信息与徽标族
  *   empty、truncated、muted                               —— 空态 / 截断 / 过程文案
  *   summary、rejected                                     —— 确认阶段的摘要与被拒清单
  *   result、warnings、failure、detail、danger             —— 结果区与底部危险按钮
@@ -59,6 +62,46 @@
 .tabsRow {
   width: 100%;
   min-width: 0;
+}
+
+/* 域计数徽标：跟在 tab 文字后面的小数字（aria-hidden，不进可访问名）。 */
+.tabCount {
+  margin-left: 6px;
+  color: var(--dsw-alias-label-tertiary, currentColor);
+  font-variant-numeric: tabular-nums;
+}
+
+/* —— 域内过滤框：选择条之前的一行搜索输入，占满工具栏与列表之间的空隙 —— */
+.filterRow {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+
+/* Input 的 className 落在外层 span（与真组件 / 测试替身同形），这里只给它伸缩性。 */
+.filterInput {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* —— 迁移工具栏：刷新按钮 + 归档根路径（只在已迁移 tab 的选择阶段出现） —— */
+.migratedBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+
+/* 归档根路径行：等宽字体的完整路径，悬停 title 也是它，过长折行不断词。 */
+.archiveRoot {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--dsw-alias-label-tertiary, currentColor);
+  font-family: var(--ds-font-family-code, monospace);
+  font-size: 12px;
+  line-height: 18px;
+  word-break: break-all;
 }
 
 /* —— tab 2 的处置方式单选：复用既有处置方式文案键，但结构在本模块内自绘 —— */
@@ -152,8 +195,9 @@
 
 .row {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
-  gap: 8px;
+  gap: 2px 8px;
   padding: 6px 8px;
   border-radius: var(--dsw-radius-sm, 6px);
 }
@@ -162,10 +206,30 @@
   background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentColor 6%, transparent));
 }
 
-/* 首列是 Checkbox：吃掉剩余宽度，元信息与徽标按自身最大宽度靠右排布。 */
+/* 首列是 Checkbox：0 基准吃掉剩余宽度，保证长标题只压缩自身、不把徽标挤到次行。 */
 .row > :first-child {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
+}
+
+/* 徽标组预留位（蓝图 JSX 契约未包裹该类，徽标目前逐个平铺；保留类与定义作为后续
+ * 分组改造的落点，不影响既有行为）。 */
+.rowBadges {
+  flex: none;
+  display: flex;
+  gap: 4px;
+  align-self: center;
+}
+
+/* 次行弱化 meta：整行宽度独占一行，缩进对齐标题文字（Checkbox 勾选框之后的视觉起点）。 */
+.rowMetaRow {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  min-width: 0;
+  padding-left: 22px;
 }
 
 /* 已选行：品牌色的浅层底，勾选态与整行底色互不抢注意力。 */
@@ -214,6 +278,11 @@
 /* 「空白」只是没有内容，不是异常：保持弱化，不报警。 */
 .badgeBlank {
   color: var(--dsw-alias-label-tertiary, currentColor);
+}
+
+/* 「Fork」标识派生会话：与普通徽标同层，弱化即可，不引入新的强调色。 */
+.badgeFork {
+  color: var(--dsw-alias-label-secondary, currentColor);
 }
 
 /* —— 空态 / 截断 / 过程文案 —— */

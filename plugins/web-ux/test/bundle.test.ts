@@ -75,6 +75,15 @@ describe('宿主半产物', () => {
       words: importedWords(readArtifact(ROOT, 'index.js')) })).toEqual([])
   })
 
+  it('宿主半用 node:zlib 读压缩日志，浏览器半不带任何 zlib/zstd 痕迹（分层证据）', () => {
+    // 标题/创建时间投影在宿主半读 zstd 压缩的会话日志（node:zlib 是自包含断言已允许的内建）。
+    expect(readArtifact(ROOT, 'index.js')).toContain('node:zlib')
+    // 浏览器半不得引用 node 内建或 zstd 词汇——日志解码只发生在宿主半。
+    const client = readArtifact(ROOT, 'client.js')
+    expect(client).not.toContain('node:zlib')
+    expect(client).not.toContain('zstd')
+  })
+
   it('带有 channel、七个端点与两个会话事件名', () => {
     const source = readArtifact(ROOT, 'index.js')
     for (const marker of [
