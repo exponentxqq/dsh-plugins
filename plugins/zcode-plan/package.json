@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-zcode-plan",
   "description": "DSH 插件（host-only，任意 profile）：zcode 计划桥接——复用宿主 zcode 凭证（PAT）维持登录态、把 /zcode-plan 计划命令接入会话；organization / project 必须显式配置",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "type": "module",
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

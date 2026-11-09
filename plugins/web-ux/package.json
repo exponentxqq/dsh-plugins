@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-web-ux",
   "description": "External dsh web GUI plugin: model-provider badge in the composer status row plus batch session management and archive-directory management — per-workspace archiving, delete-or-archive disposal of archived sessions, and cleanup or restore of the session logs moved into the configurable archive root (dual-half: host RPC channel + browser entries; project-level MCP support lives in the standalone dsh-plugin-project-mcp)",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "icon": "icon.svg",
   "type": "module",
   "engines": {
