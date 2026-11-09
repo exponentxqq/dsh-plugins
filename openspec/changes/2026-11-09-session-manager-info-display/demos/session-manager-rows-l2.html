@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2026-11-09-session-manager-info-display · L2 · 界面演示</title>
+<style>
+  :root{
+    /* 配色：沿用 DSW 中性阶 + 品牌蓝；成功绿（运行中）/警示琥珀（截断）各一 */
+    --brand:#2563eb; --ok:#059669; --warn:#b45309; --ink:#111827; --ink2:#4b5563; --ink3:#6b7280;
+    --line:#e5e7eb; --line2:#d1d5db; --bg:#f8fafc; --card:#fff; --sel:#eff4ff;
+    --fs1:20px; --fs2:14px; --fs3:13px; --fs4:12px; --sp:8px; --sp2:16px; --sp3:24px; --r:8px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:var(--fs2)/1.6 system-ui,"PingFang SC","Microsoft YaHei",sans-serif}
+  .bar{position:sticky;top:0;z-index:9;padding:10px var(--sp3);background:#0f172a;color:#fff;font-size:var(--fs4)}
+  .bar p{margin:2px 0}
+  .wrap{max-width:860px;margin:0 auto;padding:var(--sp3) var(--sp2)}
+  .pageCtx{max-width:860px;margin:0 auto var(--sp2);padding:0 var(--sp2);color:var(--ink3);font-size:var(--fs4)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:var(--sp2)}
+  h1,h2{margin:0 0 var(--sp);line-height:1.35} h1{font-size:var(--fs1)} h2{font-size:var(--fs3);color:var(--ink2)}
+  .muted{color:var(--ink2)} .faint{color:var(--ink3)}
+  /* —— 分节工具栏：域 tab（含计数徽标） —— */
+  .seg{display:flex;width:100%;border:1px solid var(--line2);border-radius:var(--r);overflow:hidden;margin:0 0 var(--sp2)}
+  .seg span{flex:1;text-align:center;padding:7px 4px;font-size:var(--fs3);color:var(--ink2);border-right:1px solid var(--line);cursor:default}
+  .seg span:last-child{border-right:0}
+  .seg span.on{background:var(--brand);color:#fff}
+  .seg .cnt{margin-left:5px;padding:0 6px;border-radius:999px;background:rgba(127,127,127,.16);font-size:var(--fs4);font-variant-numeric:tabular-nums}
+  .seg .on .cnt{background:rgba(255,255,255,.28)}
+  /* —— migratedBar：过滤框 + 刷新 —— */
+  .bar2{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp);margin:0 0 6px}
+  .bar2 input[type=search]{flex:1 1 200px;min-width:0;margin:0;padding:7px 10px;border:1px solid var(--line2);border-radius:var(--r);font:inherit;font-size:var(--fs3)}
+  .root{margin:0 0 10px;color:var(--ink3);font-size:var(--fs4);word-break:break-all}
+  /* —— 选择条 —— */
+  .selbar{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp);margin:0 0 8px;padding:8px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);color:var(--ink2);font-size:var(--fs3)}
+  .selbar .n{min-width:0;margin-left:auto;font-variant-numeric:tabular-nums}
+  /* —— 列表与两行式行 —— */
+  ul.list{display:flex;flex-direction:column;gap:2px;margin:0;padding:0;list-style:none;max-height:420px;overflow-y:auto}
+  .row{display:flex;flex-wrap:wrap;align-items:flex-start;gap:4px var(--sp);padding:6px 8px;border-radius:6px}
+  .row:hover{background:rgba(127,127,127,.07)}
+  .row.sel{background:var(--sel)}
+  .row.off,.row.off:hover{background:none;opacity:.55;cursor:default}
+  .row .head{flex:1 1 0;min-width:0;display:flex;align-items:center;gap:8px;order:1}
+  .row .head label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+  .row.off .head label{cursor:default}
+  .fallback{font-family:ui-monospace,monospace;font-size:var(--fs3);color:var(--ink2)}
+  .metaRow{flex:1 1 100%;order:2;display:flex;flex-wrap:wrap;gap:2px 14px;margin:0 0 0 26px;color:var(--ink3);font-size:var(--fs4);font-variant-numeric:tabular-nums}
+  .metaRow span{white-space:nowrap}
+  .metaRow .id{font-family:ui-monospace,monospace}
+  .metaRow .ws{max-width:34ch;overflow:hidden;text-overflow:ellipsis}
+  .badge{flex:none;order:1;align-self:center;padding:0 6px;border:.5px solid var(--line2);border-radius:6px;background:rgba(127,127,127,.08);color:var(--ink2);font-size:var(--fs4);line-height:18px;white-space:nowrap}
+  .badge.run{color:var(--ok)}
+  .badge.fork{color:var(--brand)}
+  /* —— 动作条 —— */
+  .actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:var(--sp);margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+  .btn{padding:8px 14px;border:1px solid var(--brand);border-radius:var(--r);background:var(--brand);color:#fff;font:inherit;font-size:var(--fs3);cursor:pointer}
+  .btn:hover{filter:brightness(1.08)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn.ghost{background:transparent;color:var(--brand)}
+  .btn.danger{background:#dc2626;border-color:#dc2626}
+  /* —— 状态导航（演示机制） —— */
+  .tabs{display:flex;gap:var(--sp);border-bottom:1px solid var(--line);margin:0 0 var(--sp2);flex-wrap:wrap}
+  .tabs a{padding:8px 12px;color:var(--ink2);text-decoration:none;border-bottom:2px solid transparent;font-size:var(--fs3)}
+  .tabs a:target{color:var(--brand);border-color:var(--brand)}
+  .state{margin:0 0 var(--sp3)}
+  .trunc{margin:8px 0 0;color:var(--warn);font-size:var(--fs4)}
+  .empty{margin:0;padding:20px 0;color:var(--ink3);font-size:var(--fs3);text-align:center}
+  .err{color:#dc2626;font-size:var(--fs3);margin:0 0 8px}
+  /* —— 已归档域处置模式单选 —— */
+  .modes{margin:0 0 10px;border:0;padding:0;min-inline-size:0}
+  .modes legend{color:var(--ink2);font-size:var(--fs3);font-weight:600;padding:0 0 4px}
+  .modes label{display:flex;gap:8px;align-items:flex-start;padding:2px 0;font-size:var(--fs3);cursor:pointer}
+  @media (max-width:480px){
+    .wrap{padding:16px 8px} .pageCtx{padding:0 8px}
+    .bar{font-size:12px;padding:8px 12px} .tabs{overflow-x:auto}
+    .metaRow{margin-left:0}
+  }
+</style>
+</head>
+<body>
+<!-- 演示约束条 -->
+<header class="bar">
+  <p>变更名 <b>2026-11-09-session-manager-info-display</b> · 分档 <b>L2</b> · 生成 <b>2026-11-09 12:05</b> · <b>界面演示，非最终实现</b></p>
+  <p>示意数据：本页条目、标题、数字均为虚构，仅用于确认布局与视觉。</p>
+</header>
+<p class="pageCtx">场景：统一「工作区配置」页面右栏卡片 · 会话管理分节（选中工作区 = dsh-plugins）</p>
+<main class="wrap">
+  <nav class="tabs">
+    <a href="#s-migrated">① 已迁移 · 默认</a>
+    <a href="#s-filter">② 过滤中</a>
+    <a href="#s-filter-empty">③ 过滤空态</a>
+    <a href="#s-active">④ 活跃域</a>
+    <a href="#s-archived">⑤ 已归档域</a>
+    <a href="#s-disabled">⑥ 禁用/悬停</a>
+  </nav>
+
+  <!-- ① 已迁移 · 默认：两行式行 + 域计数 + 过滤框 + 归档根 + 回退行 -->
+  <section class="card state" id="s-migrated">
+    <div class="seg">
+      <span>活跃<span class="cnt">12</span></span>
+      <span>已归档<span class="cnt">7</span></span>
+      <span class="on">已迁移<span class="cnt">23</span></span>
+    </div>
+    <div class="bar2">
+      <input type="search" name="filter" placeholder="过滤：标题 / ID / 目录 / 工作区" aria-label="过滤已迁移条目">
+      <button class="btn ghost">⟳ 刷新归档列表</button>
+    </div>
+    <p class="root">归档目录：/data/archive/dsh-sessions</p>
+    <div class="selbar">
+      <label><input type="checkbox" name="pick"> 全选</label>
+      <span>已选 2 个</span>
+      <button class="btn ghost" style="padding:4px 10px">清空</button>
+      <span class="n">可见 23 / 全部 23</span>
+    </div>
+    <ul class="list">
+      <li class="row sel">
+        <span class="head"><input type="checkbox" name="pick" checked id="m1t"><label for="m1t" title="迁移时间：2026-11-08 21:14:36&#10;创建时间：2026-09-12 10:02:11">重构会话标题提取的帧扫描器</label></span>
+        <span class="metaRow"><span class="id">session-9f2c…</span><span class="ws" title="/home/xuqinqin/develop/person/dsh-plugins">dsh-plugins</span><span>412 KB</span><span>11-08 21:14</span></span>
+      </li>
+      <li class="row">
+        <span class="head"><input type="checkbox" name="pick" id="m2t"><label for="m2t">修复归档恢复后的工作区挂回</label></span>
+        <span class="metaRow"><span class="id">session-4ad0…</span><span class="ws" title="/home/xuqinqin/develop/person/dsh-plugins">dsh-plugins</span><span>88 KB</span><span>11-06 09:40</span></span>
+      </li>
+      <li class="row">
+        <span class="head"><input type="checkbox" name="pick" id="m3t"><label for="m3t" class="fallback" title="该条目日志内无标题事件，回退显示目录名短码">session-c71e93ab…</label></span>
+        <span class="metaRow"><span class="id">session-c71e…</span><span class="ws" title="未匹配任何工作区 · 归档目录一级名：--home-xuqinqin-develop-company-opc--">--…-company-opc--</span><span>1.2 MB</span><span>10-30 18:22</span></span>
+      </li>
+      <li class="row">
+        <span class="head"><input type="checkbox" name="pick" id="m4t"><label for="m4t">给 workspace-config 页面补工作区选择快捷键</label></span>
+        <span class="metaRow"><span class="id">session-e5b8…</span><span class="ws">dsh-plugins</span><span>203 KB</span><span>09-21 15:03</span></span>
+      </li>
+    </ul>
+    <div class="actions">
+      <button class="btn">恢复所选</button>
+      <button class="btn danger">永久删除所选</button>
+    </div>
+  </section>
+
+  <!-- ② 过滤中：行收窄到匹配项，计数随可见行变化 -->
+  <section class="card state" id="s-filter">
+    <div class="seg">
+      <span>活跃<span class="cnt">12</span></span>
+      <span>已归档<span class="cnt">7</span></span>
+      <span class="on">已迁移<span class="cnt">2</span></span>
+    </div>
+    <div class="bar2">
+      <input type="search" name="filter" value="归档" aria-label="过滤已迁移条目">
+      <button class="btn ghost">⟳ 刷新归档列表</button>
+    </div>
+    <p class="root">归档目录：/data/archive/dsh-sessions</p>
+    <div class="selbar">
+      <label><input type="checkbox" name="pick" checked> 全选</label>
+      <span>已选 2 个</span>
+      <button class="btn ghost" style="padding:4px 10px">清空</button>
+      <span class="n">可见 2 / 全部 23</span>
+    </div>
+    <ul class="list">
+      <li class="row sel">
+        <span class="head"><input type="checkbox" name="pick" checked id="f1t"><label for="f1t">修复归档恢复后的工作区挂回</label></span>
+        <span class="metaRow"><span class="id">session-4ad0…</span><span class="ws">dsh-plugins</span><span>88 KB</span><span>11-06 09:40</span></span>
+      </li>
+      <li class="row sel">
+        <span class="head"><input type="checkbox" name="pick" checked id="f2t"><label for="f2t">归档根体积统计的跨设备复制回退</label></span>
+        <span class="metaRow"><span class="id">session-b36f…</span><span class="ws">dsh-plugins</span><span>96 KB</span><span>08-19 11:27</span></span>
+      </li>
+    </ul>
+    <div class="actions">
+      <button class="btn">恢复所选</button>
+      <button class="btn danger">永久删除所选</button>
+    </div>
+  </section>
+
+  <!-- ③ 过滤空态 -->
+  <section class="card state" id="s-filter-empty">
+    <div class="seg">
+      <span>活跃<span class="cnt">12</span></span>
+      <span>已归档<span class="cnt">7</span></span>
+      <span class="on">已迁移<span class="cnt">0</span></span>
+    </div>
+    <div class="bar2">
+      <input type="search" name="filter" value="zzz不存在的关键字" aria-label="过滤已迁移条目">
+      <button class="btn ghost">⟳ 刷新归档列表</button>
+    </div>
+    <p class="root">归档目录：/data/archive/dsh-sessions</p>
+    <div class="selbar">
+      <label><input type="checkbox" name="pick" disabled> 全选</label>
+      <span>已选 0 个</span>
+      <button class="btn ghost" style="padding:4px 10px">清空</button>
+      <span class="n">可见 0 / 全部 23</span>
+    </div>
+    <p class="empty">没有匹配「zzz不存在的关键字」的条目。</p>
+    <div class="actions">
+      <button class="btn" disabled>恢复所选</button>
+      <button class="btn danger" disabled>永久删除所选</button>
+    </div>
+  </section>
+
+  <!-- ④ 活跃域：fork 徽标 + 项目目录尾段 + running 置灰 -->
+  <section class="card state" id="s-active">
+    <div class="seg">
+      <span class="on">活跃<span class="cnt">12</span></span>
+      <span>已归档<span class="cnt">7</span></span>
+      <span>已迁移<span class="cnt">23</span></span>
+    </div>
+    <div class="bar2">
+      <input type="search" name="filter" placeholder="过滤：标题 / ID / 目录 / 工作区" aria-label="过滤活跃会话">
+    </div>
+    <div class="selbar">
+      <label><input type="checkbox" name="pick"> 全选</label>
+      <span>已选 1 个</span>
+      <button class="btn ghost" style="padding:4px 10px">清空</button>
+      <span class="n">可见 12 / 全部 12</span>
+    </div>
+    <ul class="list">
+      <li class="row sel">
+        <span class="head"><input type="checkbox" name="pick" checked id="a1t"><label for="a1t">会话管理分节信息展示优化</label></span>
+        <span class="badge fork" title="由父会话 fork 而来">fork</span>
+        <span class="metaRow"><span class="id">session-0d71…</span><span class="ws" title="/home/xuqinqin/develop/person/dsh-plugins">dsh-plugins</span><span>11-09 11:20</span></span>
+      </li>
+      <li class="row">
+        <span class="head"><input type="checkbox" name="pick" id="a2t"><label for="a2t">multi-root 附加根的权限继承排查</label></span>
+        <span class="metaRow"><span class="id">session-88f2…</span><span class="ws" title="/home/xuqinqin/develop/dotfiles">dotfiles</span><span>11-08 22:47</span></span>
+      </li>
+      <li class="row off">
+        <span class="head"><input type="checkbox" name="pick" disabled id="a3t"><label for="a3t">正在跑的冒烟验证</label></span>
+        <span class="badge run">运行中</span>
+        <span class="metaRow"><span class="id">session-3ac9…</span><span class="ws">dsh-plugins</span><span>11-09 11:52</span></span>
+      </li>
+    </ul>
+    <div class="actions"><button class="btn">归档所选</button></div>
+  </section>
+
+  <!-- ⑤ 已归档域：处置模式单选 + 双动作 -->
+  <section class="card state" id="s-archived">
+    <div class="seg">
+      <span>活跃<span class="cnt">12</span></span>
+      <span class="on">已归档<span class="cnt">7</span></span>
+      <span>已迁移<span class="cnt">23</span></span>
+    </div>
+    <div class="bar2">
+      <input type="search" name="filter" placeholder="过滤：标题 / ID / 目录 / 工作区" aria-label="过滤已归档会话">
+    </div>
+    <fieldset class="modes">
+      <legend>处置方式</legend>
+      <label><input type="radio" name="m" checked><span>移动到归档目录（默认）</span></label>
+      <label><input type="radio" name="m"><span>永久删除</span></label>
+    </fieldset>
+    <div class="selbar">
+      <label><input type="checkbox" name="pick"> 全选</label>
+      <span>已选 2 个</span>
+      <button class="btn ghost" style="padding:4px 10px">清空</button>
+      <span class="n">可见 7 / 全部 7</span>
+    </div>
+    <ul class="list">
+      <li class="row sel">
+        <span class="head"><input type="checkbox" name="pick" checked id="r1t"><label for="r1t">上一轮的 zstd 帧边界实测</label></span>
+        <span class="badge fork" title="由父会话 fork 而来">fork</span>
+        <span class="metaRow"><span class="id">session-77d1…</span><span class="ws">dsh-plugins</span><span>11-07 19:31</span></span>
+      </li>
+      <li class="row sel">
+        <span class="head"><input type="checkbox" name="pick" checked id="r2t"><label for="r2t">workspace-folders-picker 落档</label></span>
+        <span class="metaRow"><span class="id">session-1be6…</span><span class="ws">dsh-plugins</span><span>11-08 23:02</span></span>
+      </li>
+      <li class="row">
+        <span class="head"><input type="checkbox" name="pick" id="r3t"><label for="r3t" class="fallback">session-0002d5a7…</label></span>
+        <span class="metaRow"><span class="id">session-0002…</span><span class="ws">dotfiles</span><span>11-02 08:15</span></span>
+      </li>
+    </ul>
+    <div class="actions">
+      <button class="btn">取消归档所选</button>
+      <button class="btn danger">处置所选</button>
+    </div>
+  </section>
+
+  <!-- ⑥ 禁用/悬停态与错误文案位（拉取失败） -->
+  <section class="card state" id="s-disabled">
+    <div class="seg">
+      <span>活跃<span class="cnt">—</span></span>
+      <span>已归档<span class="cnt">—</span></span>
+      <span class="on">已迁移<span class="cnt">—</span></span>
+    </div>
+    <p class="err" role="alert">操作未能完成：归档目录不可读（archive-unavailable）</p>
+    <p class="empty">归档目录暂时无法读取，可点击刷新重试。</p>
+    <div class="actions">
+      <button class="btn">⟳ 刷新归档列表</button>
+      <button class="btn danger" disabled>永久删除所选</button>
+    </div>
+  </section>
+</main>
+</body>
+</html>
