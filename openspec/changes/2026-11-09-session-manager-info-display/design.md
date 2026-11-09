@@ -48,6 +48,8 @@
 
 **阶段 1.75 界面演示**：**触发（L2）并经用户确认通过**——C1∧C2∧C3 成立（两行式行布局为新视觉决策、无设计依据），产物 `demos/session-manager-rows-l2.html`（约 16.8KB 六状态屏：已迁移默认/过滤中/过滤空态/活跃域/已归档域/禁用与错误位）。自检 = chrome-shared 程序化断言（双视口零横向溢出、零外链、console 零消息）+ vision 子代理读图 A–I 清单（首轮 G 徽标位置不通过 → 改稿 `.badge{order:1}` → 几何复验 3/3 通过），确认于 2026-11-09 12:39。判定与证据详见 `code-design.md` 附录。
 
+**执行环境**（2026-11-09 衔接点裁定，模式 `auto`、引擎 `subagent`）：**隔离**。布局：dsh-plugins（单仓单代码仓，根仓即工件仓）→ `/home/xuqinqin/develop/person/dsh-plugins/.worktrees/2026-11-09-session-manager-info-display` @ `feature/2026-11-09-session-manager-info-display`（基点 3f69e20）；装配：worktree 内 `pnpm install`（容器包装、store 共享，exit 0）；环境错开：无（插件仓，无端口/数据库/入库本地配置）；装载指纹：宿主产物 `lib/index.js` 含 `iterateZstdFrames`、client 产物 `lib/client.js` 含 `formatCompactTimestamp`（link 装载重启后容器内 grep 确认在位）；提交落点：代码批次提交落 worktree 特性分支，工件（tasks/design/code-design）提交落主检出 main——隔离动机：主工作区存在并行变更 `2026-11-09-session-tool-panel-rework` 执行中的未提交改动（文件面零交集）。
+
 ## 接口与数据形状（摘要）
 
 （完整签名、解析规则与 JSDoc 见 `code-design.md` ③；此处只列对外可见形状。）

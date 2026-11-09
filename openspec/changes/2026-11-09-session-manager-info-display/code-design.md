@@ -1115,6 +1115,8 @@ pnpm --filter dsh-plugin-web-ux exec vitest run test/contract.test.ts
   `'title' in value.entries[0] === false`。
 - 既有 `describe('parseMigratedListing')` 的 22 条非法形状用例全部保持绿。
 
+> **TG1 执行终形态（2026-11-09 组 1 收尾留痕）**：1.1 落地 `contract.ts` +55 行（蓝图估 +35；差值 = 两个辅助函数的 JSDoc 与既有文案风格对齐）、`contract.test.ts` +46 行，**纯增量零删除**——「只扩响应形状」经 diff 抽查确认（`MigratedRequest`/`MigratedTarget`/`readMigratedRequest`/端点/失败码/上限零命中）。新增 11 用例后 215/215 通过，`typecheck` 两段 exit 0。主动加严一处：createdAt 非法用例额外含 `Infinity`（`Number.isFinite` 判定的自然覆盖）。1.2 落地读取器 340 行（估 300）、测试 494 行 44 用例（估 220 行；差值 = 验收清单全覆盖 + 仓内注释密度惯例，无内容删减），44/44 通过；**零 import 纪律经双 grep 验证**（`from 'node:` 无输出 + import 计数 0）；`tsconfig.host.json` include 按字母序追加两行。关键实测：**流式帧（Single_Segment=0）由测试手工构造**（magic + FHD bit5=0 + Window_Descriptor + raw 块头 + 载荷，`zstdDecompressSync` 可解），Window_Descriptor 分支被「生成器区间产出 + 帧首第 5 字节 `& 32 === 0`」双断言钉死；`zstdCompressSync` 单段帧实测 FHD=0b00100000（Single_Segment=1）。
+
 ### TG2 宿主标题读取器
 
 **文件**：新建 `src/session-log-title.ts`；新建 `test/session-log-title.test.ts`；改 `src/migrated.ts`；
@@ -1162,6 +1164,8 @@ pnpm --filter dsh-plugin-web-ux exec vitest run test/index.test.ts
 - `index.test.ts`：用 `zstdCompressSync` 写真实归档日志后 `list-migrated` 返回标题；既有 2000 条截断用例
   与 warnings 断言保持绿。
 
+> **TG2 执行终形态（2026-11-09 组 2 收尾留痕）**：`migrated.ts` 三段结构落地（阶段 A 逐字节不动、阶段 B `mapLimit` worker 池——池满即 max 3 在途、单条 catch 兜底不阻断其余、全程零 warn）、`listMigrated` 端口扩为含 `'log'` 的 `Pick`；`index.ts` 命名空间 `import * as zlib` + 特性探测 + `open/stat/read` 有界 `readPrefix`，`createPorts` 条件展开。测试 migrated +8 用例（含 worker 池在途峰值恰 3、单条目 `readPrefix` 恰 2 次、reject/throw 双降级路径、`session.lock` 零读）、index 真链路 +1，**79/79 通过**（migrated 53 + index 26）；`build` exit 0、`lib/index.js` zstd 命中 5 处；`typecheck`/`bundle.test` 9 条全绿。实测夹具坑（设计内行为，非缺陷）：真链路 zstd 帧内容**必须带行尾 `\n`**——无换行时整块进 carry、`JSON.parse` 失败按行为契约 10「跳过」折叠成字段缺省。产物事实见 `tasks.md` 附录 R1（contract 双端共享 → `lib/client.js` 构建）。
+
 ### TG3 client 纯派生
 
 **文件**：新建 `src/client/display-format.ts`；新建 `test/display-format.test.ts`；
@@ -1200,6 +1204,8 @@ pnpm --filter dsh-plugin-web-ux exec vitest run test/session-manager-model.test.
 - 可见投影：`selectAllSelection(sel, 'archived', visibleRows)` 后 `selectedSessionIds(visibleRows, sel.archived)`
   只含可见行；`selectedCount(sel, tab, visibleRows)` 不计隐藏行。
 
+> **TG3 执行终形态（2026-11-09 组 3 收尾留痕）**：`display-format.ts` 约 90 行（估 70）、model 扩展 + 过滤族落地（私有 `matchesFilter` 内核、haystack `\n` 连接整体小写、空查询 identity 短路）；`migratedRow` 签名改 `(entry, owner, workspaces)`，调用点同步；`makeMigratedEntry` 夹具增向后兼容 `overrides` 参数。**40/40 通过**（display-format 8 + model 32）；`grep -rnE "from 'node:|zstd" src/client/` 零命中；typecheck 两段 exit 0。执行期自裁两条（主会话核对确认合理）：① `EMPTY_FILTERS`——蓝图签名（`export const`）与注释（「每次返回新对象」）矛盾，按签名实现共享常量、JSDoc 如实描述（重置用 `withTabFilter`/展开产生新对象；任务 4.1 消费如需每次新对象可零成本改 `emptyFilters()` 函数）；② isFork 第三项断言——D14 过滤发生在 `sessionRow` 调用前，行集不存在 `origin:'subagent'` 的行，测试改断「subagent + parentId 的行不出现在行集」（判据代码本身按蓝图防御性保留）。
+
 ### TG4 视图与样式文案
 
 **文件**：改 `src/client/locales.ts`；改 `src/client/session-manager.module.css`；
@@ -1237,6 +1243,8 @@ pnpm --filter dsh-plugin-web-ux exec vitest run test/bundle.test.ts
   `manager.empty.filtered` 出现且含查询词；切到另一 tab 再切回，过滤词仍在；动作按钮在可见已选为 0 时禁用。
 - 归档根：已迁移 tab 出现 `manager.confirm.archiveRoot` 文案且 `title` 为完整路径；确认页仍只有一处该文案。
 - 两行式：`.row` 下存在 `.rowMetaRow`，且 `aria-hidden` 的计数 span 存在（`grep -c 'aria-hidden'` = 1）。
+
+> **TG4 执行终形态（2026-11-09 组 4 收尾留痕）**：7 文件全落。Dialog = `filters` state（切 tab 保留、`key={choice}` 重挂复位）+ 三 `useMemo` 可见行集 + `tabCounts`（migrated 未加载 = null 不显徽标）+ `tabLabel`（计数 span `aria-hidden`）+ `.migratedBar`（刷新 + 归档根悬停全路径）+ 过滤框（无行且无词不渲染）+ 空态二元区分（本来就空 / 被筛空）+ 两行式 DOM + `timeHover` 两段悬停；`formatTime` 已删除（无双时间格式）。测试 +200 行：`selectedTabLabel` 助手改 `accessibleLabelOf`（排除 `aria-hidden` 子树），8 处调用点零改动生效；bundle +2 分层断言。**44/44 通过**（dialog 30 + parity 4 + bundle 10）；`aria-hidden` 计数 2；全量 `pnpm test` 21 文件 667 用例 exit 0（既有零回归）。等价实现三条（语义与蓝图一致，已核对）：① `rows.map(renderSessionRow)` → `sessionVisible.map(...)`（`ManagerRow` 联合无法类型收窄，改窄类型视图变量）；② `timeHover` 实现为组件内箭头函数（引用 `t` 闭包）；③ 既有 `getAllByRole('tab').map(textContent)` 断言改 `.map(accessibleLabelOf)`（tab 现带计数数字，textContent 非本意）。`.rowBadges` 为预留位（蓝图 JSX 契约未包裹，类定义 + 契约注释在位）。`lib/client.js` 重建含本任务投影；`lib/index.js` 宿主源码零改动、产物与组 1–3 一致（diff 按 R1 归属）。
 
 ### TG5 spec 与 README
 
@@ -1329,6 +1337,8 @@ pnpm spec:check
 pnpm docs:check
 pnpm dsh:check
 ```
+
+> **TG6 执行终形态（2026-11-09 组 6 收尾留痕，主会话独立复核同结果）**：`verify:all` 逐字跑因 R2 嵌套 pnpm 版本漂移 exit 1 → 按定义四分量 `--filter` 直达展开**全绿**（lint 0 errors / typecheck host+client 双段 / build 真实重建 `lib/index.js` 149589B + `lib/client.js` 139829B / test 21 文件 **667 用例** 4.75s 真实执行）；`spec:check` **16 passed, 0 failed**（strict 全量）；`dsh:check` **3/3**（基线 0.2.2-rc.1 + AR1–AR8 + B1–B5）；六份日志 SKIPPED 计数全 0（干净窗口）。主会话复核独立重跑 test/spec:check/dsh:check 同结果。分层 grep 断言在组 1–5 各自核对已逐条过（读取器零 `node:`、client 零 `node:`/`zstd`、`aria-hidden` ≥1、formatTime 删除）。TG6 验收句中的 `docs:check` 已在组 5 按 R2 口径等价绿（两分量 0 errors）。本任务零文件改动。
 
 ### TG 依赖与提交切分
 
