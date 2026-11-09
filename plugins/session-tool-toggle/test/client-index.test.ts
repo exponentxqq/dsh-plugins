@@ -359,7 +359,6 @@ describe('工作区默认档分节座位（holder workspace-config.section）', 
       panel: expect.any(Function),
       toggle: expect.any(Function),
       reset: expect.any(Function),
-      updateDefaults: expect.any(Function),
       workspace: expect.any(Function),
     })
   })
@@ -462,7 +461,7 @@ describe('注入面的三个端口（header）', () => {
       panel: expect.any(Function),
       toggle: expect.any(Function),
       reset: expect.any(Function),
-      updateDefaults: expect.any(Function),
+      workspace: expect.any(Function),
     })
   })
 

@@ -3,9 +3,11 @@ window.__ModuleLoader__.load({
 	factory: (require) => {
 		var module = { exports: {} };
 		var exports = module.exports;
+		var __create = Object.create;
 		var __defProp = Object.defineProperty;
 		var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 		var __getOwnPropNames = Object.getOwnPropertyNames;
+		var __getProtoOf = Object.getPrototypeOf;
 		var __hasOwnProp = Object.prototype.hasOwnProperty;
 		var __export = (target, all) => {
 		  for (var name2 in all)
@@ -19,6 +21,14 @@ window.__ModuleLoader__.load({
 		  }
 		  return to;
 		};
+		var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+		  // If the importer is in node compatibility mode or this is not an ESM
+		  // file that has been converted to a CommonJS file using a Babel-
+		  // compatible transform (i.e. "__esModule" has not been set), then set
+		  // "default" to the CommonJS "module.exports" for node compatibility.
+		  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+		  mod
+		));
 		var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 		// src/client/index.ts
@@ -35,15 +45,14 @@ window.__ModuleLoader__.load({
 		module.exports = __toCommonJS(index_exports);
 
 		// src/client/ToolPanelAction.tsx
-		var import_react7 = require("react");
-		var import_dsh_client_ui_primitives8 = require("@deepseek-ai/dsh-client-ui-primitives");
+		var import_react2 = require("react");
+		var import_dsh_client_ui_primitives3 = require("@deepseek-ai/dsh-client-ui-primitives");
 
 		// src/contract.ts
 		var CHANNEL = "/session-tool-toggle";
 		var PANEL_ENDPOINT = "panel";
 		var TOGGLE_ENDPOINT = "toggle";
 		var RESET_ENDPOINT = "reset";
-		var DEFAULTS_ENDPOINT = "defaults";
 		var WORKSPACE_ENDPOINT = "workspace";
 		var HOST_FAILURE_CODES = [
 		  /** 端点未知 / 请求体不合形状 / 未知 action。 */
@@ -82,7 +91,6 @@ window.__ModuleLoader__.load({
 		  "skill-shadow-failed"
 		];
 		var STORE_KINDS = ["record", "memory"];
-		var DEFAULTS_VERSION = 1;
 		var DESCRIPTION_MAX_LENGTH = 160;
 		function fail(message) {
 		  return { ok: false, message };
@@ -213,9 +221,7 @@ window.__ModuleLoader__.load({
 		];
 		var TOOL_GROUP_KEYS = ["kind", "key", "address", "toolCount", "disabledCount", "disabled", "tools"];
 		var STATE_VIEW_KEYS = ["disabled", "snapshot", "seeded", "updatedAt", "storeKind"];
-		var DEFAULTS_VIEW_KEYS = ["version", "disabled", "path", "readable", "corrupt"];
 		var STATS_VIEW_KEYS = ["visible", "denied"];
-		var WORKSPACE_CHOICE_KEYS = ["key", "title"];
 		var WORKSPACE_VIEW_KEYS = ["key", "title", "registered", "disabled", "path", "readable", "corrupt"];
 		var DEFAULTS_ENTRY_KEYS = [
 		  "address",
@@ -243,12 +249,10 @@ window.__ModuleLoader__.load({
 		  "state",
 		  "groups",
 		  "protectedNames",
-		  "defaults",
 		  "intentOnly",
 		  "stats",
 		  "notices",
-		  "skills",
-		  "workspace"
+		  "skills"
 		];
 		var MUTATION_APPLIED_KEYS = ["address", "on", "matched"];
 		var MUTATION_KEYS = [
@@ -349,34 +353,6 @@ window.__ModuleLoader__.load({
 		    }
 		  };
 		}
-		function readDefaultsView(value, subject) {
-		  const object = readStrictObject(value, subject, DEFAULTS_VIEW_KEYS);
-		  if (!object.ok) return object;
-		  const record = object.value;
-		  const version = readCountField(record, "version", subject);
-		  if (!version.ok) return version;
-		  if (version.value !== DEFAULTS_VERSION) {
-		    return fail(`${subject}.version \u4E0D\u662F ${DEFAULTS_VERSION}\uFF08\u5B9E\u9645 ${version.value}\uFF09`);
-		  }
-		  const disabled = readStringArrayField(record, "disabled", subject);
-		  if (!disabled.ok) return disabled;
-		  const path = readStringField(record, "path", subject, { minLength: 1 });
-		  if (!path.ok) return path;
-		  const readable = readBooleanField(record, "readable", subject);
-		  if (!readable.ok) return readable;
-		  const corrupt = readBooleanField(record, "corrupt", subject);
-		  if (!corrupt.ok) return corrupt;
-		  return {
-		    ok: true,
-		    value: {
-		      version: version.value,
-		      disabled: disabled.value,
-		      path: path.value,
-		      readable: readable.value,
-		      corrupt: corrupt.value
-		    }
-		  };
-		}
 		function readStatsView(value, subject) {
 		  const object = readStrictObject(value, subject, STATS_VIEW_KEYS);
 		  if (!object.ok) return object;
@@ -416,16 +392,6 @@ window.__ModuleLoader__.load({
 		      shadowed: shadowed.value
 		    }
 		  };
-		}
-		function readWorkspaceChoice(value, subject) {
-		  const object = readStrictObject(value, subject, WORKSPACE_CHOICE_KEYS);
-		  if (!object.ok) return object;
-		  const record = object.value;
-		  const key = readStringField(record, "key", subject, { minLength: 1 });
-		  if (!key.ok) return key;
-		  const title = readStringField(record, "title", subject);
-		  if (!title.ok) return title;
-		  return { ok: true, value: { key: key.value, title: title.value } };
 		}
 		function readWorkspaceView(value, subject) {
 		  const object = readStrictObject(value, subject, WORKSPACE_VIEW_KEYS);
@@ -586,8 +552,6 @@ window.__ModuleLoader__.load({
 		  if (!groups.ok) return groups;
 		  const protectedNames = readStringArrayField(record, "protectedNames", subject);
 		  if (!protectedNames.ok) return protectedNames;
-		  const defaults = readDefaultsView(record["defaults"], `${subject}.defaults`);
-		  if (!defaults.ok) return defaults;
 		  const intentOnly = readStringArrayField(record, "intentOnly", subject);
 		  if (!intentOnly.ok) return intentOnly;
 		  const stats = readStatsView(record["stats"], `${subject}.stats`);
@@ -596,8 +560,6 @@ window.__ModuleLoader__.load({
 		  if (!notices.ok) return notices;
 		  const skills = readArrayField(record, "skills", subject, readSkillView);
 		  if (!skills.ok) return skills;
-		  const workspace = readNullableWorkspaceView(record["workspace"], `${subject}.workspace`);
-		  if (!workspace.ok) return workspace;
 		  return {
 		    ok: true,
 		    value: {
@@ -606,12 +568,10 @@ window.__ModuleLoader__.load({
 		      state: state.value,
 		      groups: groups.value,
 		      protectedNames: protectedNames.value,
-		      defaults: defaults.value,
 		      intentOnly: intentOnly.value,
 		      stats: stats.value,
 		      notices: notices.value,
-		      skills: skills.value,
-		      workspace: workspace.value
+		      skills: skills.value
 		    }
 		  };
 		}
@@ -676,24 +636,12 @@ window.__ModuleLoader__.load({
 		function parseResetValue(raw) {
 		  return readToggleValue(raw, "reset \u54CD\u5E94");
 		}
-		function parseDefaultsValue(raw) {
-		  const subject = "defaults \u54CD\u5E94";
-		  const object = readStrictObject(raw, subject, ["defaults", "changed"]);
-		  if (!object.ok) return object;
-		  const defaults = readDefaultsView(object.value["defaults"], `${subject}.defaults`);
-		  if (!defaults.ok) return defaults;
-		  const changed = readStringArrayField(object.value, "changed", subject, { itemMinLength: 1 });
-		  if (!changed.ok) return changed;
-		  return { ok: true, value: { defaults: defaults.value, changed: changed.value } };
-		}
 		function parseWorkspaceValue(raw) {
 		  const subject = "workspace \u54CD\u5E94";
-		  const object = readStrictObject(raw, subject, ["workspace", "choices", "changed", "universe"]);
+		  const object = readStrictObject(raw, subject, ["workspace", "changed", "universe"]);
 		  if (!object.ok) return object;
 		  const workspace = readNullableWorkspaceView(object.value["workspace"], `${subject}.workspace`);
 		  if (!workspace.ok) return workspace;
-		  const choices = readArrayField(object.value, "choices", subject, readWorkspaceChoice);
-		  if (!choices.ok) return choices;
 		  const changed = readStringArrayField(object.value, "changed", subject, { itemMinLength: 1 });
 		  if (!changed.ok) return changed;
 		  const universe = readNullableDefaultsUniverse(object.value["universe"], `${subject}.universe`);
@@ -702,7 +650,6 @@ window.__ModuleLoader__.load({
 		    ok: true,
 		    value: {
 		      workspace: workspace.value,
-		      choices: choices.value,
 		      changed: changed.value,
 		      universe: universe.value
 		    }
@@ -783,14 +730,8 @@ window.__ModuleLoader__.load({
 		  if (record["ok"] === false) throw failureOf(record["error"]);
 		  throw new PanelError("bad-response", "\u5BBF\u4E3B\u8FD4\u56DE\u7684 RPC \u4FE1\u5C01\u7F3A\u5C11 ok \u6807\u8BB0");
 		}
-		function defaultsPayload(action, addresses) {
-		  if (action === "reset" || addresses === void 0) return { action };
-		  return { action, addresses: [...addresses] };
-		}
 		function workspacePayload(request) {
-		  const payload = {};
-		  if (request.sessionId !== void 0) payload.sessionId = request.sessionId;
-		  if (request.workspacePath !== void 0) payload.workspacePath = request.workspacePath;
+		  const payload = { workspacePath: request.workspacePath };
 		  if (request.action !== void 0) payload.action = request.action;
 		  if (request.addresses !== void 0) payload.addresses = [...request.addresses];
 		  return payload;
@@ -816,9 +757,6 @@ window.__ModuleLoader__.load({
 		    },
 		    async reset(sessionId) {
 		      return call(RESET_ENDPOINT, { sessionId }, parseResetValue);
-		    },
-		    async updateDefaults(action, addresses) {
-		      return call(DEFAULTS_ENDPOINT, defaultsPayload(action, addresses), parseDefaultsValue);
 		    },
 		    async workspace(request) {
 		      return call(WORKSPACE_ENDPOINT, workspacePayload(request), parseWorkspaceValue);
@@ -850,10 +788,6 @@ window.__ModuleLoader__.load({
 		    phase: "idle",
 		    pending: /* @__PURE__ */ new Set(),
 		    resetting: false,
-		    savingDefaults: false,
-		    workspaceChoices: [],
-		    savingWorkspace: false,
-		    workspaceSaved: false,
 		    loadedAt: 0
 		  };
 		  listeners = /* @__PURE__ */ new Set();
@@ -861,8 +795,6 @@ window.__ModuleLoader__.load({
 		  focusDisposer;
 		  /** 拉取序号：只有最后一次发出的拉取可以落状态（focus / 命令 / 手动刷新可能重叠）。 */
 		  loadSeq = 0;
-		  /** 工作区读 / 写序号：与 `loadSeq` 同一条纪律，防止迟到的旧读数覆盖新目标。 */
-		  workspaceSeq = 0;
 		  disposed = false;
 		  /**
 		   * @param options - 依赖注入面（见 {@link PanelControllerOptions}）。
@@ -909,11 +841,8 @@ window.__ModuleLoader__.load({
 		    if (this.disposed) return;
 		    this.detachFocus();
 		    this.loadSeq += 1;
-		    this.workspaceSeq += 1;
-		    if (this.state.phase === "idle" && this.state.error === void 0 && this.state.defaultsError === void 0 && this.state.workspaceError === void 0) {
-		      return;
-		    }
-		    this.patch({ phase: "idle", error: void 0, defaultsError: void 0, workspaceError: void 0 });
+		    if (this.state.phase === "idle" && this.state.error === void 0) return;
+		    this.patch({ phase: "idle", error: void 0 });
 		  }
 		  /**
 		   * 显式重拉面板快照（手动刷新按钮；`open()` 也走这里）。
@@ -937,8 +866,6 @@ window.__ModuleLoader__.load({
 		      this.commitLoad(seq, {
 		        phase: "ready",
 		        snapshot,
-		        defaults: snapshot.defaults,
-		        workspace: snapshot.workspace ?? void 0,
 		        error: void 0,
 		        loadedAt: this.now()
 		      });
@@ -971,8 +898,6 @@ window.__ModuleLoader__.load({
 		      this.patch({
 		        pending: withoutPending(this.state.pending, address),
 		        snapshot: value.snapshot,
-		        defaults: value.snapshot.defaults,
-		        workspace: value.snapshot.workspace ?? void 0,
 		        error: void 0,
 		        phase: this.state.phase === "idle" ? "idle" : "ready",
 		        loadedAt: this.now()
@@ -1008,8 +933,6 @@ window.__ModuleLoader__.load({
 		      this.patch({
 		        resetting: false,
 		        snapshot: value.snapshot,
-		        defaults: value.snapshot.defaults,
-		        workspace: value.snapshot.workspace ?? void 0,
 		        error: void 0,
 		        phase: this.state.phase === "idle" ? "idle" : "ready",
 		        loadedAt: this.now()
@@ -1017,105 +940,6 @@ window.__ModuleLoader__.load({
 		    } catch (error) {
 		      if (this.disposed) return;
 		      this.patch({ resetting: false, error: asPanelError(error), phase: this.mutationPhase() });
-		    }
-		  }
-		  /**
-		   * 写用户级默认档（不追溯已存在会话）。
-		   *
-		   * 与面板级动作的区别：成功后只替换 `state.defaults`，**不重拉 panel 快照**（默认档
-		   * 不追溯，§3.4），也不动 `error`；失败进 `defaultsError` 并保持面板可用。在途时
-		   * `savingDefaults` 为 `true`。
-		   * @param action - `set` / `off` / `on` / `reset`。
-		   * @param addresses - 目标地址；`reset` 时不传（契约不允许该组合同现）。
-		   * @returns 本次请求完成的 promise（失败已落状态，不 reject）。
-		   */
-		  async updateDefaults(action, addresses) {
-		    if (this.disposed || this.state.savingDefaults) return;
-		    const client = this.resolveClient();
-		    if (client === void 0) {
-		      this.patch({ defaultsError: new PanelError("unavailable", CLIENT_MISSING_MESSAGE) });
-		      return;
-		    }
-		    this.patch({ savingDefaults: true, defaultsError: void 0 });
-		    try {
-		      const value = await client.updateDefaults(action, addresses);
-		      if (this.disposed) return;
-		      this.patch({ savingDefaults: false, defaults: value.defaults, defaultsError: void 0 });
-		    } catch (error) {
-		      if (this.disposed) return;
-		      this.patch({ savingDefaults: false, defaultsError: asPanelError(error) });
-		    }
-		  }
-		  /**
-		   * 重读本会话所属工作区的默认档（`{sessionId, action:'read'}` 形态）。
-		   *
-		   * 只动工作区三态（`workspace` / `workspaceChoices` / `workspaceError`）：面板快照、
-		   * `defaults` 与面板级 `error` 都不动——工作区档不追溯已存在的会话（§3.4），没必要为一次
-		   * 工作区刷新重拉整份快照。失败时保留上一次可用视图（stale-while-revalidate），只把失败
-		   * 放进 `workspaceError`：connection 缺席与传输异常都归 `unavailable`，界面据此渲染
-		   * `error.unavailable` 降级行；宿主拒绝码（如 `workspace-unresolved`）原样保留。
-		   * @returns 本次读取完成的 promise（失败已落状态，不 reject）。
-		   */
-		  async refreshWorkspace() {
-		    if (this.disposed) return;
-		    const client = this.resolveClient();
-		    if (client === void 0) {
-		      this.patch({ workspaceError: new PanelError("unavailable", CLIENT_MISSING_MESSAGE) });
-		      return;
-		    }
-		    const seq = this.workspaceSeq += 1;
-		    if (this.state.workspaceError !== void 0) this.patch({ workspaceError: void 0 });
-		    try {
-		      const value = await client.workspace({ sessionId: this.sessionId, action: "read" });
-		      this.commitWorkspace(seq, {
-		        workspace: value.workspace ?? void 0,
-		        workspaceChoices: value.choices,
-		        workspaceError: void 0
-		      });
-		    } catch (error) {
-		      this.commitWorkspace(seq, { workspaceError: asPanelError(error) });
-		    }
-		  }
-		  /**
-		   * 写工作区级默认档；`action: 'read'` + `key` 也用它按路径切到另一个工作区。
-		   *
-		   * 寻址：`key` 存在 → `{workspacePath: key}`（footer 下拉切换），否则
-		   * `{sessionId: this.sessionId}`（面板分区、footer 默认项）。请求体**精确**构造：不传
-		   * 缺省 `action`，也不给 `read` / `reset` 带 `addresses`（strict 端点会判 `bad-request`）。
-		   *
-		   * 成功后直接吃响应里的目标工作区视图与下拉项（写工作区档不追溯当前会话，不重拉
-		   * panel 快照），`workspaceSaved` 只在真正的写动作后置 true；失败进 `workspaceError`、
-		   * 保留旧视图与面板级 `error`。在途时 `savingWorkspace` 为 `true` 并忽略重复调用。
-		   * @param action - `read` / `set` / `off` / `on` / `reset`。
-		   * @param addresses - 目标地址（`set` / `off` / `on` 必需；`read` / `reset` 忽略）。
-		   * @param key - 工作区规范路径（省略 = 按本会话寻址）。
-		   * @returns 本次请求完成的 promise（失败已落状态，不 reject）。
-		   */
-		  async updateWorkspace(action, addresses, key) {
-		    if (this.disposed || this.state.savingWorkspace) return;
-		    const client = this.resolveClient();
-		    if (client === void 0) {
-		      this.patch({ workspaceError: new PanelError("unavailable", CLIENT_MISSING_MESSAGE) });
-		      return;
-		    }
-		    const seq = this.workspaceSeq += 1;
-		    this.patch({ savingWorkspace: true, workspaceSaved: false, workspaceError: void 0 });
-		    try {
-		      const value = await client.workspace(this.workspaceRequest(action, addresses, key));
-		      this.commitWorkspace(seq, {
-		        savingWorkspace: false,
-		        // `read` 不是写：把「已保存」置 true 会让切换工作区的界面谎报一次保存。
-		        workspaceSaved: action !== "read",
-		        workspace: value.workspace ?? void 0,
-		        workspaceChoices: value.choices,
-		        workspaceError: void 0
-		      });
-		    } catch (error) {
-		      this.commitWorkspace(seq, {
-		        savingWorkspace: false,
-		        workspaceSaved: false,
-		        workspaceError: asPanelError(error)
-		      });
 		    }
 		  }
 		  /**
@@ -1127,7 +951,6 @@ window.__ModuleLoader__.load({
 		    if (this.disposed) return;
 		    this.disposed = true;
 		    this.loadSeq += 1;
-		    this.workspaceSeq += 1;
 		    this.detachFocus();
 		    this.commandDisposer?.();
 		    this.commandDisposer = void 0;
@@ -1191,32 +1014,6 @@ window.__ModuleLoader__.load({
 		  commitLoad(seq, change) {
 		    if (this.disposed || seq !== this.loadSeq) return;
 		    this.patch(change);
-		  }
-		  /**
-		   * 落一次工作区读 / 写结果：与 {@link PanelController.commitLoad} 同一条纪律，只允许最后
-		   * 一次发出的操作提交（`close()` / 下一次读或写 / `dispose()` 都会推进序号）。
-		   * @param seq - 该次操作启动时的序号。
-		   * @param change - 要合并进状态的变化。
-		   */
-		  commitWorkspace(seq, change) {
-		    if (this.disposed || seq !== this.workspaceSeq) return;
-		    this.patch(change);
-		  }
-		  /**
-		   * 构造 `workspace` 端点的请求体（精确 payload，不多带键）。
-		   *
-		   * 两种寻址形态恰好出现一个；`addresses` 只在 `set` / `off` / `on` 下采用——`read` /
-		   * `reset` 带地址会被宿主 strict parser 拒绝，所以这里直接不给（即使调用方误传空数组）。
-		   * @param action - 动作。
-		   * @param addresses - 目标地址（可缺省）。
-		   * @param key - 工作区规范路径（省略 = 按会话寻址）。
-		   * @returns 只含必需 / 显式字段的请求。
-		   */
-		  workspaceRequest(action, addresses, key) {
-		    const target = key === void 0 ? { sessionId: this.sessionId } : { workspacePath: key };
-		    const writes = action === "set" || action === "off" || action === "on";
-		    if (!writes || addresses === void 0) return { ...target, action };
-		    return { ...target, action, addresses: [...addresses] };
 		  }
 		  /**
 		   * 合并状态并通知：先 `onChange`，再逐个 `subscribe` 的监听者。
@@ -1311,6 +1108,26 @@ window.__ModuleLoader__.load({
 		  const description = entry.description;
 		  return description !== void 0 && description.toLowerCase().includes(needle);
 		}
+		function skillAddressOf(name2) {
+		  return `skill:${name2}`;
+		}
+		function shadowedSkillAddressesOf(skills) {
+		  const shadowed = /* @__PURE__ */ new Set();
+		  for (const skill of skills) {
+		    if (skill.shadowed) shadowed.add(skillAddressOf(skill.name));
+		  }
+		  return shadowed;
+		}
+		function effectiveClosedOf(universe, disabled) {
+		  const closed = new Set(disabled);
+		  if (universe === null || !universe.layerReady) return closed;
+		  for (const group of universe.groups) {
+		    if (group.address !== null && closed.has(group.address)) {
+		      for (const entry of group.tools) closed.add(entry.address);
+		    }
+		  }
+		  return closed;
+		}
 		function universeOfSnapshot(snapshot) {
 		  const groups = snapshot.groups.map(
 		    (group) => group.kind === "skill" ? skillGroupOf(group, snapshot.skills) : projectedGroupOf(group)
@@ -1351,7 +1168,7 @@ window.__ModuleLoader__.load({
 		function skillEntryOf(skill) {
 		  const description = skill.description;
 		  return {
-		    address: `skill:${skill.name}`,
+		    address: skillAddressOf(skill.name),
 		    shortName: skill.name,
 		    ...description === void 0 || description === "" ? {} : { description },
 		    protected: false,
@@ -1359,20 +1176,12 @@ window.__ModuleLoader__.load({
 		  };
 		}
 
-		// src/client/DefaultsEditor.tsx
-		var import_react4 = require("react");
-		var import_dsh_client_ui_primitives4 = require("@deepseek-ai/dsh-client-ui-primitives");
-
-		// src/client/DefaultsGroupList.tsx
-		var import_react2 = require("react");
-		var import_dsh_client_ui_primitives2 = require("@deepseek-ai/dsh-client-ui-primitives");
-
-		// src/client/ToolPanelGroups.tsx
-		var import_react = require("react");
+		// src/client/CommandCard.tsx
+		var React = __toESM(require("react"), 1);
 		var import_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 
 		// src/client/panel.module.css
-		var cssText = "/*\n * \u4F1A\u8BDD\u5DE5\u5177\u9762\u9762\u677F\u7684\u5C42\u7EA7\u6837\u5F0F\uFF08\u8BBE\u8BA1\u9644\u5F55 \xA71.1 \u7684 `panel.stt_module_41d0f6.stt_css_41d0f6` \u884C\uFF09\u3002\n *\n * \u9AA8\u67B6\uFF08\u906E\u7F69\u3001\u5361\u7247\u3001\u6807\u9898\u3001\u5173\u95ED\u6309\u94AE\u3001\u6309\u94AE\u3001\u5F00\u5173\u3001\u8F93\u5165\u6846\uFF09\u5168\u90E8\u7531\u5B98\u65B9 primitives \u63D0\u4F9B\uFF0C\u672C\u6587\u4EF6\n * \u53EA\u8865 Modal \u9AA8\u67B6\u4E4B\u5916\u7684\u5C42\u7EA7\uFF1A\u5206\u533A\u6807\u9898\u3001\u884C\u9AD8\u3001\u5FBD\u6807\u3001\u7981\u7528\u6001\u3001\u6298\u53E0\u7BAD\u5934\u3001chip\u3002\u989C\u8272\u4E00\u5F8B\u53D6\u5B98\u65B9\n * `--dsw-alias-*` \u8BBE\u8BA1\u4EE4\u724C\u5E76\u5E26\u9759\u6001\u515C\u5E95\u2014\u2014\u4EE4\u724C\u6539\u540D\u65F6\u6700\u574F\u9000\u5316\u6210\u53EF\u8BFB\u7684\u9ED1\u767D\u800C\u4E0D\u662F\u900F\u660E\u3002\n *\n * \u4E24\u5904\u4E0E\u5B98\u65B9\u7EC4\u4EF6\u540C\u540D\u7684\u8986\u76D6\uFF08`.stt_trigger_41d0f6` \u538B Button \u7684\u5C3A\u5BF8\u4E0E\u914D\u8272\uFF09\u6CBF\u7528\u4ED3\u5185\u5148\u4F8B\n * \uFF08`plugins/web-ux/src/client/delete.stt_module_41d0f6.stt_css_41d0f6` \u7684 `.stt_danger_41d0f6`\uFF09\uFF1Aprimitives \u7684\u6837\u5F0F\u540C\u6837\u662F\n * \u5355\u7C7B\u9009\u62E9\u5668\uFF0C\u63D2\u4EF6\u6837\u5F0F\u5728\u5176\u540E\u6CE8\u5165\u5373\u751F\u6548\u3002\n */\n\n/* \u2014\u2014 \u4F1A\u8BDD\u5934\u90E8\u7684\u5165\u53E3\u6309\u94AE\uFF1A28px \u5706\u5F62\uFF0C\u89C6\u89C9\u4E0E\u540C\u5EA7\u4F4D\u7684\u5B98\u65B9\u89E6\u53D1\u5668\u4E00\u81F4\uFF08\u8BBE\u8BA1 \xA73.1\uFF09 \u2014\u2014 */\n.stt_trigger_41d0f6 {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  width: 28px;\n  min-width: 28px;\n  height: 28px;\n  padding: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  border-radius: 28px;\n}\n\n.stt_trigger_41d0f6:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary, #000);\n  background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 6%));\n}\n\n/* \u2014\u2014 \u9762\u677F\u5361\u7247\u4E0E\u6EDA\u52A8\u533A\uFF1A\u5BBD min(760px, 100vw - 32px)\uFF0C\u6B63\u6587\u533A\u81EA\u5DF1\u6EDA\uFF08\u8BBE\u8BA1 \xA73.2\uFF09 \u2014\u2014 */\n.stt_dialog_41d0f6 {\n  box-sizing: border-box;\n  display: flex;\n  flex-direction: column;\n  width: min(760px, calc(100vw - 32px));\n  max-width: min(760px, calc(100vw - 32px));\n  max-height: calc(100vh - 96px);\n}\n\n.stt_content_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 18px;\n  min-height: 0;\n  overflow-y: auto;\n}\n\n/* \u2014\u2014 \u5206\u533A\u4E0E\u5206\u533A\u6807\u9898\uFF08\u56DB\u6BB5\u81EA\u4E0A\u800C\u4E0B\uFF09 \u2014\u2014 */\n.stt_section_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n}\n\n.stt_sectionTitle_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 13px;\n  font-weight: 600;\n  line-height: 20px;\n  letter-spacing: 0.01em;\n}\n\n/* \u2014\u2014 \u72B6\u6001\u6458\u8981\uFF1A\u4E24\u8BA1\u6570\u4E00\u884C + \u4E09\u6761\u4E8B\u5B9E\u884C \u2014\u2014 */\n.stt_counters_41d0f6 {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 2px 18px;\n  margin: 0;\n  padding: 0;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 13px;\n  line-height: 20px;\n  list-style: none;\n}\n\n.stt_meta_41d0f6 {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 2px 12px;\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n.stt_muted_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n/* \u53D8\u66F4\u4EE3\u4EF7\u5F62\u72B6\uFF08`mutation.stt_kv_41d0f6`\uFF09\uFF1A\u4FE1\u606F\u6027\u63D0\u793A\uFF0C\u7528\u4E1A\u52A1\u84DD\u800C\u4E0D\u662F\u8B66\u544A\u8272\u3002 */\n.stt_notice_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-state-business-primary, #1a67e0);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u964D\u7EA7\u63D0\u793A\uFF08`persistence-degraded`\uFF09\u4E0E\u9ED8\u8BA4\u6863\u635F\u574F\uFF1A\u5FC5\u987B\u8BFB\u5230\u7684\u574F\u6D88\u606F\u3002 */\n.stt_warning_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-state-warn-primary, #dd8629);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u2014\u2014 \u5931\u8D25\u884C\uFF1A\u4E3B\u6587\u6848\u672C\u5730\u5316\uFF0C\u5BBF\u4E3B\u539F\u6587\u53EA\u4F5C\u4E8C\u7EA7\u7070\u5B57\uFF08\u8BBE\u8BA1 \xA73.5\uFF09 \u2014\u2014 */\n.stt_error_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-state-error-primary, #ec1313);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n.stt_detail_41d0f6 {\n  margin: 4px 0 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n  word-break: break-word;\n}\n\n/* \u4E0D\u53EF\u7528\u964D\u7EA7\uFF1A\u6CA1\u6709\u5FEB\u7167\u65F6\u72EC\u5360\u6B63\u6587\u533A\uFF0C\u7ED9\u8FD9\u5757\u5360\u4F4D\u4E00\u70B9\u5185\u8FB9\u8DDD\u3002 */\n.stt_failureBlock_41d0f6 {\n  padding: 10px 0;\n}\n\n.stt_loading_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n/* \u2014\u2014 \u5206\u7EC4\u6E05\u5355 \u2014\u2014 */\n.stt_groups_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.stt_group_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n  border-top: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n}\n\n.stt_group_41d0f6:first-child {\n  border-top: none;\n}\n\n.stt_groupHeader_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  min-height: 32px;\n}\n\n/* \u6807\u9898\u533A\u662F\u6298\u53E0\u76EE\u6807\uFF1A\u94FA\u6EE1\u5269\u4F59\u5BBD\u5EA6\uFF0C\u5F00\u5173\u5728\u53F3\u4FA7\u72EC\u7ACB\u6210\u547D\u4E2D\u533A\uFF08\u70B9\u5F00\u5173\u4E0D\u6298\u53E0\uFF09\u3002 */\n.stt_groupToggle_41d0f6 {\n  display: flex;\n  flex: 1 1 auto;\n  align-items: center;\n  gap: 8px;\n  min-width: 0;\n  padding: 4px 6px;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 8px;\n}\n\n.stt_groupToggle_41d0f6:hover {\n  background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 6%));\n}\n\n.stt_groupTitle_41d0f6 {\n  color: var(--dsw-alias-label-primary, #000);\n  font-size: 13px;\n  font-weight: 600;\n  white-space: nowrap;\n}\n\n.stt_groupName_41d0f6 {\n  overflow: hidden;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n}\n\n.stt_groupCounts_41d0f6 {\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  white-space: nowrap;\n}\n\n/* \u5185\u7F6E\u5DE5\u5177\u5206\u533A\u7684\u672C\u5730\u8FC7\u6EE4\u8F93\u5165\uFF08\u53EA\u5F71\u54CD\u5C55\u793A\uFF09\u3002 */\n.stt_filterRow_41d0f6 {\n  padding: 0 6px 6px;\n}\n\n.stt_filter_41d0f6 {\n  display: inline-flex;\n  width: 100%;\n}\n\n.stt_filter_41d0f6 input {\n  width: 100%;\n}\n\n/* \u7EC4\u5185\u5DE5\u5177\u884C\uFF1A\u4E00\u884C\u4E00\u4E2A\u5F00\u5173\uFF0C\u884C\u9AD8\u5BF9\u9F50 Switch \u7684 28px \u547D\u4E2D\u533A\u3002 */\n.stt_rows_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  margin: 0 0 6px;\n  padding: 0 6px 0 26px;\n  list-style: none;\n}\n\n/* \u2014\u2014 \u6280\u80FD\u884C\uFF08C11 / \u4EFB\u52A1 7.7\uFF09\uFF1A`SkillPanel` \u590D\u7528\u540C\u4E00\u5957 `.stt_rows_41d0f6` / `.stt_row_41d0f6` / `.stt_tag_41d0f6` / `.stt_pending_41d0f6`\uFF0C\n *    \u4F46\u5B83\u7684\u5217\u8868**\u76F4\u63A5\u6302\u5728\u5206\u533A\u4E0B**\uFF08\u6CA1\u6709\u5206\u7EC4\u6807\u9898\u884C\uFF09\uFF0C26px \u7684\u5C42\u7EA7\u7F29\u8FDB\u5728\u8FD9\u91CC\u4F1A\u4E0E\u5206\u533A\u6807\u9898\u9519\u4F4D\uFF0C\n *    \u6240\u4EE5\u53EA\u53D6\u6D88\u7F29\u8FDB\u3001\u5176\u4F59\u4E0E\u5DE5\u5177\u884C\u5B8C\u5168\u4E00\u81F4\uFF08\u4E00\u884C\u4E00\u4E2A\u5F00\u5173\u3001\u7B49\u5BBD\u540D\u5B57\u3001\u72B6\u6001\u6807\u7B7E\uFF09\u3002\n *    \u5DE5\u5177\u884C\u7684 `.stt_rows_41d0f6` \u5D4C\u5728 `.stt_group_41d0f6` \u91CC\uFF0C\u4E0D\u53D7\u8FD9\u6761\u76F4\u63A5\u5B50\u9009\u62E9\u5668\u5F71\u54CD\u3002 \u2014\u2014 */\n.stt_section_41d0f6 > .stt_rows_41d0f6 {\n  padding-left: 0;\n}\n\n.stt_row_41d0f6 {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n  min-height: 30px;\n}\n\n.stt_rowName_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n}\n\n.stt_name_41d0f6 {\n  overflow: hidden;\n  color: var(--dsw-alias-label-primary, #000);\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n}\n\n/* \u884C\u7EA7\u9501\u5B9A\u77ED\u6807\u7B7E\uFF08`entry.stt_protected_41d0f6` / `entry.stt_reserved_41d0f6`\uFF09\u3002 */\n.stt_tag_41d0f6 {\n  flex: none;\n  padding: 0 6px;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 11px;\n  line-height: 16px;\n  border: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 12%));\n  border-radius: 999px;\n}\n\n/* \u300C\u6B63\u5728\u5E94\u7528\u2026\u300D\uFF1A\u4E0E\u884C\u6807\u7B7E\u540C\u7EA7\uFF0C\u4E0D\u62A2\u6CE8\u610F\u529B\u3002 */\n.stt_pending_41d0f6 {\n  flex: none;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 11px;\n  line-height: 16px;\n}\n\n.stt_empty_41d0f6 {\n  padding: 2px 0 6px;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u2014\u2014 \u5173\u95ED\u96C6 / \u9ED8\u8BA4\u6863\u5171\u7528\u7684 chip \u5217\u8868 \u2014\u2014 */\n.stt_chips_41d0f6 {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.stt_chip_41d0f6 {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  max-width: 100%;\n  padding: 2px 4px 2px 8px;\n  background: var(--dsw-alias-bg-layer-2, #f7f7f8);\n  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n  border-radius: 999px;\n}\n\n.stt_address_41d0f6 {\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  color: var(--dsw-alias-label-secondary, #545557);\n  word-break: break-all;\n}\n\n/* `intent` \u5FBD\u6807\uFF1A\u8BE5\u5730\u5740\u5F53\u524D 0 \u5339\u914D\uFF0C\u610F\u56FE\u5DF2\u8BB0\u5F55\uFF08\u8BBE\u8BA1 \xA73.2 \u7B2C 4 \u6BB5\uFF09\u3002 */\n.stt_badge_41d0f6 {\n  flex: none;\n  padding: 0 6px;\n  color: var(--dsw-alias-label-primary-inverted, #fff);\n  font-size: 11px;\n  line-height: 16px;\n  background: var(--dsw-alias-state-business-primary, #1a67e0);\n  border-radius: 999px;\n}\n\n/* \u2014\u2014 \u9ED8\u8BA4\u6863\u7F16\u8F91\u533A \u2014\u2014 */\n.stt_path_41d0f6 {\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  word-break: break-all;\n}\n\n.stt_addRow_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n}\n\n/* \u2014\u2014 \u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u4E0B\u62C9\uFF08\u5BF9\u8BDD\u6846\u5F62\u6001\uFF09\uFF1A\u539F\u751F select\uFF0C\u4E0E\u8F93\u5165\u6846\u540C\u9AD8\uFF08C2\uFF09 \u2014\u2014 */\n.stt_select_41d0f6 {\n  flex: 1 1 auto;\n  min-width: 0;\n  height: 32px;\n  padding: 0 8px;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 13px;\n  background: var(--dsw-alias-bg-layer-2, #f7f7f8);\n  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n  border-radius: 6px;\n}\n\n/* \u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u5206\u8282\u7684\u6B63\u6587\u58F3\uFF08\u7EDF\u4E00\u300C\u5DE5\u4F5C\u533A\u914D\u7F6E\u300D\u5F39\u7A97\u7684\u4E00\u4E2A\u5206\u8282\uFF09\uFF1A\u53EA\u505A\u7EB5\u5411\u6392\u5E03\u3002\n * \u5BBD\u5EA6 / \u9AD8\u5EA6 / \u6EDA\u52A8\u7EA6\u675F\u5F52 holder \u5F39\u7A97\u7684\u5185\u5BB9\u5217\uFF08`workspace-config` \u7684 dialog.stt_module_41d0f6.stt_css_41d0f6\uFF09\uFF0C\n * \u672C\u8282**\u4E0D**\u81EA\u5E26\u5361\u7247\u5BBD\u5EA6\uFF0C\u4E5F\u4E0D\u81EA\u5E26 Modal\u3002 */\n.stt_workspaceBody_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n}\n\n.stt_actions_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 10px;\n  margin-top: 4px;\n}\n\n/* \u300C\u5DF2\u4FDD\u5B58\uFF08\u672C\u4F1A\u8BDD\u4E0D\u53D8\uFF09\u300D\uFF1A\u4FDD\u5B58\u6210\u529F\u7684\u77AC\u65F6\u786E\u8BA4\uFF0C\u7528\u6210\u529F\u8272\u3002 */\n.stt_saved_41d0f6 {\n  color: var(--dsw-alias-state-success-primary, #16955f);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u2014\u2014 B \u7684\u9ED8\u8BA4\u6863\u5206\u7EC4\u5F00\u5173\u754C\u9762 \u2014\u2014 */\n\n/* \u9762\u677F\u4E24\u5206\u533A\u7684\u53EF\u6298\u53E0\u58F3\uFF08`DefaultsSectionFrame`\uFF09\uFF1A\u58F3\u672C\u8EAB\u65E0\u80CC\u666F\u65E0\u8FB9\u6846\uFF0C\u89C6\u89C9\u9760\u6807\u9898\u884C\uFF1B\n * \u9876\u90E8\u7559\u767D\u53D6\u5206\u533A\u8282\u594F\uFF0C\u4E0E\u76F8\u90BB\u5206\u533A\u62C9\u5F00\u4E00\u6863\uFF08\u5185\u5BB9\u5217\u53E6\u6709 18px \u7684\u5206\u533A\u95F4\u8DDD\uFF09\u3002 */\n.stt_sectionFrame_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 6px;\n  background: none;\n  border: 0;\n}\n\n/* \u6B8B\u7559 chips \u533A\u7684\u6807\u9898\uFF08\u53EA\u53EF\u79FB\u9664\uFF09\uFF1A\u5C0F\u5B57\u53F7\u3001\u6B21\u8981\u8272\uFF0C\u4E0E\u4E0A\u65B9\u7684\u7EC4\u5217\u8868\u62C9\u5F00\u3002 */\n.stt_residual_41d0f6 {\n  margin: 8px 0 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u2014\u2014 \u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u9875\u9762\uFF08`WorkspaceDefaultsPage`\uFF0CB1 \u4E09\u5361 + \u811A\u6CE8 + \u9875\u811A\uFF1B\u8BBE\u8BA1 \u24623.7\uFF09\u2014\u2014\n * \u9875\u9762\u6B63\u6587\u4ECE\u300C\u516D\u6BB5\u5E73\u94FA\u300D\u91CD\u6392\u4E3A\u5361\u7247\u5E03\u5C40\uFF1A\u6D45\u5E95\u5361\uFF08bg-layer-2\uFF09+ 12px \u5706\u89D2 + \u7EC6\u8FB9\uFF08border-l1\uFF09\uFF0C\n * \u4E0E\u7EDF\u4E00\u300C\u5DE5\u4F5C\u533A\u914D\u7F6E\u300D\u9875\u7684\u5176\u4ED6\u5206\u8282\u540C\u4E00\u89C6\u89C9\u8BED\u8A00\u3002\u4EE4\u724C\u7EAA\u5F8B\u4E0E\u4E0A\u6587\u4E00\u81F4\uFF1A\u6BCF\u5904\n * `var(--dsw-alias-*, <\u9759\u6001\u515C\u5E95>)`\uFF0C\u4EE4\u724C\u6539\u540D\u65F6\u6700\u574F\u9000\u5316\u6210\u53EF\u8BFB\u7684\u9ED1\u767D\u800C\u4E0D\u662F\u900F\u660E\u3002 */\n\n/* \u9875\u9762\u6B63\u6587\u58F3\uFF1A\u4E09\u5361\u3001\u811A\u6CE8\u3001\u9875\u811A\u52A8\u4F5C\u533A\u7EB5\u5411\u6392\u5E03\uFF0C\u5361\u95F4\u4E00\u6863\u95F4\u8DDD\u3002 */\n.stt_workspacePage_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 16px;\n}\n\n/* \u9875\u9762\u5361\u7247\uFF08\u6982\u8981\u5361 / \u6E05\u5355\u5361 / \u547D\u4EE4\u5361\u5171\u7528\uFF09\uFF1A\u6D45\u5E95\u7EC6\u8FB9\u5706\u89D2\uFF0C\u5361\u5185\u5143\u7D20\u7EB5\u5411\u95F4\u8DDD 10px\u3002 */\n.stt_card_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 10px;\n  padding: 14px 16px;\n  background: var(--dsw-alias-bg-layer-2, #f7f7f8);\n  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n  border-radius: 12px;\n}\n\n/* \u5361\u5934\uFF1A\u6807\u9898 + \u5FBD\u7AE0 + \u53F3\u63A8\u52A8\u4F5C\u540C\u884C\u6392\u5E03\uFF0C\u7A84\u5904\u5141\u8BB8\u6362\u884C\u3002 */\n.stt_cardHeader_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  flex-wrap: wrap;\n}\n\n/* \u5361\u6807\u9898\uFF08<p>\uFF0C\u975E heading\u2014\u2014\u53EF\u8BBF\u95EE\u540D\u7531 holder \u7684 tab \u63D0\u4F9B\uFF09\uFF1A\u4E0E\u5206\u533A\u6807\u9898\u540C\u5B57\u53F7\u52A0\u91CD\u3002 */\n.stt_cardTitle_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-primary, #000);\n  font-size: 13px;\n  font-weight: 600;\n  line-height: 20px;\n}\n\n/* \u767B\u8BB0\u6001\u5FBD\u7AE0\uFF1A`.stt_badge_41d0f6` \u5728\u9762\u677F\u91CC\u5DF2\u662F intent \u5FBD\u6807\uFF08\u84DD\u5E95\u767D\u5B57\uFF0C`.stt_chip_41d0f6` \u5185\uFF09\uFF0CCSS module \u540C\u540D\n * \u5BFC\u51FA\u53EA\u6709\u4E00\u4E2A\u7C7B\u540D\uFF0C\u9875\u9762\u5FBD\u7AE0\u501F\u5B83\u6E32\u67D3\u2014\u2014\u5728 `.stt_cardHeader_41d0f6` \u4F5C\u7528\u57DF\u5185\u5168\u91CF\u6362\u6210\u300C\u7EC6\u8FB9 + \u7070\u5B57 +\n * \u900F\u660E\u5E95\u300D\u7684\u767B\u8BB0\u6001\u89C6\u89C9\uFF1B\u9762\u677F intent \u5FBD\u6807\u4E0D\u5728\u6B64\u4F5C\u7528\u57DF\uFF0C\u96F6\u5F71\u54CD\u3002 */\n.stt_cardHeader_41d0f6 .stt_badge_41d0f6 {\n  padding: 0 6px;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 11px;\n  line-height: 16px;\n  background: none;\n  border: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 12%));\n  border-radius: 999px;\n}\n\n/* \u5361\u5934\u53F3\u63A8\u5360\u4F4D / \u63A8\u94AE\uFF1A\u628A\u5237\u65B0\u6309\u94AE\u63A8\u5230\u884C\u5C3E\u3002 */\n.stt_push_41d0f6 {\n  margin-left: auto;\n}\n\n/* \u6982\u8981\u4E8B\u5B9E\u884C\uFF08dl\uFF09\uFF1A\u5DE5\u4F5C\u533A key / \u6863\u6587\u4EF6\u8DEF\u5F84\u4E24\u884C\u952E\u503C\u5BF9\u3002 */\n.stt_facts_41d0f6 {\n  display: grid;\n  gap: 4px;\n  margin: 0;\n}\n\n.stt_fact_41d0f6 {\n  display: flex;\n  align-items: baseline;\n  gap: 8px;\n  font-size: 12px;\n  line-height: 18px;\n}\n\n.stt_factTerm_41d0f6 {\n  flex: none;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n}\n\n/* \u4E8B\u5B9E\u503C\uFF08key / \u8DEF\u5F84\uFF09\uFF1A\u7B49\u5BBD\u3001\u53EF\u65AD\u884C\u2014\u2014\u89C4\u8303\u8DEF\u5F84\u53EF\u80FD\u5F88\u957F\u3002 */\n.stt_factValue_41d0f6 {\n  min-width: 0;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-family: var(--ds-font-family-code, monospace);\n  word-break: break-all;\n}\n\n/* \u4E09\u8BA1\u6570\u6458\u8981\u884C\uFF08\u6E05\u5355 N \xB7 \u9ED8\u8BA4\u5173 M \xB7 \u6B8B\u7559 K\uFF09\uFF1A\u7B49\u5BBD\u6570\u5B57\u907F\u514D\u5237\u65B0\u65F6\u8DF3\u52A8\u3002 */\n.stt_counts_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 12px;\n  line-height: 18px;\n  font-variant-numeric: tabular-nums;\n}\n\n/* \u6E05\u5355\u5361\u5934\uFF08\u24623.7 \u51BB\u7ED3\u540D\uFF09\uFF1A\u4E0E `.stt_cardHeader_41d0f6` \u540C\u6B3E\u6392\u5E03\uFF0C\u4F9B\u7ED3\u6784\u56FE\u7684\u6E05\u5355\u5361\u5934\u4F4D\u53D6\u7528\u3002 */\n.stt_listHeader_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  flex-wrap: wrap;\n}\n\n/* \u9875\u9762\u7EA7\u5168\u5C40\u8FC7\u6EE4\u6846\uFF1A\u53F3\u63A8\u5230\u5361\u5934\u884C\u5C3E\uFF0C\u5BBD\u4E0A\u9650 280px\u3001\u7A84\u5904\u6536\u7F29\u5230\u6EE1\u5BBD\u3002 */\n.stt_pageFilter_41d0f6 {\n  margin-left: auto;\n  width: min(280px, 100%);\n}\n\n/* \u7A7A\u6001\u5757\uFF08\u7A7A\u6863 / \u7A7A\u5B87\u5B99\uFF09\uFF1A\u865A\u7EBF\u8FB9\u6846 + \u5361\u5185\u6D45\u5E95\uFF0C\u4E0E\u53EF\u4EA4\u4E92\u7684\u6E05\u5355\u4F53\u62C9\u5F00\u3002 */\n.stt_emptyBlock_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 4px;\n  padding: 12px;\n  background: var(--dsw-alias-bg-layer-1, #fff);\n  border: 1px dashed var(--dsw-alias-border-l2, rgb(0 0 0 / 12%));\n  border-radius: 8px;\n}\n\n/* \u7A7A\u6001\u6807\u9898\uFF1A\u4E3B\u5B57\u8272\u52A0\u91CD\uFF0C\u4E0E\u4E0B\u65B9\u63D0\u793A\u62C9\u5F00\u4E00\u7EA7\u3002 */\n.stt_emptyTitle_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-primary, #000);\n  font-size: 13px;\n  font-weight: 600;\n  line-height: 20px;\n}\n\n/* \u7A7A\u6001\u63D0\u793A\uFF1A\u4E09\u7EA7\u7070\uFF0C\u8BB2\u6E05\u4E0B\u4E00\u6B65\u53BB\u54EA\u5173\u7B2C\u4E00\u9879 / \u4E3A\u4EC0\u4E48\u6E05\u5355\u662F\u7A7A\u7684\u3002 */\n.stt_emptyHint_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u547D\u4EE4\u5361\u547D\u4EE4\u884C\uFF1A\u4EE3\u7801\u5757\u5360\u4E3B\u5217\u3001\u590D\u5236\u6309\u94AE\u53F3\u5217\uFF0C\u9876\u5BF9\u9F50\uFF08\u6309\u94AE\u77EE\u4E8E\u591A\u884C\u4EE3\u7801\u5757\uFF09\u3002 */\n.stt_commandRow_41d0f6 {\n  display: flex;\n  align-items: flex-start;\n  gap: 8px;\n}\n\n/* \u547D\u4EE4\u4EE3\u7801\u5757\uFF1A\u6587\u672C\u5373\u590D\u5236\u6587\u672C\uFF08D8\uFF09\u2014\u2014\u6D45\u5E95\u7EC6\u8FB9\u3001\u7B49\u5BBD\u3001\u53EF\u6362\u884C\u4E0D\u65AD\u8BED\u4E49\u3002 */\n.stt_command_41d0f6 {\n  flex: 1;\n  margin: 0;\n  padding: 8px 10px;\n  background: var(--dsw-alias-bg-layer-1, #fff);\n  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n  border-radius: 8px;\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  line-height: 18px;\n  white-space: pre-wrap;\n  word-break: break-all;\n}\n\n/* \u811A\u6CE8\u5BB9\u5668\uFF1A\u5F71\u54CD\u8303\u56F4 / \u5E76\u96C6\u8BED\u4E49\u4E24\u53E5\u7EB5\u5411\u7D27\u51D1\u6392\u5217\u3002 */\n.stt_footnotes_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n}\n\n/* \u6B21\u7EA7\u6CE8\u8BB0\uFF1A\u6E05\u5355\u8BED\u4E49\u53E5\u3001\u4E09\u6761\u6761\u4EF6\u6CE8\u8BB0\u3001\u547D\u4EE4\u8FB9\u754C\u8BF4\u660E\u4E0E\u811A\u6CE8\u6BB5\u5171\u7528\u540C\u6B3E\u3002 */\n.stt_note_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u884C\u8BE6\u60C5\u4E3B\u5217\uFF08`DefaultsGroupList` \u7684 `showDetails` \u8DEF\u5F84\uFF09\uFF1A\u540D\u79F0 + \u63CF\u8FF0 + \u6807\u7B7E\u7EB5\u6392\uFF0C\n * \u5F00\u5173\u4ECD\u5728\u53F3\u5217\uFF1B`min-width: 0` \u8BA9\u7701\u7565\u53F7\u5728 flex \u884C\u5185\u751F\u6548\u3002 */\n.stt_rowMain_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n  min-width: 0;\n}\n\n/* \u884C\u63CF\u8FF0\u6B21\u884C\uFF1A\u5355\u884C\u7701\u7565\uFF0C\u5168\u6587\u7ECF `title` \u60AC\u505C\u53EF\u89C1\u3002 */\n.stt_rowDescription_41d0f6 {\n  overflow: hidden;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 16px;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n}\n\n/* \u6280\u80FD\u6807\u7B7E\u884C\uFF1A\u6765\u6E90 / \u8C03\u7528\u65B9\u5F0F\u7B49\u5C0F\u6807\u7B7E\u7684\u6362\u884C\u96C6\u5408\u3002 */\n.stt_rowTags_41d0f6 {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 4px;\n}\n\n/* \u6280\u80FD\u6765\u6E90\u6807\u7B7E\uFF1A\u5706\u89D2\u7EC6\u8FB9\u5C0F\u6807\u7B7E\uFF0C\u4E0D\u6362\u884C\uFF08\u6574\u4E2A\u6807\u7B7E\u79FB\u5230\u4E0B\u4E00\u884C\u800C\u4E0D\u662F\u65AD\u5F00\uFF09\u3002 */\n.stt_metaTag_41d0f6 {\n  padding: 0 6px;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 11px;\n  line-height: 16px;\n  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n  border-radius: 999px;\n  white-space: nowrap;\n}\n\n/* \u2014\u2014 R15 \u6807\u7B7E\u7740\u8272\u53D8\u4F53\uFF1A\u7EC4\u5408\u7C7B\uFF08\u53E0\u5728 `.stt_tag_41d0f6` / `.stt_metaTag_41d0f6` \u4E0A\uFF09\uFF0C\u53EA\u8986\u76D6\u524D\u666F\u4E0E\u63CF\u8FB9\uFF0C\n   \u5E95\u8272\u4FDD\u6301\u900F\u660E\uFF1B\u8272\u503C\u5168\u90E8\u8D70 alias \u72B6\u6001\u53D8\u91CF\u5E26\u5B57\u9762\u91CF\u56DE\u9000\uFF08\u6697\u8272\u4E3B\u9898\u5B89\u5168\uFF0C\u4E0E\u4ED3\u5185\n   `state-business/warn/error/success` \u5148\u4F8B\u540C\u6E90\uFF09\u3002 \u2014\u2014 */\n.stt_toneInfo_41d0f6 {\n  color: var(--dsw-alias-state-business-primary, #1a67e0);\n  border-color: var(--dsw-alias-state-business-primary, #1a67e0);\n}\n\n.stt_toneSuccess_41d0f6 {\n  color: var(--dsw-alias-state-success-primary, #16955f);\n  border-color: var(--dsw-alias-state-success-primary, #16955f);\n}\n\n.stt_toneWarn_41d0f6 {\n  color: var(--dsw-alias-state-warn-primary, #dd8629);\n  border-color: var(--dsw-alias-state-warn-primary, #dd8629);\n}\n\n.stt_toneDanger_41d0f6 {\n  color: var(--dsw-alias-state-error-primary, #ec1313);\n  border-color: var(--dsw-alias-state-error-primary, #ec1313);\n}\n\n";
+		var cssText = "/*\n * \u4F1A\u8BDD\u5DE5\u5177\u9762\u9762\u677F\u7684\u5C42\u7EA7\u6837\u5F0F\uFF08\u8BBE\u8BA1\u9644\u5F55 \xA71.1 \u7684 `panel.stt_module_41d0f6.stt_css_41d0f6` \u884C\uFF09\u3002\n *\n * \u9AA8\u67B6\uFF08\u906E\u7F69\u3001\u5361\u7247\u3001\u6807\u9898\u3001\u5173\u95ED\u6309\u94AE\u3001\u6309\u94AE\u3001\u5F00\u5173\u3001\u8F93\u5165\u6846\uFF09\u5168\u90E8\u7531\u5B98\u65B9 primitives \u63D0\u4F9B\uFF0C\u672C\u6587\u4EF6\n * \u53EA\u8865 Modal \u9AA8\u67B6\u4E4B\u5916\u7684\u5C42\u7EA7\uFF1A\u5206\u533A\u6807\u9898\u3001\u884C\u9AD8\u3001\u5FBD\u6807\u3001\u7981\u7528\u6001\u3001\u6298\u53E0\u7BAD\u5934\u3001chip\u3002\u989C\u8272\u4E00\u5F8B\u53D6\u5B98\u65B9\n * `--dsw-alias-*` \u8BBE\u8BA1\u4EE4\u724C\u5E76\u5E26\u9759\u6001\u515C\u5E95\u2014\u2014\u4EE4\u724C\u6539\u540D\u65F6\u6700\u574F\u9000\u5316\u6210\u53EF\u8BFB\u7684\u9ED1\u767D\u800C\u4E0D\u662F\u900F\u660E\u3002\n *\n * \u4E24\u5904\u4E0E\u5B98\u65B9\u7EC4\u4EF6\u540C\u540D\u7684\u8986\u76D6\uFF08`.stt_trigger_41d0f6` \u538B Button \u7684\u5C3A\u5BF8\u4E0E\u914D\u8272\uFF09\u6CBF\u7528\u4ED3\u5185\u5148\u4F8B\n * \uFF08`plugins/web-ux/src/client/delete.stt_module_41d0f6.stt_css_41d0f6` \u7684 `.stt_danger_41d0f6`\uFF09\uFF1Aprimitives \u7684\u6837\u5F0F\u540C\u6837\u662F\n * \u5355\u7C7B\u9009\u62E9\u5668\uFF0C\u63D2\u4EF6\u6837\u5F0F\u5728\u5176\u540E\u6CE8\u5165\u5373\u751F\u6548\u3002\n */\n\n/* \u2014\u2014 \u4F1A\u8BDD\u5934\u90E8\u7684\u5165\u53E3\u6309\u94AE\uFF1A28px \u5706\u5F62\uFF0C\u89C6\u89C9\u4E0E\u540C\u5EA7\u4F4D\u7684\u5B98\u65B9\u89E6\u53D1\u5668\u4E00\u81F4\uFF08\u8BBE\u8BA1 \xA73.1\uFF09 \u2014\u2014 */\n.stt_trigger_41d0f6 {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  width: 28px;\n  min-width: 28px;\n  height: 28px;\n  padding: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  border-radius: 28px;\n}\n\n.stt_trigger_41d0f6:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary, #000);\n  background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 6%));\n}\n\n/* \u2014\u2014 \u9762\u677F\u5361\u7247\u4E0E\u6EDA\u52A8\u533A\uFF1A\u5BBD min(760px, 100vw - 32px)\uFF0C\u6B63\u6587\u533A\u81EA\u5DF1\u6EDA\uFF08\u8BBE\u8BA1 \xA73.2\uFF09 \u2014\u2014 */\n.stt_dialog_41d0f6 {\n  box-sizing: border-box;\n  display: flex;\n  flex-direction: column;\n  width: min(760px, calc(100vw - 32px));\n  max-width: min(760px, calc(100vw - 32px));\n  max-height: calc(100vh - 96px);\n}\n\n.stt_content_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 18px;\n  min-height: 0;\n  overflow-y: auto;\n}\n\n/* \u2014\u2014 \u72B6\u6001\u6458\u8981\uFF1A\u4E24\u8BA1\u6570\u4E00\u884C + \u4E09\u6761\u4E8B\u5B9E\u884C \u2014\u2014 */\n.stt_counters_41d0f6 {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 2px 18px;\n  margin: 0;\n  padding: 0;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 13px;\n  line-height: 20px;\n  list-style: none;\n}\n\n.stt_meta_41d0f6 {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 2px 12px;\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n.stt_muted_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n/* \u53D8\u66F4\u4EE3\u4EF7\u5F62\u72B6\uFF08`mutation.stt_kv_41d0f6`\uFF09\uFF1A\u4FE1\u606F\u6027\u63D0\u793A\uFF0C\u7528\u4E1A\u52A1\u84DD\u800C\u4E0D\u662F\u8B66\u544A\u8272\u3002 */\n.stt_notice_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-state-business-primary, #1a67e0);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u964D\u7EA7\u63D0\u793A\uFF08`persistence-degraded`\uFF09\u4E0E\u9ED8\u8BA4\u6863\u635F\u574F\uFF1A\u5FC5\u987B\u8BFB\u5230\u7684\u574F\u6D88\u606F\u3002 */\n.stt_warning_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-state-warn-primary, #dd8629);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u2014\u2014 \u5931\u8D25\u884C\uFF1A\u4E3B\u6587\u6848\u672C\u5730\u5316\uFF0C\u5BBF\u4E3B\u539F\u6587\u53EA\u4F5C\u4E8C\u7EA7\u7070\u5B57\uFF08\u8BBE\u8BA1 \xA73.5\uFF09 \u2014\u2014 */\n.stt_error_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-state-error-primary, #ec1313);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n.stt_detail_41d0f6 {\n  margin: 4px 0 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n  word-break: break-word;\n}\n\n/* \u4E0D\u53EF\u7528\u964D\u7EA7\uFF1A\u6CA1\u6709\u5FEB\u7167\u65F6\u72EC\u5360\u6B63\u6587\u533A\uFF0C\u7ED9\u8FD9\u5757\u5360\u4F4D\u4E00\u70B9\u5185\u8FB9\u8DDD\u3002 */\n.stt_failureBlock_41d0f6 {\n  padding: 10px 0;\n}\n\n.stt_loading_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n/* \u2014\u2014 \u5206\u7EC4\u6E05\u5355 \u2014\u2014 */\n.stt_groups_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.stt_group_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n  border-top: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n}\n\n.stt_group_41d0f6:first-child {\n  border-top: none;\n}\n\n.stt_groupHeader_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  min-height: 32px;\n}\n\n/* \u6807\u9898\u533A\u662F\u6298\u53E0\u76EE\u6807\uFF1A\u94FA\u6EE1\u5269\u4F59\u5BBD\u5EA6\uFF0C\u5F00\u5173\u5728\u53F3\u4FA7\u72EC\u7ACB\u6210\u547D\u4E2D\u533A\uFF08\u70B9\u5F00\u5173\u4E0D\u6298\u53E0\uFF09\u3002 */\n.stt_groupToggle_41d0f6 {\n  display: flex;\n  flex: 1 1 auto;\n  align-items: center;\n  gap: 8px;\n  min-width: 0;\n  padding: 4px 6px;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 8px;\n}\n\n.stt_groupToggle_41d0f6:hover {\n  background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 6%));\n}\n\n.stt_groupTitle_41d0f6 {\n  color: var(--dsw-alias-label-primary, #000);\n  font-size: 13px;\n  font-weight: 600;\n  white-space: nowrap;\n}\n\n.stt_groupName_41d0f6 {\n  overflow: hidden;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n}\n\n.stt_groupCounts_41d0f6 {\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  white-space: nowrap;\n}\n\n/* \u5185\u7F6E\u5DE5\u5177\u5206\u533A\u7684\u672C\u5730\u8FC7\u6EE4\u8F93\u5165\uFF08\u53EA\u5F71\u54CD\u5C55\u793A\uFF09\u3002 */\n.stt_filterRow_41d0f6 {\n  padding: 0 6px 6px;\n}\n\n.stt_filter_41d0f6 {\n  display: inline-flex;\n  width: 100%;\n}\n\n.stt_filter_41d0f6 input {\n  width: 100%;\n}\n\n/* \u7EC4\u5185\u5DE5\u5177\u884C\uFF1A\u4E00\u884C\u4E00\u4E2A\u5F00\u5173\uFF0C\u884C\u9AD8\u5BF9\u9F50 Switch \u7684 28px \u547D\u4E2D\u533A\u3002 */\n.stt_rows_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  margin: 0 0 6px;\n  padding: 0 6px 0 26px;\n  list-style: none;\n}\n\n.stt_row_41d0f6 {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n  min-height: 30px;\n}\n\n.stt_rowName_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n}\n\n.stt_name_41d0f6 {\n  overflow: hidden;\n  color: var(--dsw-alias-label-primary, #000);\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n}\n\n/* \u884C\u7EA7\u9501\u5B9A\u77ED\u6807\u7B7E\uFF08`entry.stt_protected_41d0f6` / `entry.stt_reserved_41d0f6`\uFF09\u3002 */\n.stt_tag_41d0f6 {\n  flex: none;\n  padding: 0 6px;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 11px;\n  line-height: 16px;\n  border: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 12%));\n  border-radius: 999px;\n}\n\n/* \u300C\u6B63\u5728\u5E94\u7528\u2026\u300D\uFF1A\u4E0E\u884C\u6807\u7B7E\u540C\u7EA7\uFF0C\u4E0D\u62A2\u6CE8\u610F\u529B\u3002 */\n.stt_pending_41d0f6 {\n  flex: none;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 11px;\n  line-height: 16px;\n}\n\n.stt_empty_41d0f6 {\n  padding: 2px 0 6px;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u2014\u2014 \u5173\u95ED\u96C6 / \u9ED8\u8BA4\u6863\u5171\u7528\u7684 chip \u5217\u8868 \u2014\u2014 */\n.stt_chips_41d0f6 {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.stt_chip_41d0f6 {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  max-width: 100%;\n  padding: 2px 4px 2px 8px;\n  background: var(--dsw-alias-bg-layer-2, #f7f7f8);\n  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n  border-radius: 999px;\n}\n\n.stt_address_41d0f6 {\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  color: var(--dsw-alias-label-secondary, #545557);\n  word-break: break-all;\n}\n\n/* `intent` \u5FBD\u6807\uFF1A\u8BE5\u5730\u5740\u5F53\u524D 0 \u5339\u914D\uFF0C\u610F\u56FE\u5DF2\u8BB0\u5F55\uFF08\u8BBE\u8BA1 \xA73.2 \u7B2C 4 \u6BB5\uFF09\u3002 */\n.stt_badge_41d0f6 {\n  flex: none;\n  padding: 0 6px;\n  color: var(--dsw-alias-label-primary-inverted, #fff);\n  font-size: 11px;\n  line-height: 16px;\n  background: var(--dsw-alias-state-business-primary, #1a67e0);\n  border-radius: 999px;\n}\n\n/* \u2014\u2014 \u9ED8\u8BA4\u6863\u7F16\u8F91\u533A \u2014\u2014 */\n.stt_path_41d0f6 {\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  word-break: break-all;\n}\n\n.stt_addRow_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n}\n\n/* \u2014\u2014 \u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u4E0B\u62C9\uFF08\u5BF9\u8BDD\u6846\u5F62\u6001\uFF09\uFF1A\u539F\u751F select\uFF0C\u4E0E\u8F93\u5165\u6846\u540C\u9AD8\uFF08C2\uFF09 \u2014\u2014 */\n.stt_select_41d0f6 {\n  flex: 1 1 auto;\n  min-width: 0;\n  height: 32px;\n  padding: 0 8px;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 13px;\n  background: var(--dsw-alias-bg-layer-2, #f7f7f8);\n  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n  border-radius: 6px;\n}\n\n/* \u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u5206\u8282\u7684\u6B63\u6587\u58F3\uFF08\u7EDF\u4E00\u300C\u5DE5\u4F5C\u533A\u914D\u7F6E\u300D\u5F39\u7A97\u7684\u4E00\u4E2A\u5206\u8282\uFF09\uFF1A\u53EA\u505A\u7EB5\u5411\u6392\u5E03\u3002\n * \u5BBD\u5EA6 / \u9AD8\u5EA6 / \u6EDA\u52A8\u7EA6\u675F\u5F52 holder \u5F39\u7A97\u7684\u5185\u5BB9\u5217\uFF08`workspace-config` \u7684 dialog.stt_module_41d0f6.stt_css_41d0f6\uFF09\uFF0C\n * \u672C\u8282**\u4E0D**\u81EA\u5E26\u5361\u7247\u5BBD\u5EA6\uFF0C\u4E5F\u4E0D\u81EA\u5E26 Modal\u3002 */\n.stt_workspaceBody_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n}\n\n.stt_actions_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 10px;\n  margin-top: 4px;\n}\n\n/* \u300C\u5DF2\u4FDD\u5B58\uFF08\u672C\u4F1A\u8BDD\u4E0D\u53D8\uFF09\u300D\uFF1A\u4FDD\u5B58\u6210\u529F\u7684\u77AC\u65F6\u786E\u8BA4\uFF0C\u7528\u6210\u529F\u8272\u3002 */\n.stt_saved_41d0f6 {\n  color: var(--dsw-alias-state-success-primary, #16955f);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u6B8B\u7559 chips \u533A\u7684\u6807\u9898\uFF08\u53EA\u53EF\u79FB\u9664\uFF09\uFF1A\u5C0F\u5B57\u53F7\u3001\u6B21\u8981\u8272\uFF0C\u4E0E\u4E0A\u65B9\u7684\u7EC4\u5217\u8868\u62C9\u5F00\u3002 */\n.stt_residual_41d0f6 {\n  margin: 8px 0 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u2014\u2014 \u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u9875\u9762\uFF08`WorkspaceDefaultsPage`\uFF0CB1 \u4E09\u5361 + \u811A\u6CE8 + \u9875\u811A\uFF1B\u8BBE\u8BA1 \u24623.7\uFF09\u2014\u2014\n * \u9875\u9762\u6B63\u6587\u4ECE\u300C\u516D\u6BB5\u5E73\u94FA\u300D\u91CD\u6392\u4E3A\u5361\u7247\u5E03\u5C40\uFF1A\u6D45\u5E95\u5361\uFF08bg-layer-2\uFF09+ 12px \u5706\u89D2 + \u7EC6\u8FB9\uFF08border-l1\uFF09\uFF0C\n * \u4E0E\u7EDF\u4E00\u300C\u5DE5\u4F5C\u533A\u914D\u7F6E\u300D\u9875\u7684\u5176\u4ED6\u5206\u8282\u540C\u4E00\u89C6\u89C9\u8BED\u8A00\u3002\u4EE4\u724C\u7EAA\u5F8B\u4E0E\u4E0A\u6587\u4E00\u81F4\uFF1A\u6BCF\u5904\n * `var(--dsw-alias-*, <\u9759\u6001\u515C\u5E95>)`\uFF0C\u4EE4\u724C\u6539\u540D\u65F6\u6700\u574F\u9000\u5316\u6210\u53EF\u8BFB\u7684\u9ED1\u767D\u800C\u4E0D\u662F\u900F\u660E\u3002 */\n\n/* \u5361\u6808\u58F3\uFF08\u9875\u9762\u6B63\u6587\u4E0E\u4F1A\u8BDD\u9762\u677F\u4E09\u5361\u5171\u7528\u540C\u4E00\u7C7B\uFF09\uFF1A\u4E09\u5361\u3001\u811A\u6CE8\u3001\u9875\u811A\u52A8\u4F5C\u533A\u7EB5\u5411\u6392\u5E03\uFF0C\u5361\u95F4\u4E00\u6863\u95F4\u8DDD\u3002 */\n.stt_cardStack_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 16px;\n}\n\n/* \u9875\u9762\u5361\u7247\uFF08\u6982\u8981\u5361 / \u6E05\u5355\u5361 / \u547D\u4EE4\u5361\u5171\u7528\uFF09\uFF1A\u6D45\u5E95\u7EC6\u8FB9\u5706\u89D2\uFF0C\u5361\u5185\u5143\u7D20\u7EB5\u5411\u95F4\u8DDD 10px\u3002 */\n.stt_card_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 10px;\n  padding: 14px 16px;\n  background: var(--dsw-alias-bg-layer-2, #f7f7f8);\n  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n  border-radius: 12px;\n}\n\n/* \u5361\u5934\uFF1A\u6807\u9898 + \u5FBD\u7AE0 + \u53F3\u63A8\u52A8\u4F5C\u540C\u884C\u6392\u5E03\uFF0C\u7A84\u5904\u5141\u8BB8\u6362\u884C\u3002 */\n.stt_cardHeader_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  flex-wrap: wrap;\n}\n\n/* \u5361\u6807\u9898\uFF08<p>\uFF0C\u975E heading\u2014\u2014\u53EF\u8BBF\u95EE\u540D\u7531 holder \u7684 tab \u63D0\u4F9B\uFF09\uFF1A\u4E0E\u5206\u533A\u6807\u9898\u540C\u5B57\u53F7\u52A0\u91CD\u3002 */\n.stt_cardTitle_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-primary, #000);\n  font-size: 13px;\n  font-weight: 600;\n  line-height: 20px;\n}\n\n/* \u767B\u8BB0\u6001\u5FBD\u7AE0\uFF1A`.stt_badge_41d0f6` \u5728\u9762\u677F\u91CC\u5DF2\u662F intent \u5FBD\u6807\uFF08\u84DD\u5E95\u767D\u5B57\uFF0C`.stt_chip_41d0f6` \u5185\uFF09\uFF0CCSS module \u540C\u540D\n * \u5BFC\u51FA\u53EA\u6709\u4E00\u4E2A\u7C7B\u540D\uFF0C\u9875\u9762\u5FBD\u7AE0\u501F\u5B83\u6E32\u67D3\u2014\u2014\u5728 `.stt_cardHeader_41d0f6` \u4F5C\u7528\u57DF\u5185\u5168\u91CF\u6362\u6210\u300C\u7EC6\u8FB9 + \u7070\u5B57 +\n * \u900F\u660E\u5E95\u300D\u7684\u767B\u8BB0\u6001\u89C6\u89C9\uFF1B\u9762\u677F intent \u5FBD\u6807\u4E0D\u5728\u6B64\u4F5C\u7528\u57DF\uFF0C\u96F6\u5F71\u54CD\u3002 */\n.stt_cardHeader_41d0f6 .stt_badge_41d0f6 {\n  padding: 0 6px;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 11px;\n  line-height: 16px;\n  background: none;\n  border: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 12%));\n  border-radius: 999px;\n}\n\n/* \u5361\u5934\u53F3\u63A8\u5360\u4F4D / \u63A8\u94AE\uFF1A\u628A\u5237\u65B0\u6309\u94AE\u63A8\u5230\u884C\u5C3E\u3002 */\n.stt_push_41d0f6 {\n  margin-left: auto;\n}\n\n/* \u6982\u8981\u4E8B\u5B9E\u884C\uFF08dl\uFF09\uFF1A\u5DE5\u4F5C\u533A key / \u6863\u6587\u4EF6\u8DEF\u5F84\u4E24\u884C\u952E\u503C\u5BF9\u3002 */\n.stt_facts_41d0f6 {\n  display: grid;\n  gap: 4px;\n  margin: 0;\n}\n\n.stt_fact_41d0f6 {\n  display: flex;\n  align-items: baseline;\n  gap: 8px;\n  font-size: 12px;\n  line-height: 18px;\n}\n\n.stt_factTerm_41d0f6 {\n  flex: none;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n}\n\n/* \u4E8B\u5B9E\u503C\uFF08key / \u8DEF\u5F84\uFF09\uFF1A\u7B49\u5BBD\u3001\u53EF\u65AD\u884C\u2014\u2014\u89C4\u8303\u8DEF\u5F84\u53EF\u80FD\u5F88\u957F\u3002 */\n.stt_factValue_41d0f6 {\n  min-width: 0;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-family: var(--ds-font-family-code, monospace);\n  word-break: break-all;\n}\n\n/* \u4E09\u8BA1\u6570\u6458\u8981\u884C\uFF08\u6E05\u5355 N \xB7 \u9ED8\u8BA4\u5173 M \xB7 \u6B8B\u7559 K\uFF09\uFF1A\u7B49\u5BBD\u6570\u5B57\u907F\u514D\u5237\u65B0\u65F6\u8DF3\u52A8\u3002 */\n.stt_counts_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 12px;\n  line-height: 18px;\n  font-variant-numeric: tabular-nums;\n}\n\n/* \u6E05\u5355\u5361\u5934\uFF08\u24623.7 \u51BB\u7ED3\u540D\uFF09\uFF1A\u4E0E `.stt_cardHeader_41d0f6` \u540C\u6B3E\u6392\u5E03\uFF0C\u4F9B\u7ED3\u6784\u56FE\u7684\u6E05\u5355\u5361\u5934\u4F4D\u53D6\u7528\u3002 */\n.stt_listHeader_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  flex-wrap: wrap;\n}\n\n/* \u9875\u9762\u7EA7\u5168\u5C40\u8FC7\u6EE4\u6846\uFF1A\u53F3\u63A8\u5230\u5361\u5934\u884C\u5C3E\uFF0C\u5BBD\u4E0A\u9650 280px\u3001\u7A84\u5904\u6536\u7F29\u5230\u6EE1\u5BBD\u3002 */\n.stt_pageFilter_41d0f6 {\n  margin-left: auto;\n  width: min(280px, 100%);\n}\n\n/* \u7A7A\u6001\u5757\uFF08\u7A7A\u6863 / \u7A7A\u5B87\u5B99\uFF09\uFF1A\u865A\u7EBF\u8FB9\u6846 + \u5361\u5185\u6D45\u5E95\uFF0C\u4E0E\u53EF\u4EA4\u4E92\u7684\u6E05\u5355\u4F53\u62C9\u5F00\u3002 */\n.stt_emptyBlock_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 4px;\n  padding: 12px;\n  background: var(--dsw-alias-bg-layer-1, #fff);\n  border: 1px dashed var(--dsw-alias-border-l2, rgb(0 0 0 / 12%));\n  border-radius: 8px;\n}\n\n/* \u7A7A\u6001\u6807\u9898\uFF1A\u4E3B\u5B57\u8272\u52A0\u91CD\uFF0C\u4E0E\u4E0B\u65B9\u63D0\u793A\u62C9\u5F00\u4E00\u7EA7\u3002 */\n.stt_emptyTitle_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-primary, #000);\n  font-size: 13px;\n  font-weight: 600;\n  line-height: 20px;\n}\n\n/* \u7A7A\u6001\u63D0\u793A\uFF1A\u4E09\u7EA7\u7070\uFF0C\u8BB2\u6E05\u4E0B\u4E00\u6B65\u53BB\u54EA\u5173\u7B2C\u4E00\u9879 / \u4E3A\u4EC0\u4E48\u6E05\u5355\u662F\u7A7A\u7684\u3002 */\n.stt_emptyHint_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u547D\u4EE4\u5361\u547D\u4EE4\u884C\uFF1A\u4EE3\u7801\u5757\u5360\u4E3B\u5217\u3001\u590D\u5236\u6309\u94AE\u53F3\u5217\uFF0C\u9876\u5BF9\u9F50\uFF08\u6309\u94AE\u77EE\u4E8E\u591A\u884C\u4EE3\u7801\u5757\uFF09\u3002 */\n.stt_commandRow_41d0f6 {\n  display: flex;\n  align-items: flex-start;\n  gap: 8px;\n}\n\n/* \u547D\u4EE4\u4EE3\u7801\u5757\uFF1A\u6587\u672C\u5373\u590D\u5236\u6587\u672C\uFF08D8\uFF09\u2014\u2014\u6D45\u5E95\u7EC6\u8FB9\u3001\u7B49\u5BBD\u3001\u53EF\u6362\u884C\u4E0D\u65AD\u8BED\u4E49\u3002 */\n.stt_command_41d0f6 {\n  flex: 1;\n  margin: 0;\n  padding: 8px 10px;\n  background: var(--dsw-alias-bg-layer-1, #fff);\n  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n  border-radius: 8px;\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  line-height: 18px;\n  white-space: pre-wrap;\n  word-break: break-all;\n}\n\n/* \u811A\u6CE8\u5BB9\u5668\uFF1A\u5F71\u54CD\u8303\u56F4 / \u5E76\u96C6\u8BED\u4E49\u4E24\u53E5\u7EB5\u5411\u7D27\u51D1\u6392\u5217\u3002 */\n.stt_footnotes_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n}\n\n/* \u6B21\u7EA7\u6CE8\u8BB0\uFF1A\u6E05\u5355\u8BED\u4E49\u53E5\u3001\u4E09\u6761\u6761\u4EF6\u6CE8\u8BB0\u3001\u547D\u4EE4\u8FB9\u754C\u8BF4\u660E\u4E0E\u811A\u6CE8\u6BB5\u5171\u7528\u540C\u6B3E\u3002 */\n.stt_note_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u884C\u8BE6\u60C5\u4E3B\u5217\uFF08`DefaultsGroupList` \u7684 `showDetails` \u8DEF\u5F84\uFF09\uFF1A\u540D\u79F0 + \u63CF\u8FF0 + \u6807\u7B7E\u7EB5\u6392\uFF0C\n * \u5F00\u5173\u4ECD\u5728\u53F3\u5217\uFF1B`min-width: 0` \u8BA9\u7701\u7565\u53F7\u5728 flex \u884C\u5185\u751F\u6548\u3002 */\n.stt_rowMain_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n  min-width: 0;\n}\n\n/* \u884C\u63CF\u8FF0\u6B21\u884C\uFF1A\u5355\u884C\u7701\u7565\uFF0C\u5168\u6587\u7ECF `title` \u60AC\u505C\u53EF\u89C1\u3002 */\n.stt_rowDescription_41d0f6 {\n  overflow: hidden;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 16px;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n}\n\n/* \u6280\u80FD\u6807\u7B7E\u884C\uFF1A\u6765\u6E90 / \u8C03\u7528\u65B9\u5F0F\u7B49\u5C0F\u6807\u7B7E\u7684\u6362\u884C\u96C6\u5408\u3002 */\n.stt_rowTags_41d0f6 {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 4px;\n}\n\n/* \u6280\u80FD\u6765\u6E90\u6807\u7B7E\uFF1A\u5706\u89D2\u7EC6\u8FB9\u5C0F\u6807\u7B7E\uFF0C\u4E0D\u6362\u884C\uFF08\u6574\u4E2A\u6807\u7B7E\u79FB\u5230\u4E0B\u4E00\u884C\u800C\u4E0D\u662F\u65AD\u5F00\uFF09\u3002 */\n.stt_metaTag_41d0f6 {\n  padding: 0 6px;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 11px;\n  line-height: 16px;\n  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n  border-radius: 999px;\n  white-space: nowrap;\n}\n\n/* \u2014\u2014 R15 \u6807\u7B7E\u7740\u8272\u53D8\u4F53\uFF1A\u7EC4\u5408\u7C7B\uFF08\u53E0\u5728 `.stt_tag_41d0f6` / `.stt_metaTag_41d0f6` \u4E0A\uFF09\uFF0C\u53EA\u8986\u76D6\u524D\u666F\u4E0E\u63CF\u8FB9\uFF0C\n   \u5E95\u8272\u4FDD\u6301\u900F\u660E\uFF1B\u8272\u503C\u5168\u90E8\u8D70 alias \u72B6\u6001\u53D8\u91CF\u5E26\u5B57\u9762\u91CF\u56DE\u9000\uFF08\u6697\u8272\u4E3B\u9898\u5B89\u5168\uFF0C\u4E0E\u4ED3\u5185\n   `state-business/warn/error/success` \u5148\u4F8B\u540C\u6E90\uFF09\u3002 \u2014\u2014 */\n.stt_toneInfo_41d0f6 {\n  color: var(--dsw-alias-state-business-primary, #1a67e0);\n  border-color: var(--dsw-alias-state-business-primary, #1a67e0);\n}\n\n.stt_toneSuccess_41d0f6 {\n  color: var(--dsw-alias-state-success-primary, #16955f);\n  border-color: var(--dsw-alias-state-success-primary, #16955f);\n}\n\n.stt_toneWarn_41d0f6 {\n  color: var(--dsw-alias-state-warn-primary, #dd8629);\n  border-color: var(--dsw-alias-state-warn-primary, #dd8629);\n}\n\n.stt_toneDanger_41d0f6 {\n  color: var(--dsw-alias-state-error-primary, #ec1313);\n  border-color: var(--dsw-alias-state-error-primary, #ec1313);\n}\n\n";
 		if (typeof document !== "undefined" && document.querySelector('style[data-dsh-plugin="dsh-plugin-session-tool-toggle"][data-dsh-css="41d0f6"]') === null) {
 		  const style = document.createElement("style");
 		  style.setAttribute("data-dsh-plugin", "dsh-plugin-session-tool-toggle");
@@ -1380,10 +1189,60 @@ window.__ModuleLoader__.load({
 		  style.textContent = cssText;
 		  document.head.appendChild(style);
 		}
-		var panel_default = { "module": "stt_module_41d0f6", "css": "stt_css_41d0f6", "trigger": "stt_trigger_41d0f6", "danger": "stt_danger_41d0f6", "dialog": "stt_dialog_41d0f6", "content": "stt_content_41d0f6", "section": "stt_section_41d0f6", "sectionTitle": "stt_sectionTitle_41d0f6", "counters": "stt_counters_41d0f6", "meta": "stt_meta_41d0f6", "muted": "stt_muted_41d0f6", "kv": "stt_kv_41d0f6", "notice": "stt_notice_41d0f6", "warning": "stt_warning_41d0f6", "error": "stt_error_41d0f6", "detail": "stt_detail_41d0f6", "failureBlock": "stt_failureBlock_41d0f6", "loading": "stt_loading_41d0f6", "groups": "stt_groups_41d0f6", "group": "stt_group_41d0f6", "groupHeader": "stt_groupHeader_41d0f6", "groupToggle": "stt_groupToggle_41d0f6", "groupTitle": "stt_groupTitle_41d0f6", "groupName": "stt_groupName_41d0f6", "groupCounts": "stt_groupCounts_41d0f6", "filterRow": "stt_filterRow_41d0f6", "filter": "stt_filter_41d0f6", "rows": "stt_rows_41d0f6", "row": "stt_row_41d0f6", "tag": "stt_tag_41d0f6", "pending": "stt_pending_41d0f6", "rowName": "stt_rowName_41d0f6", "name": "stt_name_41d0f6", "protected": "stt_protected_41d0f6", "reserved": "stt_reserved_41d0f6", "empty": "stt_empty_41d0f6", "chips": "stt_chips_41d0f6", "chip": "stt_chip_41d0f6", "address": "stt_address_41d0f6", "badge": "stt_badge_41d0f6", "path": "stt_path_41d0f6", "addRow": "stt_addRow_41d0f6", "select": "stt_select_41d0f6", "workspaceBody": "stt_workspaceBody_41d0f6", "actions": "stt_actions_41d0f6", "saved": "stt_saved_41d0f6", "sectionFrame": "stt_sectionFrame_41d0f6", "residual": "stt_residual_41d0f6", "workspacePage": "stt_workspacePage_41d0f6", "card": "stt_card_41d0f6", "cardHeader": "stt_cardHeader_41d0f6", "cardTitle": "stt_cardTitle_41d0f6", "push": "stt_push_41d0f6", "facts": "stt_facts_41d0f6", "fact": "stt_fact_41d0f6", "factTerm": "stt_factTerm_41d0f6", "factValue": "stt_factValue_41d0f6", "counts": "stt_counts_41d0f6", "listHeader": "stt_listHeader_41d0f6", "pageFilter": "stt_pageFilter_41d0f6", "emptyBlock": "stt_emptyBlock_41d0f6", "emptyTitle": "stt_emptyTitle_41d0f6", "emptyHint": "stt_emptyHint_41d0f6", "commandRow": "stt_commandRow_41d0f6", "command": "stt_command_41d0f6", "footnotes": "stt_footnotes_41d0f6", "note": "stt_note_41d0f6", "rowMain": "stt_rowMain_41d0f6", "rowDescription": "stt_rowDescription_41d0f6", "rowTags": "stt_rowTags_41d0f6", "metaTag": "stt_metaTag_41d0f6", "toneInfo": "stt_toneInfo_41d0f6", "toneSuccess": "stt_toneSuccess_41d0f6", "toneWarn": "stt_toneWarn_41d0f6", "toneDanger": "stt_toneDanger_41d0f6" };
+		var panel_default = { "module": "stt_module_41d0f6", "css": "stt_css_41d0f6", "trigger": "stt_trigger_41d0f6", "danger": "stt_danger_41d0f6", "dialog": "stt_dialog_41d0f6", "content": "stt_content_41d0f6", "counters": "stt_counters_41d0f6", "meta": "stt_meta_41d0f6", "muted": "stt_muted_41d0f6", "kv": "stt_kv_41d0f6", "notice": "stt_notice_41d0f6", "warning": "stt_warning_41d0f6", "error": "stt_error_41d0f6", "detail": "stt_detail_41d0f6", "failureBlock": "stt_failureBlock_41d0f6", "loading": "stt_loading_41d0f6", "groups": "stt_groups_41d0f6", "group": "stt_group_41d0f6", "groupHeader": "stt_groupHeader_41d0f6", "groupToggle": "stt_groupToggle_41d0f6", "groupTitle": "stt_groupTitle_41d0f6", "groupName": "stt_groupName_41d0f6", "groupCounts": "stt_groupCounts_41d0f6", "filterRow": "stt_filterRow_41d0f6", "filter": "stt_filter_41d0f6", "rows": "stt_rows_41d0f6", "row": "stt_row_41d0f6", "rowName": "stt_rowName_41d0f6", "name": "stt_name_41d0f6", "protected": "stt_protected_41d0f6", "reserved": "stt_reserved_41d0f6", "tag": "stt_tag_41d0f6", "pending": "stt_pending_41d0f6", "empty": "stt_empty_41d0f6", "chips": "stt_chips_41d0f6", "chip": "stt_chip_41d0f6", "address": "stt_address_41d0f6", "badge": "stt_badge_41d0f6", "path": "stt_path_41d0f6", "addRow": "stt_addRow_41d0f6", "select": "stt_select_41d0f6", "workspaceBody": "stt_workspaceBody_41d0f6", "actions": "stt_actions_41d0f6", "saved": "stt_saved_41d0f6", "residual": "stt_residual_41d0f6", "cardStack": "stt_cardStack_41d0f6", "card": "stt_card_41d0f6", "cardHeader": "stt_cardHeader_41d0f6", "cardTitle": "stt_cardTitle_41d0f6", "push": "stt_push_41d0f6", "facts": "stt_facts_41d0f6", "fact": "stt_fact_41d0f6", "factTerm": "stt_factTerm_41d0f6", "factValue": "stt_factValue_41d0f6", "counts": "stt_counts_41d0f6", "listHeader": "stt_listHeader_41d0f6", "pageFilter": "stt_pageFilter_41d0f6", "emptyBlock": "stt_emptyBlock_41d0f6", "emptyTitle": "stt_emptyTitle_41d0f6", "emptyHint": "stt_emptyHint_41d0f6", "commandRow": "stt_commandRow_41d0f6", "command": "stt_command_41d0f6", "footnotes": "stt_footnotes_41d0f6", "note": "stt_note_41d0f6", "rowMain": "stt_rowMain_41d0f6", "rowDescription": "stt_rowDescription_41d0f6", "rowTags": "stt_rowTags_41d0f6", "metaTag": "stt_metaTag_41d0f6", "toneInfo": "stt_toneInfo_41d0f6", "toneSuccess": "stt_toneSuccess_41d0f6", "toneWarn": "stt_toneWarn_41d0f6", "toneDanger": "stt_toneDanger_41d0f6" };
 
-		// src/client/ToolPanelGroups.tsx
+		// src/client/CommandCard.tsx
 		var import_jsx_runtime = require("react/jsx-runtime");
+		var COMMAND_PLACEHOLDER = "<address>";
+		var COPY_RESET_MS = 2e3;
+		function CommandCard(props) {
+		  const [copyState, setCopyState] = React.useState("idle");
+		  const copyTimer = React.useRef(void 0);
+		  React.useEffect(() => () => window.clearTimeout(copyTimer.current), []);
+		  const copyFeedback = copyState === "copied" ? props.copiedLabel : copyState === "failed" ? props.copyFailedLabel : "";
+		  const restartCopyTimer = () => {
+		    window.clearTimeout(copyTimer.current);
+		    copyTimer.current = window.setTimeout(() => {
+		      setCopyState("idle");
+		    }, COPY_RESET_MS);
+		  };
+		  const copyCommand = async () => {
+		    try {
+		      if (navigator.clipboard === void 0) throw new Error("clipboard unavailable");
+		      await navigator.clipboard.writeText(props.commandText);
+		      setCopyState("copied");
+		    } catch {
+		      setCopyState("failed");
+		    }
+		    restartCopyTimer();
+		  };
+		  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: panel_default.card, children: [
+		    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: panel_default.cardTitle, children: props.title }),
+		    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: panel_default.note, children: props.note }),
+		    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: panel_default.commandRow, children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: panel_default.command, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { children: props.commandText }) }),
+		      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+		        import_dsh_client_ui_primitives.Button,
+		        {
+		          variant: "outline",
+		          size: "sm",
+		          disabled: copyState === "copied",
+		          onClick: () => {
+		            void copyCommand();
+		          },
+		          children: props.copyLabel
+		        }
+		      )
+		    ] }),
+		    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: panel_default.note, "aria-live": "polite", children: copyFeedback })
+		  ] });
+		}
+
+		// src/client/DefaultsGroupList.tsx
+		var import_react = require("react");
+		var import_dsh_client_ui_primitives2 = require("@deepseek-ai/dsh-client-ui-primitives");
+
+		// src/client/group-shape.ts
 		function groupTitle(kind, t) {
 		  switch (kind) {
 		    case "mcp":
@@ -1397,124 +1256,67 @@ window.__ModuleLoader__.load({
 		function defaultExpanded(kind) {
 		  return kind !== "mcp";
 		}
-		function lockOf(tool, t) {
-		  if (tool.protected) return { tag: t("entry.protected"), reason: t("badge.protected") };
-		  if (tool.reserved) return { tag: t("entry.reserved"), reason: t("badge.reserved") };
-		  return void 0;
+		function wordingOf(session, t) {
+		  if (session) {
+		    return {
+		      // 组头计数两句拼接（` · ` 分隔、仅 >0 时追加）与 ToolPanelGroups.tsx:212-213 同口径。
+		      groupCount: (count, inDisabled) => inDisabled > 0 ? `${t("group.toolCount", { count })} \xB7 ${t("group.disabledCount", { count: inDisabled })}` : t("group.toolCount", { count }),
+		      // 插值名抹平：统一入参 `inDisabled` → 该键的 `{disabled}`。
+		      groupSummary: (count, inDisabled) => t("group.summary", { count, disabled: inDisabled }),
+		      groupOff: t("session.groupOff"),
+		      rowSwitchLabel: (name2) => t("switch.label", { name: name2 }),
+		      // 会话形态行/组开关共用同一键（③3.3 差异表；对齐 ToolPanelGroups.tsx:220-222）。
+		      groupSwitchLabel: (name2) => t("switch.label", { name: name2 }),
+		      pending: t("toggle.pending"),
+		      skillEffective: t("skill.effective"),
+		      skillIntentOnly: t("skill.intentOnly"),
+		      // 该槽会话形态无消费方（skillEffective/skillIntentOnly 分支吸收）；给默认档同款
+		      // `entry.skillHidden` 作中性占位，避免无意义的键面分叉。
+		      skillHidden: t("entry.skillHidden"),
+		      skillBlocked: t("skill.blocked"),
+		      // 过滤空态借用保留清单的中性句 `defaults.filterEmpty`（有 `{query}` 插值，文案不含
+		      // 「默认档」字样；6.3 已接 `query`，过滤清空全部组时本成员会消费）。
+		      filterEmpty: (query) => t("defaults.filterEmpty", { query }),
+		      emptyRow: t("panel.empty"),
+		      entryIntentOnly: t("entry.intentOnly"),
+		      disabledIntentOnly: t("disabled.intentOnly")
+		    };
+		  }
+		  return {
+		    // 组头计数两句拼接与 DefaultsGroupList.tsx:433-434 同口径。
+		    groupCount: (count, inDisabled) => inDisabled > 0 ? `${t("defaults.groupCount", { count })} \xB7 ${t("defaults.groupInDefaults", { count: inDisabled })}` : t("defaults.groupCount", { count }),
+		    // 插值名抹平：统一入参 `inDisabled` → 该键的 `{inDefaults}`。
+		    groupSummary: (count, inDisabled) => t("defaults.groupSummary", { count, inDefaults: inDisabled }),
+		    groupOff: t("defaults.groupOff"),
+		    rowSwitchLabel: (name2) => t("defaults.switchLabel", { name: name2 }),
+		    groupSwitchLabel: (name2) => t("defaults.groupSwitchLabel", { name: name2 }),
+		    // 默认档形态没有行内 pending 槽（③3.3 差异表），成员按类型面给值。
+		    pending: t("toggle.pending"),
+		    skillEffective: t("skill.effective"),
+		    skillIntentOnly: t("skill.intentOnly"),
+		    skillHidden: t("entry.skillHidden"),
+		    skillBlocked: t("skill.blocked"),
+		    filterEmpty: (query) => t("defaults.filterEmpty", { query }),
+		    emptyRow: t("panel.empty"),
+		    entryIntentOnly: t("entry.intentOnly"),
+		    disabledIntentOnly: t("disabled.intentOnly")
+		  };
 		}
-		function ToolRow({ tool, busy, pending, onToggle, t }) {
-		  const lock = lockOf(tool, t);
-		  const locked = lock !== void 0;
-		  const disabled = busy || locked || pending;
-		  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { className: panel_default.row, children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: panel_default.rowName, children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { className: panel_default.name, title: tool.description ?? tool.name, children: tool.shortName }),
-		      lock !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: panel_default.tag, title: lock.reason, children: lock.tag }),
-		      pending && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: panel_default.pending, children: t("toggle.pending") })
-		    ] }),
-		    /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-		      import_dsh_client_ui_primitives.Switch,
-		      {
-		        checked: !tool.disabled,
-		        disabled,
-		        title: lock?.reason,
-		        label: t("switch.label", { name: tool.shortName }),
-		        onChange: (next) => {
-		          if (disabled) return;
-		          onToggle(tool.address, next);
-		        }
-		      }
-		    )
-		  ] });
-		}
-		function GroupRow({ group, pending, busy, onToggle, t }) {
-		  const [expanded, setExpanded] = (0, import_react.useState)(() => defaultExpanded(group.kind));
-		  const [filter, setFilter] = (0, import_react.useState)("");
-		  const tools = (0, import_react.useMemo)(() => {
-		    const needle = filter.trim().toLowerCase();
-		    if (group.kind !== "builtin" || needle === "") return group.tools;
-		    return group.tools.filter((tool) => tool.shortName.toLowerCase().includes(needle));
-		  }, [filter, group.kind, group.tools]);
-		  const address = group.address;
-		  const groupPending = address !== null && pending.has(address);
-		  const groupDisabled = busy || groupPending;
-		  const title = groupTitle(group.kind, t);
-		  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { className: panel_default.group, children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: panel_default.groupHeader, children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
-		        "button",
-		        {
-		          type: "button",
-		          className: panel_default.groupToggle,
-		          "aria-expanded": expanded,
-		          title: t("group.summary", { count: group.toolCount, disabled: group.disabledCount }),
-		          onClick: () => {
-		            setExpanded((value) => !value);
-		          },
-		          children: [
-		            expanded ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.IconChevronDownOutlineRegular, {}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_dsh_client_ui_primitives.IconChevronRightOutlineRegular, {}),
-		            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: panel_default.groupTitle, children: title }),
-		            group.kind === "mcp" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: panel_default.groupName, children: group.key }),
-		            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: panel_default.groupCounts, children: [
-		              t("group.toolCount", { count: group.toolCount }),
-		              group.disabledCount > 0 && ` \xB7 ${t("group.disabledCount", { count: group.disabledCount })}`
-		            ] })
-		          ]
-		        }
-		      ),
-		      address !== null && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-		        import_dsh_client_ui_primitives.Switch,
-		        {
-		          checked: !group.disabled,
-		          disabled: groupDisabled,
-		          label: t("switch.label", {
-		            name: group.kind === "mcp" ? group.key : title
-		          }),
-		          onChange: (next) => {
-		            if (groupDisabled) return;
-		            onToggle(address, next);
-		          }
-		        }
-		      )
-		    ] }),
-		    expanded && group.kind === "builtin" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: panel_default.filterRow, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-		      import_dsh_client_ui_primitives.Input,
-		      {
-		        className: panel_default.filter,
-		        value: filter,
-		        placeholder: t("group.filter"),
-		        "aria-label": t("group.filter"),
-		        onChange: (event) => {
-		          setFilter(event.target.value);
-		        }
-		      }
-		    ) }),
-		    expanded && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { className: panel_default.rows, "aria-label": title, children: tools.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { className: panel_default.empty, children: t("panel.empty") }) : tools.map((tool) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-		      ToolRow,
-		      {
-		        tool,
-		        busy,
-		        pending: pending.has(tool.address),
-		        onToggle,
-		        t
-		      },
-		      tool.address
-		    )) })
-		  ] });
-		}
-		function ToolPanelGroups({ groups, pending, busy, onToggle, t }) {
-		  if (groups.length === 0) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: panel_default.muted, children: t("panel.empty") });
-		  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", { className: panel_default.groups, children: groups.map((group) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-		    GroupRow,
-		    {
-		      group,
-		      pending,
-		      busy,
-		      onToggle,
-		      t
-		    },
-		    `${group.kind}:${group.key}`
-		  )) });
+		function copyBundleOf(session, t) {
+		  if (session) {
+		    return {
+		      residualTitle: t("session.residualTitle"),
+		      // 会话形态的 chip 动作是「开启」（③3.3 差异表），键已存在。
+		      removeLabel: t("disabled.enable"),
+		      removeAria: (address) => t("disabled.enableAria", { address })
+		    };
+		  }
+		  return {
+		    residualTitle: t("defaults.residualTitle"),
+		    removeLabel: t("defaults.remove"),
+		    removeAria: (address) => `${t("defaults.remove")} ${address}`
+		    // `cliHint` 缺省不渲染（命令已进页面命令卡，两键已随 6.6 删除）。
+		  };
 		}
 
 		// src/client/DefaultsGroupList.tsx
@@ -1542,7 +1344,7 @@ window.__ModuleLoader__.load({
 		  "bundled": "skill.source.bundled",
 		  "runtime": "skill.source.runtime"
 		};
-		function lockOf2(entry, t) {
+		function lockOf(entry, t) {
 		  if (entry.protected) return { tag: t("entry.protected"), reason: t("badge.protected"), tone: "danger" };
 		  if (entry.reserved) return { tag: t("entry.reserved"), reason: t("badge.reserved"), tone: "warn" };
 		  return void 0;
@@ -1550,7 +1352,7 @@ window.__ModuleLoader__.load({
 		function sourceTagKeyOf(source) {
 		  return SOURCE_TAG_KEYS[source];
 		}
-		function skillTagsOf(entry, disabledSet, t) {
+		function skillTagsOf(entry, disabledSet, session, wording, t) {
 		  const tags = [];
 		  const isSkill = entry.address.startsWith("skill:") || entry.modelInvocable !== void 0 && entry.userInvocable !== void 0;
 		  if (!isSkill) return tags;
@@ -1565,27 +1367,47 @@ window.__ModuleLoader__.load({
 		    const key = sourceTagKeyOf(entry.source);
 		    tags.push({ text: key === void 0 ? entry.source : t(key), tone: "info" });
 		  }
-		  if (disabledSet.has(entry.address)) tags.push({ text: t("entry.skillHidden"), tone: "neutral" });
+		  if (disabledSet.has(entry.address)) {
+		    tags.push({
+		      text: session === void 0 ? wording.skillHidden : session.shadowedSkills.has(entry.address) ? wording.skillEffective : wording.skillIntentOnly,
+		      tone: "neutral"
+		    });
+		  }
 		  return tags;
 		}
-		function DefaultsRow({ entry, disabledSet, blocked, busy, onToggle, t, showDetails }) {
-		  const lock = lockOf2(entry, t);
-		  const groupOff = blocked ? t("defaults.groupOff") : void 0;
+		function DefaultsRow({
+		  entry,
+		  disabledSet,
+		  blocked,
+		  busy,
+		  onToggle,
+		  t,
+		  showDetails,
+		  session,
+		  wording
+		}) {
+		  const lock = lockOf(entry, t);
+		  const groupOff = blocked ? wording.groupOff : void 0;
 		  const reason = lock?.reason ?? groupOff;
-		  const disabled = busy || lock !== void 0 || blocked;
-		  const tags = showDetails ? skillTagsOf(entry, disabledSet, t) : [];
+		  const pending = session !== void 0 && session.pending.has(entry.address);
+		  const disabled = busy || lock !== void 0 || blocked || pending;
+		  const tags = showDetails ? skillTagsOf(entry, disabledSet, session, wording, t) : [];
+		  const intentOnly = session !== void 0 && session.intentOnly.has(entry.address);
+		  const checkedSet = session?.effectiveDisabled ?? disabledSet;
 		  const nameLine = /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: panel_default.rowName, children: [
 		    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { className: panel_default.name, title: entry.description ?? entry.shortName, children: entry.shortName }),
 		    lock !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: `${panel_default.tag} ${tagToneClass(lock.tone)}`, title: lock.reason, children: lock.tag }),
-		    groupOff !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: `${panel_default.tag} ${tagToneClass("warn")}`, title: groupOff, children: groupOff })
+		    groupOff !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: `${panel_default.tag} ${tagToneClass("warn")}`, title: groupOff, children: groupOff }),
+		    intentOnly && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: `${panel_default.tag} ${tagToneClass("warn")}`, title: wording.disabledIntentOnly, children: wording.entryIntentOnly }),
+		    pending && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: panel_default.pending, children: wording.pending })
 		  ] });
 		  const control = /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
 		    import_dsh_client_ui_primitives2.Switch,
 		    {
-		      checked: !disabledSet.has(entry.address),
+		      checked: !checkedSet.has(entry.address),
 		      disabled,
 		      title: reason,
-		      label: t("defaults.switchLabel", { name: entry.shortName }),
+		      label: wording.rowSwitchLabel(entry.shortName),
 		      onChange: (next) => {
 		        if (disabled) return;
 		        onToggle(entry.address, next);
@@ -1624,11 +1446,13 @@ window.__ModuleLoader__.load({
 		  t,
 		  filtering,
 		  query,
-		  showDetails
+		  showDetails,
+		  session,
+		  wording
 		}) {
-		  const [expanded, setExpanded] = (0, import_react2.useState)(() => defaultExpanded(group.kind));
-		  const [filter, setFilter] = (0, import_react2.useState)("");
-		  const tools = (0, import_react2.useMemo)(() => {
+		  const [expanded, setExpanded] = (0, import_react.useState)(() => defaultExpanded(group.kind));
+		  const [filter, setFilter] = (0, import_react.useState)("");
+		  const tools = (0, import_react.useMemo)(() => {
 		    if (filtering) return group.tools;
 		    const needle = filter.trim().toLowerCase();
 		    if (group.kind !== "builtin" || needle === "") return group.tools;
@@ -1636,13 +1460,17 @@ window.__ModuleLoader__.load({
 		  }, [filter, filtering, group.kind, group.tools]);
 		  const address = group.address;
 		  const blocked = address !== null && disabledSet.has(address);
+		  const groupPending = session !== void 0 && address !== null && session.pending.has(address);
 		  const count = group.tools.length;
+		  const checkedSet = session?.effectiveDisabled ?? disabledSet;
 		  const inDefaults = group.tools.reduce(
-		    (sum, entry) => disabledSet.has(entry.address) ? sum + 1 : sum,
+		    (sum, entry) => checkedSet.has(entry.address) ? sum + 1 : sum,
 		    0
 		  );
 		  const title = groupTitle(group.kind, t);
 		  const degraded = group.kind === "skill" && !skillsAvailable;
+		  const skillBlockedNotice = session !== void 0 && group.kind === "skill" && blocked;
+		  const groupIntentOnly = session !== void 0 && address !== null && session.intentOnly.has(address);
 		  const open = filtering || expanded;
 		  const headerContent = /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
 		    open ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(import_dsh_client_ui_primitives2.IconChevronDownOutlineRegular, {}) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(import_dsh_client_ui_primitives2.IconChevronRightOutlineRegular, {}),
@@ -1657,24 +1485,22 @@ window.__ModuleLoader__.load({
 		      }
 		    ),
 		    group.kind === "mcp" && group.countsTokens === true && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: `${panel_default.tag} ${tagToneClass("warn")}`, title: t("mcp.tokensHint"), children: t("mcp.tokens") }),
-		    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: panel_default.groupCounts, children: [
-		      t("defaults.groupCount", { count }),
-		      inDefaults > 0 && ` \xB7 ${t("defaults.groupInDefaults", { count: inDefaults })}`
-		    ] })
+		    groupIntentOnly && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: `${panel_default.tag} ${tagToneClass("warn")}`, title: wording.disabledIntentOnly, children: wording.entryIntentOnly }),
+		    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: panel_default.groupCounts, children: wording.groupCount(count, inDefaults) })
 		  ] });
 		  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("li", { className: panel_default.group, children: [
 		    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: panel_default.groupHeader, children: [
 		      filtering ? (
 		        // 过滤态组头：非交互 span——强制展开的清单不再提供折叠手势，`aria-expanded` 与
 		        // `onClick` 一并撤掉；读数摘要（`title`）保留，span 复用 `.groupToggle` 的排布样式。
-		        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: panel_default.groupToggle, title: t("defaults.groupSummary", { count, inDefaults }), children: headerContent })
+		        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: panel_default.groupToggle, title: wording.groupSummary(count, inDefaults), children: headerContent })
 		      ) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
 		        "button",
 		        {
 		          type: "button",
 		          className: panel_default.groupToggle,
 		          "aria-expanded": expanded,
-		          title: t("defaults.groupSummary", { count, inDefaults }),
+		          title: wording.groupSummary(count, inDefaults),
 		          onClick: () => {
 		            setExpanded((value) => !value);
 		          },
@@ -1685,12 +1511,10 @@ window.__ModuleLoader__.load({
 		        import_dsh_client_ui_primitives2.Switch,
 		        {
 		          checked: !disabledSet.has(address),
-		          disabled: busy,
-		          label: t("defaults.groupSwitchLabel", {
-		            name: group.kind === "mcp" ? group.key : title
-		          }),
+		          disabled: busy || groupPending,
+		          label: wording.groupSwitchLabel(group.kind === "mcp" ? group.key : title),
 		          onChange: (next) => {
-		            if (busy) return;
+		            if (busy || groupPending) return;
 		            onToggle(address, next);
 		          }
 		        }
@@ -1709,7 +1533,8 @@ window.__ModuleLoader__.load({
 		      }
 		    ) }),
 		    open && degraded && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: panel_default.muted, children: t("skill.unavailable") }),
-		    open && !degraded && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("ul", { className: panel_default.rows, "aria-label": title, children: tools.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("li", { className: panel_default.empty, children: t("panel.empty") }) : tools.map((entry) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+		    open && skillBlockedNotice && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: panel_default.warning, children: wording.skillBlocked }),
+		    open && !degraded && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("ul", { className: panel_default.rows, "aria-label": title, children: tools.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("li", { className: panel_default.empty, children: wording.emptyRow }) : tools.map((entry) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
 		      DefaultsRow,
 		      {
 		        entry,
@@ -1718,7 +1543,9 @@ window.__ModuleLoader__.load({
 		        busy,
 		        onToggle,
 		        t,
-		        showDetails
+		        showDetails,
+		        session,
+		        wording
 		      },
 		      entry.address
 		    )) })
@@ -1754,20 +1581,23 @@ window.__ModuleLoader__.load({
 		  copy,
 		  t,
 		  query,
-		  showDetails
+		  showDetails,
+		  session
 		}) {
-		  const disabledSet = (0, import_react2.useMemo)(() => new Set(disabled), [disabled]);
-		  const view = (0, import_react2.useMemo)(
+		  const disabledSet = (0, import_react.useMemo)(() => new Set(disabled), [disabled]);
+		  const view = (0, import_react.useMemo)(
 		    () => filterDefaultsView(universe, disabled, query),
 		    [universe, disabled, query]
 		  );
+		  const wording = wordingOf(session !== void 0, t);
+		  const copyBundle = copy ?? copyBundleOf(session !== void 0, t);
 		  const filtering = view.filtering;
 		  const needle = query?.trim() ?? "";
 		  if (universe === null || !universe.layerReady) {
 		    return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: panel_default.warning, children: copy.universeUnavailable ?? t("defaults.universeUnavailable") }),
-		      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ResidualChips, { addresses: view.residual, busy, copy, onToggle }),
-		      copy.cliHint !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: panel_default.muted, children: copy.cliHint })
+		      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: panel_default.warning, children: copyBundle.universeUnavailable ?? t("defaults.universeUnavailable") }),
+		      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ResidualChips, { addresses: view.residual, busy, copy: copyBundle, onToggle }),
+		      copyBundle.cliHint !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: panel_default.muted, children: copyBundle.cliHint })
 		    ] });
 		  }
 		  const shownUniverse = view.universe ?? universe;
@@ -1784,505 +1614,17 @@ window.__ModuleLoader__.load({
 		        t,
 		        filtering,
 		        query,
-		        showDetails: showDetails === true
+		        showDetails: showDetails === true,
+		        session,
+		        wording
 		      },
 		      `${group.kind}:${group.key}`
-		    )) }) : filtering && // 过滤把组清空：一句无匹配交代，不落 `panel.empty`（那是「宇宙本来就没有条目」
+		    )) }) : filtering && // 过滤把组清空：一句无匹配交代，不落空组行空态（那是「宇宙本来就没有条目」
 		    // 的面板空态，两者语义不同）；残留 chip 若有命中仍照常展示。
-		    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: panel_default.muted, children: t("defaults.filterEmpty", { query: needle }) }),
-		    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ResidualChips, { addresses: view.residual, busy, copy, onToggle }),
-		    copy.cliHint !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: panel_default.muted, children: copy.cliHint })
+		    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: panel_default.muted, children: wording.filterEmpty(needle) }),
+		    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ResidualChips, { addresses: view.residual, busy, copy: copyBundle, onToggle }),
+		    copyBundle.cliHint !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: panel_default.muted, children: copyBundle.cliHint })
 		  ] });
-		}
-
-		// src/client/DefaultsSectionFrame.tsx
-		var import_react3 = require("react");
-		var import_dsh_client_ui_primitives3 = require("@deepseek-ai/dsh-client-ui-primitives");
-		var import_jsx_runtime3 = require("react/jsx-runtime");
-		function DefaultsSectionFrame({ title, summary, children }) {
-		  const [open, setOpen] = (0, import_react3.useState)(false);
-		  return (
-		    // 3.19 的壳写 `.section`（分区正文的纵向排布），W12 又为本组件新增了 `.sectionFrame`
-		    // （面板两分区的折叠外壳：顶部留白 + 无背景/无边框重置）；两者声明不冲突，并挂同时满足
-		    // 这两处口径。
-		    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: `${panel_default.section} ${panel_default.sectionFrame}`, children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: panel_default.groupHeader, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
-		        "button",
-		        {
-		          type: "button",
-		          className: panel_default.groupToggle,
-		          "aria-expanded": open,
-		          onClick: () => {
-		            setOpen((value) => !value);
-		          },
-		          children: [
-		            open ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(import_dsh_client_ui_primitives3.IconChevronDownOutlineRegular, {}) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(import_dsh_client_ui_primitives3.IconChevronRightOutlineRegular, {}),
-		            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: panel_default.groupTitle, children: title }),
-		            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: panel_default.groupCounts, children: summary })
-		          ]
-		        }
-		      ) }),
-		      open && children
-		    ] })
-		  );
-		}
-
-		// src/client/DefaultsEditor.tsx
-		var import_jsx_runtime4 = require("react/jsx-runtime");
-		function formatTime(at) {
-		  return new Date(at).toLocaleString();
-		}
-		function DefaultsEditor({
-		  defaults,
-		  universe,
-		  createdAt,
-		  snapshotCount,
-		  saving,
-		  saved,
-		  failure,
-		  onUpdate,
-		  t
-		}) {
-		  const [armed, setArmed] = (0, import_react4.useState)(false);
-		  const counts = (0, import_react4.useMemo)(
-		    () => defaultsCountsOf(universe, defaults.disabled),
-		    [universe, defaults.disabled]
-		  );
-		  const clear = () => {
-		    if (!armed) {
-		      setArmed(true);
-		      return;
-		    }
-		    setArmed(false);
-		    onUpdate("reset");
-		  };
-		  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(
-		    DefaultsSectionFrame,
-		    {
-		      title: t("section.defaults"),
-		      summary: t("defaults.summary", { inDefaults: counts.inDefaults, residual: counts.residual }),
-		      children: [
-		        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("p", { className: panel_default.meta, children: [
-		          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: t("defaults.path") }),
-		          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("code", { className: panel_default.path, children: defaults.path })
-		        ] }),
-		        defaults.corrupt && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: panel_default.warning, children: t("notice.defaults-corrupt") }),
-		        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: panel_default.meta, children: t("defaults.counts", {
-		          listed: counts.listed,
-		          inDefaults: counts.inDefaults,
-		          residual: counts.residual
-		        }) }),
-		        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-		          DefaultsGroupList,
-		          {
-		            universe,
-		            disabled: defaults.disabled,
-		            busy: saving,
-		            onToggle: (address, on) => {
-		              setArmed(false);
-		              onUpdate(on ? "on" : "off", [address]);
-		            },
-		            copy: {
-		              residualTitle: t("defaults.residualTitle"),
-		              removeLabel: t("defaults.remove"),
-		              removeAria: (a) => `${t("defaults.remove")} ${a}`,
-		              cliHint: t("defaults.cliHint")
-		            },
-		            t
-		          }
-		        ),
-		        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: panel_default.muted, children: t("defaults.scope") }),
-		        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: panel_default.meta, children: t("defaults.snapshot", { time: formatTime(createdAt), count: snapshotCount }) }),
-		        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: panel_default.actions, children: [
-		          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-		            import_dsh_client_ui_primitives4.Button,
-		            {
-		              variant: "outline",
-		              size: "sm",
-		              disabled: saving || defaults.disabled.length === 0,
-		              onClick: clear,
-		              children: armed ? t("defaults.clearConfirm") : t("defaults.clear")
-		            }
-		          ),
-		          saved && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: panel_default.saved, children: t("defaults.saved") })
-		        ] }),
-		        failure !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { role: "alert", children: [
-		          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: panel_default.error, children: failure.text }),
-		          failure.detail !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: panel_default.detail, children: failure.detail })
-		        ] })
-		      ]
-		    }
-		  );
-		}
-
-		// src/client/SkillPanel.tsx
-		var import_dsh_client_ui_primitives5 = require("@deepseek-ai/dsh-client-ui-primitives");
-		var import_jsx_runtime5 = require("react/jsx-runtime");
-		var SKILL_PREFIX = "skill:";
-		function SkillRow({ skill, blocked, busy, pending, onToggle, t }) {
-		  const address = `${SKILL_PREFIX}${skill.name}`;
-		  const locked = blocked || busy || pending;
-		  return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("li", { className: panel_default.row, children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("span", { className: panel_default.rowName, children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("code", { className: panel_default.name, title: skill.description === "" ? skill.name : skill.description, children: skill.name }),
-		      skill.disabled && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: panel_default.tag, children: skill.shadowed ? t("skill.effective") : t("skill.intentOnly") }),
-		      pending && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: panel_default.pending, children: t("skill.pending") })
-		    ] }),
-		    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
-		      import_dsh_client_ui_primitives5.Switch,
-		      {
-		        checked: !skill.disabled,
-		        disabled: locked,
-		        label: t("skill.switchLabel", { name: skill.name }),
-		        onChange: (next) => {
-		          if (locked) return;
-		          onToggle(address, next);
-		        }
-		      }
-		    )
-		  ] });
-		}
-		function SkillPanel({
-		  skills,
-		  unavailable,
-		  blocked,
-		  pending,
-		  busy,
-		  onToggle,
-		  t
-		}) {
-		  if (unavailable) {
-		    return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("section", { className: panel_default.section, "aria-label": t("skill.region"), children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: panel_default.warning, children: t("skill.unavailable") }) });
-		  }
-		  return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("section", { className: panel_default.section, "aria-label": t("skill.region"), children: [
-		    blocked && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: panel_default.warning, children: t("skill.blocked") }),
-		    skills.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: panel_default.empty, children: t("skill.empty") }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("ul", { className: panel_default.rows, children: skills.map((skill) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
-		      SkillRow,
-		      {
-		        skill,
-		        blocked,
-		        busy,
-		        pending: pending.has(`${SKILL_PREFIX}${skill.name}`),
-		        onToggle,
-		        t
-		      },
-		      skill.name
-		    )) })
-		  ] });
-		}
-
-		// src/client/WorkspaceDefaultsEditor.tsx
-		var import_react6 = require("react");
-		var import_dsh_client_ui_primitives7 = require("@deepseek-ai/dsh-client-ui-primitives");
-
-		// src/client/WorkspaceDefaultsPage.tsx
-		var import_react5 = require("react");
-		var import_dsh_client_ui_primitives6 = require("@deepseek-ai/dsh-client-ui-primitives");
-		var import_jsx_runtime6 = require("react/jsx-runtime");
-		var COPY_RESET_MS = 2e3;
-		var COMMAND_PLACEHOLDER = "<address>";
-		var EMPTY_DISABLED = [];
-		function WorkspaceDefaultsPage({
-		  workspace,
-		  universe,
-		  counts,
-		  saving,
-		  saved,
-		  failure,
-		  armed,
-		  onToggle,
-		  onClear,
-		  onRefresh,
-		  t
-		}) {
-		  const [query, setQuery] = (0, import_react5.useState)("");
-		  const [copyState, setCopyState] = (0, import_react5.useState)("idle");
-		  const copyTimer = (0, import_react5.useRef)(void 0);
-		  (0, import_react5.useEffect)(() => () => window.clearTimeout(copyTimer.current), []);
-		  const liveUniverse = universe !== null && universe.layerReady ? universe : null;
-		  const universeReady = liveUniverse !== null;
-		  const disabled = workspace?.disabled ?? EMPTY_DISABLED;
-		  const commandText = workspace === null ? "" : `# ${t("workspace.commandComment", { key: workspace.key })}
-		/tools workspace off ${COMMAND_PLACEHOLDER}`;
-		  const copyFeedback = copyState === "copied" ? t("workspace.copied") : copyState === "failed" ? t("workspace.copyFailed") : "";
-		  const scheduleCopyReset = () => {
-		    window.clearTimeout(copyTimer.current);
-		    copyTimer.current = window.setTimeout(() => {
-		      setCopyState("idle");
-		    }, COPY_RESET_MS);
-		  };
-		  const copyCommand = async () => {
-		    try {
-		      if (navigator.clipboard === void 0) throw new Error("clipboard unavailable");
-		      await navigator.clipboard.writeText(commandText);
-		      setCopyState("copied");
-		    } catch {
-		      setCopyState("failed");
-		    }
-		    scheduleCopyReset();
-		  };
-		  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.workspacePage, children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: panel_default.card, children: workspace === null ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.note, children: t("workspace.unresolved") }),
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.cardHeader, children: [
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: panel_default.push }),
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		          import_dsh_client_ui_primitives6.Button,
-		          {
-		            variant: "ghost",
-		            size: "sm",
-		            disabled: saving,
-		            onClick: onRefresh,
-		            children: t("workspace.refresh")
-		          }
-		        )
-		      ] })
-		    ] }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.cardHeader, children: [
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.cardTitle, children: workspace.title ?? workspace.key }),
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: panel_default.badge, children: workspace.registered ? t("workspace.registered") : t("workspace.unregistered") }),
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: panel_default.push }),
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		          import_dsh_client_ui_primitives6.Button,
-		          {
-		            variant: "ghost",
-		            size: "sm",
-		            disabled: saving,
-		            onClick: onRefresh,
-		            children: t("workspace.refresh")
-		          }
-		        )
-		      ] }),
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("dl", { className: panel_default.facts, children: [
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.fact, children: [
-		          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("dt", { className: panel_default.factTerm, children: t("workspace.key") }),
-		          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("dd", { className: panel_default.factValue, children: workspace.key })
-		        ] }),
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.fact, children: [
-		          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("dt", { className: panel_default.factTerm, children: t("workspace.path") }),
-		          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("dd", { className: panel_default.factValue, children: workspace.path })
-		        ] })
-		      ] }),
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.counts, children: t("defaults.counts", {
-		        listed: counts.listed,
-		        inDefaults: counts.inDefaults,
-		        residual: counts.residual
-		      }) }),
-		      workspace.corrupt && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.warning, children: t("workspace.corrupt") })
-		    ] }) }),
-		    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.card, children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.cardHeader, children: [
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.cardTitle, children: t("workspace.listTitle") }),
-		        universeReady && counts.listed > 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		          import_dsh_client_ui_primitives6.Input,
-		          {
-		            className: panel_default.pageFilter,
-		            value: query,
-		            placeholder: t("workspace.filter"),
-		            "aria-label": t("workspace.filter"),
-		            onChange: (event) => {
-		              setQuery(event.target.value);
-		            }
-		          }
-		        )
-		      ] }),
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.note, children: t("workspace.listHint") }),
-		      workspace !== null && universeReady && disabled.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.emptyBlock, children: [
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.emptyTitle, children: t("workspace.emptyDefaults") }),
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.emptyHint, children: t("workspace.emptyDefaultsHint") })
-		      ] }),
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		        DefaultsGroupList,
-		        {
-		          universe,
-		          disabled,
-		          busy: saving,
-		          onToggle,
-		          copy: {
-		            residualTitle: t("defaults.residualTitle"),
-		            removeLabel: t("workspace.remove"),
-		            removeAria: (address) => t("workspace.removeAria", { address }),
-		            universeUnavailable: t("workspace.universeUnavailable")
-		          },
-		          t,
-		          query,
-		          showDetails: true
-		        }
-		      ),
-		      counts.listed === 0 && counts.residual === 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: panel_default.emptyBlock, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.emptyTitle, children: universeReady ? t("workspace.emptyUniverse") : t("workspace.universeUnavailable") }) }),
-		      liveUniverse !== null && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.note, children: t("workspace.globalUnion") }),
-		        liveUniverse.ungroupedMcp !== void 0 && liveUniverse.ungroupedMcp > 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.note, children: t("workspace.ungrouped", { count: liveUniverse.ungroupedMcp }) }),
-		        liveUniverse.foreignProjectMcp !== void 0 && liveUniverse.foreignProjectMcp > 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.note, children: t("workspace.foreignProjectMcp", { count: liveUniverse.foreignProjectMcp }) }),
-		        liveUniverse.skillsComplete === false && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.note, children: t("workspace.skillsIncomplete") })
-		      ] })
-		    ] }),
-		    workspace !== null && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.card, children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.cardTitle, children: t("workspace.commandTitle") }),
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.note, children: t("workspace.commandNote") }),
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.commandRow, children: [
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("pre", { className: panel_default.command, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("code", { children: commandText }) }),
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		          import_dsh_client_ui_primitives6.Button,
-		          {
-		            variant: "outline",
-		            size: "sm",
-		            disabled: copyState === "copied",
-		            onClick: () => {
-		              void copyCommand();
-		            },
-		            children: t("workspace.copyCommand")
-		          }
-		        )
-		      ] }),
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.note, "aria-live": "polite", children: copyFeedback })
-		    ] }),
-		    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.footnotes, children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.note, children: t("workspace.scope") }),
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.note, children: t("workspace.union") })
-		    ] }),
-		    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.actions, children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		        import_dsh_client_ui_primitives6.Button,
-		        {
-		          variant: "outline",
-		          size: "sm",
-		          disabled: workspace === null || saving || disabled.length === 0,
-		          onClick: onClear,
-		          children: armed ? t("workspace.clearConfirm") : t("workspace.clear")
-		        }
-		      ),
-		      saved && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: panel_default.saved, children: t("workspace.saved") })
-		    ] }),
-		    failure !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { role: "alert", children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.error, children: failure.text }),
-		      failure.detail !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.detail, children: failure.detail })
-		    ] })
-		  ] });
-		}
-
-		// src/client/WorkspaceDefaultsEditor.tsx
-		var import_jsx_runtime7 = require("react/jsx-runtime");
-		var EMPTY_DISABLED2 = [];
-		function WorkspaceDefaultsEditor({
-		  workspace,
-		  universe,
-		  variant,
-		  saving,
-		  saved,
-		  failure,
-		  onUpdate,
-		  onRefresh,
-		  t
-		}) {
-		  const [armed, setArmed] = (0, import_react6.useState)(false);
-		  const dialog = variant === "dialog";
-		  const writable = workspace !== null;
-		  const disabled = workspace?.disabled ?? EMPTY_DISABLED2;
-		  const counts = (0, import_react6.useMemo)(() => defaultsCountsOf(universe, disabled), [universe, disabled]);
-		  const clear = () => {
-		    if (!armed) {
-		      setArmed(true);
-		      return;
-		    }
-		    setArmed(false);
-		    onUpdate("reset");
-		  };
-		  const body = /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(import_jsx_runtime7.Fragment, { children: [
-		    workspace === null ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.muted, children: t("workspace.unresolved") }) : /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(import_jsx_runtime7.Fragment, { children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("p", { className: panel_default.meta, children: [
-		        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { children: t("workspace.key") }),
-		        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("code", { className: panel_default.path, children: workspace.key }),
-		        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { children: workspace.registered ? t("workspace.registered") : t("workspace.unregistered") })
-		      ] }),
-		      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("p", { className: panel_default.meta, children: [
-		        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { children: t("workspace.path") }),
-		        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("code", { className: panel_default.path, children: workspace.path })
-		      ] }),
-		      workspace.corrupt && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.warning, children: t("workspace.corrupt") }),
-		      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.meta, children: t("defaults.counts", {
-		        listed: counts.listed,
-		        inDefaults: counts.inDefaults,
-		        residual: counts.residual
-		      }) }),
-		      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
-		        DefaultsGroupList,
-		        {
-		          universe,
-		          disabled: workspace.disabled,
-		          busy: saving,
-		          onToggle: (address, on) => {
-		            setArmed(false);
-		            onUpdate(on ? "on" : "off", [address]);
-		          },
-		          copy: {
-		            residualTitle: t("defaults.residualTitle"),
-		            removeLabel: t("workspace.remove"),
-		            removeAria: (a) => t("workspace.removeAria", { address: a }),
-		            cliHint: t("workspace.cliHint")
-		          },
-		          t
-		        }
-		      )
-		    ] }),
-		    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.muted, children: t("workspace.scope") }),
-		    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.muted, children: t("workspace.union") }),
-		    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: panel_default.actions, children: [
-		      !dialog && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
-		        import_dsh_client_ui_primitives7.Button,
-		        {
-		          variant: "ghost",
-		          size: "sm",
-		          disabled: saving,
-		          onClick: () => {
-		            onRefresh();
-		          },
-		          children: t("workspace.refresh")
-		        }
-		      ),
-		      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
-		        import_dsh_client_ui_primitives7.Button,
-		        {
-		          variant: "outline",
-		          size: "sm",
-		          disabled: !writable || saving || disabled.length === 0,
-		          onClick: clear,
-		          children: armed ? t("workspace.clearConfirm") : t("workspace.clear")
-		        }
-		      ),
-		      saved && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: panel_default.saved, children: t("workspace.saved") })
-		    ] }),
-		    failure !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { role: "alert", children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.error, children: failure.text }),
-		      failure.detail !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.detail, children: failure.detail })
-		    ] })
-		  ] });
-		  return dialog ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
-		    WorkspaceDefaultsPage,
-		    {
-		      workspace,
-		      universe,
-		      counts,
-		      saving,
-		      saved,
-		      failure,
-		      armed,
-		      onToggle: (address, on) => {
-		        setArmed(false);
-		        onUpdate(on ? "on" : "off", [address]);
-		      },
-		      onClear: clear,
-		      onRefresh,
-		      t
-		    }
-		  ) : /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
-		    DefaultsSectionFrame,
-		    {
-		      title: t("workspace.title"),
-		      summary: t("defaults.summary", { inDefaults: counts.inDefaults, residual: counts.residual }),
-		      children: body
-		    }
-		  );
 		}
 
 		// src/client/locales.ts
@@ -2303,13 +1645,32 @@ window.__ModuleLoader__.load({
 		  "panel.loading": "\u6B63\u5728\u8BFB\u53D6\u5DE5\u5177\u9762\u2026",
 		  "panel.empty": "\u672C\u4F1A\u8BDD\u6CA1\u6709\u53EF\u5C55\u793A\u7684\u5DE5\u5177\u3002",
 		  "panel.refresh": "\u5237\u65B0",
-		  // —— 分区的标题（设计 §3.2 的六段，自上而下；`section.skills` 由 7.7 挂载技能分区时用，
-		  //    工作区分区的标题归 `WorkspaceDefaultsEditor` 的 `workspace.title`） ——
-		  "section.state": "\u72B6\u6001\u6458\u8981",
+		  // —— 会话面板三卡（code-design ③3.8）：概要卡 facts + 第三计数、清单卡语义、命令卡 ——
+		  "session.title": "\u672C\u4F1A\u8BDD",
+		  "session.id": "\u4F1A\u8BDD",
+		  "session.createdAt": "\u521B\u5EFA\u65F6\u95F4",
+		  "session.snapshotCount": "\u521B\u5EFA\u65F6\u5FEB\u7167",
+		  "session.count": "{count} \u9879",
+		  "session.store": "\u6301\u4E45\u5316\u901A\u9053",
+		  "session.store.record": "\u4F1A\u8BDD\u8BB0\u5F55",
+		  "session.store.memory": "\u5185\u5B58\uFF08\u91CD\u542F\u540E\u4E22\u5931\uFF09",
+		  // 概要卡第三计数（= 关闭集长度）。
+		  "state.closedCount": "\u5173\u95ED\u9879 {count}",
+		  // 清单卡语义句与过滤框（placeholder / aria-label 同一句）。
+		  "session.listHint": "\u5F00\u5173\u53EA\u4F5C\u7528\u4E8E\u672C\u4F1A\u8BDD\u4E4B\u540E\u7684\u6A21\u578B\u6B65\u9AA4\uFF1B\u4E0D\u5F71\u54CD\u5176\u4ED6\u4F1A\u8BDD\uFF0C\u4E5F\u4E0D\u6539\u9ED8\u8BA4\u6863\u3002",
+		  "session.filter": "\u8FC7\u6EE4\u5DE5\u5177\u3001\u6280\u80FD\u6216\u5730\u5740\u2026",
+		  "session.residualTitle": "\u4E0D\u5728\u672C\u4F1A\u8BDD\u6E05\u5355\u91CC\u7684\u5173\u95ED\u9879\uFF08\u53EF\u5F00\u542F\uFF09",
+		  "session.groupOff": "\u6574\u7EC4\u5DF2\u5173",
+		  // 命令卡：跨清单地址的命令模板与边界说明。
+		  "session.commandTitle": "\u8DE8\u6E05\u5355\u5730\u5740",
+		  "session.commandNote": "\u8DE8\u6E05\u5355\u7684\u65B0\u5173\u7528 `/tools off <\u5730\u5740>`\uFF1B\u7528\u6237\u7EA7\u9ED8\u8BA4\u6863\u6CA1\u6709\u56FE\u5F62\u9762\uFF0C\u6539\u7528 `/tools default off <\u5730\u5740>`\uFF08\u53EA\u5F71\u54CD\u4E4B\u540E\u65B0\u5EFA\u7684\u4F1A\u8BDD\uFF09\u3002",
+		  "session.commandComment": "\u672C\u4F1A\u8BDD\uFF08\u7ACB\u5373\u751F\u6548\uFF09",
+		  // —— 命令卡的复制词汇（面板命令卡与页面命令卡两处 CommandCard 共用） ——
+		  "command.copy": "\u590D\u5236\u547D\u4EE4",
+		  "command.copied": "\u5DF2\u590D\u5236",
+		  "command.copyFailed": "\u590D\u5236\u5931\u8D25\uFF0C\u8BF7\u624B\u52A8\u9009\u62E9\u6587\u672C\u3002",
+		  // —— 分区标题（三卡整编后只剩清单卡标题一枚；旧分区标题已删） ——
 		  "section.groups": "\u672C\u4F1A\u8BDD\u5F00\u5173",
-		  "section.skills": "\u9010\u6280\u80FD\u5F00\u5173",
-		  "section.defaults": "\u7528\u6237\u7EA7\u9ED8\u8BA4\u6863",
-		  "section.disabled": "\u5173\u95ED\u96C6",
 		  // —— 分组（宿主只给 kind 与计数，中文由这里渲染，设计 §2.5） ——
 		  "group.mcp": "MCP \u670D\u52A1\u5668",
 		  "group.skill": "\u6280\u80FD",
@@ -2319,13 +1680,10 @@ window.__ModuleLoader__.load({
 		  "group.summary": "{count} \u4E2A\u5DE5\u5177\uFF0C\u5DF2\u5173 {disabled} \u4E2A",
 		  // 内置工具分区的本地过滤输入（纯展示层，不参与任何文法校验）。
 		  "group.filter": "\u6309\u5DE5\u5177\u540D\u8FC7\u6EE4\u2026",
-		  // —— 技能分区（逐 skill 行开关；`section.skills` 标题由 7.7 负责，这里只有块内文案） ——
-		  "skill.region": "\u6280\u80FD\u5F00\u5173",
+		  // —— 技能分面（逐 skill 行开关的降级与状态标签；行/组开关可访问名归 `defaults.switchLabel`
+		  //    一组，分节标题已随三卡整编删除） ——
 		  "skill.unavailable": "\u6280\u80FD\u670D\u52A1\u4E0D\u53EF\u7528\uFF0C\u9010\u6280\u80FD\u5F00\u5173\u6682\u4E0D\u53EF\u7528\u3002",
 		  "skill.blocked": "\u6280\u80FD\u5DE5\u5177\u5DF2\u6574\u6863\u5173\u95ED\uFF0C\u9010\u9879\u5F00\u5173\u6682\u4E0D\u751F\u6548\u3002",
-		  "skill.pending": "\u6B63\u5728\u5E94\u7528\u2026",
-		  "skill.switchLabel": "{name} \u7684\u6A21\u578B\u53EF\u89C1\u6027\u5F00\u5173",
-		  "skill.empty": "\u672C\u4F1A\u8BDD\u6CA1\u6709\u53EF\u5C55\u793A\u7684\u6280\u80FD\u3002",
 		  // 两个状态标签：`effective` = 已关且影子 stub 已生效；`intentOnly` = 意图已记但暂未生效
 		  // （技能未安装或影子注册未胜出）。`/name` 手动调用不受模型可见性开关影响（设计 D15 语义）。
 		  "skill.effective": "\u6A21\u578B\u4E0D\u53EF\u89C1\uFF08`/name` \u4ECD\u53EF\u7528\uFF09",
@@ -2339,7 +1697,6 @@ window.__ModuleLoader__.load({
 		  "skill.source.bundled": "\u5185\u7F6E",
 		  "skill.source.runtime": "\u8FD0\u884C\u65F6",
 		  // —— 行级标记：组内条目上的短标签（设计 §3.3 的 `[保护]` / `[不可关闭]`） ——
-		  "entry.disabled": "\u5DF2\u5173\u95ED",
 		  "entry.protected": "\u4FDD\u62A4",
 		  "entry.reserved": "\u4E0D\u53EF\u5173\u95ED",
 		  "entry.intentOnly": "\u6682\u65E0\u5339\u914D",
@@ -2352,30 +1709,22 @@ window.__ModuleLoader__.load({
 		  // —— 徽标与禁用理由：禁用开关的 `title` 必须给同一句解释（设计 §3.3） ——
 		  "badge.protected": "\u5728\u4FDD\u62A4\u540D\u5355\u5185\uFF0C\u4E0D\u80FD\u5173\u95ED\u3002",
 		  "badge.reserved": "\u4FDD\u7559\u5DE5\u5177\uFF0C\u4E0D\u80FD\u5173\u95ED\u3002",
-		  "badge.intent": "\u610F\u56FE",
 		  // —— 开关的可访问名（`Switch` 的 `label` 是必填 a11y 名称，设计 §3.3） ——
 		  "switch.label": "{name} \u7684\u4F1A\u8BDD\u5F00\u5173",
 		  // —— 开关操作的进行中/失败态（失败的主文案按错误码取 `error.*`，这里只讲操作本身） ——
 		  "toggle.pending": "\u6B63\u5728\u5E94\u7528\u2026",
 		  "toggle.failed": "\u5F00\u5173\u672A\u80FD\u5207\u6362\uFF0C\u672C\u6B21\u6539\u52A8\u672A\u751F\u6548\u3002",
-		  // —— 关闭集区（已关闭地址的 chip 列表） ——
-		  "disabled.listTitle": "\u5173\u95ED\u96C6",
+		  // —— 关闭集区（残留 chip 的开启/恢复动作与「暂无匹配」解释；分节标题已删） ——
 		  "disabled.intentOnly": "\u8FD9\u4E9B\u5730\u5740\u5F53\u524D\u6CA1\u6709\u5339\u914D\u5230\u5DE5\u5177\uFF1A\u610F\u56FE\u5DF2\u8BB0\u5F55\uFF0C\u6682\u65F6\u4E0D\u4EA7\u751F\u6548\u679C\u3002",
-		  "disabled.empty": "\u5F53\u524D\u6CA1\u6709\u5173\u95ED\u9879\u3002",
 		  // 关闭集 chip 上的「开启」与整区的「恢复创建时快照」（10.4 新增：设计 §3.2 第 4 段）。
 		  "disabled.enable": "\u5F00\u542F",
 		  "disabled.enableAria": "\u5F00\u542F {address}",
 		  "disabled.reset": "\u6062\u590D\u521B\u5EFA\u65F6\u5FEB\u7167",
 		  "disabled.resetConfirm": "\u518D\u70B9\u4E00\u6B21\u786E\u8BA4\u6062\u590D",
-		  // —— 用户级默认档（设计 §3.4；默认档不追溯已存在会话） ——
-		  "defaults.path": "\u9ED8\u8BA4\u6863\u6587\u4EF6",
-		  "defaults.note": "\u53EA\u5F71\u54CD\u4E4B\u540E\u65B0\u5EFA\u7684\u4F1A\u8BDD\u3002",
-		  "defaults.scope": "\u5F71\u54CD\u8303\u56F4\uFF1A\u53EA\u5F71\u54CD\u4E4B\u540E\u65B0\u5EFA\u7684\u4F1A\u8BDD\uFF0C\u672C\u4F1A\u8BDD\u4E0D\u53D8\u3002",
-		  "defaults.snapshot": "\u672C\u4F1A\u8BDD\u521B\u5EFA\u4E8E {time}\uFF0C\u5FEB\u7167 {count} \u9879\u3002",
+		  // —— 用户级默认档（默认档形态词汇表：页面清单卡与面板会话清单共用，③3.20） ——
 		  // —— B 的分组开关界面（code-design ③3.20）：自由文本添加链已死（D8），这里只剩清单读数与
 		  //     分组开关点的文案；跨清单的新关一律走 `/tools default off <地址>` ——
 		  "defaults.counts": "\u6E05\u5355 {listed} \xB7 \u9ED8\u8BA4\u5173 {inDefaults} \xB7 \u6B8B\u7559 {residual}",
-		  "defaults.summary": "\u9ED8\u8BA4\u5173 {inDefaults} \xB7 \u6B8B\u7559 {residual}",
 		  "defaults.residualTitle": "\u6B8B\u7559\u5730\u5740\uFF08\u4E0D\u5728\u672C\u4F1A\u8BDD\u6E05\u5355\u91CC\uFF0C\u53EA\u80FD\u79FB\u9664\uFF09",
 		  "defaults.universeUnavailable": "\u672C\u4F1A\u8BDD\u7684\u5DE5\u5177\u6E05\u5355\u6682\u4E0D\u53EF\u7528\uFF1A\u53EA\u80FD\u67E5\u770B\u4E0E\u79FB\u9664\u6863\u5185\u5DF2\u6709\u6761\u76EE\u3002",
 		  // 全局过滤无结果的空态（code-design ③3.5；工作区页面清单卡的 DefaultsGroupList 用）。
@@ -2388,14 +1737,8 @@ window.__ModuleLoader__.load({
 		  "defaults.groupOff": "\u6574\u7EC4\u9ED8\u8BA4\u5173",
 		  "defaults.switchLabel": "{name} \u7684\u9ED8\u8BA4\u6863\u5F00\u5173",
 		  "defaults.groupSwitchLabel": "{name} \u7684\u6574\u7EC4\u9ED8\u8BA4\u6863\u5F00\u5173",
-		  // D8 兜底说明：本页只列本会话可见的工具，跨清单的新关走命令。
-		  "defaults.cliHint": "\u672C\u9875\u53EA\u5217\u672C\u4F1A\u8BDD\u53EF\u89C1\u7684\u5DE5\u5177\uFF1B\u8DE8\u6E05\u5355\u7684\u65B0\u5173\u7528\u547D\u4EE4 `/tools default off <\u5730\u5740>`\u3002",
 		  "defaults.remove": "\u79FB\u9664",
-		  "defaults.saved": "\u5DF2\u4FDD\u5B58\uFF08\u672C\u4F1A\u8BDD\u4E0D\u53D8\uFF09\u3002",
-		  "defaults.clear": "\u6E05\u7A7A\u9ED8\u8BA4\u6863",
-		  "defaults.clearConfirm": "\u518D\u70B9\u4E00\u6B21\u786E\u8BA4\u6E05\u7A7A",
-		  // —— 工作区默认档（设计 §3.4 / C2；面板分区与页面分节共用同一组键） ——
-		  "workspace.title": "\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863",
+		  // —— 工作区默认档（设计 §3.4 / C2；页面分节与统一页分节用） ——
 		  // 页面级选择框没有给出有效目标（未分配 / 工作区服务未就绪）时的空态：本节不发任何寻址
 		  // 请求，也不渲染编辑器（选择动作归 holder 页面的唯一选择框，节内不再自带下拉）。
 		  "workspace.noTarget": "\u8BF7\u5148\u5728\u4E0A\u65B9\u9009\u62E9\u4E00\u4E2A\u5DE5\u4F5C\u533A",
@@ -2407,9 +1750,6 @@ window.__ModuleLoader__.load({
 		  "workspace.corrupt": "\u5DE5\u4F5C\u533A\u6863\u6587\u4EF6\u635F\u574F\u6216\u534A\u5199\uFF0C\u5DF2\u6309\u7A7A\u6863\u5904\u7406\u3002",
 		  "workspace.scope": "\u5F71\u54CD\u8303\u56F4\uFF1A\u53EA\u5F71\u54CD\u5728\u8FD9\u4E2A\u5DE5\u4F5C\u533A\u4E4B\u540E\u65B0\u5EFA\u7684\u4F1A\u8BDD\uFF0C\u672C\u4F1A\u8BDD\u4E0D\u53D8\u3002",
 		  "workspace.union": "\u65B0\u4F1A\u8BDD\u521D\u59CB\u5173\u95ED = \u7528\u6237\u7EA7\u9ED8\u8BA4\u6863 \u222A \u672C\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863",
-		  // B 的分组开关界面：分组/计数/开关点文案与用户级共用 `defaults.*` 一组键，本区只补命令兜底
-		  // 说明（D8 + U1：命令只作用本会话所属工作区）。
-		  "workspace.cliHint": "\u672C\u9875\u53EA\u5217\u672C\u4F1A\u8BDD\u53EF\u89C1\u7684\u5DE5\u5177\uFF1B\u8DE8\u6E05\u5355\u7684\u65B0\u5173\u7528\u547D\u4EE4 `/tools workspace off <\u5730\u5740>`\uFF08\u53EA\u4F5C\u7528\u672C\u4F1A\u8BDD\u6240\u5C5E\u5DE5\u4F5C\u533A\uFF09\u3002",
 		  "workspace.remove": "\u79FB\u9664",
 		  "workspace.removeAria": "\u79FB\u9664 {address}",
 		  "workspace.saved": "\u5DF2\u4FDD\u5B58\uFF08\u672C\u4F1A\u8BDD\u4E0D\u53D8\uFF09\u3002",
@@ -2438,20 +1778,17 @@ window.__ModuleLoader__.load({
 		  "workspace.commandTitle": "\u8DE8\u6E05\u5355\u5730\u5740",
 		  "workspace.commandNote": "\u8BE5\u547D\u4EE4\u53EA\u5199\u300C\u672C\u4F1A\u8BDD\u6240\u5C5E\u5DE5\u4F5C\u533A\u300D\u7684\u6863\uFF1B\u8981\u7ED9\u5176\u4ED6\u5DE5\u4F5C\u533A\u8865\u6761\u76EE\uFF0C\u8BF7\u76F4\u63A5\u7F16\u8F91\u4E0A\u9762\u7684\u5DE5\u4F5C\u533A\u6863\u6587\u4EF6\u3002",
 		  "workspace.commandComment": "\u76EE\u6807\u5DE5\u4F5C\u533A\uFF1A{key}",
-		  "workspace.copyCommand": "\u590D\u5236\u547D\u4EE4",
-		  "workspace.copied": "\u5DF2\u590D\u5236",
-		  "workspace.copyFailed": "\u590D\u5236\u5931\u8D25\uFF0C\u8BF7\u624B\u52A8\u9009\u62E9\u6587\u672C\u3002",
-		  // 侧栏 footer 入口与自绘对话框（7.3）：标题/范围说明复用上面的 workspace.title / workspace.scope，
-		  // 这里只补两处只属于「入口壳」的状态文案。
+		  // 侧栏 footer 入口与自绘对话框（7.3）：标题/范围说明复用上面的 workspace.scope（工作区分节
+		  // 的标题就是工作区名本身），这里只补两处只属于「入口壳」的状态文案。
 		  "workspace.loading": "\u6B63\u5728\u8BFB\u53D6\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u2026",
 		  "workspace.unavailable": "\u6682\u65F6\u65E0\u6CD5\u8BFB\u53D6\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u3002",
-		  // —— 状态摘要（两计数 + 创建时快照 + 持久化通道，设计 §3.2 第一段） ——
+		  // —— 状态摘要（两计数；创建时快照 / 创建时间的事实行已由会话三卡的 `session.*` 键表达。
+		  //    `state.storeKind.*` 仍被 locale-parity 的 STORE_KINDS 闭集断言把守（批次 8 范围），
+		  //    本批次保留这两键以维持该套件全绿） ——
 		  "state.visible": "\u672C\u4F1A\u8BDD\u53EF\u89C1 {visible}",
 		  "state.denied": "\u5DF2\u5173 {denied}",
 		  "state.storeKind.record": "\u6301\u4E45\u5316\uFF1A\u4F1A\u8BDD\u8BB0\u5F55",
 		  "state.storeKind.memory": "\u6301\u4E45\u5316\uFF1A\u5185\u5B58\uFF08\u91CD\u542F\u540E\u4E22\u5931\uFF09",
-		  "state.snapshot": "\u521B\u5EFA\u65F6\u5FEB\u7167 {count} \u9879",
-		  "state.createdAt": "\u4F1A\u8BDD\u521B\u5EFA\u4E8E {time}",
 		  // —— 变更回执的代价形状（设计 §3.6：只报计数与代价形状，D7） ——
 		  "mutation.kv": "\u672C\u6B21\u5173\u95ED {hidden} \u4E2A\u5DE5\u5177\uFF1B\u524D\u7F00\u7F13\u5B58\u5C06\u4ECE\u7B2C\u4E00\u4E2A\u53D8\u5316\u7684 schema token \u8D77\u91CD\u5EFA\u4E00\u6B21\u3002",
 		  // —— 提示码（`NOTICE_CODES` 五个，宿主只给码） ——
@@ -2489,12 +1826,33 @@ window.__ModuleLoader__.load({
 		  "panel.loading": "Reading the tool surface\u2026",
 		  "panel.empty": "No tool to show in this session.",
 		  "panel.refresh": "Refresh",
-		  // —— 分区标题（六段） ——
-		  "section.state": "Status summary",
+		  // —— Session panel three cards (code-design ③3.8): summary-card facts + third count,
+		  //     list-card semantics, command card ——
+		  "session.title": "This session",
+		  "session.id": "Session",
+		  "session.createdAt": "Created",
+		  "session.snapshotCount": "Snapshot at creation",
+		  "session.count": "{count} entries",
+		  "session.store": "Persistence",
+		  "session.store.record": "Session record",
+		  "session.store.memory": "Memory (lost on restart)",
+		  // The summary card's third count (= off-set length).
+		  "state.closedCount": "{count} off",
+		  // List-card semantics line and filter box (placeholder / aria-label share one sentence).
+		  "session.listHint": "Switches affect only the model steps of this session after the change; other sessions are unaffected and the defaults stay as they are.",
+		  "session.filter": "Filter tools, skills, or addresses\u2026",
+		  "session.residualTitle": "Off entries outside this session's list (can be turned back on)",
+		  "session.groupOff": "Whole group off",
+		  // Command card: the command template for addresses outside the list, plus the boundary note.
+		  "session.commandTitle": "Addresses outside the list",
+		  "session.commandNote": "To turn off a new address outside the list use `/tools off <address>`; user defaults have no graphical surface \u2014 use `/tools default off <address>` instead (affects only sessions created afterwards).",
+		  "session.commandComment": "This session (effective immediately)",
+		  // —— Copy labels of the command card (shared by the panel's and the page's CommandCard) ——
+		  "command.copy": "Copy command",
+		  "command.copied": "Copied",
+		  "command.copyFailed": "Copy failed; select the text manually.",
+		  // —— Section title (only the list card's title remains after the three-card rework) ——
 		  "section.groups": "Session switches",
-		  "section.skills": "Per-skill switches",
-		  "section.defaults": "User defaults",
-		  "section.disabled": "Off set",
 		  // —— 分组 ——
 		  "group.mcp": "MCP servers",
 		  "group.skill": "Skills",
@@ -2504,13 +1862,9 @@ window.__ModuleLoader__.load({
 		  "group.summary": "{count} tools, {disabled} off",
 		  // The built-in section's local filter input (display only, never grammar validation).
 		  "group.filter": "Filter by tool name\u2026",
-		  // —— 技能分区（逐 skill 行开关） ——
-		  "skill.region": "Skill switches",
+		  // —— 技能分面（per-skill switches 的降级与状态标签） ——
 		  "skill.unavailable": "The skill service is unavailable; per-skill switches cannot be used.",
 		  "skill.blocked": "The skill tool is turned off as a whole; per-skill switches have no effect until it is turned back on.",
-		  "skill.pending": "Applying\u2026",
-		  "skill.switchLabel": "Model visibility switch for {name}",
-		  "skill.empty": "No skills to show in this session.",
 		  // Two state tags: `effective` = turned off and the shadow stub is in effect; `intentOnly` =
 		  // the intent is recorded but not effective yet (skill missing or shadow registration lost).
 		  "skill.effective": "Hidden from the model (`/name` still works)",
@@ -2525,7 +1879,6 @@ window.__ModuleLoader__.load({
 		  "skill.source.bundled": "Bundled",
 		  "skill.source.runtime": "Runtime",
 		  // —— 行级标记 ——
-		  "entry.disabled": "Off",
 		  "entry.protected": "Protected",
 		  "entry.reserved": "Locked",
 		  "entry.intentOnly": "No match yet",
@@ -2539,30 +1892,22 @@ window.__ModuleLoader__.load({
 		  // —— 徽标与禁用理由 ——
 		  "badge.protected": "On the protected list; cannot be turned off.",
 		  "badge.reserved": "A reserved tool; cannot be turned off.",
-		  "badge.intent": "Intent",
 		  // —— 开关的可访问名 ——
 		  "switch.label": "Session switch for {name}",
 		  // —— 开关操作 ——
 		  "toggle.pending": "Applying\u2026",
 		  "toggle.failed": "The switch was not applied; nothing changed.",
-		  // —— 关闭集区 ——
-		  "disabled.listTitle": "Off set",
+		  // —— 关闭集区（残留 chip 的开启/恢复动作与「暂无匹配」解释；分节标题已删） ——
 		  "disabled.intentOnly": "These addresses match no tool right now: the intent is recorded but has no effect yet.",
-		  "disabled.empty": "Nothing is turned off.",
 		  // The off-set chip's enable action and the section's restore-to-creation-snapshot action (10.4).
 		  "disabled.enable": "Turn on",
 		  "disabled.enableAria": "Turn on {address}",
 		  "disabled.reset": "Restore the creation snapshot",
 		  "disabled.resetConfirm": "Click again to restore",
-		  // —— 用户级默认档 ——
-		  "defaults.path": "Defaults file",
-		  "defaults.note": "Only affects sessions created afterwards.",
-		  "defaults.scope": "Scope: only sessions created afterwards; this session stays as it is.",
-		  "defaults.snapshot": "This session was created at {time}, with a snapshot of {count} entries.",
+		  // —— 用户级默认档（默认档形态词汇表：页面清单卡与面板会话清单共用，③3.20） ——
 		  // —— B's group-switch UI (code-design ③3.20): the free-text add chain is gone (D8), so only the
 		  //     list readings and the group-switch labels live here; new entries go through the CLI ——
 		  "defaults.counts": "{listed} listed \xB7 {inDefaults} off by default \xB7 {residual} residual",
-		  "defaults.summary": "{inDefaults} off by default \xB7 {residual} residual",
 		  "defaults.residualTitle": "Residual addresses (not in this session's list; removal only)",
 		  "defaults.universeUnavailable": "This session's tool list is unavailable right now: you can only view and remove entries already in the tier.",
 		  // Empty state when the global filter matches nothing (code-design ③3.5; used by the
@@ -2577,15 +1922,8 @@ window.__ModuleLoader__.load({
 		  "defaults.groupOff": "Whole group off by default",
 		  "defaults.switchLabel": "Defaults switch for {name}",
 		  "defaults.groupSwitchLabel": "Whole-group defaults switch for {name}",
-		  // The D8 fallback line: this page lists only tools visible in this session, so new entries go
-		  // through the command.
-		  "defaults.cliHint": "This page lists only tools visible in this session; to turn off a new one across lists use the `/tools default off <address>` command.",
 		  "defaults.remove": "Remove",
-		  "defaults.saved": "Saved (this session is unchanged).",
-		  "defaults.clear": "Clear defaults",
-		  "defaults.clearConfirm": "Click again to clear",
 		  // —— 工作区默认档 ——
-		  "workspace.title": "Workspace defaults",
 		  // Empty state when the page-level picker gives no valid target (unassigned / service not ready):
 		  // the section sends no addressing request and no longer renders a picker of its own.
 		  "workspace.noTarget": "Choose a workspace above first",
@@ -2597,9 +1935,6 @@ window.__ModuleLoader__.load({
 		  "workspace.corrupt": "The workspace file is corrupt or half-written; it was treated as empty.",
 		  "workspace.scope": "Scope: only sessions created in this workspace afterwards; this session stays as it is.",
 		  "workspace.union": "A new session starts off with the user defaults \u222A this workspace's defaults",
-		  // B's group-switch UI reuses the `defaults.*` group/count/switch labels; only this CLI hint is
-		  // workspace-specific (D8 + U1: the command applies to this session's workspace only).
-		  "workspace.cliHint": "This page lists only tools visible in this session; to turn off a new one across lists use the `/tools workspace off <address>` command (applies to the workspace of this session only).",
 		  "workspace.remove": "Remove",
 		  "workspace.removeAria": "Remove {address}",
 		  "workspace.saved": "Saved (this session is unchanged).",
@@ -2628,20 +1963,18 @@ window.__ModuleLoader__.load({
 		  "workspace.commandTitle": "Addresses outside the list",
 		  "workspace.commandNote": "The command writes only the workspace this session belongs to; to add entries for another workspace, edit the defaults file shown above.",
 		  "workspace.commandComment": "Target workspace: {key}",
-		  "workspace.copyCommand": "Copy command",
-		  "workspace.copied": "Copied",
-		  "workspace.copyFailed": "Copy failed; select the text manually.",
-		  // The sidebar footer entry and its own dialog (7.3): the title/scope reuse workspace.title /
-		  // workspace.scope above; only these two state lines belong to the entry shell.
+		  // The sidebar footer entry and its own dialog (7.3): the scope line reuses workspace.scope (the
+		  // workspace section's title is the workspace name itself); only these two state lines belong to
+		  // the entry shell.
 		  "workspace.loading": "Reading the workspace defaults\u2026",
 		  "workspace.unavailable": "The workspace defaults are not available right now.",
-		  // —— 状态摘要（两计数 + 创建时快照 + 持久化通道） ——
+		  // —— 状态摘要（两计数；快照/创建时间的事实行已由会话三卡的 `session.*` 键表达。
+		  //    `state.storeKind.*` 仍被 locale-parity 的 STORE_KINDS 闭集断言把守（批次 8 范围），
+		  //    本批次保留这两键以维持该套件全绿） ——
 		  "state.visible": "{visible} visible here",
 		  "state.denied": "{denied} off",
 		  "state.storeKind.record": "Persistence: session record",
 		  "state.storeKind.memory": "Persistence: memory (lost on restart)",
-		  "state.snapshot": "Snapshot at creation: {count} entries",
-		  "state.createdAt": "Session created at {time}",
 		  // —— 变更回执 ——
 		  "mutation.kv": "Turned off {hidden} tools; the prefix cache will be rebuilt once from the first changed schema token.",
 		  // —— 提示码 ——
@@ -2665,9 +1998,8 @@ window.__ModuleLoader__.load({
 		  "error.fallback": "The operation failed."
 		};
 
-		// src/client/ToolPanelAction.tsx
-		var import_jsx_runtime8 = require("react/jsx-runtime");
-		var EMPTY_UNIVERSE = { layerReady: false, skillsAvailable: false, groups: [] };
+		// src/client/panel-failure.tsx
+		var import_jsx_runtime3 = require("react/jsx-runtime");
 		function errorKeyOf(code) {
 		  const candidate = `error.${code}`;
 		  return candidate in zh ? candidate : "error.fallback";
@@ -2686,7 +2018,18 @@ window.__ModuleLoader__.load({
 		  const text = t(errorKeyOf(error.code), failureParams(error));
 		  return error.message === "" ? { text } : { text, detail: error.message };
 		}
-		function formatTime2(at) {
+		function FailureRow({ failure, className }) {
+		  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className, role: "alert", children: [
+		    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: panel_default.error, children: failure.text }),
+		    failure.detail !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: panel_default.detail, children: failure.detail })
+		  ] });
+		}
+
+		// src/client/ToolPanelAction.tsx
+		var import_jsx_runtime4 = require("react/jsx-runtime");
+		var EMPTY_UNIVERSE = { layerReady: false, skillsAvailable: false, groups: [] };
+		var EMPTY_DISABLED = [];
+		function formatTime(at) {
 		  return new Date(at).toLocaleString();
 		}
 		function noticeText(code, t) {
@@ -2703,87 +2046,6 @@ window.__ModuleLoader__.load({
 		      return t("notice.skill-shadow-failed");
 		  }
 		}
-		function FailureRow({ failure, className }) {
-		  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className, role: "alert", children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { className: panel_default.error, children: failure.text }),
-		    failure.detail !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { className: panel_default.detail, children: failure.detail })
-		  ] });
-		}
-		function StateSection({ snapshot, kvDelta, t }) {
-		  const { stats, state } = snapshot;
-		  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("section", { className: panel_default.section, children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("h3", { className: panel_default.sectionTitle, children: t("section.state") }),
-		    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("ul", { className: panel_default.counters, children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("li", { children: t("state.visible", { visible: stats.visible }) }),
-		      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("li", { children: t("state.denied", { denied: stats.denied }) })
-		    ] }),
-		    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("p", { className: panel_default.meta, children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { children: t("state.createdAt", { time: formatTime2(snapshot.createdAt) }) }),
-		      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { children: t("state.snapshot", { count: state.snapshot.length }) }),
-		      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { children: state.storeKind === "record" ? t("state.storeKind.record") : t("state.storeKind.memory") })
-		    ] }),
-		    kvDelta !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { className: panel_default.notice, children: t("mutation.kv", { hidden: kvDelta }) }),
-		    snapshot.notices.map((code) => /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
-		      "p",
-		      {
-		        className: code === "persistence-degraded" ? panel_default.warning : panel_default.notice,
-		        children: noticeText(code, t)
-		      },
-		      code
-		    ))
-		  ] });
-		}
-		function DisabledSection({
-		  snapshot,
-		  pending,
-		  resetting,
-		  armed,
-		  onArm,
-		  onReset,
-		  onEnable,
-		  t
-		}) {
-		  const intentOnly = (0, import_react7.useMemo)(() => new Set(snapshot.intentOnly), [snapshot.intentOnly]);
-		  const addresses = snapshot.state.disabled;
-		  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("section", { className: panel_default.section, children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("h3", { className: panel_default.sectionTitle, children: t("section.disabled") }),
-		    addresses.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { className: panel_default.muted, children: t("disabled.empty") }) : /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("ul", { className: panel_default.chips, "aria-label": t("disabled.listTitle"), children: addresses.map((address) => {
-		      const pendingRow = pending.has(address);
-		      return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("li", { className: panel_default.chip, children: [
-		        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("code", { className: panel_default.address, title: address, children: address }),
-		        intentOnly.has(address) && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: panel_default.badge, title: t("entry.intentOnly"), children: t("badge.intent") }),
-		        pendingRow && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: panel_default.pending, children: t("toggle.pending") }),
-		        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
-		          import_dsh_client_ui_primitives8.Button,
-		          {
-		            variant: "ghost",
-		            size: "sm",
-		            "aria-label": t("disabled.enableAria", { address }),
-		            disabled: resetting || pendingRow,
-		            onClick: () => {
-		              onEnable(address);
-		            },
-		            children: t("disabled.enable")
-		          }
-		        )
-		      ] }, address);
-		    }) }),
-		    snapshot.intentOnly.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { className: panel_default.muted, children: t("disabled.intentOnly") }),
-		    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: panel_default.actions, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
-		      import_dsh_client_ui_primitives8.Button,
-		      {
-		        variant: "outline",
-		        size: "sm",
-		        disabled: resetting || addresses.length === 0,
-		        onClick: () => {
-		          if (armed) onReset();
-		          else onArm();
-		        },
-		        children: armed ? t("disabled.resetConfirm") : t("disabled.reset")
-		      }
-		    ) })
-		  ] });
-		}
 		function ToolPanelAction({
 		  sessionId,
 		  resolveClient,
@@ -2791,13 +2053,13 @@ window.__ModuleLoader__.load({
 		  attachFocusListener: attachFocusListener2,
 		  t
 		}) {
-		  const resolve = (0, import_react7.useRef)(resolveClient);
+		  const resolve = (0, import_react2.useRef)(resolveClient);
 		  resolve.current = resolveClient;
-		  const subscribeCommands = (0, import_react7.useRef)(subscribeCommandExecuted);
+		  const subscribeCommands = (0, import_react2.useRef)(subscribeCommandExecuted);
 		  subscribeCommands.current = subscribeCommandExecuted;
-		  const attachFocus = (0, import_react7.useRef)(attachFocusListener2);
+		  const attachFocus = (0, import_react2.useRef)(attachFocusListener2);
 		  attachFocus.current = attachFocusListener2;
-		  const controller = (0, import_react7.useMemo)(
+		  const controller = (0, import_react2.useMemo)(
 		    () => new PanelController({
 		      sessionId,
 		      resolveClient: () => resolve.current(),
@@ -2808,20 +2070,28 @@ window.__ModuleLoader__.load({
 		    }),
 		    [sessionId]
 		  );
-		  (0, import_react7.useEffect)(() => () => controller.dispose(), [controller]);
-		  const state = (0, import_react7.useSyncExternalStore)(controller.subscribe, controller.getSnapshot);
+		  (0, import_react2.useEffect)(() => () => controller.dispose(), [controller]);
+		  const state = (0, import_react2.useSyncExternalStore)(controller.subscribe, controller.getSnapshot);
 		  const opened = state.phase !== "idle";
 		  const snapshot = state.snapshot;
-		  const universe = (0, import_react7.useMemo)(
+		  const universe = (0, import_react2.useMemo)(
 		    () => snapshot === void 0 ? EMPTY_UNIVERSE : universeOfSnapshot(snapshot),
 		    [snapshot]
 		  );
-		  const failure = (0, import_react7.useMemo)(() => failureOf2(state.error, t), [state.error, t]);
-		  const defaultsFailure = (0, import_react7.useMemo)(() => failureOf2(state.defaultsError, t), [state.defaultsError, t]);
-		  const workspaceFailure = (0, import_react7.useMemo)(() => failureOf2(state.workspaceError, t), [state.workspaceError, t]);
-		  const [kvDelta, setKvDelta] = (0, import_react7.useState)(void 0);
-		  const previous = (0, import_react7.useRef)(void 0);
-		  (0, import_react7.useEffect)(() => {
+		  const disabled = snapshot?.state.disabled ?? EMPTY_DISABLED;
+		  const counts = (0, import_react2.useMemo)(() => defaultsCountsOf(universe, disabled), [universe, disabled]);
+		  const session = (0, import_react2.useMemo)(() => snapshot === void 0 ? void 0 : {
+		    pending: state.pending,
+		    effectiveDisabled: effectiveClosedOf(universe, disabled),
+		    shadowedSkills: shadowedSkillAddressesOf(snapshot.skills),
+		    intentOnly: new Set(snapshot.intentOnly)
+		  }, [snapshot, universe, disabled, state.pending]);
+		  const panelFailure = (0, import_react2.useMemo)(() => failureOf2(state.error, t), [state.error, t]);
+		  const commandText = `# ${t("session.commandComment")}
+		/tools off ${COMMAND_PLACEHOLDER}`;
+		  const [kvDelta, setKvDelta] = (0, import_react2.useState)(void 0);
+		  const previous = (0, import_react2.useRef)(void 0);
+		  (0, import_react2.useEffect)(() => {
 		    if (snapshot === void 0) return;
 		    const before = previous.current;
 		    previous.current = snapshot;
@@ -2829,32 +2099,28 @@ window.__ModuleLoader__.load({
 		    const hidden = snapshot.stats.denied - before.stats.denied;
 		    setKvDelta(hidden > 0 ? hidden : void 0);
 		  }, [snapshot]);
-		  const [resetArmed, setResetArmed] = (0, import_react7.useState)(false);
-		  const [defaultsSaved, setDefaultsSaved] = (0, import_react7.useState)(false);
-		  const writeDefaults = (action, addresses) => {
-		    setDefaultsSaved(false);
-		    void controller.updateDefaults(action, addresses).then(() => {
-		      const next = controller.getSnapshot();
-		      setDefaultsSaved(!next.savingDefaults && next.defaultsError === void 0);
-		    });
-		  };
-		  const footer = /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(import_jsx_runtime8.Fragment, { children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
-		      import_dsh_client_ui_primitives8.Button,
+		  const [query, setQuery] = (0, import_react2.useState)("");
+		  const [resetArmed, setResetArmed] = (0, import_react2.useState)(false);
+		  const footer = /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+		    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+		      import_dsh_client_ui_primitives3.Button,
 		      {
-		        variant: "ghost",
+		        variant: "outline",
 		        size: "sm",
-		        icon: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(import_dsh_client_ui_primitives8.IconRefreshOutlineRegular, {}),
-		        "aria-label": t("panel.refresh"),
-		        disabled: state.phase === "loading",
+		        disabled: state.resetting || disabled.length === 0,
 		        onClick: () => {
-		          void controller.refresh();
+		          if (resetArmed) {
+		            setResetArmed(false);
+		            void controller.reset();
+		          } else {
+		            setResetArmed(true);
+		          }
 		        },
-		        children: t("panel.refresh")
+		        children: resetArmed ? t("disabled.resetConfirm") : t("disabled.reset")
 		      }
 		    ),
-		    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
-		      import_dsh_client_ui_primitives8.Button,
+		    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+		      import_dsh_client_ui_primitives3.Button,
 		      {
 		        variant: "outline",
 		        size: "sm",
@@ -2865,14 +2131,14 @@ window.__ModuleLoader__.load({
 		      }
 		    )
 		  ] });
-		  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(import_jsx_runtime8.Fragment, { children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
-		      import_dsh_client_ui_primitives8.Button,
+		  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+		    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+		      import_dsh_client_ui_primitives3.Button,
 		      {
 		        variant: "ghost",
 		        size: "sm",
 		        className: panel_default.trigger,
-		        icon: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(import_dsh_client_ui_primitives8.IconSlidersTwoOutlineRegular, {}),
+		        icon: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(import_dsh_client_ui_primitives3.IconSlidersTwoOutlineRegular, {}),
 		        "aria-label": t("action.label"),
 		        "aria-description": t("action.aria"),
 		        "aria-haspopup": "dialog",
@@ -2884,8 +2150,8 @@ window.__ModuleLoader__.load({
 		        }
 		      }
 		    ),
-		    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
-		      import_dsh_client_ui_primitives8.Modal,
+		    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+		      import_dsh_client_ui_primitives3.Modal,
 		      {
 		        open: opened,
 		        onClose: () => {
@@ -2897,91 +2163,103 @@ window.__ModuleLoader__.load({
 		        className: panel_default.dialog,
 		        contentClassName: panel_default.content,
 		        footer,
-		        children: snapshot === void 0 ? failure === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { className: panel_default.loading, children: t("panel.loading") }) : /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(FailureRow, { failure, className: panel_default.failureBlock }) : /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(import_jsx_runtime8.Fragment, { children: [
-		          failure !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(FailureRow, { failure }),
-		          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(StateSection, { snapshot, kvDelta, t }),
-		          /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("section", { className: panel_default.section, children: [
-		            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("h3", { className: panel_default.sectionTitle, children: t("section.groups") }),
-		            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
-		              ToolPanelGroups,
+		        children: snapshot === void 0 ? panelFailure === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: panel_default.loading, children: t("panel.loading") }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(FailureRow, { failure: panelFailure, className: panel_default.failureBlock }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: panel_default.cardStack, children: [
+		          panelFailure !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(FailureRow, { failure: panelFailure }),
+		          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: panel_default.card, children: [
+		            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: panel_default.cardHeader, children: [
+		              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: panel_default.cardTitle, children: t("session.title") }),
+		              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: panel_default.push }),
+		              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+		                import_dsh_client_ui_primitives3.Button,
+		                {
+		                  variant: "ghost",
+		                  size: "sm",
+		                  icon: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(import_dsh_client_ui_primitives3.IconRefreshOutlineRegular, {}),
+		                  "aria-label": t("panel.refresh"),
+		                  disabled: state.phase === "loading",
+		                  onClick: () => {
+		                    void controller.refresh();
+		                  },
+		                  children: t("panel.refresh")
+		                }
+		              )
+		            ] }),
+		            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("dl", { className: panel_default.facts, children: [
+		              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: panel_default.fact, children: [
+		                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("dt", { className: panel_default.factTerm, children: t("session.id") }),
+		                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("dd", { className: panel_default.factValue, children: snapshot.sessionId })
+		              ] }),
+		              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: panel_default.fact, children: [
+		                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("dt", { className: panel_default.factTerm, children: t("session.createdAt") }),
+		                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("dd", { className: panel_default.factValue, children: formatTime(snapshot.createdAt) })
+		              ] }),
+		              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: panel_default.fact, children: [
+		                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("dt", { className: panel_default.factTerm, children: t("session.snapshotCount") }),
+		                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("dd", { className: panel_default.factValue, children: t("session.count", { count: snapshot.state.snapshot.length }) })
+		              ] }),
+		              /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: panel_default.fact, children: [
+		                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("dt", { className: panel_default.factTerm, children: t("session.store") }),
+		                /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("dd", { className: panel_default.factValue, children: snapshot.state.storeKind === "record" ? t("session.store.record") : t("session.store.memory") })
+		              ] })
+		            ] }),
+		            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("ul", { className: panel_default.counters, children: [
+		              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("li", { children: t("state.visible", { visible: snapshot.stats.visible }) }),
+		              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("li", { children: t("state.denied", { denied: snapshot.stats.denied }) }),
+		              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("li", { children: t("state.closedCount", { count: disabled.length }) })
+		            ] }),
+		            kvDelta !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: panel_default.notice, children: t("mutation.kv", { hidden: kvDelta }) }),
+		            snapshot.notices.map((code) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+		              "p",
 		              {
-		                groups: snapshot.groups,
-		                pending: state.pending,
+		                className: code === "persistence-degraded" ? panel_default.warning : panel_default.notice,
+		                children: noticeText(code, t)
+		              },
+		              code
+		            ))
+		          ] }),
+		          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: panel_default.card, children: [
+		            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: panel_default.cardHeader, children: [
+		              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: panel_default.cardTitle, children: t("section.groups") }),
+		              counts.listed > 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+		                import_dsh_client_ui_primitives3.Input,
+		                {
+		                  className: panel_default.pageFilter,
+		                  value: query,
+		                  placeholder: t("session.filter"),
+		                  "aria-label": t("session.filter"),
+		                  onChange: (event) => {
+		                    setQuery(event.target.value);
+		                  }
+		                }
+		              )
+		            ] }),
+		            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: panel_default.note, children: t("session.listHint") }),
+		            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+		              DefaultsGroupList,
+		              {
+		                universe,
+		                disabled,
 		                busy: state.resetting,
+		                session,
+		                t,
+		                query,
+		                showDetails: true,
 		                onToggle: (address, on) => {
 		                  void controller.toggle(address, on);
-		                },
-		                t
+		                }
 		              }
-		            )
+		            ),
+		            counts.listed === 0 && counts.residual === 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: panel_default.emptyBlock, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: panel_default.emptyTitle, children: t("panel.empty") }) })
 		          ] }),
-		          /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("section", { className: panel_default.section, "aria-label": t("section.skills"), children: [
-		            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("h3", { className: panel_default.sectionTitle, children: t("section.skills") }),
-		            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
-		              SkillPanel,
-		              {
-		                skills: snapshot.skills,
-		                unavailable: snapshot.notices.includes("skills-unavailable"),
-		                blocked: snapshot.state.disabled.includes("tool:skill"),
-		                pending: state.pending,
-		                busy: state.resetting,
-		                onToggle: (address, on) => {
-		                  void controller.toggle(address, on);
-		                },
-		                t
-		              }
-		            )
-		          ] }),
-		          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
-		            WorkspaceDefaultsEditor,
+		          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+		            CommandCard,
 		            {
-		              workspace: state.workspace ?? null,
-		              universe,
-		              variant: "section",
-		              saving: state.savingWorkspace,
-		              saved: state.workspaceSaved,
-		              failure: workspaceFailure,
-		              onUpdate: (action, addresses) => {
-		                void controller.updateWorkspace(action, addresses);
-		              },
-		              onRefresh: () => {
-		                void controller.refreshWorkspace();
-		              },
-		              t
-		            }
-		          ),
-		          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
-		            DefaultsEditor,
-		            {
-		              defaults: state.defaults ?? snapshot.defaults,
-		              universe,
-		              createdAt: snapshot.createdAt,
-		              snapshotCount: snapshot.state.snapshot.length,
-		              saving: state.savingDefaults,
-		              saved: defaultsSaved,
-		              failure: defaultsFailure,
-		              onUpdate: writeDefaults,
-		              t
-		            }
-		          ),
-		          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
-		            DisabledSection,
-		            {
-		              snapshot,
-		              pending: state.pending,
-		              resetting: state.resetting,
-		              armed: resetArmed,
-		              onArm: () => {
-		                setResetArmed(true);
-		              },
-		              onReset: () => {
-		                setResetArmed(false);
-		                void controller.reset();
-		              },
-		              onEnable: (address) => {
-		                void controller.toggle(address, true);
-		              },
-		              t
+		              title: t("session.commandTitle"),
+		              note: t("session.commandNote"),
+		              commandText,
+		              copyLabel: t("command.copy"),
+		              copiedLabel: t("command.copied"),
+		              copyFailedLabel: t("command.copyFailed")
 		            }
 		          )
 		        ] })
@@ -2991,8 +2269,213 @@ window.__ModuleLoader__.load({
 		}
 
 		// src/client/WorkspaceEntry.tsx
-		var import_react8 = require("react");
-		var import_jsx_runtime9 = require("react/jsx-runtime");
+		var import_react5 = require("react");
+
+		// src/client/WorkspaceDefaultsEditor.tsx
+		var import_react4 = require("react");
+
+		// src/client/WorkspaceDefaultsPage.tsx
+		var import_react3 = require("react");
+		var import_dsh_client_ui_primitives4 = require("@deepseek-ai/dsh-client-ui-primitives");
+		var import_jsx_runtime5 = require("react/jsx-runtime");
+		var EMPTY_DISABLED2 = [];
+		function WorkspaceDefaultsPage({
+		  workspace,
+		  universe,
+		  counts,
+		  saving,
+		  saved,
+		  failure,
+		  armed,
+		  onToggle,
+		  onClear,
+		  onRefresh,
+		  t
+		}) {
+		  const [query, setQuery] = (0, import_react3.useState)("");
+		  const liveUniverse = universe !== null && universe.layerReady ? universe : null;
+		  const universeReady = liveUniverse !== null;
+		  const disabled = workspace?.disabled ?? EMPTY_DISABLED2;
+		  const commandText = workspace === null ? "" : `# ${t("workspace.commandComment", { key: workspace.key })}
+		/tools workspace off ${COMMAND_PLACEHOLDER}`;
+		  return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: panel_default.cardStack, children: [
+		    /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: panel_default.card, children: workspace === null ? /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: panel_default.note, children: t("workspace.unresolved") }),
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: panel_default.cardHeader, children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: panel_default.push }),
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		          import_dsh_client_ui_primitives4.Button,
+		          {
+		            variant: "ghost",
+		            size: "sm",
+		            disabled: saving,
+		            onClick: onRefresh,
+		            children: t("workspace.refresh")
+		          }
+		        )
+		      ] })
+		    ] }) : /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: panel_default.cardHeader, children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: panel_default.cardTitle, children: workspace.title ?? workspace.key }),
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: panel_default.badge, children: workspace.registered ? t("workspace.registered") : t("workspace.unregistered") }),
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: panel_default.push }),
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		          import_dsh_client_ui_primitives4.Button,
+		          {
+		            variant: "ghost",
+		            size: "sm",
+		            disabled: saving,
+		            onClick: onRefresh,
+		            children: t("workspace.refresh")
+		          }
+		        )
+		      ] }),
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("dl", { className: panel_default.facts, children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: panel_default.fact, children: [
+		          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("dt", { className: panel_default.factTerm, children: t("workspace.key") }),
+		          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("dd", { className: panel_default.factValue, children: workspace.key })
+		        ] }),
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: panel_default.fact, children: [
+		          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("dt", { className: panel_default.factTerm, children: t("workspace.path") }),
+		          /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("dd", { className: panel_default.factValue, children: workspace.path })
+		        ] })
+		      ] }),
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: panel_default.counts, children: t("defaults.counts", {
+		        listed: counts.listed,
+		        inDefaults: counts.inDefaults,
+		        residual: counts.residual
+		      }) }),
+		      workspace.corrupt && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: panel_default.warning, children: t("workspace.corrupt") })
+		    ] }) }),
+		    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: panel_default.card, children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: panel_default.cardHeader, children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: panel_default.cardTitle, children: t("workspace.listTitle") }),
+		        universeReady && counts.listed > 0 && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		          import_dsh_client_ui_primitives4.Input,
+		          {
+		            className: panel_default.pageFilter,
+		            value: query,
+		            placeholder: t("workspace.filter"),
+		            "aria-label": t("workspace.filter"),
+		            onChange: (event) => {
+		              setQuery(event.target.value);
+		            }
+		          }
+		        )
+		      ] }),
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: panel_default.note, children: t("workspace.listHint") }),
+		      workspace !== null && universeReady && disabled.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: panel_default.emptyBlock, children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: panel_default.emptyTitle, children: t("workspace.emptyDefaults") }),
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: panel_default.emptyHint, children: t("workspace.emptyDefaultsHint") })
+		      ] }),
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		        DefaultsGroupList,
+		        {
+		          universe,
+		          disabled,
+		          busy: saving,
+		          onToggle,
+		          copy: {
+		            residualTitle: t("defaults.residualTitle"),
+		            removeLabel: t("workspace.remove"),
+		            removeAria: (address) => t("workspace.removeAria", { address }),
+		            universeUnavailable: t("workspace.universeUnavailable")
+		          },
+		          t,
+		          query,
+		          showDetails: true
+		        }
+		      ),
+		      counts.listed === 0 && counts.residual === 0 && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { className: panel_default.emptyBlock, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: panel_default.emptyTitle, children: universeReady ? t("workspace.emptyUniverse") : t("workspace.universeUnavailable") }) }),
+		      liveUniverse !== null && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)(import_jsx_runtime5.Fragment, { children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: panel_default.note, children: t("workspace.globalUnion") }),
+		        liveUniverse.ungroupedMcp !== void 0 && liveUniverse.ungroupedMcp > 0 && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: panel_default.note, children: t("workspace.ungrouped", { count: liveUniverse.ungroupedMcp }) }),
+		        liveUniverse.foreignProjectMcp !== void 0 && liveUniverse.foreignProjectMcp > 0 && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: panel_default.note, children: t("workspace.foreignProjectMcp", { count: liveUniverse.foreignProjectMcp }) }),
+		        liveUniverse.skillsComplete === false && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: panel_default.note, children: t("workspace.skillsIncomplete") })
+		      ] })
+		    ] }),
+		    workspace !== null && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		      CommandCard,
+		      {
+		        title: t("workspace.commandTitle"),
+		        note: t("workspace.commandNote"),
+		        commandText,
+		        copyLabel: t("command.copy"),
+		        copiedLabel: t("command.copied"),
+		        copyFailedLabel: t("command.copyFailed")
+		      }
+		    ),
+		    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: panel_default.footnotes, children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: panel_default.note, children: t("workspace.scope") }),
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: panel_default.note, children: t("workspace.union") })
+		    ] }),
+		    /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { className: panel_default.actions, children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(
+		        import_dsh_client_ui_primitives4.Button,
+		        {
+		          variant: "outline",
+		          size: "sm",
+		          disabled: workspace === null || saving || disabled.length === 0,
+		          onClick: onClear,
+		          children: armed ? t("workspace.clearConfirm") : t("workspace.clear")
+		        }
+		      ),
+		      saved && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("span", { className: panel_default.saved, children: t("workspace.saved") })
+		    ] }),
+		    failure !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { role: "alert", children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: panel_default.error, children: failure.text }),
+		      failure.detail !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { className: panel_default.detail, children: failure.detail })
+		    ] })
+		  ] });
+		}
+
+		// src/client/WorkspaceDefaultsEditor.tsx
+		var import_jsx_runtime6 = require("react/jsx-runtime");
+		var EMPTY_DISABLED3 = [];
+		function WorkspaceDefaultsEditor({
+		  workspace,
+		  universe,
+		  saving,
+		  saved,
+		  failure,
+		  onUpdate,
+		  onRefresh,
+		  t
+		}) {
+		  const [armed, setArmed] = (0, import_react4.useState)(false);
+		  const disabled = workspace?.disabled ?? EMPTY_DISABLED3;
+		  const counts = (0, import_react4.useMemo)(() => defaultsCountsOf(universe, disabled), [universe, disabled]);
+		  const clear = () => {
+		    if (!armed) {
+		      setArmed(true);
+		      return;
+		    }
+		    setArmed(false);
+		    onUpdate("reset");
+		  };
+		  return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+		    WorkspaceDefaultsPage,
+		    {
+		      workspace,
+		      universe,
+		      counts,
+		      saving,
+		      saved,
+		      failure,
+		      armed,
+		      onToggle: (address, on) => {
+		        setArmed(false);
+		        onUpdate(on ? "on" : "off", [address]);
+		      },
+		      onClear: clear,
+		      onRefresh,
+		      t
+		    }
+		  );
+		}
+
+		// src/client/WorkspaceEntry.tsx
+		var import_jsx_runtime7 = require("react/jsx-runtime");
 		var CLIENT_MISSING_MESSAGE2 = "\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u5BA2\u6237\u7AEF\u5C1A\u672A\u5C31\u7EEA\uFF1Aconnection \u53EF\u80FD\u665A\u4E8E\u63D2\u4EF6 apply \u6302\u8F7D";
 		var NO_TARGET_MESSAGE = "\u5F53\u524D\u6CA1\u6709\u53EF\u5BFB\u5740\u7684\u76EE\u6807\u5DE5\u4F5C\u533A\uFF1A\u76EE\u6807\u7531\u9875\u9762\u9009\u62E9\u6846\u7ED9\u51FA\uFF0C\u7A7A\u76EE\u6807\u65F6\u672C\u8282\u5448\u73B0\u7A7A\u6001";
 		var NO_ADDRESS_MESSAGE = "\u5199\u5165\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u7F3A\u5C11\u5730\u5740\uFF1A\u7A7A\u5355\u4E0D\u53D1\u8BF7\u6C42\uFF08\u5951\u7EA6\u8981\u6C42 set / off / on \u81F3\u5C11\u5E26\u4E00\u6761\u5730\u5740\uFF09";
@@ -3001,7 +2484,7 @@ window.__ModuleLoader__.load({
 		  return new PanelError("internal", error instanceof Error ? error.message : String(error));
 		}
 		function hasTarget(request) {
-		  return request.sessionId !== void 0 || request.workspacePath !== void 0;
+		  return request.workspacePath !== void 0;
 		}
 		function writeRequestOf(request, action, addresses) {
 		  if (action === "reset") return { ...request, action };
@@ -3012,32 +2495,32 @@ window.__ModuleLoader__.load({
 		  return previous.saving ? { ...previous, saving: false } : previous;
 		}
 		function useWorkspaceDefaults(options) {
-		  const resolveRef = (0, import_react8.useRef)(options.resolveClient);
+		  const resolveRef = (0, import_react5.useRef)(options.resolveClient);
 		  resolveRef.current = options.resolveClient;
-		  const initialTargetRef = (0, import_react8.useRef)(options.initialTarget);
+		  const initialTargetRef = (0, import_react5.useRef)(options.initialTarget);
 		  initialTargetRef.current = options.initialTarget;
-		  const [state, setState] = (0, import_react8.useState)({
+		  const [state, setState] = (0, import_react5.useState)({
 		    phase: "idle",
 		    saving: false,
 		    saved: false
 		  });
-		  const seqRef = (0, import_react8.useRef)(0);
-		  const mountedRef = (0, import_react8.useRef)(true);
-		  (0, import_react8.useEffect)(() => {
+		  const seqRef = (0, import_react5.useRef)(0);
+		  const mountedRef = (0, import_react5.useRef)(true);
+		  (0, import_react5.useEffect)(() => {
 		    mountedRef.current = true;
 		    return () => {
 		      mountedRef.current = false;
 		      seqRef.current += 1;
 		    };
 		  }, []);
-		  const clientOf = (0, import_react8.useCallback)(() => {
+		  const clientOf = (0, import_react5.useCallback)(() => {
 		    try {
 		      return resolveRef.current();
 		    } catch {
 		      return void 0;
 		    }
 		  }, []);
-		  const failLocally = (0, import_react8.useCallback)((message) => {
+		  const failLocally = (0, import_react5.useCallback)((message) => {
 		    if (!mountedRef.current) return;
 		    seqRef.current += 1;
 		    setState((previous) => ({
@@ -3049,7 +2532,7 @@ window.__ModuleLoader__.load({
 		      saved: false
 		    }));
 		  }, []);
-		  const read = (0, import_react8.useCallback)(async () => {
+		  const read = (0, import_react5.useCallback)(async () => {
 		    const client = clientOf();
 		    if (client === void 0) {
 		      failLocally(CLIENT_MISSING_MESSAGE2);
@@ -3072,7 +2555,7 @@ window.__ModuleLoader__.load({
 		      setState((previous) => ({ ...previous, phase: "failed", error: asPanelError2(error), saved: false }));
 		    }
 		  }, [clientOf, failLocally]);
-		  const update = (0, import_react8.useCallback)(async (action, addresses) => {
+		  const update = (0, import_react5.useCallback)(async (action, addresses) => {
 		    if (action === "read") {
 		      await read();
 		      return;
@@ -3115,30 +2598,29 @@ window.__ModuleLoader__.load({
 		}
 		function WorkspaceDefaultsTarget(props) {
 		  const { workspacePath, resolveClient, t } = props;
-		  const initialTarget = (0, import_react8.useCallback)(() => ({ workspacePath }), [workspacePath]);
+		  const initialTarget = (0, import_react5.useCallback)(() => ({ workspacePath }), [workspacePath]);
 		  const { value, error, saving, saved, read, update } = useWorkspaceDefaults({
 		    resolveClient,
 		    initialTarget
 		  });
-		  (0, import_react8.useEffect)(() => {
+		  (0, import_react5.useEffect)(() => {
 		    void read();
 		  }, [read]);
-		  const failure = (0, import_react8.useMemo)(() => {
+		  const failure = (0, import_react5.useMemo)(() => {
 		    if (error === void 0) return void 0;
 		    if (error.code === "unavailable") {
 		      return error.message === "" ? { text: t("workspace.unavailable") } : { text: t("workspace.unavailable"), detail: error.message };
 		    }
 		    return failureOf2(error, t);
 		  }, [error, t]);
-		  return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: panel_default.workspaceBody, children: value === void 0 ? failure === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { className: panel_default.loading, children: t("workspace.loading") }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: panel_default.failureBlock, role: "alert", children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { className: panel_default.error, children: failure.text }),
-		    failure.detail !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { className: panel_default.detail, children: failure.detail })
-		  ] }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+		  return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: panel_default.workspaceBody, children: value === void 0 ? failure === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.loading, children: t("workspace.loading") }) : /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: panel_default.failureBlock, role: "alert", children: [
+		    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.error, children: failure.text }),
+		    failure.detail !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.detail, children: failure.detail })
+		  ] }) : /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
 		    WorkspaceDefaultsEditor,
 		    {
 		      workspace: value.workspace,
 		      universe: value.universe,
-		      variant: "dialog",
 		      saving,
 		      saved,
 		      failure,
@@ -3155,9 +2637,9 @@ window.__ModuleLoader__.load({
 		function WorkspaceDefaultsSection(props) {
 		  const { workspace, resolveClient, t } = props;
 		  if (workspace.kind !== "workspace") {
-		    return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: panel_default.workspaceBody, children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { className: panel_default.empty, children: t("workspace.noTarget") }) });
+		    return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: panel_default.workspaceBody, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.empty, children: t("workspace.noTarget") }) });
 		  }
-		  return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+		  return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
 		    WorkspaceDefaultsTarget,
 		    {
 		      workspacePath: workspace.path,

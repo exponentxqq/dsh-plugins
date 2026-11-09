@@ -21,7 +21,6 @@
  * 两种寻址形态与四动作。
  */
 import { describe, expect, it } from 'vitest'
-import type { WorkspaceChoice } from '../src/contract.ts'
 import { PROTECTED_BASELINE } from '../src/host/address.ts'
 import {
   readPanel,
@@ -366,8 +365,8 @@ interface HarnessOptions {
   readonly workspaceAttribution?: WorkspaceAttribution
   /** 让归属端口抛错（驱动降级路径）。 */
   readonly workspaceOfError?: Error
-  /** 已登记工作区（`{kind:'path'}` 白名单与下拉）。 */
-  readonly workspaceChoices?: readonly WorkspaceChoice[]
+  /** 已登记工作区（`{kind:'path'}` 白名单与下拉；内联窄面与 `ControlDeps` 同形）。 */
+  readonly workspaceChoices?: readonly { readonly key: string; readonly title?: string }[]
   /** 工作区档初始内容（工作区键 → 关闭集）。 */
   readonly workspaces?: Readonly<Record<string, readonly string[]>>
   /** 注入工作区档写入错误（与默认档共用同一假 IO 的 `failWrite`）。 */
@@ -383,8 +382,8 @@ interface Harness {
   readonly defaultsIo: FakeDefaultsIo
   /** 工作区档 IO（与 `defaultsIo` 同一实例，与生产注入一致）。 */
   readonly workspacesIo: FakeDefaultsIo
-  /** 下发的工作区下拉白名单（只读快照）。 */
-  readonly workspaceChoices: readonly WorkspaceChoice[]
+  /** 下发的工作区下拉白名单（只读快照；内联窄面与 `ControlDeps` 同形）。 */
+  readonly workspaceChoices: readonly { readonly key: string; readonly title?: string }[]
   readonly log: { readonly log: SpecLog; readonly warnings: string[]; readonly errors: string[] }
   /** `store.write` / `layer.setState` 的调用顺序（固定顺序断言用）。 */
   readonly events: string[]

@@ -15,7 +15,7 @@ DSH 插件（**双端**，`exports "."` 宿主 + `exports "./client"` 浏览器�
 ```text
 src/index.ts / src/host/   宿主半：/tools 命令面、每 agent 掩码层与技能阴影分面、状态持久化、用户档与工作区档、RPC 通道 /session-tool-toggle
 src/contract.ts            两端共享的线上契约（零 import，两端各内联一份）
-src/client/                浏览器半：会话头部工具区入口 + 组件内 Modal 面板（技能开关、两个默认档分区——分组开关清单，默认折叠）+ 统一「工作区配置」页面的工作区默认档分节（WorkspaceDefaultsSection，份额 `{ workspace }`）+ locale + CSS module
+src/client/                浏览器半：会话头部工具区入口 + 组件内 Modal 三卡面板（概要卡 / 清单卡 / 命令卡，footer 两段式恢复快照；panel-failure 失败态行、CommandCard 命令卡、group-shape 分组词汇表）+ 统一「工作区配置」页面的工作区默认档分节（WorkspaceDefaultsSection，份额 `{ workspace }`）+ locale + CSS module
 test/                      单测（宿主 node 环境 / 浏览器 jsdom）
 lib/index.js               宿主产物（单文件 ESM，只外置 node:*）
 lib/client.js              浏览器产物（CJS bundle，包在 window.__ModuleLoader__.load 壳里）
@@ -78,17 +78,17 @@ lib/client.js              浏览器产物（CJS bundle，包在 window.__Module
 
 ## Web 面板
 
-**两个挂载面**：会话头部 `conversation.session.header.utilities`（list / scope `session`，entry id `session-tool-toggle-panel`、order **20**，官方三项 -10 / -5 / 0 之后）打开工具面板；统一「工作区配置」页面的分节 `workspace-config.section`（list / scope `root`，entry id `session-tool-toggle-workspace-defaults`、order **20**，座位由 holder `dsh-plugin-workspace-config` 在注册 `main` 页面时用 `children` 声明）承载工作区默认档编辑器。旧 `sidebar.footer.*` 入口已移除：侧栏只剩 holder 的面板行，四包同装约定见仓库根 README。面板是组件内 Modal，六段自上而下：状态摘要 → 本会话开关（MCP 服务器 / 技能整档 / 内置工具三组，可折叠）→ 技能逐行开关 → 工作区默认档 → 用户级默认档 → 关闭集；面板底部左「刷新」右「关闭」。**两个默认档分区默认折叠**：标题行给「默认关 M · 残留 K」摘要（收起时也看得出有没有默认关的东西），点开是**分组开关清单**——MCP 服务器组（整组开关 + 组内工具行）、技能整档（`tool:skill` 组开关 + 逐技能行）、内置工具行（带过滤输入，无组开关），每个分区自带折叠标题行与计数；整组地址在档里时组内行禁用并标「整组默认关」，档里不在本会话清单里的地址落进「残留地址」区**只可移除**，**没有自由文本添加**——跨清单的新关走 `/tools default off` / `/tools workspace off`。页面里的分节（旧对话框的替代）**不自带工作区下拉**：作用的工作区由 holder 页面的统一选择框决定（见仓库根 README 的四包同装说明），分节只按份额里的规范路径读写该工作区的档，作用域恒为「所选工作区之后新建的会话」，且**不折叠**（折叠只属于面板里的两个分区）；分节导航与离开页面由 holder 提供。份额是「未分配」或「无上下文」时分节显示「请先在上方选择一个工作区」空态、不发请求；以 `{workspacePath}` 寻址时分节按宿主对路径形态现算的**工作区宇宙**渲染分组清单与写入——宇宙口径与面板分区（会话视角）不同，见下段。
+**两个挂载面**：会话头部 `conversation.session.header.utilities`（list / scope `session`，entry id `session-tool-toggle-panel`、order **20**，官方三项 -10 / -5 / 0 之后）打开工具面板；统一「工作区配置」页面的分节 `workspace-config.section`（list / scope `root`，entry id `session-tool-toggle-workspace-defaults`、order **20**，座位由 holder `dsh-plugin-workspace-config` 在注册 `main` 页面时用 `children` 声明）承载工作区默认档编辑器。旧 `sidebar.footer.*` 入口已移除：侧栏只剩 holder 的面板行，四包同装约定见仓库根 README。面板是组件内 Modal，正文**单列三卡**：概要卡（卡标题「本会话」+「刷新」按钮 + 事实行：会话 id / 创建时间 / 创建时快照 / 持久化通道 + 三计数：本会话可见 / 已关 / 关闭项，KV 重建提示与降级警告也收在这张卡）→ 清单卡（卡标题「本会话开关」+ 过滤框 + 语义句「开关只作用于本会话之后的模型步骤；不影响其他会话，也不改默认档。」+ 分组开关清单——MCP 服务器组（整组开关 + 组内工具行）、技能整档（`tool:skill` 组开关 + 逐技能行）、内置工具行（无组开关）；整组已关时组内行呈关闭并禁用、行内标「整组已关」，命中 0 个注册名的地址标「暂无匹配」，残留区标题「不在本会话清单里的关闭项（可开启）」）→ 命令卡（标题「跨清单地址」+ 说明 + `/tools off <地址>` 代码块 + 复制按钮）。Modal 描述句「本会话内可用的工具与开关；改动只影响本会话之后的模型步骤。」兼任脚注，面板不设独立脚注块；footer 左「恢复创建时快照」（两段式确认：首点变「再点一次确认恢复」，关闭集为空时禁用）右「关闭」。**面板没有默认档编辑面**：用户级默认档只有 `/tools default` 命令（见命令卡说明「用户级默认档没有图形面，改用 `/tools default off <地址>`」），工作区默认档只在统一页面的分节。页面里的分节（旧对话框的替代）**不自带工作区下拉**：作用的工作区由 holder 页面的统一选择框决定（见仓库根 README 的四包同装说明），分节只按份额里的规范路径读写该工作区的档，作用域恒为「所选工作区之后新建的会话」，且**不折叠**（折叠属于卡片内的分组标题行，分节自身不折叠）；分节导航与离开页面由 holder 提供。份额是「未分配」或「无上下文」时分节显示「请先在上方选择一个工作区」空态、不发请求；以 `{workspacePath}` 寻址时分节按宿主对路径形态现算的**工作区宇宙**渲染分组清单与写入——宇宙口径与面板清单（会话视角）不同，见下段。
 
 **页面分节按工作区宇宙取读数。** 以 `{workspacePath}` 寻址时，宿主对每次读/写现算目标工作区的宇宙并随响应返回：MCP 与内置工具取插件上下文的**全局工具注册表**（未受限并集——当前进程里所有已加载工作区的项目级 MCP 服务器都在内），技能取该工作区路径作用域的技能快照；归组纪律与 `/inventory` 同款（`mcp__<server>__<tool>` 正则、第一个 `__` 边界，不猜服务器名），不满足文法的名字**只计数不成行**，清单注记「另有 N 个 MCP 工具名无法归组」；技能快照观测不完整时同样有一行注记（清单可能缺项）。分节正文是**单列三卡**：概要卡（工作区名 + 登记徽章 + 刷新 + key/档文件 + 三计数 + 档损坏警告）→ 清单卡（全局过滤框 + 分组开关清单 + 残留地址区）→ 命令卡（`目标工作区：<key>` 注释 + `/tools workspace off <地址>` 代码块 + 复制按钮），脚注收纳作用域与并集两句。清单卡的过滤框按名称/地址/描述/组键覆盖 MCP 组行、技能、内置工具与残留，无匹配的分组隐藏、组保持展开且可折叠性暂停，残留判定仍以未过滤宇宙为基准，全无匹配时给空结果提示；目标工作区档为空时呈现引导空态（在清单里关闭任意条目即写入）。宇宙读取失败或响应宇宙缺席（新页面连旧宿主）时降级为「宿主全局工具注册表暂不可用」+ 残留管理，可刷新重试，写入与残留移除不受影响。全局并集是**已知近似**：清单可能列出本工作区看不到的 MCP 工具，页面以灰字注记说明「写入只保留意图」——在 W 的分节把其他已加载工作区的服务器关掉，写的是 W 的档，而 W 的新会话里该服务器本就不可见（project-mcp 工作区隔离），关闭无实际效果但意图保留。命令卡的边界说明**恒定在场**：`/tools workspace off` 只写**本会话所属工作区**的档（页面份额不含会话信息，无法判断目标工作区是否等于它）；要给其他工作区预置关闭项，把页面选择框切到该工作区后直接开关清单条目，并集里也没有的名字（该工作区私有且当前未加载的服务器）则按命令卡提示直接编辑档文件。
 
 技能行开关的是**模型可见性**（关闭后行内标注「对模型隐藏，`/技能名` 手动调用保留」）；整档 `tool:skill` 关闭时逐行开关置灰并给一行提示。开关方向是**开 = 工具可用**：点击一个打开的组开关发出的是「把 `mcp:<server>` 加进关闭集」。分组清单里受保护 / 保留名的行**禁用**并给出 `title` 理由（其余行都可切换）；关闭集区可逐条「开启」，「恢复创建时快照」是两段式确认。
 
-**与命令面是同一份状态，不是第二份。** 面板与对话框的读与写都走 Connection RPC 通道 `/session-tool-toggle`（`panel` / `toggle` / `reset` / `defaults` / `workspace` 五个端点），宿主侧所有入口共用 `src/host/control.ts` 的同一控制内核、同一状态存储、同一掩码层与同一技能分面——面板里关掉 `mcp:yunxiao` 与 `/tools off mcp:yunxiao` 写的是同一条记录，面板里改工作区档与 `/tools workspace off …` 走的是同一个 `updateWorkspaceDefaults`，随后 `/tools status` 显示同一关闭集与同一工作区档，下一次模型步骤同时生效。面板不自行维护关闭集：**不做乐观更新**，开关翻转一律等宿主返回的新快照；打开时必拉一次，之后靠 mutation 回执、本会话的 `/tools` 执行事件（`command/executed`）、窗口 focus 与手动「刷新」收敛。
+**与命令面是同一份状态，不是第二份。** 面板与分节的读与写都走 Connection RPC 通道 `/session-tool-toggle`（`panel` / `toggle` / `reset` / `workspace` 四个端点——`defaults` 端点已随面板默认档编辑面移除，**面板不提供默认档编辑面**），宿主侧所有入口共用 `src/host/control.ts` 的同一控制内核、同一状态存储、同一掩码层与同一技能分面——面板里关掉 `mcp:yunxiao` 与 `/tools off mcp:yunxiao` 写的是同一条记录，分节里改工作区档与 `/tools workspace off …` 走的是同一个 `updateWorkspaceDefaults`，随后 `/tools status` 显示同一关闭集与同一工作区档，下一次模型步骤同时生效。面板不自行维护关闭集：**不做乐观更新**，开关翻转一律等宿主返回的新快照；打开时必拉一次，之后靠 mutation 回执、本会话的 `/tools` 执行事件（`command/executed`）、窗口 focus 与手动「刷新」收敛。
 
-**两档都不追溯。** 面板里改用户级默认档只写 `defaults.json`，改工作区默认档只写 `workspaces.json` 并回新视图，**都不改变当前会话的关闭集**；文案分别写明「只影响之后新建的会话」「只影响在这个工作区之后新建的会话」。也没有「保存并应用到本会话」复选框——那会破坏快照语义；想改本会话就用开关或 `/tools off|on`。目标无法归属 / 未登记回 `workspace-unresolved`，写盘失败回 `workspace-unwritable`（附文件路径），两种情形都不会留下半写文件。
+**两档都不追溯：用户级只有命令，工作区级只在统一页分节。** 用户级默认档没有任何图形面，只能走 `/tools default off|on|set|reset` 写 `defaults.json`；工作区默认档的图形面只有统一「工作区配置」页面的分节（写 `workspaces.json` 并回新视图），命令面是 `/tools workspace off|on|set|reset`。两条路都**不改变当前会话的关闭集**：文案分别写明「只影响之后新建的会话」「只影响在这个工作区之后新建的会话」。也没有「保存并应用到本会话」复选框——那会破坏快照语义；想改本会话就用开关或 `/tools off|on`。分节写入目标无法归属 / 未登记回 `workspace-unresolved`，写盘失败回 `workspace-unwritable`（附文件路径），两种情形都不会留下半写文件。
 
-**面板不提供配置键编辑。** 插件配置键（`storage` / `protectedTools` / `defaultsFile` / `workspacesFile` / `hostModuleBase`）只能在 profile 的插件行 `config:` 段里改；面板没有配置页、没有隐藏入口，也不提供 per-session 的配置覆盖。面板能做的只有：清单分组、会话级工具与技能开关、用户级默认档、工作区默认档、关闭集展示与恢复创建时快照。
+**面板不提供配置键编辑。** 插件配置键（`storage` / `protectedTools` / `defaultsFile` / `workspacesFile` / `hostModuleBase`）只能在 profile 的插件行 `config:` 段里改；面板没有配置页、没有隐藏入口，也不提供 per-session 的配置覆盖。面板能做的只有：清单分组、会话级工具与技能开关、关闭集展示与恢复创建时快照——默认档编辑不在其中（用户级只有 `/tools default` 命令，工作区级只在统一页分节）。
 
 ### 降级矩阵
 
@@ -99,13 +99,13 @@ lib/client.js              浏览器产物（CJS bundle，包在 window.__Module
 | **client 服务 `connection`**（渲染期软取，不在 `inject` 名单） | 每次动作现取 RPC 客户端 | 首次打开按 `unavailable` 降级；服务晚到后下一次打开/刷新**自动恢复**，无需重载页面 |
 | host 服务 `connection` / `webServer`（cordis `inject`） | 通道挂载点 | 通道不挂载（只 warn 一行）；命令面照常 |
 | host 服务 `commands` | `/tools` 注册 | 没有 `/tools`；面板不受影响（通道独立挂载） |
-| 每 agent 层 `skills` 服务（`agent.ctx` 软注入） | 逐技能影子 stub | 技能分面降级：技能地址只记意图、模型目录不屏蔽；`/tools` 与工具掩码照常，面板给 `skills-unavailable` 且技能区不渲染开关；服务晚到会自动补挂 |
+| 每 agent 层 `skills` 服务（`agent.ctx` 软注入） | 逐技能影子 stub | 技能分面降级：技能地址只记意图、模型目录不屏蔽；`/tools` 与工具掩码照常，面板清单卡的技能组只保留整档开关 + 降级提示（`skills-unavailable`），逐技能行不渲染；服务晚到会自动补挂 |
 | host 服务 `workspaceRegistry`（`ctx.inject` 软注入） | 工作区登记与显示标题 | 不阻塞：`cwd` 的 realpath 仍作为工作区键参与并集（`registered:false`），`/tools workspace` 与工作区档照常；页面选择框的候选来自 client `workspaces` 清单（由 holder 页面提供），不受本行影响 |
 | host 服务 `sessionProjections` | 读路径首选面 | 投影缺席 → 读路径回落日志重放，状态与开关照常 |
 | host 服务 `agents` / `tools`（cordis `inject`） | 生命周期与掩码 | 宿主半整体不激活：没有命令面，也没有通道（硬依赖，非软降级） |
 | 宿主 `dsh-session` 模块（身份断言） | 持久化写通道 | 进程级内存降级；面板出现 `persistence-degraded` 提示 |
-| 默认档文件 | 新会话初始关闭集 | 缺失 → 空档 + warn（不算损坏）；损坏 / 半写 → 空档 + 一条 warn，面板出现 `defaults-corrupt` 提示 |
-| 工作区档文件 | 工作区级默认关闭集 | 缺失 → 空档且**不告警**（首次使用是常态）；损坏 / 半写 / `version` 不符 → `EMPTY_WORKSPACES` + 一条 warn，面板显示「工作区档文件损坏或半写，已按空档处理」，会话照常创建、用户档照常播种 |
+| 默认档文件 | 新会话初始关闭集 | 缺失 → 空档 + warn（不算损坏）；损坏 / 半写 → 空档 + 一条启动 warn（进程日志可见，`/tools default status` 可核对档内容），面板不再提示 |
+| 工作区档文件 | 工作区级默认关闭集 | 缺失 → 空档且**不告警**（首次使用是常态）；损坏 / 半写 / `version` 不符 → `EMPTY_WORKSPACES` + 一条 warn，统一「工作区配置」页面的分节显示「工作区档文件损坏或半写，已按空档处理」，会话照常创建、用户档照常播种 |
 
 前三行是面板侧的三条主要接触点（RPC 通道 / 座位 / client 服务），其余按 Web 组合的实际接触点补齐：任何一条失效都只削弱对应的一个入口或一条读路径，不会让 GUI 崩溃。
 
@@ -126,9 +126,9 @@ lib/client.js              浏览器产物（CJS bundle，包在 window.__Module
 ## 已知限制
 
 - **读数取本会话作用域**：面板的清单宇宙、分组计数与工具描述，以及 `/tools status` 的清单与计数，全部只读**本会话**——`scoped`（本会话该 agent 视角当前可见的工具，即 `ctx.tools.schemas(agent)`，与 `/inventory` 同一条表达式）∪ `carried`（本插件上一轮已生效的关闭集保底）；宿主全局层（其他工作区 / 其他 agent 注册的名字）不参与任何推导，被其他作用域隔离（如 project-mcp 的工作区隔离）的名字既不进清单、也不进分组计数。与 `/inventory` 读的是同一份会话视角，但面板清单有两处**刻意差异**：① **已关条目仍在清单里**——上一轮已关闭、本会话仍受管的条目保留在清单中，用户能看到它们并重新打开（`/inventory` 只列当前可见工具，没有这些行）；② **多出 `tool:<name>` 与 `tool:skill` 行**——面板可关内置工具与技能整档，`/inventory` 只做清单、不提供开关。代价是**已关条目没有 `title` 描述**：描述经本会话层 `visibleSchemas()` 读取，已关条目在会话读数里没有 schema，面板只显示名字、不显示描述。技能行同走会话视角（`scope: agent` 读技能注册表），不受工具读数口径影响。
-- **默认档编辑面的宇宙按入口拆开：面板/用户级 = 会话视角，页面分节 = 工作区全局并集；三个面都没有添加入口**：面板的两个默认档分区与用户级编辑器沿用本会话视角（`scoped ∪ carried`，同上条），不是「这份档可能命中的全部地址」；统一页面的工作区默认档分节则按**工作区宇宙**读数（全局注册表并集 + 该工作区技能快照，见「Web 面板」），并集因此会列出其他已加载工作区的项目级 MCP 服务器——在这些条目上开关写的是所选工作区的档，即使该服务器在那个工作区的新会话里本就不可见，关闭也只是保留意图（页面灰字注记「写入只保留意图」）。三个编辑面都**没有自由文本添加**：给宇宙之外的新地址补默认关只能走命令行——用户级 `/tools default off <地址>`，工作区级 `/tools workspace off <地址>`（**只作用本会话所属工作区**，没有 `--path` 形态；页面命令卡也恒定带这条边界说明）；并集里也没有的名字（典型是该工作区私有且当前未加载/未连接的 project-mcp 服务器）既不在任何清单也没有命令可写，只能手改 `$DSH_HOME/session-tool-toggle/workspaces.json`（键 = 工作区规范绝对路径，文件形状见「排障」）——这条能力边界已知并接受。
-- **已关条目无描述（面板两个默认档分区同此）**：首条已说明面板上的已关（`carried`）条目没有 `title` 描述；面板两个默认档分区的宇宙与面板同源（会话视角），因此那里的已关条目同样只有名字、不显示描述——不是默认档少读了什么，而是会话读数里本就没有它的 schema。页面分节走工作区宇宙（全局注册表的 schema 完整），行在名称下方带描述次行，不受此条影响。
-- **无 skills 的 Web 组合受限（上游硬依赖）**：上游 agent preset 需要 `skill-filesystem` / `tool-skill`，`skills` 缺席时新会话创建直接失败（`agent-preset/invalid … waiting for skills`），因此该组合下没有可调整的活会话；这是上游 preset 的硬依赖，不是本插件的降级失败。此时命令面照常可用，技能地址只记意图，RPC 面板快照按 `skills-unavailable` 降级（技能区不渲染开关）。
+- **默认档编辑面只剩两处，宇宙按入口拆开**：统一页面的工作区默认档分节按**工作区宇宙**读数（全局注册表并集 + 该工作区技能快照，见「Web 面板」），并集因此会列出其他已加载工作区的项目级 MCP 服务器——在这些条目上开关写的是所选工作区的档，即使该服务器在那个工作区的新会话里本就不可见，关闭也只是保留意图（页面灰字注记「写入只保留意图」）；用户级默认档没有图形面，`/tools default` 命令按地址直写，不经过任何清单。两个编辑入口都**没有自由文本添加**：给分节清单之外的新地址补默认关只能走命令行——用户级 `/tools default off <地址>`，工作区级 `/tools workspace off <地址>`（**只作用本会话所属工作区**，没有 `--path` 形态；页面命令卡也恒定带这条边界说明）；并集里也没有的名字（典型是该工作区私有且当前未加载/未连接的 project-mcp 服务器）既不在任何清单也没有命令可写，只能手改 `$DSH_HOME/session-tool-toggle/workspaces.json`（键 = 工作区规范绝对路径，文件形状见「排障」）——这条能力边界已知并接受。
+- **已关条目无描述（页面分节不受此限）**：首条已说明面板清单上的已关（`carried`）条目没有 `title` 描述——不是默认档少读了什么，而是会话读数里本就没有它的 schema。统一页面的工作区默认档分节走工作区宇宙（全局注册表的 schema 完整），行在名称下方带描述次行，不受此条影响。
+- **无 skills 的 Web 组合受限（上游硬依赖）**：上游 agent preset 需要 `skill-filesystem` / `tool-skill`，`skills` 缺席时新会话创建直接失败（`agent-preset/invalid … waiting for skills`），因此该组合下没有可调整的活会话；这是上游 preset 的硬依赖，不是本插件的降级失败。此时命令面照常可用，技能地址只记意图，RPC 面板快照按 `skills-unavailable` 降级（技能组只保留整档开关 + 降级提示，逐技能行不渲染）。
 - **跨窗口不广播**：`command/executed` 只在命令提交的那个窗口发出，另一个窗口要靠 focus 或手动「刷新」才收敛；两处并发修改按「后写者胜」。
 - **`--dump-config-schema` 整体可能 exit 1**：dsh 0.2.2-rc.1 的 schema 遍历器不认官方 `dsh-agent-preset` 的自定义载体（`EntryGroup.key` 标记类，非原生 group/include），4 条 `unrecognized Loader tree carrier` 诊断与本插件无关，全新空 `DSH_HOME` 同样红；**装载冒烟以 `--dump-config` exit 0 为准**。核对本插件的口径是 `x-cordis.entries` 中本插件条目的 `status` 为 `"schema"` 且没有指向本插件的诊断，不要追全局 exit 0。
 - **非目标**：不做追溯（默认档与工作区档都只对之后新建的会话生效，`/tools reset` 只回本会话创建时快照）；不做上游 patch（[`ADR-0002`](../../plugins/multi-root-workspace/docs/decisions/ADR-0002-upstream-coupling-policy.md)：`@deepseek-ai/dsh*` 零修改、零 import，技能影子只走公开 `skills.register`，不替换 `dsh-tool-skill` / `dsh-skill` 行）；上游工作区行菜单入口留作**后续变更**（上游座位定名后另立变更，本期工作区默认档只有统一「工作区配置」页面的分节入口，依赖 holder 同装）；不做全局 / 进程级服务器启停（`plugin_manager` 已有）、不做子代理继承会话开关、不做投影 wire 实时推送或轮询、不改写历史、不适配 DSH `>=0.3.0`（走既有基线升级流程）。

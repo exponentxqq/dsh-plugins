@@ -26,8 +26,11 @@ import type {
 } from '../src/contract.ts'
 import {
   defaultsCountsOf,
+  effectiveClosedOf,
   filterDefaultsView,
   residualOf,
+  shadowedSkillAddressesOf,
+  skillAddressOf,
   switchAddressesOf,
   universeOfSnapshot,
 } from '../src/client/defaults-view.ts'
@@ -37,9 +40,6 @@ const SESSION_ID = 'session-1'
 
 /** 会话创建时间（固定值，让快照可断言）。 */
 const CREATED_AT = 1_700_000_000_000
-
-/** 默认档文件的假绝对路径（不指向任何真实文件）。 */
-const DEFAULTS_PATH = '/fake/dsh-home/session-tool-toggle/defaults.json'
 
 /**
  * 造一条默认档条目。
@@ -162,7 +162,7 @@ function skill(name: string, description: string, overrides: Partial<SkillView> 
 }
 
 /**
- * 造一份最小的合法面板快照（strict 契约：字段不多不少）。
+ * 造一份最小的合法面板快照（strict 契约：字段不多不少；**无** `defaults` / `workspace` 两键）。
  * @param overrides - 需要改写的顶层字段。
  * @returns 面板快照。
  */
@@ -173,12 +173,10 @@ function snapshot(overrides: Partial<PanelSnapshot> = {}): PanelSnapshot {
     state: { disabled: [], snapshot: [], seeded: false, updatedAt: 0, storeKind: 'memory' },
     groups: [],
     protectedNames: [],
-    defaults: { version: 1, disabled: [], path: DEFAULTS_PATH, readable: true, corrupt: false },
     intentOnly: [],
     stats: { visible: 0, denied: 0 },
     notices: [],
     skills: [],
-    workspace: null,
     ...overrides,
   }
 }
@@ -549,5 +547,104 @@ describe('filterDefaultsView', () => {
     expect(view.filtering).toBe(true)
     // null 宇宙求差 = 整份关闭集（排序去重），再按 address 包含筛掉 'aaa' / 'mcp:a'。
     expect(view.residual).toEqual(['zzz'])
+  })
+})
+
+/* ────────────────────────── 会话形态派生三函数（code-design ③3.4） ────────────────────────── */
+
+describe('skillAddressOf', () => {
+  it('技能地址的唯一拼接点：`skill:<name>`', () => {
+    expect(skillAddressOf('alpha')).toBe('skill:alpha')
+    expect(skillAddressOf('openspec-propose')).toBe('skill:openspec-propose')
+  })
+
+  it('同名两次调用深相等（纯字符串模板，无副作用）', () => {
+    expect(skillAddressOf('alpha')).toBe(skillAddressOf('alpha'))
+  })
+})
+
+describe('shadowedSkillAddressesOf', () => {
+  it('空技能行 → 空集合', () => {
+    expect(shadowedSkillAddressesOf([]).size).toBe(0)
+  })
+
+  it('只收集 shadowed:true 的行，地址经 skillAddressOf 拼接', () => {
+    const skills = [
+      skill('alpha', 'Alpha', { shadowed: true }),
+      skill('beta', 'Beta'),
+      skill('gamma', 'Gamma', { shadowed: true, disabled: true }),
+    ]
+    const shadowed = shadowedSkillAddressesOf(skills)
+    expect(shadowed.size).toBe(2)
+    expect(shadowed.has('skill:alpha')).toBe(true)
+    expect(shadowed.has('skill:gamma')).toBe(true)
+    expect(shadowed.has('skill:beta')).toBe(false)
+  })
+
+  it('同名重复行按 Set 语义去重', () => {
+    const shadowed = shadowedSkillAddressesOf([
+      skill('alpha', 'Alpha', { shadowed: true }),
+      skill('alpha', 'Alpha', { shadowed: true }),
+    ])
+    expect(shadowed.size).toBe(1)
+  })
+})
+
+describe('effectiveClosedOf', () => {
+  it('整组地址在关闭集里 → 组内全部行地址并入有效关闭集', () => {
+    // `mcp:a` 组关：`mcp:a::x` / `mcp:a::y` 两行都算关（会话形态行开关据此呈关且禁用）。
+    const closed = effectiveClosedOf(fixtureUniverse(), ['mcp:a'])
+    expect(closed.has('mcp:a')).toBe(true)
+    expect(closed.has('mcp:a::x')).toBe(true)
+    expect(closed.has('mcp:a::y')).toBe(true)
+    // 技能 / 内置组不在关闭集里，行不受影响。
+    expect(closed.has('skill:alpha')).toBe(false)
+    expect(closed.has('tool:bash')).toBe(false)
+  })
+
+  it('内置组 address:null 不受整组传导影响（没有整组开关就没有整组关）', () => {
+    // `tool:bash` 是行地址，逐行关闭本来就进集合；不存在「builtin 组地址」可传导。
+    const closed = effectiveClosedOf(fixtureUniverse(), ['tool:bash'])
+    expect(closed.has('tool:bash')).toBe(true)
+    expect(closed.has('tool:run_code')).toBe(false)
+    expect(closed.size).toBe(1)
+  })
+
+  it('disabled 原条目全部保留（传导是并集，不是替换）', () => {
+    // `skill:beta` 是逐行意图（不在任何组传导范围），与 `mcp:a` 的组传导共存。
+    const closed = effectiveClosedOf(fixtureUniverse(), ['mcp:a', 'skill:beta'])
+    expect(closed.has('skill:beta')).toBe(true)
+    expect(closed.has('mcp:a')).toBe(true)
+    expect(closed.has('mcp:a::x')).toBe(true)
+  })
+
+  it('整组地址不在关闭集里 → 有效关闭集就是原集合（Set 语义去重）', () => {
+    const closed = effectiveClosedOf(fixtureUniverse(), ['skill:alpha', 'skill:alpha', 'tool:bash'])
+    expect(closed.size).toBe(2)
+    expect(closed.has('skill:alpha')).toBe(true)
+    expect(closed.has('tool:bash')).toBe(true)
+  })
+
+  it('宇宙为 null 或 layerReady:false → 退化为 new Set(disabled)（与 switchAddressesOf 同口径）', () => {
+    expect(effectiveClosedOf(null, ['mcp:a', 'mcp:a']).size).toBe(1)
+    const notReady = effectiveClosedOf(fixtureUniverse({ layerReady: false }), ['mcp:a'])
+    expect(notReady.size).toBe(1)
+    expect(notReady.has('mcp:a::x')).toBe(false)
+  })
+
+  it('技能组整档关（tool:skill）→ 技能行全部并入有效关闭集', () => {
+    const closed = effectiveClosedOf(fixtureUniverse(), ['tool:skill'])
+    expect(closed.has('tool:skill')).toBe(true)
+    expect(closed.has('skill:alpha')).toBe(true)
+    expect(closed.has('skill:beta')).toBe(true)
+  })
+
+  it('纯函数：不改入参，两次调用各自得到独立的新集合', () => {
+    const disabled = ['mcp:a']
+    const first = effectiveClosedOf(fixtureUniverse(), disabled)
+    const second = effectiveClosedOf(fixtureUniverse(), disabled)
+    expect(disabled).toEqual(['mcp:a'])
+    expect(first).toEqual(second)
+    expect(first).not.toBe(second)
   })
 })

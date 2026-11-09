@@ -7,6 +7,11 @@
  * 直接拿到的 `WorkspaceValue.universe` 同构；第五个按全局过滤词剪枝宇宙与残差（页面形态，
  * `code-design.md` ③ 3.4）。
  *
+ * **会话形态派生**一组（`code-design.md` ③ 3.4，共用清单 `DefaultsGroupList.tsx` 的会话
+ * 形态分支消费）：{@link skillAddressOf} 是 `skill:<name>` 的唯一拼接点；{@link shadowedSkillAddressesOf}
+ * 收集影子 stub 已生效的技能地址；{@link effectiveClosedOf} 合成「整组关闭传导」后的有效
+ * 关闭集——面板关闭集只记整组地址，界面靠这一步才知道每行的实际关闭态。
+ *
  * **纯函数纪律**：不读时钟、不做 IO、不改入参；同一输入两次调用深相等。本模块只
  * `import type` `contract.ts`，不 import 任何宿主模块或 React，因此可同时被浏览器
  * bundle 与 node 单测加载。
@@ -215,6 +220,68 @@ function entryMatchesQuery(entry: DefaultsEntry, needle: string): boolean {
 }
 
 /**
+ * 技能地址的唯一拼接点：`skill:<name>`。
+ *
+ * 快照投影的 {@link skillEntryOf} 与会话形态分支共用这一处模板字面量，改名/改文法只动
+ * 这里。客户端不重实现地址文法（归宿主 `formatAddress`），这与 {@link SKILL_GROUP_ADDRESS}
+ * 同级：都是客户端不得不知道的字面量，各收敛为一处。
+ */
+export function skillAddressOf(name: string): string {
+  return `skill:${name}`
+}
+
+/**
+ * 影子 stub 已生效的技能地址集合（`SkillView.shadowed` → `skill:<name>`）。
+ *
+ * 会话形态用它区分「意图已关（`disabled`）」与「stub 已实际生效（`shadowed`）」两态：
+ * 模型真实看不到的技能以 `shadowed` 为准，`disabled` 只表示意图。逐名走
+ * {@link skillAddressOf} 拼接，Set 语义去重；空输入返回空集合。
+ *
+ * 纯函数：不改入参；同一输入两次调用深相等（每次返回独立的新集合）。
+ *
+ * @param skills - 面板快照的技能行（`PanelSnapshot.skills`）。
+ * @returns 影子已生效的技能地址集合（新集合，调用方可安全遍历）。
+ */
+export function shadowedSkillAddressesOf(skills: readonly SkillView[]): ReadonlySet<string> {
+  const shadowed = new Set<string>()
+  for (const skill of skills) {
+    if (skill.shadowed) shadowed.add(skillAddressOf(skill.name))
+  }
+  return shadowed
+}
+
+/**
+ * 有效关闭集：`disabled` 原样 ∪ 「整组地址在 `disabled` 里时该组全部行地址」。
+ *
+ * 面板与目标档的关闭集只记**意图**（整组开关命中时整组一行不展开），会话形态的清单行
+ * 需要这一步传导才能逐行判定实际关闭态——`mcp:<server>` / `tool:skill` 在关闭集里时，
+ * 组内所有行地址一并算作关闭。内置组（`address === null`）没有整组开关，不受整组影响。
+ * 宇宙为 `null` 或 `layerReady:false` 时退化为 `new Set(disabled)`（与 {@link switchAddressesOf}
+ * 的空集口径一致：没有可信清单就没有可传导的组）。
+ *
+ * 纯函数：不改入参；同一输入两次调用深相等（每次返回独立的新集合）。
+ *
+ * @param universe - 目标无关的工具宇宙（允许 `null` / 未就绪）。
+ * @param disabled - 目标档的关闭集（允许乱序；重复项按地址去重）。
+ * @returns 有效关闭集（新集合，调用方可安全遍历）。
+ */
+export function effectiveClosedOf(
+  universe: DefaultsUniverse | null,
+  disabled: readonly string[],
+): ReadonlySet<string> {
+  const closed = new Set(disabled)
+  if (universe === null || !universe.layerReady) return closed
+  for (const group of universe.groups) {
+    // 整组地址在关闭集里 → 该组全部行地址并入有效关闭集；`address === null`（builtin）
+    // 永远不会命中 `closed.has`，天然不受整组影响。
+    if (group.address !== null && closed.has(group.address)) {
+      for (const entry of group.tools) closed.add(entry.address)
+    }
+  }
+  return closed
+}
+
+/**
  * 用户级默认档的宇宙：从 `PanelSnapshot` 投影（D-19，零新增 wire 字段）。
  *
  * - `groups` 的 `mcp`/`builtin` 组原样投影（`ToolGroup` 的 `kind`/`key`/`address` 照搬，
@@ -305,7 +372,7 @@ function skillEntryOf(skill: SkillView): DefaultsEntry {
   // 可选描述一致）：先拓宽再判，避免依赖某个调用方一定给非 undefined。
   const description: string | undefined = skill.description
   return {
-    address: `skill:${skill.name}`,
+    address: skillAddressOf(skill.name),
     shortName: skill.name,
     ...(description === undefined || description === '' ? {} : { description }),
     protected: false,

@@ -33,7 +33,7 @@
 
 import { isAbsolute } from 'node:path'
 import { DESCRIPTION_MAX_LENGTH } from '../contract.ts'
-import type { SkillView, WorkspaceAction, WorkspaceChoice, WorkspaceView } from '../contract.ts'
+import type { SkillView, WorkspaceAction, WorkspaceView } from '../contract.ts'
 import { parseAddress, type SwitchAddress } from './address.ts'
 import { readDefaults, writeDefaults } from './defaults.ts'
 import { planMask } from './mask.ts'
@@ -872,7 +872,7 @@ async function resolveWorkspaceTarget(
   if (!isAbsolute(path)) {
     return unresolvedWorkspace(path, `路径「${path}」不是绝对路径`)
   }
-  let choices: readonly WorkspaceChoice[]
+  let choices: readonly { readonly key: string; readonly title?: string }[]
   try {
     choices = deps.workspaceChoices()
   } catch (error) {
@@ -944,7 +944,7 @@ async function workspaceViewOf(
 /**
  * 工作区档文件的两态（`readable` / `corrupt`）。
  *
- * 与 `rpc.ts` 的 `defaultsStateOf` 同一手法：只有读到降级常量时才补一次只读探测，正常
+ * 与 `rpc.ts` 的快照探测同一手法：只有读到降级常量时才补一次只读探测，正常
  * 文件不多读一遍。探测只问「读得到吗」，不重复解析（内容好坏由 `readWorkspaces` 判定）。
  * @param deps - 控制端口。
  * @param file - `readWorkspaces` 的读数。

@@ -29,7 +29,7 @@
  * - `ctx.inject(['sessionProjections'])` → 注册 host-only 投影 `sessionToolToggle`（无 wire，
  *   D10 的读路径首选；投影单元只给 fold，`stateSchema` 按 R13 由本文件用 zod 合成）；
  * - `ctx.inject(['connection', 'webServer'])` → 挂载 Connection RPC 通道 `/session-tool-toggle`
- *   （Web 面板的数据面，D20 的五个端点）。**两条注入要求都不是风格问题**：`webServer` 必须在
+ *   （Web 面板的数据面，D20 的四个端点）。**两条注入要求都不是风格问题**：`webServer` 必须在
  *   注入名单里（否则回调在路由表就绪前运行，注册出来的 route 没有宿主），挂载必须经
  *   `callerConnectionOf`（`connection` 仍从 `scope.root` 读）——cordis 4.1.0 起，服务读数是
  *   traceable 视图，其 `rpc` getter 把注册绑到 `this.ctx`，而那个 ctx 是**定义点切片**的
@@ -57,13 +57,14 @@
  *
  * 依赖装配：`ControlDeps`（层注册表 + `StateStore` + 默认档 / 工作区档 IO + 工作区归属闭包
  * 与下拉投影 + 保护名单 + 日志）只构造**一份**，直接交给命令面与 RPC 通道（`RpcDeps` 在
- * 同一份之上只补 agent 查找面）；两者因此不存在两份状态（D14）。`ToolsCommandDeps` 只是
+ * 同一份之上只补 agent 查找面与工作区宇宙端口，并经 `Omit` 排除 RPC 已不用的默认档 IO
+ * 两字段）；两者因此不存在两份状态（D14）。`ToolsCommandDeps` 只是
  * `ControlDeps` 的别名，没有第二份对象。**装配层不持有工具读数**：本文件既没有根 ctx 上的
  * 全局工具名闭包，也没有装配期的描述表——工具清单与描述都经**本会话的层**读（`layerFor` →
  * `visibleNames()` / `visibleSchemas()`），层尚未就绪时命令面与 RPC 各自诚实降级，而不是
  * 回落到根 ctx 的全局读数。工作区四件读数（`workspacesPath` / `workspacesIo` /
- * `workspaceOf` / `workspaceChoices`）同在这一份对象上：`snapshotOf` 的工作区视图与
- * `handleWorkspace` 的路径白名单都读它，装配层不再另造第二条读路径。
+ * `workspaceOf` / `workspaceChoices`）同在这一份对象上：控制内核的工作区视图与
+ * `handleWorkspace` 的登记白名单都读它，装配层不再另造第二条读路径。
  *
  * 两处刻意的设计选择：
  *
@@ -105,7 +106,6 @@ import { createLog } from '@dsh-plugins/host-kit/log'
 import { z } from 'zod'
 
 import { CHANNEL, ENDPOINTS } from '../contract.ts'
-import type { WorkspaceChoice } from '../contract.ts'
 import { PROTECTED_BASELINE } from './address.ts'
 import { resolveWorkspaceAttribution } from './attribution.ts'
 import { toolsCommand, type ToolsCommandDeps } from './commands.ts'
@@ -534,10 +534,11 @@ export function apply(ctx: Context, config?: SessionToolToggleConfig): void {
   }
 
   /**
-   * footer 下拉的可选项（面板分区与 `handleWorkspace` 的路径白名单共用同一读数，D-11）。
+   * 已登记工作区的 `{key,title}` 投影（工作区默认档页面的下拉可选项与 `handleWorkspace`
+   * 的登记白名单共用同一读数，D-11）。
    *
    * `workspaceRegistry` 缺席时返回空数组（R6：软注入缺席只降级，不阻止插件加载，也不影响
-   * 按会话寻址的工作区档读写）。每次调用都**现读** registry，不缓存：工作区登记 / 重命名 /
+   * 按登记路径寻址的工作区档读写）。每次调用都**现读** registry，不缓存：工作区登记 / 重命名 /
    * 删除之后，下拉与写目标白名单必须立刻跟上，缓存会给出过期集合。
    *
    * 排序按 title + path（UTF-16 码元序，不用 `localeCompare`）：同一份 registry 在任何运行
@@ -545,7 +546,7 @@ export function apply(ctx: Context, config?: SessionToolToggleConfig): void {
    *
    * @returns 已登记工作区的 `{key,title}` 投影（按标题、路径排序）。
    */
-  function workspaceChoices(): readonly WorkspaceChoice[] {
+  function workspaceChoices(): readonly { readonly key: string; readonly title?: string }[] {
     const registered = workspaceRegistry?.list() ?? []
     return registered
       .map((workspace) => ({ key: workspace.path, title: workspace.title }))
@@ -807,9 +808,13 @@ export function apply(ctx: Context, config?: SessionToolToggleConfig): void {
   /**
    * RPC 通道的依赖面：**与命令面共用同一份** `ControlDeps`（展开只复制引用，不复制状态）。
    *
-   * 四件工作区读数（`workspacesPath` / `workspacesIo` / `workspaceOf` / `workspaceChoices`）
-   * 已经随 `...controlDeps` 一并带过来：`snapshotOf` 组装工作区视图、`handleWorkspace` 的
-   * 两种寻址形态与路径白名单都读这一份，装配层不另造读数逻辑（D14）。
+   * `RpcDeps` 已把 `defaultsIo` / `defaultsPath` 两字段从类型面排除（`defaults` 端点已删，
+   * RPC 侧不再读默认档；两者仍是命令面与 `readPanel` 的 `ControlDeps` 字段，因此留在
+   * `controlDeps` 里随展开带入——多余键对 `RpcDeps` 无害）。
+   *
+   * 工作区四件读数（`workspacesPath` / `workspacesIo` / `workspaceOf` / `workspaceChoices`）
+   * 也随 `...controlDeps` 一并带过来：`handleWorkspace` 的登记白名单与读 / 写路径都读这一份，
+   * 装配层不另造读数逻辑（D14）。
    *
    * `RpcDeps` 相对 `ControlDeps` 的增量有两件：`agents` 判 `session-not-live` 与取活会话
    * （附录 §2.4 三步校验的第二、三步）；`readWorkspaceUniverse` 按工作区规范路径读该工作区的
@@ -830,7 +835,7 @@ export function apply(ctx: Context, config?: SessionToolToggleConfig): void {
     readWorkspaceUniverse: createWorkspaceUniverseReader({ get: (name) => ctx.get(name), protectedNames, log }),
   }
 
-  // 6. Web 面板的 RPC 通道 `/session-tool-toggle`（D20 的五个端点）。注入要求与挂载姿势的
+  // 6. Web 面板的 RPC 通道 `/session-tool-toggle`（D20 的四个端点）。注入要求与挂载姿势的
   //    推理链见文件头「服务注入」段（与本文件 {@link callerConnectionOf} 的注释同一份）：
   //    `webServer` 缺席时回调不运行；挂载必须经 `callerConnectionOf`——直接在
   //    `scope.root.get('connection')` 的读数上 `.rpc.handle`，在 cordis 4.1.0 下注册会绑到

@@ -16,8 +16,8 @@
  *
  * 模板参数用框架的 `{name}` 占位（`dsh-client-locale` 的插值实现即 `/\{(\w+)\}/g`）。
  *
- * 键的组织顺序 = 面板自上而下的阅读顺序（入口 → 骨架 → 四分区 → 分组/条目/徽标 → 操作 →
- * 关闭集 → 默认档 → 状态摘要 → 提示码 → 失败码），方便逐区核对。
+ * 键的组织顺序 = 面板自上而下的阅读顺序（入口 → 骨架 → 会话三卡词汇 → 分节 → 分组/条目/徽标 →
+ * 操作 → 关闭集 → 默认档 → 工作区 → 状态摘要 → 提示码 → 失败码），方便逐区核对。
  *
  * @module dsh-plugin-session-tool-toggle/client/locales
  */
@@ -50,13 +50,34 @@ export const zh = {
   'panel.empty': '本会话没有可展示的工具。',
   'panel.refresh': '刷新',
 
-  // —— 分区的标题（设计 §3.2 的六段，自上而下；`section.skills` 由 7.7 挂载技能分区时用，
-  //    工作区分区的标题归 `WorkspaceDefaultsEditor` 的 `workspace.title`） ——
-  'section.state': '状态摘要',
+  // —— 会话面板三卡（code-design ③3.8）：概要卡 facts + 第三计数、清单卡语义、命令卡 ——
+  'session.title': '本会话',
+  'session.id': '会话',
+  'session.createdAt': '创建时间',
+  'session.snapshotCount': '创建时快照',
+  'session.count': '{count} 项',
+  'session.store': '持久化通道',
+  'session.store.record': '会话记录',
+  'session.store.memory': '内存（重启后丢失）',
+  // 概要卡第三计数（= 关闭集长度）。
+  'state.closedCount': '关闭项 {count}',
+  // 清单卡语义句与过滤框（placeholder / aria-label 同一句）。
+  'session.listHint': '开关只作用于本会话之后的模型步骤；不影响其他会话，也不改默认档。',
+  'session.filter': '过滤工具、技能或地址…',
+  'session.residualTitle': '不在本会话清单里的关闭项（可开启）',
+  'session.groupOff': '整组已关',
+  // 命令卡：跨清单地址的命令模板与边界说明。
+  'session.commandTitle': '跨清单地址',
+  'session.commandNote': '跨清单的新关用 `/tools off <地址>`；用户级默认档没有图形面，改用 `/tools default off <地址>`（只影响之后新建的会话）。',
+  'session.commandComment': '本会话（立即生效）',
+
+  // —— 命令卡的复制词汇（面板命令卡与页面命令卡两处 CommandCard 共用） ——
+  'command.copy': '复制命令',
+  'command.copied': '已复制',
+  'command.copyFailed': '复制失败，请手动选择文本。',
+
+  // —— 分区标题（三卡整编后只剩清单卡标题一枚；旧分区标题已删） ——
   'section.groups': '本会话开关',
-  'section.skills': '逐技能开关',
-  'section.defaults': '用户级默认档',
-  'section.disabled': '关闭集',
 
   // —— 分组（宿主只给 kind 与计数，中文由这里渲染，设计 §2.5） ——
   'group.mcp': 'MCP 服务器',
@@ -68,13 +89,10 @@ export const zh = {
   // 内置工具分区的本地过滤输入（纯展示层，不参与任何文法校验）。
   'group.filter': '按工具名过滤…',
 
-  // —— 技能分区（逐 skill 行开关；`section.skills` 标题由 7.7 负责，这里只有块内文案） ——
-  'skill.region': '技能开关',
+  // —— 技能分面（逐 skill 行开关的降级与状态标签；行/组开关可访问名归 `defaults.switchLabel`
+  //    一组，分节标题已随三卡整编删除） ——
   'skill.unavailable': '技能服务不可用，逐技能开关暂不可用。',
   'skill.blocked': '技能工具已整档关闭，逐项开关暂不生效。',
-  'skill.pending': '正在应用…',
-  'skill.switchLabel': '{name} 的模型可见性开关',
-  'skill.empty': '本会话没有可展示的技能。',
   // 两个状态标签：`effective` = 已关且影子 stub 已生效；`intentOnly` = 意图已记但暂未生效
   // （技能未安装或影子注册未胜出）。`/name` 手动调用不受模型可见性开关影响（设计 D15 语义）。
   'skill.effective': '模型不可见（`/name` 仍可用）',
@@ -90,7 +108,6 @@ export const zh = {
   'skill.source.runtime': '运行时',
 
   // —— 行级标记：组内条目上的短标签（设计 §3.3 的 `[保护]` / `[不可关闭]`） ——
-  'entry.disabled': '已关闭',
   'entry.protected': '保护',
   'entry.reserved': '不可关闭',
   'entry.intentOnly': '暂无匹配',
@@ -104,7 +121,6 @@ export const zh = {
   // —— 徽标与禁用理由：禁用开关的 `title` 必须给同一句解释（设计 §3.3） ——
   'badge.protected': '在保护名单内，不能关闭。',
   'badge.reserved': '保留工具，不能关闭。',
-  'badge.intent': '意图',
 
   // —— 开关的可访问名（`Switch` 的 `label` 是必填 a11y 名称，设计 §3.3） ——
   'switch.label': '{name} 的会话开关',
@@ -113,25 +129,18 @@ export const zh = {
   'toggle.pending': '正在应用…',
   'toggle.failed': '开关未能切换，本次改动未生效。',
 
-  // —— 关闭集区（已关闭地址的 chip 列表） ——
-  'disabled.listTitle': '关闭集',
+  // —— 关闭集区（残留 chip 的开启/恢复动作与「暂无匹配」解释；分节标题已删） ——
   'disabled.intentOnly': '这些地址当前没有匹配到工具：意图已记录，暂时不产生效果。',
-  'disabled.empty': '当前没有关闭项。',
   // 关闭集 chip 上的「开启」与整区的「恢复创建时快照」（10.4 新增：设计 §3.2 第 4 段）。
   'disabled.enable': '开启',
   'disabled.enableAria': '开启 {address}',
   'disabled.reset': '恢复创建时快照',
   'disabled.resetConfirm': '再点一次确认恢复',
 
-  // —— 用户级默认档（设计 §3.4；默认档不追溯已存在会话） ——
-  'defaults.path': '默认档文件',
-  'defaults.note': '只影响之后新建的会话。',
-  'defaults.scope': '影响范围：只影响之后新建的会话，本会话不变。',
-  'defaults.snapshot': '本会话创建于 {time}，快照 {count} 项。',
+  // —— 用户级默认档（默认档形态词汇表：页面清单卡与面板会话清单共用，③3.20） ——
   // —— B 的分组开关界面（code-design ③3.20）：自由文本添加链已死（D8），这里只剩清单读数与
   //     分组开关点的文案；跨清单的新关一律走 `/tools default off <地址>` ——
   'defaults.counts': '清单 {listed} · 默认关 {inDefaults} · 残留 {residual}',
-  'defaults.summary': '默认关 {inDefaults} · 残留 {residual}',
   'defaults.residualTitle': '残留地址（不在本会话清单里，只能移除）',
   'defaults.universeUnavailable': '本会话的工具清单暂不可用：只能查看与移除档内已有条目。',
   // 全局过滤无结果的空态（code-design ③3.5；工作区页面清单卡的 DefaultsGroupList 用）。
@@ -144,15 +153,9 @@ export const zh = {
   'defaults.groupOff': '整组默认关',
   'defaults.switchLabel': '{name} 的默认档开关',
   'defaults.groupSwitchLabel': '{name} 的整组默认档开关',
-  // D8 兜底说明：本页只列本会话可见的工具，跨清单的新关走命令。
-  'defaults.cliHint': '本页只列本会话可见的工具；跨清单的新关用命令 `/tools default off <地址>`。',
   'defaults.remove': '移除',
-  'defaults.saved': '已保存（本会话不变）。',
-  'defaults.clear': '清空默认档',
-  'defaults.clearConfirm': '再点一次确认清空',
 
-  // —— 工作区默认档（设计 §3.4 / C2；面板分区与页面分节共用同一组键） ——
-  'workspace.title': '工作区默认档',
+  // —— 工作区默认档（设计 §3.4 / C2；页面分节与统一页分节用） ——
   // 页面级选择框没有给出有效目标（未分配 / 工作区服务未就绪）时的空态：本节不发任何寻址
   // 请求，也不渲染编辑器（选择动作归 holder 页面的唯一选择框，节内不再自带下拉）。
   'workspace.noTarget': '请先在上方选择一个工作区',
@@ -164,9 +167,6 @@ export const zh = {
   'workspace.corrupt': '工作区档文件损坏或半写，已按空档处理。',
   'workspace.scope': '影响范围：只影响在这个工作区之后新建的会话，本会话不变。',
   'workspace.union': '新会话初始关闭 = 用户级默认档 ∪ 本工作区默认档',
-  // B 的分组开关界面：分组/计数/开关点文案与用户级共用 `defaults.*` 一组键，本区只补命令兜底
-  // 说明（D8 + U1：命令只作用本会话所属工作区）。
-  'workspace.cliHint': '本页只列本会话可见的工具；跨清单的新关用命令 `/tools workspace off <地址>`（只作用本会话所属工作区）。',
   'workspace.remove': '移除',
   'workspace.removeAria': '移除 {address}',
   'workspace.saved': '已保存（本会话不变）。',
@@ -195,21 +195,18 @@ export const zh = {
   'workspace.commandTitle': '跨清单地址',
   'workspace.commandNote': '该命令只写「本会话所属工作区」的档；要给其他工作区补条目，请直接编辑上面的工作区档文件。',
   'workspace.commandComment': '目标工作区：{key}',
-  'workspace.copyCommand': '复制命令',
-  'workspace.copied': '已复制',
-  'workspace.copyFailed': '复制失败，请手动选择文本。',
-  // 侧栏 footer 入口与自绘对话框（7.3）：标题/范围说明复用上面的 workspace.title / workspace.scope，
-  // 这里只补两处只属于「入口壳」的状态文案。
+  // 侧栏 footer 入口与自绘对话框（7.3）：标题/范围说明复用上面的 workspace.scope（工作区分节
+  // 的标题就是工作区名本身），这里只补两处只属于「入口壳」的状态文案。
   'workspace.loading': '正在读取工作区默认档…',
   'workspace.unavailable': '暂时无法读取工作区默认档。',
 
-  // —— 状态摘要（两计数 + 创建时快照 + 持久化通道，设计 §3.2 第一段） ——
+  // —— 状态摘要（两计数；创建时快照 / 创建时间的事实行已由会话三卡的 `session.*` 键表达。
+  //    `state.storeKind.*` 仍被 locale-parity 的 STORE_KINDS 闭集断言把守（批次 8 范围），
+  //    本批次保留这两键以维持该套件全绿） ——
   'state.visible': '本会话可见 {visible}',
   'state.denied': '已关 {denied}',
   'state.storeKind.record': '持久化：会话记录',
   'state.storeKind.memory': '持久化：内存（重启后丢失）',
-  'state.snapshot': '创建时快照 {count} 项',
-  'state.createdAt': '会话创建于 {time}',
 
   // —— 变更回执的代价形状（设计 §3.6：只报计数与代价形状，D7） ——
   'mutation.kv': '本次关闭 {hidden} 个工具；前缀缓存将从第一个变化的 schema token 起重建一次。',
@@ -259,12 +256,37 @@ export const en = {
   'panel.empty': 'No tool to show in this session.',
   'panel.refresh': 'Refresh',
 
-  // —— 分区标题（六段） ——
-  'section.state': 'Status summary',
+  // —— Session panel three cards (code-design ③3.8): summary-card facts + third count,
+  //     list-card semantics, command card ——
+  'session.title': 'This session',
+  'session.id': 'Session',
+  'session.createdAt': 'Created',
+  'session.snapshotCount': 'Snapshot at creation',
+  'session.count': '{count} entries',
+  'session.store': 'Persistence',
+  'session.store.record': 'Session record',
+  'session.store.memory': 'Memory (lost on restart)',
+  // The summary card's third count (= off-set length).
+  'state.closedCount': '{count} off',
+  // List-card semantics line and filter box (placeholder / aria-label share one sentence).
+  'session.listHint':
+    'Switches affect only the model steps of this session after the change; other sessions are unaffected and the defaults stay as they are.',
+  'session.filter': 'Filter tools, skills, or addresses…',
+  'session.residualTitle': 'Off entries outside this session\'s list (can be turned back on)',
+  'session.groupOff': 'Whole group off',
+  // Command card: the command template for addresses outside the list, plus the boundary note.
+  'session.commandTitle': 'Addresses outside the list',
+  'session.commandNote':
+    'To turn off a new address outside the list use `/tools off <address>`; user defaults have no graphical surface — use `/tools default off <address>` instead (affects only sessions created afterwards).',
+  'session.commandComment': 'This session (effective immediately)',
+
+  // —— Copy labels of the command card (shared by the panel's and the page's CommandCard) ——
+  'command.copy': 'Copy command',
+  'command.copied': 'Copied',
+  'command.copyFailed': 'Copy failed; select the text manually.',
+
+  // —— Section title (only the list card's title remains after the three-card rework) ——
   'section.groups': 'Session switches',
-  'section.skills': 'Per-skill switches',
-  'section.defaults': 'User defaults',
-  'section.disabled': 'Off set',
 
   // —— 分组 ——
   'group.mcp': 'MCP servers',
@@ -276,13 +298,9 @@ export const en = {
   // The built-in section's local filter input (display only, never grammar validation).
   'group.filter': 'Filter by tool name…',
 
-  // —— 技能分区（逐 skill 行开关） ——
-  'skill.region': 'Skill switches',
+  // —— 技能分面（per-skill switches 的降级与状态标签） ——
   'skill.unavailable': 'The skill service is unavailable; per-skill switches cannot be used.',
   'skill.blocked': 'The skill tool is turned off as a whole; per-skill switches have no effect until it is turned back on.',
-  'skill.pending': 'Applying…',
-  'skill.switchLabel': 'Model visibility switch for {name}',
-  'skill.empty': 'No skills to show in this session.',
   // Two state tags: `effective` = turned off and the shadow stub is in effect; `intentOnly` =
   // the intent is recorded but not effective yet (skill missing or shadow registration lost).
   'skill.effective': 'Hidden from the model (`/name` still works)',
@@ -299,7 +317,6 @@ export const en = {
   'skill.source.runtime': 'Runtime',
 
   // —— 行级标记 ——
-  'entry.disabled': 'Off',
   'entry.protected': 'Protected',
   'entry.reserved': 'Locked',
   'entry.intentOnly': 'No match yet',
@@ -314,7 +331,6 @@ export const en = {
   // —— 徽标与禁用理由 ——
   'badge.protected': 'On the protected list; cannot be turned off.',
   'badge.reserved': 'A reserved tool; cannot be turned off.',
-  'badge.intent': 'Intent',
 
   // —— 开关的可访问名 ——
   'switch.label': 'Session switch for {name}',
@@ -323,25 +339,18 @@ export const en = {
   'toggle.pending': 'Applying…',
   'toggle.failed': 'The switch was not applied; nothing changed.',
 
-  // —— 关闭集区 ——
-  'disabled.listTitle': 'Off set',
+  // —— 关闭集区（残留 chip 的开启/恢复动作与「暂无匹配」解释；分节标题已删） ——
   'disabled.intentOnly': 'These addresses match no tool right now: the intent is recorded but has no effect yet.',
-  'disabled.empty': 'Nothing is turned off.',
   // The off-set chip's enable action and the section's restore-to-creation-snapshot action (10.4).
   'disabled.enable': 'Turn on',
   'disabled.enableAria': 'Turn on {address}',
   'disabled.reset': 'Restore the creation snapshot',
   'disabled.resetConfirm': 'Click again to restore',
 
-  // —— 用户级默认档 ——
-  'defaults.path': 'Defaults file',
-  'defaults.note': 'Only affects sessions created afterwards.',
-  'defaults.scope': 'Scope: only sessions created afterwards; this session stays as it is.',
-  'defaults.snapshot': 'This session was created at {time}, with a snapshot of {count} entries.',
+  // —— 用户级默认档（默认档形态词汇表：页面清单卡与面板会话清单共用，③3.20） ——
   // —— B's group-switch UI (code-design ③3.20): the free-text add chain is gone (D8), so only the
   //     list readings and the group-switch labels live here; new entries go through the CLI ——
   'defaults.counts': '{listed} listed · {inDefaults} off by default · {residual} residual',
-  'defaults.summary': '{inDefaults} off by default · {residual} residual',
   'defaults.residualTitle': 'Residual addresses (not in this session\'s list; removal only)',
   'defaults.universeUnavailable':
     'This session\'s tool list is unavailable right now: you can only view and remove entries already in the tier.',
@@ -357,17 +366,9 @@ export const en = {
   'defaults.groupOff': 'Whole group off by default',
   'defaults.switchLabel': 'Defaults switch for {name}',
   'defaults.groupSwitchLabel': 'Whole-group defaults switch for {name}',
-  // The D8 fallback line: this page lists only tools visible in this session, so new entries go
-  // through the command.
-  'defaults.cliHint':
-    'This page lists only tools visible in this session; to turn off a new one across lists use the `/tools default off <address>` command.',
   'defaults.remove': 'Remove',
-  'defaults.saved': 'Saved (this session is unchanged).',
-  'defaults.clear': 'Clear defaults',
-  'defaults.clearConfirm': 'Click again to clear',
 
   // —— 工作区默认档 ——
-  'workspace.title': 'Workspace defaults',
   // Empty state when the page-level picker gives no valid target (unassigned / service not ready):
   // the section sends no addressing request and no longer renders a picker of its own.
   'workspace.noTarget': 'Choose a workspace above first',
@@ -379,10 +380,6 @@ export const en = {
   'workspace.corrupt': 'The workspace file is corrupt or half-written; it was treated as empty.',
   'workspace.scope': 'Scope: only sessions created in this workspace afterwards; this session stays as it is.',
   'workspace.union': 'A new session starts off with the user defaults ∪ this workspace\'s defaults',
-  // B's group-switch UI reuses the `defaults.*` group/count/switch labels; only this CLI hint is
-  // workspace-specific (D8 + U1: the command applies to this session's workspace only).
-  'workspace.cliHint':
-    'This page lists only tools visible in this session; to turn off a new one across lists use the `/tools workspace off <address>` command (applies to the workspace of this session only).',
   'workspace.remove': 'Remove',
   'workspace.removeAria': 'Remove {address}',
   'workspace.saved': 'Saved (this session is unchanged).',
@@ -419,21 +416,19 @@ export const en = {
   'workspace.commandNote':
     'The command writes only the workspace this session belongs to; to add entries for another workspace, edit the defaults file shown above.',
   'workspace.commandComment': 'Target workspace: {key}',
-  'workspace.copyCommand': 'Copy command',
-  'workspace.copied': 'Copied',
-  'workspace.copyFailed': 'Copy failed; select the text manually.',
-  // The sidebar footer entry and its own dialog (7.3): the title/scope reuse workspace.title /
-  // workspace.scope above; only these two state lines belong to the entry shell.
+  // The sidebar footer entry and its own dialog (7.3): the scope line reuses workspace.scope (the
+  // workspace section's title is the workspace name itself); only these two state lines belong to
+  // the entry shell.
   'workspace.loading': 'Reading the workspace defaults…',
   'workspace.unavailable': 'The workspace defaults are not available right now.',
 
-  // —— 状态摘要（两计数 + 创建时快照 + 持久化通道） ——
+  // —— 状态摘要（两计数；快照/创建时间的事实行已由会话三卡的 `session.*` 键表达。
+  //    `state.storeKind.*` 仍被 locale-parity 的 STORE_KINDS 闭集断言把守（批次 8 范围），
+  //    本批次保留这两键以维持该套件全绿） ——
   'state.visible': '{visible} visible here',
   'state.denied': '{denied} off',
   'state.storeKind.record': 'Persistence: session record',
   'state.storeKind.memory': 'Persistence: memory (lost on restart)',
-  'state.snapshot': 'Snapshot at creation: {count} entries',
-  'state.createdAt': 'Session created at {time}',
 
   // —— 变更回执 ——
   'mutation.kv': 'Turned off {hidden} tools; the prefix cache will be rebuilt once from the first changed schema token.',

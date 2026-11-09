@@ -15,18 +15,19 @@
  * 3. **`command/executed` 他会话 / 他命令不触发**：事件端口发射后 `panel` 调用数不增加。
  *
  * 另按任务清单覆盖：打开即拉取、失败进 `failed`、快照 identity 稳定、stale-while-revalidate、
- * `reset` / `updateDefaults` 的在途标志、客户端晚到、`close` 作废在途拉取、`dispose` 摘监听。
+ * `reset` 的在途标志、客户端晚到、`close` 作废在途拉取、`dispose` 摘监听。
+ *
+ * 面板收缩（变更 2026-11-09-session-tool-panel-rework）追加两条动作面断言：
+ *
+ * - **`updateDefaults` 已从类型面移除**：`'updateDefaults' in controller` 为 false；
+ * - **`refresh()` 后状态无 `defaults` / `workspace` 键**：`PanelState` 六字段之外的两键不再存在。
  */
 import { describe, expect, it } from 'vitest'
 import type {
-  DefaultsAction,
-  DefaultsValue,
-  DefaultsView,
   PanelSnapshot,
   ToggleValue,
   WorkspaceRequest,
   WorkspaceValue,
-  WorkspaceView,
 } from '../src/contract.ts'
 import { PanelError, type PanelClient } from '../src/client/panel-client.ts'
 import { PanelController, type CommandExecutedHandler } from '../src/client/panel-controller.ts'
@@ -40,20 +41,8 @@ const OTHER_SESSION_ID = 'session-2'
 /** 固定时钟（epoch ms），让 `loadedAt` 可断言。 */
 const NOW = 1_700_000_000_000
 
-/** 默认档文件的假绝对路径（只用于断言透传，不指向任何真实文件）。 */
-const DEFAULTS_PATH = '/fake/dsh-home/session-tool-toggle/defaults.json'
-
-/** 工作区档文件的假绝对路径（同上）。 */
-const WORKSPACES_PATH = '/fake/dsh-home/session-tool-toggle/workspaces.json'
-
-/** 本会话所属工作区的规范路径。 */
-const WORKSPACE_PATH = '/workspace/one'
-
-/** footer 下拉里的第二个工作区（按 key 寻址的用例用它）。 */
-const OTHER_WORKSPACE_PATH = '/workspace/two'
-
 /**
- * 一份最小的合法面板快照（strict 契约：字段不多不少）。
+ * 一份最小的合法面板快照（strict 契约：字段不多不少；**无** `defaults` / `workspace` 两键）。
  * @param overrides - 需要改写的顶层字段。
  * @returns 面板快照。
  */
@@ -64,66 +53,10 @@ function snapshot(overrides: Partial<PanelSnapshot> = {}): PanelSnapshot {
     state: { disabled: [], snapshot: [], seeded: false, updatedAt: 0, storeKind: 'memory' },
     groups: [],
     protectedNames: ['bash'],
-    defaults: defaultsView(),
     intentOnly: [],
     stats: { visible: 4, denied: 0 },
     notices: [],
     skills: [],
-    workspace: workspaceView(),
-    ...overrides,
-  }
-}
-
-/**
- * 一份合法的工作区档视图（面板快照与 `workspace` 端点共用的形状）。
- * @param overrides - 需要改写的字段。
- * @returns 工作区档视图。
- */
-function workspaceView(overrides: Partial<WorkspaceView> = {}): WorkspaceView {
-  return {
-    key: WORKSPACE_PATH,
-    title: '工作区一',
-    registered: true,
-    disabled: [],
-    path: WORKSPACES_PATH,
-    readable: true,
-    corrupt: false,
-    ...overrides,
-  }
-}
-
-/**
- * `workspace` 端点的成功值。
- * @param overrides - 需要改写的字段（`workspace: null` = 无法归属）。
- * @returns 端点成功值。
- */
-function workspaceValue(overrides: Partial<WorkspaceValue> = {}): WorkspaceValue {
-  return {
-    workspace: workspaceView(),
-    choices: [
-      { key: WORKSPACE_PATH, title: '工作区一' },
-      { key: OTHER_WORKSPACE_PATH, title: '工作区二' },
-    ],
-    changed: [],
-    // 键必填：控制器不消费宇宙（面板快照派生），夹具给合法最小值即可。
-    universe: null,
-    ...overrides,
-  }
-}
-
-/**
- * 默认档视图。
- * @param disabled - 默认档关闭集。
- * @param overrides - 需要改写的字段。
- * @returns 默认档视图。
- */
-function defaultsView(disabled: readonly string[] = [], overrides: Partial<DefaultsView> = {}): DefaultsView {
-  return {
-    version: 1,
-    disabled: [...disabled],
-    path: DEFAULTS_PATH,
-    readable: true,
-    corrupt: false,
     ...overrides,
   }
 }
@@ -146,15 +79,6 @@ function mutationValue(value: PanelSnapshot): ToggleValue {
       notices: [],
     },
   }
-}
-
-/**
- * `defaults` 端点的成功值。
- * @param value - 写入后的默认档视图。
- * @returns 端点成功值。
- */
-function defaultsValue(value: DefaultsView): DefaultsValue {
-  return { defaults: value, changed: [...value.disabled] }
 }
 
 /** 一个可手动结算的 promise（并发用例用它把两个请求同时挂在途中）。 */
@@ -186,8 +110,6 @@ class FakePanelClient implements PanelClient {
   readonly toggleCalls: Array<{ sessionId: string; on: boolean; addresses: readonly string[] }> = []
   /** 每次 `reset` 的 sessionId。 */
   readonly resetCalls: string[] = []
-  /** 每次 `updateDefaults` 的参数。 */
-  readonly defaultsCalls: Array<{ action: DefaultsAction; addresses?: readonly string[] }> = []
   /** 每次 `workspace` 的请求（地址数组已复制）。 */
   readonly workspaceCalls: WorkspaceRequest[] = []
 
@@ -198,9 +120,6 @@ class FakePanelClient implements PanelClient {
     Promise.reject(new Error('用例未预置 toggle 回复'))
   /** 下一次 `reset` 的实现。 */
   resetImpl: (sessionId: string) => Promise<ToggleValue> = () => Promise.reject(new Error('用例未预置 reset 回复'))
-  /** 下一次 `updateDefaults` 的实现。 */
-  updateDefaultsImpl: (action: DefaultsAction, addresses?: readonly string[]) => Promise<DefaultsValue> = () =>
-    Promise.reject(new Error('用例未预置 updateDefaults 回复'))
   /** 下一次 `workspace` 的实现。 */
   workspaceImpl: (request: WorkspaceRequest) => Promise<WorkspaceValue> = () =>
     Promise.reject(new Error('用例未预置 workspace 回复'))
@@ -218,11 +137,6 @@ class FakePanelClient implements PanelClient {
   reset(sessionId: string): Promise<ToggleValue> {
     this.resetCalls.push(sessionId)
     return this.resetImpl(sessionId)
-  }
-
-  updateDefaults(action: DefaultsAction, addresses?: readonly string[]): Promise<DefaultsValue> {
-    this.defaultsCalls.push(addresses === undefined ? { action } : { action, addresses: [...addresses] })
-    return this.updateDefaultsImpl(action, addresses)
   }
 
   workspace(request: WorkspaceRequest): Promise<WorkspaceValue> {
@@ -675,257 +589,25 @@ describe('panel controller：pending 与 mutation', () => {
     expect(state.phase).toBe('ready')
   })
 
-  it('updateDefaults：在途置 savingDefaults，成功后更新活视图且不重拉 panel', async () => {
-    const { controller, client } = createHarness()
-    const initial = snapshot()
-    client.panelImpl = async () => initial
-    await controller.open()
-
-    const nextDefaults = defaultsView(['mcp:a'])
-    const gate = deferred<DefaultsValue>()
-    client.updateDefaultsImpl = () => gate.promise
-    const saving = controller.updateDefaults('off', ['mcp:a'])
-
-    expect(controller.getSnapshot().savingDefaults).toBe(true)
-
-    gate.resolve(defaultsValue(nextDefaults))
-    await saving
-
-    const state = controller.getSnapshot()
-    expect(state.savingDefaults).toBe(false)
-    expect(state.defaults).toBe(nextDefaults)
-    // 默认档不追溯当前会话：快照原样、不重拉。
-    expect(state.snapshot).toBe(initial)
-    expect(client.panelCalls).toEqual([SESSION_ID])
-    expect(client.defaultsCalls).toEqual([{ action: 'off', addresses: ['mcp:a'] }])
+  it('动作面收敛：updateDefaults 已不在控制器上（类型面 + 运行时 in 检查）', () => {
+    const { controller } = createHarness()
+    // wire 收缩（defaults 端点删除）后，控制器的动作面只有 toggle / reset / refresh / open /
+    // close / dispose。`in` 检查同时兜住「未来有人把方法加回来」的回归。
+    expect('updateDefaults' in controller).toBe(false)
+    expect('refreshWorkspace' in controller).toBe(false)
+    expect('updateWorkspace' in controller).toBe(false)
   })
 
-  it('updateDefaults(reset)：只发 action，不携带 addresses', async () => {
+  it('refresh() 后状态无 defaults / workspace 键（PanelState 六字段之外零残留）', async () => {
     const { controller, client } = createHarness()
     client.panelImpl = async () => snapshot()
-    await controller.open()
-    client.updateDefaultsImpl = async () => defaultsValue(defaultsView([], { readable: false }))
-
-    await controller.updateDefaults('reset')
-
-    expect(client.defaultsCalls).toEqual([{ action: 'reset' }])
-  })
-
-  it('updateDefaults 失败：defaultsError 进状态、面板级 error 与旧快照都不动', async () => {
-    const { controller, client } = createHarness()
-    const initial = snapshot()
-    client.panelImpl = async () => initial
-    await controller.open()
-
-    // 先制造一条面板级错误，确认默认档失败不会覆盖它。
-    client.toggleImpl = async () => {
-      throw new PanelError('protected', 'bash 在保护名单内')
-    }
-    await controller.toggle('tool:bash', false)
-    const panelError = controller.getSnapshot().error
-
-    client.updateDefaultsImpl = async () => {
-      throw new PanelError('defaults-unwritable', '默认档写入失败', { path: DEFAULTS_PATH, reason: 'EACCES' })
-    }
-    await controller.updateDefaults('set', ['mcp:a'])
+    await controller.refresh()
 
     const state = controller.getSnapshot()
-    expect(state.savingDefaults).toBe(false)
-    expect(state.defaultsError?.code).toBe('defaults-unwritable')
-    expect(state.defaultsError?.details).toEqual({ path: DEFAULTS_PATH, reason: 'EACCES' })
-    expect(state.error).toBe(panelError)
-    expect(state.snapshot).toBe(initial)
-    expect(client.panelCalls).toEqual([SESSION_ID])
-  })
-})
-
-describe('panel controller：工作区档', () => {
-  it('refreshWorkspace：请求精确为 {sessionId, action:"read"}，成功后更新活视图与 choices', async () => {
-    const { controller, client } = createHarness()
-    const next = workspaceView({ disabled: ['skill:openspec-propose'] })
-    const value = workspaceValue({ workspace: next })
-    client.workspaceImpl = async () => value
-
-    await controller.refreshWorkspace()
-
-    const state = controller.getSnapshot()
-    expect(state.workspace).toBe(next)
-    expect(state.workspaceChoices).toEqual(value.choices)
-    expect(state.workspaceError).toBeUndefined()
-    // 按会话寻址的读：不多带 workspacePath / addresses。
-    expect(client.workspaceCalls).toEqual([{ sessionId: SESSION_ID, action: 'read' }])
-    // 工作区档不追溯：不为一次工作区刷新重拉整份面板快照。
-    expect(client.panelCalls).toEqual([])
-  })
-
-  it('refreshWorkspace：workspace 为 null 时折成空档，choices 仍然更新', async () => {
-    const { controller, client } = createHarness()
-    client.workspaceImpl = async () => workspaceValue({ workspace: null, choices: [] })
-
-    await controller.refreshWorkspace()
-
-    const state = controller.getSnapshot()
-    expect(state.workspace).toBeUndefined()
-    expect(state.workspaceChoices).toEqual([])
-    expect(state.workspaceError).toBeUndefined()
-  })
-
-  it('refreshWorkspace 失败：宿主码与 details 进 workspaceError，旧视图保留且不污染面板 error', async () => {
-    const { controller, client } = createHarness()
-    const first = workspaceView()
-    client.workspaceImpl = async () => workspaceValue({ workspace: first })
-    await controller.refreshWorkspace()
-
-    client.workspaceImpl = async () => {
-      throw new PanelError('workspace-unresolved', '会话 cwd 无法归属', { subject: SESSION_ID })
-    }
-    await controller.refreshWorkspace()
-
-    const state = controller.getSnapshot()
-    expect(state.workspace).toBe(first)
-    expect(state.workspaceError?.code).toBe('workspace-unresolved')
-    expect(state.workspaceError?.details).toEqual({ subject: SESSION_ID })
-    expect(state.error).toBeUndefined()
-
-    // 下一次读成功会清掉错误行。
-    client.workspaceImpl = async () => workspaceValue({ workspace: first })
-    await controller.refreshWorkspace()
-    expect(controller.getSnapshot().workspaceError).toBeUndefined()
-  })
-
-  it('refreshWorkspace 客户端缺席（connection 边界失败）：workspaceError=unavailable 且不发请求', async () => {
-    const harness = createHarness()
-    harness.setClient(undefined)
-
-    await expect(harness.controller.refreshWorkspace()).resolves.toBeUndefined()
-
-    expect(harness.controller.getSnapshot().workspaceError?.code).toBe('unavailable')
-    expect(harness.client.workspaceCalls).toEqual([])
-  })
-
-  it('updateWorkspace：在途置 savingWorkspace，成功置 workspaceSaved 并吃响应视图', async () => {
-    const { controller, client } = createHarness()
-    const next = workspaceView({ disabled: ['skill:openspec-propose'] })
-    const gate = deferred<WorkspaceValue>()
-    client.workspaceImpl = () => gate.promise
-
-    const saving = controller.updateWorkspace('off', ['skill:openspec-propose'])
-
-    expect(controller.getSnapshot().savingWorkspace).toBe(true)
-    expect(controller.getSnapshot().workspaceSaved).toBe(false)
-    expect(client.workspaceCalls).toEqual([
-      { sessionId: SESSION_ID, action: 'off', addresses: ['skill:openspec-propose'] },
-    ])
-
-    const value = workspaceValue({ workspace: next, changed: ['skill:openspec-propose'] })
-    gate.resolve(value)
-    await saving
-
-    const state = controller.getSnapshot()
-    expect(state.savingWorkspace).toBe(false)
-    expect(state.workspaceSaved).toBe(true)
-    expect(state.workspace).toBe(next)
-    expect(state.workspaceChoices).toEqual(value.choices)
-    expect(state.workspaceError).toBeUndefined()
-    // 写工作区档不追溯当前会话：不重拉面板快照。
-    expect(client.panelCalls).toEqual([])
-  })
-
-  it('updateWorkspace(key)：按 workspacePath 寻址、不带 sessionId', async () => {
-    const { controller, client } = createHarness()
-    const target = workspaceView({ key: OTHER_WORKSPACE_PATH, title: '工作区二' })
-    client.workspaceImpl = async () => workspaceValue({ workspace: target })
-
-    await controller.updateWorkspace('on', ['skill:openspec-propose'], OTHER_WORKSPACE_PATH)
-
-    expect(client.workspaceCalls).toEqual([
-      { workspacePath: OTHER_WORKSPACE_PATH, action: 'on', addresses: ['skill:openspec-propose'] },
-    ])
-    expect(controller.getSnapshot().workspace).toBe(target)
-    expect(controller.getSnapshot().workspaceSaved).toBe(true)
-  })
-
-  it('updateWorkspace(read, key)：切换工作区不带 addresses，也不谎报「已保存」', async () => {
-    const { controller, client } = createHarness()
-    const target = workspaceView({ key: OTHER_WORKSPACE_PATH })
-    client.workspaceImpl = async () => workspaceValue({ workspace: target })
-
-    await controller.updateWorkspace('read', undefined, OTHER_WORKSPACE_PATH)
-
-    expect(client.workspaceCalls).toEqual([{ workspacePath: OTHER_WORKSPACE_PATH, action: 'read' }])
-    expect(controller.getSnapshot().workspace).toBe(target)
-    expect(controller.getSnapshot().workspaceSaved).toBe(false)
-  })
-
-  it('updateWorkspace(reset)：即便传了空数组也不带 addresses', async () => {
-    const { controller, client } = createHarness()
-    client.workspaceImpl = async () => workspaceValue()
-
-    await controller.updateWorkspace('reset', [])
-
-    expect(client.workspaceCalls).toEqual([{ sessionId: SESSION_ID, action: 'reset' }])
-    expect(controller.getSnapshot().workspaceSaved).toBe(true)
-  })
-
-  it('updateWorkspace 失败：workspaceError 带宿主码与 details，旧视图与面板级 error 不动', async () => {
-    const { controller, client } = createHarness()
-    const initial = snapshot()
-    client.panelImpl = async () => initial
-    await controller.open()
-
-    const first = workspaceView()
-    client.workspaceImpl = async () => workspaceValue({ workspace: first })
-    await controller.updateWorkspace('off', ['skill:x'])
-    expect(controller.getSnapshot().workspaceSaved).toBe(true)
-
-    // 先制造一条面板级错误，确认工作区失败不会覆盖它。
-    client.toggleImpl = async () => {
-      throw new PanelError('protected', 'bash 在保护名单内')
-    }
-    await controller.toggle('tool:bash', false)
-    const panelError = controller.getSnapshot().error
-
-    client.workspaceImpl = async () => {
-      throw new PanelError('workspace-unwritable', '工作区档写入失败', { path: WORKSPACES_PATH, reason: 'EACCES' })
-    }
-    await controller.updateWorkspace('set', ['skill:x'])
-
-    const state = controller.getSnapshot()
-    expect(state.savingWorkspace).toBe(false)
-    expect(state.workspaceSaved).toBe(false)
-    expect(state.workspaceError?.code).toBe('workspace-unwritable')
-    expect(state.workspaceError?.details).toEqual({ path: WORKSPACES_PATH, reason: 'EACCES' })
-    expect(state.workspace).toBe(first)
-    expect(state.error).toBe(panelError)
-    expect(state.snapshot).toBe(initial)
-    expect(client.panelCalls).toEqual([SESSION_ID])
-  })
-
-  it('updateWorkspace 在途时重复调用被忽略（savingWorkspace 守卫）', async () => {
-    const { controller, client } = createHarness()
-    const gate = deferred<WorkspaceValue>()
-    client.workspaceImpl = () => gate.promise
-
-    const first = controller.updateWorkspace('off', ['skill:x'])
-    const duplicated = controller.updateWorkspace('off', ['skill:y'])
-    expect(client.workspaceCalls.length).toBe(1)
-
-    gate.resolve(workspaceValue())
-    await Promise.all([first, duplicated])
-
-    expect(controller.getSnapshot().savingWorkspace).toBe(false)
-    expect(controller.getSnapshot().workspaceSaved).toBe(true)
-  })
-
-  it('open()：把快照里的 workspace 同步成活视图（省一次往返）', async () => {
-    const { controller, client } = createHarness()
-    const view = workspaceView({ disabled: ['skill:x'] })
-    client.panelImpl = async () => snapshot({ workspace: view })
-
-    await controller.open()
-
-    expect(controller.getSnapshot().workspace).toBe(view)
-    expect(client.workspaceCalls).toEqual([])
+    expect('defaults' in state).toBe(false)
+    expect('workspace' in state).toBe(false)
+    // 六字段面逐一点名：字段集合不多不少。
+    expect(Object.keys(state).sort()).toEqual(['error', 'loadedAt', 'pending', 'phase', 'resetting', 'snapshot'])
   })
 })
 
@@ -1101,15 +783,12 @@ describe('panel controller：focus 与生命周期', () => {
     await controller.open()
     await controller.toggle('mcp:a', false)
     await controller.reset()
-    await controller.updateDefaults('off', ['mcp:a'])
-    await controller.refreshWorkspace()
-    await controller.updateWorkspace('off', ['skill:x'])
+    await controller.refresh()
     await flush()
 
     expect(client.panelCalls).toEqual([])
     expect(client.toggleCalls).toEqual([])
     expect(client.resetCalls).toEqual([])
-    expect(client.defaultsCalls).toEqual([])
     expect(client.workspaceCalls).toEqual([])
     expect(controller.getSnapshot().phase).toBe('idle')
   })

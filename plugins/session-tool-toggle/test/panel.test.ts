@@ -12,8 +12,11 @@
  *   无来源时是空串）；
  * - **纯函数**：入参不被修改，同一输入两次调用结果深相等；
  * - **空输入**：空两读 / 空关闭集不抛错，得到一份全空快照；
- * - **技能行与工作区视图**（H6）：顶层 `skills` / `workspace`，技能行的 `disabled`（意图）
- *   与 `shadowed`（实际生效）两态，以及关闭集的**全地址归一**与 `intentOnly` 三分。
+ * - **技能行**（H6）：顶层 `skills`，技能行的 `disabled`（意图）与 `shadowed`（实际生效）
+ *   两态，以及关闭集的**全地址归一**与 `intentOnly` 三分。
+ * - **wire 收缩**（变更 2026-11-09-session-tool-panel-rework）：快照**不带** `defaults` /
+ *   `workspace` 两键（命令面继续消费 control 读数，RPC 快照不再携带）；`defaults-corrupt`
+ *   提示码不再由构建器从默认档读数推导（D-11），只随入参显式给出。
  * - **默认档宇宙**（TS17，`buildDefaultsUniverse`）：分组桶（mcp / skill / builtin）与组顺序、
  *   carried-only 行（无描述）、`protected` / `reserved` 标记、描述截断 160、`layerReady:false`
  *   的三键空宇宙、`skills.visible ∪ shadowed` 的技能行，以及「`skill` 不在候选里就没有技能组」。
@@ -40,11 +43,9 @@ import type { DefaultsEntry, DefaultsGroup } from '../src/contract.ts'
 import { buildDefaultsUniverse, buildPanelSnapshot, DESCRIPTION_MAX_LENGTH } from '../src/host/panel.ts'
 import type { DefaultsUniverseInputs, ToolEntry, ToolGroup } from '../src/host/panel.ts'
 import type {
-  DefaultsFile,
   PanelInputs,
   SessionToolState,
   SkillLayerSnapshot,
-  WorkspacePanelInputs,
 } from '../src/host/types.ts'
 
 /** 空状态：新会话 / 空日志的合法取值（关闭集与快照都为空）。 */
@@ -55,9 +56,6 @@ const EMPTY_STATE: SessionToolState = {
   seeded: false,
   updatedAt: 0,
 }
-
-/** 空默认档：文件不存在 / 损坏降级后的合法取值。 */
-const EMPTY_DEFAULTS: DefaultsFile = { version: 1, disabled: [] }
 
 /**
  * 构造面板入参：用例只写它关心的字段，其余取「新会话、无关闭、记录通道」的基线。
@@ -73,10 +71,6 @@ function inputs(partial: Partial<PanelInputs> = {}): PanelInputs {
     scoped: [],
     carried: [],
     protectedNames: [],
-    defaults: EMPTY_DEFAULTS,
-    defaultsPath: '/home/user/.dsh/session-tool-toggle/defaults.json',
-    defaultsReadable: true,
-    defaultsCorrupt: false,
     notices: [],
     ...partial,
   }
@@ -98,29 +92,6 @@ function stateWith(disabled: readonly string[]): SessionToolState {
  */
 function skillsOf(partial: Partial<SkillLayerSnapshot> = {}): SkillLayerSnapshot {
   return { available: true, shadowed: [], visible: [], ...partial }
-}
-
-/** 工作区归属夹具：已登记、带标题（覆盖 `title` 的映射）。 */
-const ATTRIBUTION: NonNullable<WorkspacePanelInputs['attribution']> = {
-  key: '/home/user/project',
-  registered: true,
-  title: 'dsh-plugins',
-}
-
-/**
- * 构造工作区档读数：默认可归属、空关闭集。
- * @param partial - 要覆盖的字段。
- * @returns 工作区档读数。
- */
-function workspaceOf(partial: Partial<WorkspacePanelInputs> = {}): WorkspacePanelInputs {
-  return {
-    attribution: ATTRIBUTION,
-    disabled: [],
-    path: '/home/user/.dsh/session-tool-toggle/workspaces.json',
-    readable: true,
-    corrupt: false,
-    ...partial,
-  }
 }
 
 /**
@@ -238,9 +209,9 @@ describe('buildPanelSnapshot：分组（首个 __ 切分）', () => {
     expect(snapshot.intentOnly).toEqual([])
     expect(snapshot.notices).toEqual([])
     expect(snapshot.state.disabled).toEqual([])
-    // 技能分面与工作区读数都没有输入 → 空视图（不是缺字段）。
+    // 技能分面没有输入 → 空视图（不是缺字段）；快照不再携带工作区读数（wire 收缩）。
     expect(snapshot.skills).toEqual([])
-    expect(snapshot.workspace).toBeNull()
+    expect('workspace' in snapshot).toBe(false)
     // 会话口径没有「全局层」这一读：两读皆空时不存在任何候选名。
     expect(snapshot.stats).toEqual({ visible: 0, denied: 0 })
   })
@@ -439,24 +410,11 @@ describe('buildPanelSnapshot：关闭集视图与两态区分', () => {
     })
   })
 
-  it('默认档视图逐字段映射（版本 / 条目 / 路径 / 可读 / 损坏）', () => {
-    const defaults: DefaultsFile = { version: 1, disabled: ['mcp:a', 'tool:workflow'] }
-    const snapshot = buildPanelSnapshot(
-      inputs({
-        defaults,
-        defaultsPath: '/tmp/defaults.json',
-        defaultsReadable: false,
-        defaultsCorrupt: true,
-      }),
-    )
+  it('快照不带默认档读数（wire 收缩：defaults 键已删；会话标识与创建时间仍透传）', () => {
+    const snapshot = buildPanelSnapshot(inputs())
 
-    expect(snapshot.defaults).toEqual({
-      version: 1,
-      disabled: ['mcp:a', 'tool:workflow'],
-      path: '/tmp/defaults.json',
-      readable: false,
-      corrupt: true,
-    })
+    expect('defaults' in snapshot).toBe(false)
+    expect('workspace' in snapshot).toBe(false)
     // 会话标识与创建时间直接透传（面板用它们讲「快照来源」）。
     expect(snapshot.sessionId).toBe('session-1')
     expect(snapshot.createdAt).toBe(1_700_000_000_000)
@@ -643,66 +601,11 @@ describe('buildPanelSnapshot：关闭集全地址归一与 intentOnly 三分', (
   })
 })
 
-describe('buildPanelSnapshot：工作区视图（workspace）', () => {
-  it('workspace 输入缺席 / attribution 缺席 → null（fail-closed，只展示用户级默认档）', () => {
-    expect(buildPanelSnapshot(inputs()).workspace).toBeNull()
-    expect(buildPanelSnapshot(inputs({ workspace: workspaceOf() })).workspace).not.toBeNull()
-    // cwd 无法归属：即使有工作区档读数，也不凭空造一个工作区键。
-    expect(
-      buildPanelSnapshot(inputs({ workspace: workspaceOf({ attribution: undefined }) })).workspace,
-    ).toBeNull()
-  })
-
-  it('工作区视图逐字段映射（title / registered / disabled 排序去重 / path / readable / corrupt）', () => {
-    const snapshot = buildPanelSnapshot(
-      inputs({
-        workspace: workspaceOf({
-          disabled: ['skill:zebra', 'mcp:a', 'skill:zebra'],
-          path: '/tmp/workspaces.json',
-          readable: false,
-          corrupt: true,
-        }),
-      }),
-    )
-
-    expect(snapshot.workspace).toEqual({
-      key: '/home/user/project',
-      title: 'dsh-plugins',
-      registered: true,
-      disabled: ['mcp:a', 'skill:zebra'],
-      path: '/tmp/workspaces.json',
-      readable: false,
-      corrupt: true,
-    })
-  })
-
-  it('未登记工作区没有 title 键；registered:false 原样带出', () => {
-    const snapshot = buildPanelSnapshot(
-      inputs({
-        workspace: workspaceOf({
-          attribution: { key: '/home/user/scratch', registered: false },
-        }),
-      }),
-    )
-
-    expect(snapshot.workspace).toEqual({
-      key: '/home/user/scratch',
-      registered: false,
-      disabled: [],
-      path: '/home/user/.dsh/session-tool-toggle/workspaces.json',
-      readable: true,
-      corrupt: false,
-    })
-    expect(snapshot.workspace !== null && 'title' in snapshot.workspace).toBe(false)
-  })
-})
-
 describe('buildPanelSnapshot：notices', () => {
-  it('入参提示码 ∪ 由 storeKind / defaultsCorrupt 推导的码，去重后按固定顺序', () => {
+  it('入参提示码 ∪ 由 storeKind 推导的码，去重后按固定顺序', () => {
     const snapshot = buildPanelSnapshot(
       inputs({
         storeKind: 'memory',
-        defaultsCorrupt: true,
         // 入参顺序刻意打乱且有重复：输出顺序只由固定顺序决定。
         notices: ['session-subagent', 'persistence-degraded', 'session-subagent'],
       }),
@@ -710,12 +613,19 @@ describe('buildPanelSnapshot：notices', () => {
 
     expect(snapshot.notices).toEqual([
       'persistence-degraded',
-      'defaults-corrupt',
       'session-subagent',
     ])
   })
 
-  it('新增两码（skills-unavailable / skill-shadow-failed）按固定顺序排在既有三码之后', () => {
+  it('defaults-corrupt 只随入参显式给出（D-11：构建器不再从默认档读数推导）', () => {
+    // 入参显式带 defaults-corrupt（提示码键保留给命令面/旧读数）→ 照固定顺序输出。
+    const explicit = buildPanelSnapshot(inputs({ notices: ['defaults-corrupt'] }))
+    expect(explicit.notices).toEqual(['defaults-corrupt'])
+    // 不带 → 快照里绝不出现（面板不再产出该码）。
+    expect(buildPanelSnapshot(inputs()).notices).not.toContain('defaults-corrupt')
+  })
+
+  it('新增两码（skills-unavailable / skill-shadow-failed）按固定顺序排在既有码之后', () => {
     const snapshot = buildPanelSnapshot(
       inputs({
         // 入参顺序与枚举顺序相反：输出顺序只由 NOTICE_ORDER 决定。
@@ -738,10 +648,8 @@ describe('buildPanelSnapshot：notices', () => {
     ])
   })
 
-  it('record 通道且默认档正常时没有提示码', () => {
-    const snapshot = buildPanelSnapshot(
-      inputs({ storeKind: 'record', defaultsCorrupt: false, notices: [] }),
-    )
+  it('record 通道且无入参提示码时没有提示码', () => {
+    const snapshot = buildPanelSnapshot(inputs({ storeKind: 'record', notices: [] }))
     expect(snapshot.notices).toEqual([])
   })
 
@@ -818,14 +726,13 @@ describe('buildPanelSnapshot：形状（附录 §2.2）', () => {
         scoped: ['mcp__a__x', 'workflow'],
         descriptions: new Map([['mcp__a__x', '列出项目']]),
         skills: skillsOf({ visible: [{ name: 'openspec-propose', description: '起草变更提案' }] }),
-        workspace: workspaceOf({ disabled: ['mcp:a'] }),
       }),
     )
 
-    // 顶层字段集固定（没有多的、没有少的）；会话口径下没有 hiddenByOthers。
+    // 顶层字段集固定（没有多的、没有少的）；会话口径下没有 hiddenByOthers，wire 收缩后
+    // 也没有 defaults / workspace 两键（命令面继续消费 control 读数，RPC 快照不再携带）。
     expect(Object.keys(snapshot).sort()).toEqual([
       'createdAt',
-      'defaults',
       'groups',
       'intentOnly',
       'notices',
@@ -834,7 +741,6 @@ describe('buildPanelSnapshot：形状（附录 §2.2）', () => {
       'skills',
       'state',
       'stats',
-      'workspace',
     ])
     expect(Object.keys(snapshot.state).sort()).toEqual([
       'disabled',
@@ -842,13 +748,6 @@ describe('buildPanelSnapshot：形状（附录 §2.2）', () => {
       'snapshot',
       'storeKind',
       'updatedAt',
-    ])
-    expect(Object.keys(snapshot.defaults).sort()).toEqual([
-      'corrupt',
-      'disabled',
-      'path',
-      'readable',
-      'version',
     ])
     expect(Object.keys(snapshot.stats).sort()).toEqual(['denied', 'visible'])
 
@@ -884,16 +783,6 @@ describe('buildPanelSnapshot：形状（附录 §2.2）', () => {
       'name',
       'shadowed',
     ])
-    // 工作区视图：字段集固定，title 是唯一可选键。
-    expect(Object.keys(snapshot.workspace ?? {}).sort()).toEqual([
-      'corrupt',
-      'disabled',
-      'key',
-      'path',
-      'readable',
-      'registered',
-      'title',
-    ])
   })
 
   it('纯函数：不修改入参，同一输入两次调用深相等', () => {
@@ -903,14 +792,12 @@ describe('buildPanelSnapshot：形状（附录 §2.2）', () => {
     const descriptions = new Map([['mcp__a__x', '列出项目']])
     const visible = [{ name: 'openspec-propose', description: '起草变更提案' }]
     const shadowed = ['openspec-apply']
-    const workspaceDisabled = ['mcp:a']
     const params = inputs({
       scoped,
       carried,
       descriptions,
       state: stateWith(disabled),
       skills: skillsOf({ visible, shadowed }),
-      workspace: workspaceOf({ disabled: workspaceDisabled }),
     })
 
     const first = buildPanelSnapshot(params)
@@ -924,13 +811,11 @@ describe('buildPanelSnapshot：形状（附录 §2.2）', () => {
     expect(descriptions.size).toBe(1)
     expect(visible).toEqual([{ name: 'openspec-propose', description: '起草变更提案' }])
     expect(shadowed).toEqual(['openspec-apply'])
-    expect(workspaceDisabled).toEqual(['mcp:a'])
     // 返回的数组是新引用，调用方改快照不会回写到状态；两次调用之间也不共享数组。
     expect(first.state.disabled).not.toBe(params.state.disabled)
     expect(first.state.snapshot).not.toBe(params.state.snapshot)
     expect(first.protectedNames).not.toBe(params.protectedNames)
     expect(first.skills).not.toBe(second.skills)
-    expect(first.workspace?.disabled).not.toBe(workspaceDisabled)
     expect(second.state.snapshot).not.toBe(first.state.snapshot)
     expect(second.stats).not.toBe(first.stats)
   })

@@ -17243,19 +17243,7 @@ config(en_default());
 
 // src/contract.ts
 var CHANNEL = "/session-tool-toggle";
-var PANEL_ENDPOINT = "panel";
-var TOGGLE_ENDPOINT = "toggle";
-var RESET_ENDPOINT = "reset";
-var DEFAULTS_ENDPOINT = "defaults";
-var WORKSPACE_ENDPOINT = "workspace";
-var ENDPOINTS = [
-  PANEL_ENDPOINT,
-  TOGGLE_ENDPOINT,
-  RESET_ENDPOINT,
-  DEFAULTS_ENDPOINT,
-  WORKSPACE_ENDPOINT
-];
-var DEFAULTS_ACTIONS = ["set", "off", "on", "reset"];
+var ENDPOINTS = ["panel", "toggle", "reset", "workspace"];
 var WORKSPACE_ACTIONS = ["read", "set", "off", "on", "reset"];
 var HOST_FAILURE_CODES = [
   /** 端点未知 / 请求体不合形状 / 未知 action。 */
@@ -17298,7 +17286,6 @@ var NOTICE_CODES = [
   "skill-shadow-failed"
 ];
 var STORE_KINDS = ["record", "memory"];
-var DEFAULTS_VERSION = 1;
 var DESCRIPTION_MAX_LENGTH = 160;
 function fail(message) {
   return { ok: false, message };
@@ -17420,8 +17407,7 @@ function readEnumArrayField(record2, key, subject, allowed) {
 }
 var PANEL_REQUEST_KEYS = ["sessionId"];
 var TOGGLE_REQUEST_KEYS = ["sessionId", "on", "addresses"];
-var DEFAULTS_REQUEST_KEYS = ["action", "addresses"];
-var WORKSPACE_REQUEST_KEYS = ["sessionId", "workspacePath", "action", "addresses"];
+var WORKSPACE_REQUEST_KEYS = ["workspacePath", "action", "addresses"];
 function parsePanelRequest(raw) {
   const subject = "panel \u8BF7\u6C42\u4F53";
   const body = readStrictObject(raw, subject, PANEL_REQUEST_KEYS);
@@ -17464,69 +17450,24 @@ function parseToggleRequest(raw) {
   if (!addresses.ok) return addresses;
   return { ok: true, value: { sessionId: sessionId.value, on: on.value, addresses: addresses.value } };
 }
-function parseDefaultsRequest(raw) {
-  const subject = "defaults \u8BF7\u6C42\u4F53";
-  const body = readStrictObject(raw, subject, DEFAULTS_REQUEST_KEYS);
-  if (!body.ok) return body;
-  const action = readEnumField(body.value, "action", subject, DEFAULTS_ACTIONS);
-  if (!action.ok) return action;
-  const hasAddresses = body.value["addresses"] !== void 0;
-  if (action.value === "reset") {
-    if (hasAddresses) return fail(`${subject}.addresses \u5728 action=reset \u65F6\u4E0D\u5141\u8BB8\u51FA\u73B0`);
-    return { ok: true, value: { action: action.value } };
-  }
-  if (!hasAddresses) return fail(`${subject}.addresses \u5728 action=${action.value} \u65F6\u5FC5\u9700`);
-  const addresses = readStringArrayField(body.value, "addresses", subject, {
-    minItems: 1,
-    maxItems: MAX_ADDRESSES,
-    itemMinLength: 1,
-    itemMaxLength: ADDRESS_MAX_LENGTH
-  });
-  if (!addresses.ok) return addresses;
-  return { ok: true, value: { action: action.value, addresses: addresses.value } };
-}
 function parseWorkspaceRequest(raw) {
   const subject = "workspace \u8BF7\u6C42\u4F53";
   const body = readStrictObject(raw, subject, WORKSPACE_REQUEST_KEYS);
   if (!body.ok) return body;
   const record2 = body.value;
-  const hasSessionId = record2["sessionId"] !== void 0;
-  const hasWorkspacePath = record2["workspacePath"] !== void 0;
-  if (hasSessionId === hasWorkspacePath) {
-    return fail(`${subject} \u5FC5\u987B\u4E14\u53EA\u80FD\u51FA\u73B0 sessionId \u6216 workspacePath \u4E4B\u4E00`);
-  }
-  let sessionId;
-  let workspacePath;
-  if (hasSessionId) {
-    const parsed2 = readStringField(record2, "sessionId", subject, {
-      minLength: 1,
-      maxLength: SESSION_ID_MAX_LENGTH
-    });
-    if (!parsed2.ok) return parsed2;
-    sessionId = parsed2.value;
-  } else {
-    const parsed2 = readStringField(record2, "workspacePath", subject, {
-      minLength: 1,
-      maxLength: MAX_WORKSPACE_PATH_LENGTH
-    });
-    if (!parsed2.ok) return parsed2;
-    if (!parsed2.value.startsWith("/")) return fail(`${subject}.workspacePath \u5FC5\u987B\u4EE5 / \u5F00\u5934`);
-    workspacePath = parsed2.value;
-  }
+  const workspacePath = readStringField(record2, "workspacePath", subject, {
+    minLength: 1,
+    maxLength: MAX_WORKSPACE_PATH_LENGTH
+  });
+  if (!workspacePath.ok) return workspacePath;
+  if (!workspacePath.value.startsWith("/")) return fail(`${subject}.workspacePath \u5FC5\u987B\u4EE5 / \u5F00\u5934`);
   const action = record2["action"] === void 0 ? void 0 : readEnumField(record2, "action", subject, WORKSPACE_ACTIONS);
   if (action !== void 0 && !action.ok) return action;
   const resolvedAction = action === void 0 ? "read" : action.value;
   const hasAddresses = record2["addresses"] !== void 0;
   if (resolvedAction === "read" || resolvedAction === "reset") {
     if (hasAddresses) return fail(`${subject}.addresses \u5728 action=${resolvedAction} \u65F6\u4E0D\u5141\u8BB8\u51FA\u73B0`);
-    return {
-      ok: true,
-      value: {
-        ...sessionId === void 0 ? {} : { sessionId },
-        ...workspacePath === void 0 ? {} : { workspacePath },
-        action: resolvedAction
-      }
-    };
+    return { ok: true, value: { workspacePath: workspacePath.value, action: resolvedAction } };
   }
   if (!hasAddresses) return fail(`${subject}.addresses \u5728 action=${resolvedAction} \u65F6\u5FC5\u9700`);
   const addresses = readStringArrayField(record2, "addresses", subject, {
@@ -17539,8 +17480,7 @@ function parseWorkspaceRequest(raw) {
   return {
     ok: true,
     value: {
-      ...sessionId === void 0 ? {} : { sessionId },
-      ...workspacePath === void 0 ? {} : { workspacePath },
+      workspacePath: workspacePath.value,
       action: resolvedAction,
       addresses: addresses.value
     }
@@ -17550,7 +17490,6 @@ var REQUEST_PARSERS = {
   panel: parsePanelRequest,
   toggle: parseToggleRequest,
   reset: parseResetRequest,
-  defaults: parseDefaultsRequest,
   workspace: parseWorkspaceRequest
 };
 var TOOL_ENTRY_KEYS = [
@@ -17564,9 +17503,7 @@ var TOOL_ENTRY_KEYS = [
 ];
 var TOOL_GROUP_KEYS = ["kind", "key", "address", "toolCount", "disabledCount", "disabled", "tools"];
 var STATE_VIEW_KEYS = ["disabled", "snapshot", "seeded", "updatedAt", "storeKind"];
-var DEFAULTS_VIEW_KEYS = ["version", "disabled", "path", "readable", "corrupt"];
 var STATS_VIEW_KEYS = ["visible", "denied"];
-var WORKSPACE_CHOICE_KEYS = ["key", "title"];
 var WORKSPACE_VIEW_KEYS = ["key", "title", "registered", "disabled", "path", "readable", "corrupt"];
 var DEFAULTS_ENTRY_KEYS = [
   "address",
@@ -17594,12 +17531,10 @@ var PANEL_SNAPSHOT_KEYS = [
   "state",
   "groups",
   "protectedNames",
-  "defaults",
   "intentOnly",
   "stats",
   "notices",
-  "skills",
-  "workspace"
+  "skills"
 ];
 var MUTATION_APPLIED_KEYS = ["address", "on", "matched"];
 var MUTATION_KEYS = [
@@ -17700,34 +17635,6 @@ function readStateView(value, subject) {
     }
   };
 }
-function readDefaultsView(value, subject) {
-  const object2 = readStrictObject(value, subject, DEFAULTS_VIEW_KEYS);
-  if (!object2.ok) return object2;
-  const record2 = object2.value;
-  const version2 = readCountField(record2, "version", subject);
-  if (!version2.ok) return version2;
-  if (version2.value !== DEFAULTS_VERSION) {
-    return fail(`${subject}.version \u4E0D\u662F ${DEFAULTS_VERSION}\uFF08\u5B9E\u9645 ${version2.value}\uFF09`);
-  }
-  const disabled = readStringArrayField(record2, "disabled", subject);
-  if (!disabled.ok) return disabled;
-  const path2 = readStringField(record2, "path", subject, { minLength: 1 });
-  if (!path2.ok) return path2;
-  const readable = readBooleanField(record2, "readable", subject);
-  if (!readable.ok) return readable;
-  const corrupt = readBooleanField(record2, "corrupt", subject);
-  if (!corrupt.ok) return corrupt;
-  return {
-    ok: true,
-    value: {
-      version: version2.value,
-      disabled: disabled.value,
-      path: path2.value,
-      readable: readable.value,
-      corrupt: corrupt.value
-    }
-  };
-}
 function readStatsView(value, subject) {
   const object2 = readStrictObject(value, subject, STATS_VIEW_KEYS);
   if (!object2.ok) return object2;
@@ -17767,16 +17674,6 @@ function readSkillView(value, subject) {
       shadowed: shadowed.value
     }
   };
-}
-function readWorkspaceChoice(value, subject) {
-  const object2 = readStrictObject(value, subject, WORKSPACE_CHOICE_KEYS);
-  if (!object2.ok) return object2;
-  const record2 = object2.value;
-  const key = readStringField(record2, "key", subject, { minLength: 1 });
-  if (!key.ok) return key;
-  const title = readStringField(record2, "title", subject);
-  if (!title.ok) return title;
-  return { ok: true, value: { key: key.value, title: title.value } };
 }
 function readWorkspaceView(value, subject) {
   const object2 = readStrictObject(value, subject, WORKSPACE_VIEW_KEYS);
@@ -17937,8 +17834,6 @@ function readPanelSnapshot(value, subject) {
   if (!groups.ok) return groups;
   const protectedNames = readStringArrayField(record2, "protectedNames", subject);
   if (!protectedNames.ok) return protectedNames;
-  const defaults = readDefaultsView(record2["defaults"], `${subject}.defaults`);
-  if (!defaults.ok) return defaults;
   const intentOnly = readStringArrayField(record2, "intentOnly", subject);
   if (!intentOnly.ok) return intentOnly;
   const stats = readStatsView(record2["stats"], `${subject}.stats`);
@@ -17947,8 +17842,6 @@ function readPanelSnapshot(value, subject) {
   if (!notices.ok) return notices;
   const skills = readArrayField(record2, "skills", subject, readSkillView);
   if (!skills.ok) return skills;
-  const workspace = readNullableWorkspaceView(record2["workspace"], `${subject}.workspace`);
-  if (!workspace.ok) return workspace;
   return {
     ok: true,
     value: {
@@ -17957,12 +17850,10 @@ function readPanelSnapshot(value, subject) {
       state: state.value,
       groups: groups.value,
       protectedNames: protectedNames.value,
-      defaults: defaults.value,
       intentOnly: intentOnly.value,
       stats: stats.value,
       notices: notices.value,
-      skills: skills.value,
-      workspace: workspace.value
+      skills: skills.value
     }
   };
 }
@@ -18027,24 +17918,12 @@ function parseToggleValue(raw) {
 function parseResetValue(raw) {
   return readToggleValue(raw, "reset \u54CD\u5E94");
 }
-function parseDefaultsValue(raw) {
-  const subject = "defaults \u54CD\u5E94";
-  const object2 = readStrictObject(raw, subject, ["defaults", "changed"]);
-  if (!object2.ok) return object2;
-  const defaults = readDefaultsView(object2.value["defaults"], `${subject}.defaults`);
-  if (!defaults.ok) return defaults;
-  const changed = readStringArrayField(object2.value, "changed", subject, { itemMinLength: 1 });
-  if (!changed.ok) return changed;
-  return { ok: true, value: { defaults: defaults.value, changed: changed.value } };
-}
 function parseWorkspaceValue(raw) {
   const subject = "workspace \u54CD\u5E94";
-  const object2 = readStrictObject(raw, subject, ["workspace", "choices", "changed", "universe"]);
+  const object2 = readStrictObject(raw, subject, ["workspace", "changed", "universe"]);
   if (!object2.ok) return object2;
   const workspace = readNullableWorkspaceView(object2.value["workspace"], `${subject}.workspace`);
   if (!workspace.ok) return workspace;
-  const choices = readArrayField(object2.value, "choices", subject, readWorkspaceChoice);
-  if (!choices.ok) return choices;
   const changed = readStringArrayField(object2.value, "changed", subject, { itemMinLength: 1 });
   if (!changed.ok) return changed;
   const universe = readNullableDefaultsUniverse(object2.value["universe"], `${subject}.universe`);
@@ -18053,7 +17932,6 @@ function parseWorkspaceValue(raw) {
     ok: true,
     value: {
       workspace: workspace.value,
-      choices: choices.value,
       changed: changed.value,
       universe: universe.value
     }
@@ -20063,21 +19941,13 @@ function buildPanelSnapshot(inputs) {
     },
     groups: buildGroups(candidates, context, new Set(closedTexts)),
     protectedNames: sortedTexts(inputs.protectedNames),
-    defaults: {
-      version: inputs.defaults.version,
-      disabled: [...inputs.defaults.disabled],
-      path: inputs.defaultsPath,
-      readable: inputs.defaultsReadable,
-      corrupt: inputs.defaultsCorrupt
-    },
     intentOnly,
     stats: {
       visible: candidates.filter((name2) => !deny.has(name2)).length,
       denied: plan.deny.length
     },
     notices: noticesOf(inputs),
-    skills: skillViewsOf(inputs.skills, closedSkillNames),
-    workspace: workspaceViewOf2(inputs.workspace)
+    skills: skillViewsOf(inputs.skills, closedSkillNames)
   };
 }
 var NO_GROUPS = Object.freeze([]);
@@ -20086,74 +19956,6 @@ var EMPTY_UNIVERSE = Object.freeze({
   skillsAvailable: false,
   groups: NO_GROUPS
 });
-function buildDefaultsUniverse(inputs) {
-  if (!inputs.layerReady) return EMPTY_UNIVERSE;
-  const candidates = sortedTexts([
-    ...inputs.schemas.map((schema) => schema.name),
-    ...inputs.carried
-  ]);
-  const descriptions = /* @__PURE__ */ new Map();
-  for (const schema of inputs.schemas) descriptions.set(schema.name, schema.description ?? "");
-  const servers = /* @__PURE__ */ new Map();
-  const builtin = [];
-  let hasSkill = false;
-  for (const name2 of candidates) {
-    const parts = mcpPartsOf(name2);
-    if (parts !== void 0) {
-      const entry = defaultsEntryOf(
-        name2,
-        parts.suffix,
-        formatAddress({ kind: "mcp-tool", server: parts.server, pattern: parts.suffix }),
-        descriptions,
-        inputs.protectedNames
-      );
-      const bucket = servers.get(parts.server);
-      if (bucket === void 0) servers.set(parts.server, [entry]);
-      else bucket.push(entry);
-      continue;
-    }
-    if (name2 === SKILL_NAME2) {
-      hasSkill = true;
-      continue;
-    }
-    builtin.push(
-      defaultsEntryOf(
-        name2,
-        name2,
-        formatAddress({ kind: "tool", name: name2 }),
-        descriptions,
-        inputs.protectedNames
-      )
-    );
-  }
-  const groups = [];
-  for (const server of Array.from(servers.keys()).sort(compareText4)) {
-    const tools = servers.get(server);
-    if (tools === void 0) continue;
-    groups.push({
-      kind: "mcp",
-      key: server,
-      address: formatAddress({ kind: "mcp-group", server }),
-      tools
-    });
-  }
-  if (hasSkill) {
-    groups.push({
-      kind: "skill",
-      key: SKILL_NAME2,
-      address: formatAddress({ kind: "tool", name: SKILL_NAME2 }),
-      tools: skillEntriesOf(inputs.skills, inputs.protectedNames)
-    });
-  }
-  if (builtin.length > 0) {
-    groups.push({ kind: "builtin", key: BUILTIN_GROUP_KEY, address: null, tools: builtin });
-  }
-  return {
-    layerReady: true,
-    skillsAvailable: inputs.skills?.available === true,
-    groups
-  };
-}
 function defaultsEntryOf(name2, shortName, address, descriptions, protectedNames) {
   const description = descriptionOf(name2, descriptions);
   const entry = {
@@ -20163,14 +19965,6 @@ function defaultsEntryOf(name2, shortName, address, descriptions, protectedNames
     reserved: isReservedName(name2)
   };
   return description === void 0 ? entry : { ...entry, description };
-}
-function skillEntriesOf(skills, protectedNames) {
-  if (skills === void 0 || !skills.available) return [];
-  const descriptions = /* @__PURE__ */ new Map();
-  for (const row of skills.visible) descriptions.set(row.name, row.description);
-  return sortedTexts([...descriptions.keys(), ...skills.shadowed]).map(
-    (name2) => defaultsEntryOf(name2, name2, formatAddress({ kind: "skill", name: name2 }), descriptions, protectedNames)
-  );
 }
 function closedAddressesOf(disabled) {
   const byText = /* @__PURE__ */ new Map();
@@ -20203,20 +19997,6 @@ function skillViewsOf(skills, closedSkillNames) {
   }
   views.sort((left, right) => compareText4(left.name, right.name));
   return views;
-}
-function workspaceViewOf2(workspace) {
-  if (workspace === void 0) return null;
-  const attribution = workspace.attribution;
-  if (attribution === void 0) return null;
-  return {
-    key: attribution.key,
-    ...attribution.title === void 0 ? {} : { title: attribution.title },
-    registered: attribution.registered,
-    disabled: sortedTexts(workspace.disabled),
-    path: workspace.path,
-    readable: workspace.readable,
-    corrupt: workspace.corrupt
-  };
 }
 function buildGroups(candidates, context, closed) {
   const servers = /* @__PURE__ */ new Map();
@@ -20305,7 +20085,6 @@ function descriptionOf(name2, descriptions) {
 function noticesOf(inputs) {
   const notices = new Set(inputs.notices);
   if (inputs.storeKind === "memory") notices.add("persistence-degraded");
-  if (inputs.defaultsCorrupt) notices.add("defaults-corrupt");
   return NOTICE_ORDER.filter((code) => notices.has(code));
 }
 function sortedTexts(texts) {
@@ -20325,7 +20104,6 @@ var DEFAULT_KERNEL = Object.freeze({
   toggleSession,
   resetSession,
   readPanel,
-  updateDefaults,
   updateWorkspaceDefaults
 });
 function createRpcDispatcher(deps) {
@@ -20353,8 +20131,6 @@ async function dispatch(deps, endpoint, payload) {
       return await handleToggle(deps, parsed2.value);
     case "reset":
       return await handleReset(deps, parsed2.value);
-    case "defaults":
-      return await handleDefaults(deps, parsed2.value);
     case "workspace":
       return await handleWorkspace(deps, parsed2.value);
     default:
@@ -20372,7 +20148,7 @@ async function handleToggle(deps, request) {
   if (!live.ok) return live.failure;
   const precheck = precheckAddresses(request.addresses, deps.protectedNames);
   if (!precheck.ok) return precheck.failure;
-  const outcome = kernelOf(deps).toggleSession(deps, live.session, request.addresses, request.on);
+  const outcome = kernelOf(deps).toggleSession(kernelDepsOf(deps), live.session, request.addresses, request.on);
   if (!outcome.ok) return failure("bad-request", outcome.text, { issues: outcome.text });
   await settledSkills(deps, live.session);
   const value = await valueOf(
@@ -20386,8 +20162,8 @@ async function handleReset(deps, request) {
   const live = liveSessionOf(deps, request.sessionId);
   if (!live.ok) return live.failure;
   const kernel = kernelOf(deps);
-  const before = await kernel.readPanel(deps, live.session);
-  const report = kernel.resetSession(deps, live.session);
+  const before = await kernel.readPanel(kernelDepsOf(deps), live.session);
+  const report = kernel.resetSession(kernelDepsOf(deps), live.session);
   await settledSkills(deps, live.session);
   const value = await valueOf(
     deps,
@@ -20395,26 +20171,6 @@ async function handleReset(deps, request) {
     mutationOfReset(report, before, settledShadowedOf(deps, live.session))
   );
   return checked(parseResetValue(value), deps, "reset \u54CD\u5E94");
-}
-async function handleDefaults(deps, request) {
-  if (request.addresses !== void 0) {
-    const precheck = precheckAddresses(request.addresses, deps.protectedNames);
-    if (!precheck.ok) return precheck.failure;
-  }
-  const attempt = await writeDefaultsOf(deps, request.action, request.addresses ?? []);
-  if (!attempt.ok) return attempt.failure;
-  const report = attempt.report;
-  const value = {
-    defaults: {
-      version: 1,
-      disabled: [...report.after.disabled],
-      path: report.path,
-      readable: true,
-      corrupt: false
-    },
-    changed: [...report.after.disabled]
-  };
-  return checked(parseDefaultsValue(value), deps, "defaults \u54CD\u5E94");
 }
 async function handleWorkspace(deps, request) {
   const resolution = await resolveWorkspace(deps, request);
@@ -20425,68 +20181,42 @@ async function handleWorkspace(deps, request) {
     const precheck = precheckAddresses(request.addresses, deps.protectedNames);
     if (!precheck.ok) return precheck.failure;
   }
-  const choices = choicesOf(deps);
-  const universeOfTarget = async () => resolved.target.kind === "session" ? universeOf(deps, resolved.target.session) : readWorkspaceUniverseOf(deps, resolved.key);
   if (action === "read") {
     const reading = await workspaceFileOf(deps);
     const value2 = {
-      workspace: workspaceViewOf3(deps, resolved, disabledOf(reading.file, resolved.key), reading),
-      choices,
+      workspace: workspaceViewOf2(deps, resolved, disabledOf(reading.file, resolved.key), reading),
       // read 不写任何东西（契约字段语义）。
       changed: [],
-      universe: await universeOfTarget()
+      // 闭包时序（G7）：档动作完成之后才求值宇宙，「技能目录发现」不拖慢一次读。
+      universe: await readWorkspaceUniverseOf(deps, resolved.key)
     };
     return checked(parseWorkspaceValue(value2), deps, "workspace \u54CD\u5E94");
   }
-  const attempt = await writeWorkspaceOf(deps, resolved, action, request.addresses ?? [], workspaceSubjectOf(request));
+  const attempt = await writeWorkspaceOf(deps, resolved, action, request.addresses ?? [], request.workspacePath);
   if (!attempt.ok) return attempt.failure;
   const report = attempt.report;
   const disabled = disabledOf(report.after, report.key);
   const value = {
-    workspace: workspaceViewOf3(deps, resolved, disabled, {
+    workspace: workspaceViewOf2(deps, resolved, disabled, {
       file: report.after,
       readable: true,
       corrupt: false
     }),
-    choices,
     changed: [...disabled],
-    universe: await universeOfTarget()
+    universe: await readWorkspaceUniverseOf(deps, resolved.key)
   };
   return checked(parseWorkspaceValue(value), deps, "workspace \u54CD\u5E94");
 }
 async function resolveWorkspace(deps, request) {
-  if (request.sessionId !== void 0) {
-    const live = liveSessionOf(deps, request.sessionId);
-    if (!live.ok) return { ok: false, failure: live.failure };
-    const attribution = await attributionOf(deps, live.session);
-    if (attribution === void 0) {
-      return {
-        ok: false,
-        failure: failure(
-          "workspace-unresolved",
-          `\u4F1A\u8BDD\u300C${request.sessionId}\u300D\u7684 cwd \u65E0\u6CD5\u5F52\u5C5E\u5DE5\u4F5C\u533A\uFF08cwd \u7F3A\u5931\u6216\u76EE\u5F55\u5DF2\u88AB\u5220\u9664\uFF09`,
-          { subject: request.sessionId }
-        )
-      };
-    }
-    return {
-      ok: true,
-      resolved: {
-        key: attribution.key,
-        registered: attribution.registered,
-        ...attribution.title === void 0 ? {} : { title: attribution.title },
-        target: { kind: "session", session: live.session }
-      }
-    };
-  }
-  const path2 = request.workspacePath ?? "";
-  const choice = choicesOf(deps).find((item) => item.key === path2);
+  const choice = choicesOf(deps).find((item) => item.key === request.workspacePath);
   if (choice === void 0) {
     return {
       ok: false,
-      failure: failure("workspace-unresolved", `\u8DEF\u5F84\u300C${path2}\u300D\u4E0D\u662F\u5DF2\u767B\u8BB0\u7684\u5DE5\u4F5C\u533A\uFF08\u53EA\u63A5\u53D7\u5DE5\u4F5C\u533A\u8DEF\u5F84\u4E0B\u62C9\u91CC\u7684\u89C4\u8303\u8DEF\u5F84\uFF09`, {
-        subject: path2
-      })
+      failure: failure(
+        "workspace-unresolved",
+        `\u8DEF\u5F84\u300C${request.workspacePath}\u300D\u4E0D\u662F\u5DF2\u767B\u8BB0\u7684\u5DE5\u4F5C\u533A\uFF08\u53EA\u63A5\u53D7\u5DE5\u4F5C\u533A\u8DEF\u5F84\u4E0B\u62C9\u91CC\u7684\u89C4\u8303\u8DEF\u5F84\uFF09`,
+        { subject: request.workspacePath }
+      )
     };
   }
   return {
@@ -20498,14 +20228,6 @@ async function resolveWorkspace(deps, request) {
       target: { kind: "path", path: choice.key }
     }
   };
-}
-async function attributionOf(deps, session) {
-  try {
-    return await deps.workspaceOf(session);
-  } catch (error51) {
-    deps.log.warn(`\u8BFB\u53D6\u4F1A\u8BDD ${session.id} \u7684\u5DE5\u4F5C\u533A\u5F52\u5C5E\u5931\u8D25\uFF1A${messageOf5(error51)}`);
-    return void 0;
-  }
 }
 function choicesOf(deps) {
   try {
@@ -20521,7 +20243,7 @@ async function workspaceFileOf(deps) {
   const readable = await canReadFile(deps.workspacesIo, deps.workspacesPath);
   return { file: file2, readable, corrupt: readable };
 }
-function workspaceViewOf3(deps, resolved, disabled, reading) {
+function workspaceViewOf2(deps, resolved, disabled, reading) {
   return {
     key: resolved.key,
     ...resolved.title === void 0 ? {} : { title: resolved.title },
@@ -20534,7 +20256,7 @@ function workspaceViewOf3(deps, resolved, disabled, reading) {
 }
 async function writeWorkspaceOf(deps, resolved, action, texts, subject) {
   try {
-    const outcome = await kernelOf(deps).updateWorkspaceDefaults(deps, resolved.target, action, texts);
+    const outcome = await kernelOf(deps).updateWorkspaceDefaults(kernelDepsOf(deps), resolved.target, action, texts);
     if (!outcome.ok) {
       return {
         ok: false,
@@ -20553,9 +20275,6 @@ async function writeWorkspaceOf(deps, resolved, action, texts, subject) {
       })
     };
   }
-}
-function workspaceSubjectOf(request) {
-  return request.sessionId ?? request.workspacePath ?? "";
 }
 async function readWorkspaceUniverseOf(deps, key) {
   try {
@@ -20631,11 +20350,9 @@ function toolNameOf(text) {
   return text.startsWith("tool:") ? text.slice("tool:".length) : text;
 }
 async function snapshotOf2(deps, session) {
-  const reading = await kernelOf(deps).readPanel(deps, session);
-  const defaultsState = await defaultsStateOf(deps, reading.defaults);
+  const reading = await kernelOf(deps).readPanel(kernelDepsOf(deps), session);
   const descriptions = descriptionsOf(deps, session);
   const skills = skillsOf2(deps, session);
-  const workspace = workspacePanelInputsOf(reading);
   const inputs = {
     sessionId: session.id,
     createdAt: reading.createdAt,
@@ -20644,16 +20361,11 @@ async function snapshotOf2(deps, session) {
     scoped: reading.scoped,
     carried: reading.appliedDeny,
     protectedNames: reading.protectedNames,
-    defaults: reading.defaults,
-    defaultsPath: reading.defaultsPath,
-    defaultsReadable: defaultsState.readable,
-    defaultsCorrupt: defaultsState.corrupt,
     // 提示码的分工（H6）：构建器只排序去重，技能两条由组装层从技能分面与关闭集推导。
     notices: noticesOf2(session, reading, skills),
-    // 技能行、工作区视图与描述列的**投影**在 `panel.ts` 构建器里（H6）：这里只交原始读数，
+    // 技能行与描述列的**投影**在 `panel.ts` 构建器里（H6）：这里只交原始读数，
     // 面板、`/tools status` 与命令面因此共享同一份事实（D14）。描述恒传：层缺席时是空表。
     ...skills === void 0 ? {} : { skills },
-    ...workspace === void 0 ? {} : { workspace },
     descriptions
   };
   return buildPanelSnapshot(inputs);
@@ -20673,41 +20385,6 @@ var EMPTY_UNIVERSE2 = Object.freeze({
   skillsAvailable: false,
   groups: []
 });
-function universeOf(deps, session) {
-  const layer = deps.layerFor(session.id);
-  if (layer === void 0) return EMPTY_UNIVERSE2;
-  let schemas;
-  let carried;
-  try {
-    schemas = layer.visibleSchemas();
-    carried = layer.snapshot().deny;
-  } catch (error51) {
-    deps.log.warn(`\u8BFB\u53D6\u4F1A\u8BDD ${session.id} \u7684\u5DE5\u5177\u5B87\u5B99\u5931\u8D25\uFF08\u9ED8\u8BA4\u6863\u754C\u9762\u5C06\u53EA\u663E\u793A\u6B8B\u7559\u533A\uFF09\uFF1A${messageOf5(error51)}`);
-    return EMPTY_UNIVERSE2;
-  }
-  return buildDefaultsUniverse({
-    layerReady: true,
-    schemas,
-    carried,
-    skills: skillsOf2(deps, session),
-    protectedNames: deps.protectedNames
-  });
-}
-function workspacePanelInputsOf(reading) {
-  const view = reading.workspace;
-  if (view === null) return void 0;
-  return {
-    attribution: {
-      key: view.key,
-      registered: view.registered,
-      ...view.title === void 0 ? {} : { title: view.title }
-    },
-    disabled: view.disabled,
-    path: view.path,
-    readable: view.readable,
-    corrupt: view.corrupt
-  };
-}
 function noticesOf2(session, reading, skills) {
   const notices = originOf(session) === "subagent" ? ["session-subagent"] : [];
   notices.push(...skillNoticesOf(reading, skills));
@@ -20739,11 +20416,6 @@ function disabledSkillNames(disabled) {
 }
 function originOf(session) {
   return session.header.origin;
-}
-async function defaultsStateOf(deps, defaults) {
-  if (defaults !== EMPTY_DEFAULTS) return { readable: true, corrupt: false };
-  const readable = await canReadFile(deps.defaultsIo, deps.defaultsPath);
-  return { readable, corrupt: readable };
 }
 async function canReadFile(io, path2) {
   try {
@@ -20808,25 +20480,6 @@ function mutationOfReset(report, before, settledShadowed) {
 function mutationNotices(persistFailed) {
   return persistFailed ? ["persistence-degraded"] : [];
 }
-async function writeDefaultsOf(deps, action, addresses) {
-  try {
-    return settled(await kernelOf(deps).updateDefaults(deps, action, addresses));
-  } catch (error51) {
-    const reason = messageOf5(error51);
-    deps.log.warn(`\u9ED8\u8BA4\u6863\u5199\u5165\u5931\u8D25\uFF08${deps.defaultsPath}\uFF09\uFF1A${reason}`);
-    return {
-      ok: false,
-      failure: failure("defaults-unwritable", `\u9ED8\u8BA4\u6863\u5199\u5165\u5931\u8D25\uFF08${deps.defaultsPath}\uFF09\uFF1A${reason}`, {
-        path: deps.defaultsPath,
-        reason
-      })
-    };
-  }
-}
-function settled(outcome) {
-  if (outcome.ok) return { ok: true, report: outcome.report };
-  return { ok: false, failure: failure("bad-request", outcome.text, { issues: outcome.text }) };
-}
 function checked(parsed2, deps, subject) {
   if (parsed2.ok) return { ok: true, value: parsed2.value };
   const message = `\u54CD\u5E94\u81EA\u68C0\u5931\u8D25\uFF1A\u5BBF\u4E3B\u4EA7\u51FA\u7684\u300C${subject}\u300D\u4E0D\u5408\u5951\u7EA6\uFF1A${parsed2.message}`;
@@ -20844,6 +20497,9 @@ function isEndpoint(value) {
 }
 function kernelOf(deps) {
   return deps.kernel ?? DEFAULT_KERNEL;
+}
+function kernelDepsOf(deps) {
+  return deps;
 }
 function uniqueTexts(texts) {
   return Array.from(new Set(texts));

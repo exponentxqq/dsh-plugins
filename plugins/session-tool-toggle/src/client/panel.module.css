@@ -46,22 +46,6 @@
   overflow-y: auto;
 }
 
-/* —— 分区与分区标题（四段自上而下） —— */
-.section {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.sectionTitle {
-  margin: 0;
-  color: var(--dsw-alias-label-secondary, #545557);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 20px;
-  letter-spacing: 0.01em;
-}
-
 /* —— 状态摘要：两计数一行 + 三条事实行 —— */
 .counters {
   display: flex;
@@ -229,14 +213,6 @@
   list-style: none;
 }
 
-/* —— 技能行（C11 / 任务 7.7）：`SkillPanel` 复用同一套 `.rows` / `.row` / `.tag` / `.pending`，
- *    但它的列表**直接挂在分区下**（没有分组标题行），26px 的层级缩进在这里会与分区标题错位，
- *    所以只取消缩进、其余与工具行完全一致（一行一个开关、等宽名字、状态标签）。
- *    工具行的 `.rows` 嵌在 `.group` 里，不受这条直接子选择器影响。 —— */
-.section > .rows {
-  padding-left: 0;
-}
-
 .row {
   display: flex;
   align-items: center;
@@ -376,19 +352,6 @@
   line-height: 18px;
 }
 
-/* —— B 的默认档分组开关界面 —— */
-
-/* 面板两分区的可折叠壳（`DefaultsSectionFrame`）：壳本身无背景无边框，视觉靠标题行；
- * 顶部留白取分区节奏，与相邻分区拉开一档（内容列另有 18px 的分区间距）。 */
-.sectionFrame {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 6px;
-  background: none;
-  border: 0;
-}
-
 /* 残留 chips 区的标题（只可移除）：小字号、次要色，与上方的组列表拉开。 */
 .residual {
   margin: 8px 0 0;
@@ -402,8 +365,8 @@
  * 与统一「工作区配置」页的其他分节同一视觉语言。令牌纪律与上文一致：每处
  * `var(--dsw-alias-*, <静态兜底>)`，令牌改名时最坏退化成可读的黑白而不是透明。 */
 
-/* 页面正文壳：三卡、脚注、页脚动作区纵向排布，卡间一档间距。 */
-.workspacePage {
+/* 卡栈壳（页面正文与会话面板三卡共用同一类）：三卡、脚注、页脚动作区纵向排布，卡间一档间距。 */
+.cardStack {
   display: flex;
   flex-direction: column;
   gap: 16px;

@@ -1,9 +1,10 @@
 /**
  * 默认档的分组开关清单（`code-design.md` ③ 3.19 / W5；D10 / D-20；页面能力见 ③ 3.4 / G4.2）。
  *
- * 两个编辑器（用户级 `DefaultsEditor` / 工作区级 `WorkspaceDefaultsEditor`）共用本组件：
- * 它们只在「这份关闭集写到哪里」上不同（`updateDefaults` / `updateWorkspace`），清单形状与
- * 开关语义完全同构。
+ * 两个默认档编辑器（用户级 `DefaultsEditor` / 工作区级 `WorkspaceDefaultsEditor`）与面板的
+ * 会话清单卡（③ 3.6）共用本组件：默认档两编辑器只在「这份关闭集写到哪里」上不同
+ * （`updateDefaults` / `updateWorkspace`），清单形状与开关语义完全同构；会话形态由可选的
+ * `session` 语义槽切换（③ 3.3，见下）。
  *
  * 与面板第二段（`ToolPanelGroups`）的关系是**复用模式，不共用组件**（D-20）：同样的三段式
  * 分组、同样的 `.groups/.group/.groupHeader/...` 样式类、同样的 `groupTitle` /
@@ -26,6 +27,12 @@
  * 宇宙不可用（`null` / `layerReady:false`）时只渲染降级说明 + 残留区 + 命令提示，**不渲染
  * 组清单**：层未就绪说明宿主读不到会话清单，远端残影 `groups` 不可信（与 `defaults-view.ts`
  * 的 `listed = 0` 同一口径）。
+ *
+ * **两个形态（③ 3.3，同一组件内一处分支）**：`session` 缺省 = 默认档形态（既有渲染，
+ * DOM 逐字不变——零回归锚点）；给出 = 会话形态（面板独有）——四个语义槽（`pending` /
+ * `effectiveDisabled` / `shadowedSkills` / `intentOnly`）切行级语义，`wordingOf` /
+ * `copyBundleOf` 切文案形态（组头计数 / `title` / 整组关标签 / 开关可访问名 / 技能标签 /
+ * 残留区文案一律经词汇束成员取用，插值名差异在 `wordingOf` 内部抹平，不直接散调 `t`）。
  *
  * **两条页面形态能力（③ 3.4，`query` / `showDetails` 都缺省 = 面板旧渲染，DOM 逐字一致）**：
  *
@@ -52,35 +59,33 @@ import {
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { DefaultsEntry, DefaultsGroup, DefaultsUniverse } from '../contract.ts'
 import { filterDefaultsView } from './defaults-view.ts'
-import { defaultExpanded, groupTitle } from './ToolPanelGroups.tsx'
+import {
+  copyBundleOf,
+  defaultExpanded,
+  groupTitle,
+  wordingOf,
+  type DefaultsGroupCopy,
+  type GroupListWording,
+} from './group-shape.ts'
 import { NS } from './locales.ts'
 import css from './panel.module.css'
 
 /** 本组件消费的转发函数（命名空间键联合，由 `locales.ts` 的 `declare module` 提供）。 */
 type Translate = TranslateNS<typeof NS>
 
-/** 残留区/CLI 提示的文案束：两个编辑器各传自己的键（用户级 / 工作区级措辞不同）。 */
-export interface DefaultsGroupCopy {
-  /** 残留区标题（`defaults.residualTitle`；两个编辑器共用同一句「只能移除」）。 */
-  readonly residualTitle: string
-  /** chip 上的移除按钮文案（`defaults.remove` / `workspace.remove`）。 */
-  readonly removeLabel: string
-  /**
-   * chip 移除按钮的可访问名。
-   * @param address - 该 chip 的地址。
-   * @returns 已插值的可访问名（用户级拼 `defaults.remove` + 地址，工作区级用 `workspace.removeAria`）。
-   */
-  readonly removeAria: (address: string) => string
-  /**
-   * 命令兜底说明（`defaults.cliHint` / `workspace.cliHint`）：本页只列本会话可见工具。
-   * 缺省 = 不渲染（页面形态把命令放进命令卡，不再要这一句灰字）。
-   */
-  readonly cliHint?: string
-  /**
-   * 宇宙不可用的主文案（页面形态的 `workspace.universeUnavailable`）。
-   * 缺省 = `t('defaults.universeUnavailable')`（面板/用户级原样）。
-   */
-  readonly universeUnavailable?: string
+/** 残留区/CLI 提示的文案束：类型本体在 `group-shape.ts`，此处 re-export 保持外部 import 面不变。 */
+export type { DefaultsGroupCopy }
+
+/** 会话形态的四个语义槽（面板独有；给了 `session` 就切会话文案与语义，缺省 = 默认档形态）。 */
+export interface SessionListState {
+  /** 在途开关地址（逐行/逐组禁用 + 「正在应用…」标签）。 */
+  readonly pending: ReadonlySet<string>
+  /** 行开关的「有效关闭」集合：整组关时组内行也在此集（`checked` 用它，而不是 `disabled`）。 */
+  readonly effectiveDisabled: ReadonlySet<string>
+  /** 影子 stub 已生效的技能地址（区分「模型不可见」与「已记录未生效」）。 */
+  readonly shadowedSkills: ReadonlySet<string>
+  /** 命中 0 个注册名的关闭地址（行/组头的「暂无匹配」标签）。 */
+  readonly intentOnly: ReadonlySet<string>
 }
 
 /** 默认档分组开关清单的 props。 */
@@ -98,8 +103,11 @@ export interface DefaultsGroupListProps {
    * @param on - 期望的新状态。
    */
   readonly onToggle: (address: string, on: boolean) => void
-  /** 残留区 / CLI 提示的文案束（两个编辑器各传自己的键）。 */
-  readonly copy: DefaultsGroupCopy
+  /**
+   * 残留区 / 降级文案束；缺省 = 按形态生成（`wordingOf`/`copyBundleOf`）。
+   * 页面与工作区档容器显式传 `copy` 的现状不变（默认档文案锚点不受影响）。
+   */
+  readonly copy?: DefaultsGroupCopy
   /** 本插件命名空间的翻译函数。 */
   readonly t: Translate
   /**
@@ -110,6 +118,8 @@ export interface DefaultsGroupListProps {
   readonly query?: string
   /** 行详情：描述次行 + 技能标签；缺省 false = 面板旧行。 */
   readonly showDetails?: boolean
+  /** 会话形态（面板）：语义槽 + 文案形态一起切（缺省 = 默认档，页面与工作区档容器零改动）。 */
+  readonly session?: SessionListState
 }
 
 /** 一行被锁定的理由：行内短标签 + 悬停/读屏同一句解释。 */
@@ -201,13 +211,17 @@ function sourceTagKeyOf(source: string): Parameters<Translate>[0] | undefined {
  * 非技能行（地址非 `skill:` 且没有 invocation 对）返回空数组——描述次行对全部行开放，
  * 技能标签只属于技能行。invocation 字段按契约成对出现，缺任一即视为缺席（不猜补）。
  * @param entry - 默认档条目。
- * @param disabledSet - 目标档关闭集（「新会话默认隐藏」按地址求交）。
+ * @param disabledSet - 目标档关闭集（「在关闭集」按地址求交，两形态同一前提）。
+ * @param session - 会话形态语义槽；缺省 = 默认档形态（标签走 `wording.skillHidden`）。
+ * @param wording - 形态词汇束（标签文案经成员取用，不散调 `t`）。
  * @param t - 翻译函数。
  * @returns 已本地化的标签文本（可能为空）。
  */
 function skillTagsOf(
   entry: DefaultsEntry,
   disabledSet: ReadonlySet<string>,
+  session: SessionListState | undefined,
+  wording: GroupListWording,
   t: Translate,
 ): readonly TagSpec[] {
   const tags: TagSpec[] = []
@@ -231,7 +245,19 @@ function skillTagsOf(
     // 技能来源七类（含未知原值）：蓝（info）——与 MCP 用户级同色（都是「配置来源」语义）。
     tags.push({ text: key === undefined ? entry.source : t(key), tone: 'info' })
   }
-  if (disabledSet.has(entry.address)) tags.push({ text: t('entry.skillHidden'), tone: 'neutral' })
+  if (disabledSet.has(entry.address)) {
+    // 「在关闭集」标签（③ 3.3 差异表）：默认档一句 `entry.skillHidden`；会话形态由
+    // `shadowedSkills` 分支吸收——命中 = 模型不可见（`skill.effective`），未命中 = 已记录
+    // 暂未生效（`skill.intentOnly`）。两形态同用中性灰（对齐旧 `SkillPanel` 的 `.tag`）。
+    tags.push({
+      text: session === undefined
+        ? wording.skillHidden
+        : session.shadowedSkills.has(entry.address)
+        ? wording.skillEffective
+        : wording.skillIntentOnly,
+      tone: 'neutral',
+    })
+  }
   return tags
 }
 
@@ -239,9 +265,9 @@ function skillTagsOf(
 interface DefaultsRowProps {
   /** 行数据（地址 + 短名 + 两态锁标记）。 */
   readonly entry: DefaultsEntry
-  /** 目标档关闭集（`checked = !disabledSet.has(entry.address)`）。 */
+  /** 目标档关闭集（默认档形态的 `checked` 事实；会话形态改走 `session.effectiveDisabled`）。 */
   readonly disabledSet: ReadonlySet<string>
-  /** 整组地址在目标档里：本行整体禁用并标 `defaults.groupOff`。 */
+  /** 整组地址在关闭集里：本行整体禁用并标整组关标签（两形态同语义，文案随形态）。 */
   readonly blocked: boolean
   /** 写在途（整份清单禁用）。 */
   readonly busy: boolean
@@ -249,6 +275,10 @@ interface DefaultsRowProps {
   readonly t: Translate
   /** 行详情（页面形态）：`.rowMain` 主列加描述次行与技能标签行。 */
   readonly showDetails: boolean
+  /** 会话形态语义槽（缺省 = 默认档形态，既有判定与标签逐字不变）。 */
+  readonly session?: SessionListState
+  /** 形态词汇束（开关可访问名 / 整组关 / pending / 技能标签经成员取用）。 */
+  readonly wording: GroupListWording
 }
 
 /**
@@ -258,20 +288,41 @@ interface DefaultsRowProps {
  * `showDetails`（页面形态）时行改两列：名称行之下加描述次行（全文走 `title`）与技能标签行，
  * 开关仍在右列。缺省（面板路径）的 DOM 与既有实现逐字一致——面板形态（`DefaultsEditor` /
  * `WorkspaceDefaultsEditor` 消费）的零回归锚点。
- * 禁用优先级：`busy` ∨ 锁态 ∨ 整组在档——锁态是宿主硬约束，整组在档是「逐项开关不生效」的语义。
+ * 禁用优先级：`busy` ∨ 锁态 ∨ 整组在档——锁态是宿主硬约束，整组在档是「逐项开关不生效」的语义；
+ * 会话形态再 ∨ `session.pending`（③ 3.3 pending 槽的逐行禁用）。
+ * 会话形态独有的两个标签：「正在应用…」（`css.pending`，与旧 `ToolPanelGroups.ToolRow` 同类）
+ * 与「暂无匹配」（`session.intentOnly` 命中，`title` = `disabled.intentOnly` 的一句解释——
+ * 两键文案经 `wording` 词汇束成员取用，不散调 `t`）。
  * @param props - 行数据与交互。
  * @returns 一行 `<li>`。
  */
-function DefaultsRow({ entry, disabledSet, blocked, busy, onToggle, t, showDetails }: DefaultsRowProps): ReactNode {
+function DefaultsRow({
+  entry,
+  disabledSet,
+  blocked,
+  busy,
+  onToggle,
+  t,
+  showDetails,
+  session,
+  wording,
+}: DefaultsRowProps): ReactNode {
   const lock = lockOf(entry, t)
-  const groupOff = blocked ? t('defaults.groupOff') : undefined
+  const groupOff = blocked ? wording.groupOff : undefined
   // 锁态优先讲硬约束；整组在档另起一个标签（两者可同时成立，设计 ③3.19 的 blocked 行要求带
-  // `defaults.groupOff`，锁态行要求带 `entry.*`，所以两个标签并列而不是互相顶掉）。
+  // 整组关标签，锁态行要求带 `entry.*`，所以两个标签并列而不是互相顶掉）。
   const reason = lock?.reason ?? groupOff
-  const disabled = busy || lock !== undefined || blocked
-  const tags = showDetails ? skillTagsOf(entry, disabledSet, t) : []
+  // 会话形态独有：本行开关在途（pending 槽命中）→ 禁用 + 「正在应用…」标签；默认档恒为假。
+  const pending = session !== undefined && session.pending.has(entry.address)
+  const disabled = busy || lock !== undefined || blocked || pending
+  const tags = showDetails ? skillTagsOf(entry, disabledSet, session, wording, t) : []
+  // 会话形态独有：该地址已记录关闭但当前命中 0 个注册名（「暂无匹配」）；默认档没有该槽。
+  const intentOnly = session !== undefined && session.intentOnly.has(entry.address)
+  // checked 的事实集（③ 3.3 差异表）：会话形态用「有效关闭」（整组关传导后的口径），
+  // 默认档维持原关闭集——`??` 左边只在会话形态有值，缺省分支与既有实现逐字一致。
+  const checkedSet = session?.effectiveDisabled ?? disabledSet
 
-  /** 名称行（短名 + 锁态/整组在档标签）：两个形态共用同一份内容。标签着色见 R15。 */
+  /** 名称行（短名 + 锁态/整组在档/暂无匹配/在途标签）：两个形态共用同一份内容。标签着色见 R15。 */
   const nameLine = (
     <span className={css.rowName}>
       <code className={css.name} title={entry.description ?? entry.shortName}>{entry.shortName}</code>
@@ -281,16 +332,22 @@ function DefaultsRow({ entry, disabledSet, blocked, busy, onToggle, t, showDetai
       {groupOff !== undefined && (
         <span className={`${css.tag} ${tagToneClass('warn')}`} title={groupOff}>{groupOff}</span>
       )}
+      {intentOnly && (
+        <span className={`${css.tag} ${tagToneClass('warn')}`} title={wording.disabledIntentOnly}>
+          {wording.entryIntentOnly}
+        </span>
+      )}
+      {pending && <span className={css.pending}>{wording.pending}</span>}
     </span>
   )
 
   /** 受控开关（两个形态同一份属性）：`onChange` 里守一道程序化 dispatch。 */
   const control = (
     <Switch
-      checked={!disabledSet.has(entry.address)}
+      checked={!checkedSet.has(entry.address)}
       disabled={disabled}
       title={reason}
-      label={t('defaults.switchLabel', { name: entry.shortName })}
+      label={wording.rowSwitchLabel(entry.shortName)}
       onChange={(next) => {
         // 原生 `disabled` 只挡真实用户手势；程序化 dispatch 仍会进来，这里守一道。
         if (disabled) return
@@ -357,6 +414,10 @@ interface DefaultsGroupRowProps {
   readonly query?: string
   /** 行详情（页面形态），透传给每一行。 */
   readonly showDetails: boolean
+  /** 会话形态语义槽（缺省 = 默认档形态），透传给每一行并切组头语义。 */
+  readonly session?: SessionListState
+  /** 形态词汇束（组头计数/`title`/整组关标签/开关可访问名/组内提示经成员取用）。 */
+  readonly wording: GroupListWording
 }
 
 /**
@@ -380,6 +441,8 @@ function DefaultsGroupRow({
   filtering,
   query,
   showDetails,
+  session,
+  wording,
 }: DefaultsGroupRowProps): ReactNode {
   const [expanded, setExpanded] = useState<boolean>(() => defaultExpanded(group.kind))
   const [filter, setFilter] = useState('')
@@ -395,20 +458,30 @@ function DefaultsGroupRow({
 
   // 组地址先落到 const：闭包里再读 `group.address` 会丢掉 `!== null` 的收窄。
   const address = group.address
-  // 整组地址在档里 → 组内所有行禁用（组开关本身仍可点：它是把整组拿出来的入口）。
+  // 整组地址在关闭集里 → 组内所有行禁用（组开关本身仍可点：它是把整组拿出来的入口）。
   const blocked = address !== null && disabledSet.has(address)
+  // 会话形态独有：整组开关在途（pending 槽「逐组禁用」）；默认档恒为假。
+  const groupPending = session !== undefined && address !== null && session.pending.has(address)
   const count = group.tools.length
+  // 「已关」计数与行开关同一事实集：会话形态用「有效关闭」（整组关传导后的口径），
+  // 默认档维持原关闭集——缺省分支与既有实现逐字一致。
+  const checkedSet = session?.effectiveDisabled ?? disabledSet
   const inDefaults = group.tools.reduce(
-    (sum, entry) => (disabledSet.has(entry.address) ? sum + 1 : sum),
+    (sum, entry) => (checkedSet.has(entry.address) ? sum + 1 : sum),
     0,
   )
   const title = groupTitle(group.kind, t)
   // 技能服务不可用：技能组只留整档开关 + 一行降级提示，行区整区不渲染。
   const degraded = group.kind === 'skill' && !skillsAvailable
+  // 会话形态独有：`tool:skill` 整组关的组内一句 `skill.blocked` 提示（③ 3.3 差异表；
+  // 默认档形态没有这句）。着色对齐旧 `SkillPanel` 的整档关警示（`.warning`）。
+  const skillBlockedNotice = session !== undefined && group.kind === 'skill' && blocked
+  // 会话形态独有：组地址已记录关闭但当前命中 0 个注册名（组头「暂无匹配」标签）。
+  const groupIntentOnly = session !== undefined && address !== null && session.intentOnly.has(address)
   // 强制展开：过滤态下所有组平铺（`expanded` 本地态被短路，非过滤态与现行一致）。
   const open = filtering || expanded
 
-  /** 组头正文（箭头 + 标题 + 服务器名 + 来源/token 徽章 + 计数摘要）：button 与 span 两个形态共用一份内容。 */
+  /** 组头正文（箭头 + 标题 + 服务器名 + 来源/token 徽章 + 暂无匹配标签 + 计数摘要）：button 与 span 两个形态共用一份内容。 */
   const headerContent = (
     <>
       {open ? <IconChevronDownOutlineRegular /> : <IconChevronRightOutlineRegular />}
@@ -429,10 +502,14 @@ function DefaultsGroupRow({
           {t('mcp.tokens')}
         </span>
       )}
-      <span className={css.groupCounts}>
-        {t('defaults.groupCount', { count })}
-        {inDefaults > 0 && ` · ${t('defaults.groupInDefaults', { count: inDefaults })}`}
-      </span>
+      {/* 会话形态独有：「暂无匹配」标签（③ 3.3 差异表；旧面板 chip 徽标 `badge.intent` 的
+          新落点，code-design Q4）。两键文案经形态词汇束成员取用（6.6 散调收敛）。 */}
+      {groupIntentOnly && (
+        <span className={`${css.tag} ${tagToneClass('warn')}`} title={wording.disabledIntentOnly}>
+          {wording.entryIntentOnly}
+        </span>
+      )}
+      <span className={css.groupCounts}>{wording.groupCount(count, inDefaults)}</span>
     </>
   )
 
@@ -443,7 +520,7 @@ function DefaultsGroupRow({
           ? (
             // 过滤态组头：非交互 span——强制展开的清单不再提供折叠手势，`aria-expanded` 与
             // `onClick` 一并撤掉；读数摘要（`title`）保留，span 复用 `.groupToggle` 的排布样式。
-            <span className={css.groupToggle} title={t('defaults.groupSummary', { count, inDefaults })}>
+            <span className={css.groupToggle} title={wording.groupSummary(count, inDefaults)}>
               {headerContent}
             </span>
           )
@@ -452,7 +529,7 @@ function DefaultsGroupRow({
               type="button"
               className={css.groupToggle}
               aria-expanded={expanded}
-              title={t('defaults.groupSummary', { count, inDefaults })}
+              title={wording.groupSummary(count, inDefaults)}
               onClick={() => {
                 setExpanded((value) => !value)
               }}
@@ -463,12 +540,10 @@ function DefaultsGroupRow({
         {address !== null && (
           <Switch
             checked={!disabledSet.has(address)}
-            disabled={busy}
-            label={t('defaults.groupSwitchLabel', {
-              name: group.kind === 'mcp' ? group.key : title,
-            })}
+            disabled={busy || groupPending}
+            label={wording.groupSwitchLabel(group.kind === 'mcp' ? group.key : title)}
             onChange={(next) => {
-              if (busy) return
+              if (busy || groupPending) return
               onToggle(address, next)
             }}
           />
@@ -493,11 +568,12 @@ function DefaultsGroupRow({
       )}
 
       {open && degraded && <p className={css.muted}>{t('skill.unavailable')}</p>}
+      {open && skillBlockedNotice && <p className={css.warning}>{wording.skillBlocked}</p>}
 
       {open && !degraded && (
         <ul className={css.rows} aria-label={title}>
           {tools.length === 0
-            ? <li className={css.empty}>{t('panel.empty')}</li>
+            ? <li className={css.empty}>{wording.emptyRow}</li>
             : tools.map((entry) => (
               <DefaultsRow
                 key={entry.address}
@@ -508,6 +584,8 @@ function DefaultsGroupRow({
                 onToggle={onToggle}
                 t={t}
                 showDetails={showDetails}
+                session={session}
+                wording={wording}
               />
             ))}
         </ul>
@@ -527,9 +605,11 @@ interface ResidualChipsProps {
 }
 
 /**
- * 残留地址区：目标档里不在宇宙中的地址，**只有移除**（`onToggle(address, true)`）。
+ * 残留地址区：关闭集里不在宇宙中的地址，**只有这一个动作**（`onToggle(address, true)`）。
  *
  * 没有任何添加入口：新关必须来自清单里的开关，跨清单的地址走命令（`copy.cliHint`）。
+ * 动作文案随形态（③ 3.3 差异表）：默认档 = 移除（移出档），会话 = 开启（移出关闭集）——
+ * 两者是同一个调用（`onToggle(address, true)`），语义随 `on` 的口径同名。
  * @param props - 残留地址与交互。
  * @returns 标题 + chips；残留为空时无输出。
  */
@@ -561,11 +641,15 @@ function ResidualChips({ addresses, busy, copy, onToggle }: ResidualChipsProps):
 }
 
 /**
- * 默认档的分组开关清单（两个编辑器共用的唯一清单实现）。
+ * 默认档的分组开关清单（两个默认档编辑器与面板会话清单卡共用的唯一清单实现）。
  *
+ * 形态由 `session` 槽切换（③ 3.3）：缺省 = 默认档形态（既有 DOM 逐字不变）；给出 = 会话形态。
+ * 两形态词汇经 `wordingOf` / `copyBundleOf` 就地构造——两个 bundle 都只在本次渲染内使用、
+ * 不进任何 `useMemo` 依赖，故不引入记忆化；`copy` 显式传入时优先（页面与工作区档容器的
+ * 文案锚点不受形态缺省影响）。
  * 过滤视图统一从 `filterDefaultsView` 读数（③ 3.4）：`query` 缺省时宇宙与残留原样返回
  * （identity 稳定），渲染分支因此与既有实现逐字一致——面板形态的零回归锚点；过滤生效时
- * 宇宙是剪枝后的投影（组级命中保留整组、空组丢弃），把组清空时用 `defaults.filterEmpty`
+ * 宇宙是剪枝后的投影（组级命中保留整组、空组丢弃），把组清空时用形态词汇的 `filterEmpty`
  * 交代无匹配，残留区仍按筛过的地址展示。
  * @param props - 见 {@link DefaultsGroupListProps}。
  * @returns 组清单 + 残留区 + 命令提示；宇宙不可用时退化为降级说明 + 残留区。
@@ -579,6 +663,7 @@ export function DefaultsGroupList({
   t,
   query,
   showDetails,
+  session,
 }: DefaultsGroupListProps): ReactNode {
   const disabledSet = useMemo(() => new Set(disabled), [disabled])
   // 过滤视图三件套（宇宙 / 残留 / 是否生效）：未过滤时 universe 保持 identity、残留与
@@ -587,6 +672,10 @@ export function DefaultsGroupList({
     () => filterDefaultsView(universe, disabled, query),
     [universe, disabled, query],
   )
+  // 两形态词汇与残留区文案束（③ 3.3 接线）：按形态就地构造，只在本次渲染内使用、
+  // 不进任何 `useMemo` 依赖；显式 `copy` 优先于按形态生成的缺省束。
+  const wording = wordingOf(session !== undefined, t)
+  const copyBundle = copy ?? copyBundleOf(session !== undefined, t)
   const filtering = view.filtering
   // 过滤无结果的提示词：与 `filterDefaultsView` 同一 trim 口径（只展示，不再参与匹配）。
   const needle = query?.trim() ?? ''
@@ -596,9 +685,9 @@ export function DefaultsGroupList({
   if (universe === null || !universe.layerReady) {
     return (
       <>
-        <p className={css.warning}>{copy.universeUnavailable ?? t('defaults.universeUnavailable')}</p>
-        <ResidualChips addresses={view.residual} busy={busy} copy={copy} onToggle={onToggle} />
-        {copy.cliHint !== undefined && <p className={css.muted}>{copy.cliHint}</p>}
+        <p className={css.warning}>{copyBundle.universeUnavailable ?? t('defaults.universeUnavailable')}</p>
+        <ResidualChips addresses={view.residual} busy={busy} copy={copyBundle} onToggle={onToggle} />
+        {copyBundle.cliHint !== undefined && <p className={css.muted}>{copyBundle.cliHint}</p>}
       </>
     )
   }
@@ -625,17 +714,19 @@ export function DefaultsGroupList({
                 filtering={filtering}
                 query={query}
                 showDetails={showDetails === true}
+                session={session}
+                wording={wording}
               />
             ))}
           </ul>
         )
         : (filtering && (
-          // 过滤把组清空：一句无匹配交代，不落 `panel.empty`（那是「宇宙本来就没有条目」
+          // 过滤把组清空：一句无匹配交代，不落空组行空态（那是「宇宙本来就没有条目」
           // 的面板空态，两者语义不同）；残留 chip 若有命中仍照常展示。
-          <p className={css.muted}>{t('defaults.filterEmpty', { query: needle })}</p>
+          <p className={css.muted}>{wording.filterEmpty(needle)}</p>
         ))}
-      <ResidualChips addresses={view.residual} busy={busy} copy={copy} onToggle={onToggle} />
-      {copy.cliHint !== undefined && <p className={css.muted}>{copy.cliHint}</p>}
+      <ResidualChips addresses={view.residual} busy={busy} copy={copyBundle} onToggle={onToggle} />
+      {copyBundle.cliHint !== undefined && <p className={css.muted}>{copyBundle.cliHint}</p>}
     </>
   )
 }

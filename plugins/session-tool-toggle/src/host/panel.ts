@@ -17,8 +17,7 @@
  * 3. 每条工具三个标记：`disabled`（命中关闭集）/ `protected`（生效保护名单）/
  *    `reserved`（注册表保留名）；
  * 4. `stats` 两计数、`intentOnly`、`notices` 汇总；
- * 5. 两个顶层视图：`skills`（逐技能行，来自 `inputs.skills` 的技能分面读数）与
- *    `workspace`（本会话所属工作区的默认档视图；无法归属时为 `null`）。
+ * 5. 顶层视图：`skills`（逐技能行，来自 `inputs.skills` 的技能分面读数）。
  *
  * **与 `/inventory` 的两处刻意差异**（D-9：只在文档与提案的预期管理段落写明，面板**不**加
  * 「本清单只含本会话有效工具」之类的提示行）：两者读的是同一份会话视角（`/inventory` 读
@@ -64,7 +63,6 @@ import type {
   SkillLayerSnapshot,
   StoreKind,
   VisibleToolSchema,
-  WorkspacePanelInputs,
 } from './types.ts'
 
 /** 描述截断上限（字符）：schema 的 `description` 是 `max(160)`，两处必须是同一个数。 */
@@ -171,24 +169,6 @@ export interface SkillView {
   readonly shadowed: boolean
 }
 
-/** 本会话所属工作区的默认档视图（`WorkspaceViewSchema` 的宿主侧形状）。 */
-export interface WorkspaceView {
-  /** 工作区键（规范绝对路径）。 */
-  readonly key: string
-  /** 显示标题（未登记时缺省）。 */
-  readonly title?: string
-  /** 是否由 `workspaceRegistry` 登记。 */
-  readonly registered: boolean
-  /** 该工作区当前的默认关闭集（已归一、排序）。 */
-  readonly disabled: readonly string[]
-  /** 工作区档文件绝对路径（面板展示，便于手编）。 */
-  readonly path: string
-  /** 文件可读（false = 不存在，按空档处理）。 */
-  readonly readable: boolean
-  /** 文件存在但损坏 / 半写（已降级空档）。 */
-  readonly corrupt: boolean
-}
-
 /** 会话状态视图（`StateViewSchema` 的宿主侧形状）。 */
 export interface StateView {
   /** 已排序去重的规范形关闭集（不可解析的条目已被丢弃）。 */
@@ -201,20 +181,6 @@ export interface StateView {
   readonly updatedAt: number
   /** 持久化通道实际形态（降级可观测）。 */
   readonly storeKind: StoreKind
-}
-
-/** 默认档视图（`DefaultsViewSchema` 的宿主侧形状）。 */
-export interface DefaultsView {
-  /** 文件版本。 */
-  readonly version: 1
-  /** 默认关闭集（文件原样，已由默认档读路径归一）。 */
-  readonly disabled: readonly string[]
-  /** 绝对路径（面板展示，便于用户手编）。 */
-  readonly path: string
-  /** 文件可读（false = 不存在，按空档处理）。 */
-  readonly readable: boolean
-  /** 文件存在但损坏 / 半写（已降级空档）。 */
-  readonly corrupt: boolean
 }
 
 /** 统计两计数（`PanelSnapshotSchema.stats` 的宿主侧形状）。 */
@@ -246,8 +212,6 @@ export interface PanelSnapshot {
   readonly groups: readonly ToolGroup[]
   /** 生效保护名单（已排序）。 */
   readonly protectedNames: readonly string[]
-  /** 用户级默认档视图。 */
-  readonly defaults: DefaultsView
   /**
    * 关闭集里当前匹配不到的地址（「意图已记录、暂无匹配」）。
    *
@@ -261,8 +225,6 @@ export interface PanelSnapshot {
   readonly notices: readonly Notice[]
   /** 技能行（按名字升序；只含模型可调用技能 ∪ 当前已遮蔽名字）。 */
   readonly skills: readonly SkillView[]
-  /** 本会话所属工作区的默认档视图；`null` = cwd 无法归属 / 无 registry。 */
-  readonly workspace: WorkspaceView | null
 }
 
 /**
@@ -331,13 +293,6 @@ export function buildPanelSnapshot(inputs: PanelInputs): PanelSnapshot {
     },
     groups: buildGroups(candidates, context, new Set(closedTexts)),
     protectedNames: sortedTexts(inputs.protectedNames),
-    defaults: {
-      version: inputs.defaults.version,
-      disabled: [...inputs.defaults.disabled],
-      path: inputs.defaultsPath,
-      readable: inputs.defaultsReadable,
-      corrupt: inputs.defaultsCorrupt,
-    },
     intentOnly,
     stats: {
       visible: candidates.filter((name) => !deny.has(name)).length,
@@ -345,7 +300,6 @@ export function buildPanelSnapshot(inputs: PanelInputs): PanelSnapshot {
     },
     notices: noticesOf(inputs),
     skills: skillViewsOf(inputs.skills, closedSkillNames),
-    workspace: workspaceViewOf(inputs.workspace),
   }
 }
 
@@ -629,29 +583,6 @@ function skillViewsOf(
   return views
 }
 
-/**
- * 组装顶层工作区视图。
- *
- * `workspace` 输入缺席或 `attribution` 缺席（cwd 无法归属，fail-closed）时返回 `null`：
- * 面板只展示用户级默认档，不凭空造一个工作区键。`title` 只在登记层给过标题时出现。
- * @param workspace - 工作区档读数（可能缺席）。
- * @returns 工作区视图或 `null`。
- */
-function workspaceViewOf(workspace: WorkspacePanelInputs | undefined): WorkspaceView | null {
-  if (workspace === undefined) return null
-  const attribution = workspace.attribution
-  if (attribution === undefined) return null
-  return {
-    key: attribution.key,
-    ...(attribution.title === undefined ? {} : { title: attribution.title }),
-    registered: attribution.registered,
-    disabled: sortedTexts(workspace.disabled),
-    path: workspace.path,
-    readable: workspace.readable,
-    corrupt: workspace.corrupt,
-  }
-}
-
 /** 构造工具条目时共用的只读上下文（把三个集合打包，避免逐条目重建）。 */
 interface EntryContext {
   /** 当前 deny 集合（`planMask.deny`，逐条目查 `disabled`）。 */
@@ -843,7 +774,7 @@ function descriptionOf(
  * 顺序输出。
  *
  * 推导是「面板不轻信单个字段」的兜底：`storeKind === 'memory'` 本身已经解释了降级，即使
- * 调用方忘了往 `notices` 里塞 `persistence-degraded`，面板也要提示；默认档损坏同理。
+ * 调用方忘了往 `notices` 里塞 `persistence-degraded`，面板也要提示。
  *
  * 产出分工（本函数只负责**排序与去重**）：`skills-unavailable` / `skill-shadow-failed` 由
  * 装配层从技能分面读数得出（`skillsAvailable === false`；或某技能 `disabled ∧ ¬shadowed`，
@@ -856,7 +787,6 @@ function descriptionOf(
 function noticesOf(inputs: PanelInputs): readonly Notice[] {
   const notices = new Set<NoticeCode>(inputs.notices)
   if (inputs.storeKind === 'memory') notices.add('persistence-degraded')
-  if (inputs.defaultsCorrupt) notices.add('defaults-corrupt')
   return NOTICE_ORDER.filter((code) => notices.has(code))
 }
 

@@ -647,6 +647,8 @@ export interface PanelState {
 - `grep -rn "attributionOf" plugins/session-tool-toggle/src/host/rpc.ts` 无输出；`grep -n "choicesOf" plugins/session-tool-toggle/src/host/rpc.ts` ≥1（私有登记查询仍在）。
 - `grep -n "sessionId" plugins/session-tool-toggle/src/contract.ts` 仅剩 `PanelSnapshot.sessionId` 等 panel 族字段（`WorkspaceRequest` 无 session 寻址）。
 
+**执行终形态（批次 2–3 实测，R1 见 tasks.md 附录）**：①1.2 清单遗漏 host 第五文件 `control.ts` 的两处机械连带（`:36` import `WorkspaceChoice`、`:947` docblock 引已删 `defaultsStateOf`）——已随批次 3 清理（+3/−3，`readPanel` 行为面未动，①1.6 零改动面意图未破坏）；`RpcDeps` 落地为 `Omit<ControlDeps,'defaultsIo'|'defaultsPath'>` + 私有 `kernelDepsOf()`；`panel-client.ts` 无内联 parser（步骤 8 的「去 choices 解析」落点在上游 contract，已随批次 2 完成）；`tsconfig.host.json` include 含 `test/**`，批次 8 前「host 段退出 0」核对口径 = src 侧零错误。
+
 ### TG3 控制器与客户端收缩（根仓 · `src/client/{panel-controller,panel-client}.ts`）
 
 **步骤**：按 3.2/3.7 删状态字段、动作方法、私有字段、客户端方法与 import；`close()` 的 patch 只留 `error`；`defaultsPayload` 删除。
@@ -655,6 +657,8 @@ export interface PanelState {
 - `pnpm --filter dsh-plugin-session-tool-toggle typecheck` 退出 0（client 段）。
 - `grep -rn "updateDefaults\|refreshWorkspace\|updateWorkspace\|savingDefaults\|workspaceChoices\|workspaceSaved" plugins/session-tool-toggle/src/client/` 无输出。
 - `grep -c "defaultsPayload" plugins/session-tool-toggle/src/client/panel-client.ts` 为 0。
+
+**执行终形态（批次 4 实测）**：`panel-controller.ts` +3/−198，`PanelState` 六字段与 ③3.7 逐字一致；`close()` 收敛为条件 `phase==='idle' && error===undefined`、patch `{phase:'idle', error:undefined}`。src 侧余 18 条类型错误全部归属批次 5/6 触达面（`DefaultsEditor.tsx:39` 与 `ToolPanelAction.tsx:47` 的 `DefaultsAction` import、`ToolPanelAction.tsx` 的 16 条八字段/三方法引用、`WorkspaceEntry.tsx:131` 的 `WorkspaceRequest` 无 `sessionId`），批次 6 重写自然消除。
 
 ### TG4 共用清单吸收会话语义（根仓 · `src/client/{defaults-view,group-shape,DefaultsGroupList}.ts(x)` + 三个删除）
 
@@ -668,6 +672,8 @@ export interface PanelState {
 - `pnpm --filter dsh-plugin-session-tool-toggle test -- defaults-group-list defaults-view workspace-editor`（TG7 的新用例先行或后补均可，见依赖说明）退出 0。
 - `grep -rn "ToolPanelGroups\|SkillPanel" plugins/session-tool-toggle/src/` 无输出。
 - 默认档形态零回归锚点：`test/workspace-editor.test.tsx` 里既有「整组默认关」标签、「移除」按钮、「默认关 M · 残留 K」摘要三处断言**不改也通过**（若因 `copy` 缺省化而不通过，说明默认值写错了）。
+
+**执行终形态（批次 5 实测）**：`group-shape.ts` 199 行（①1.1 估 95 行，JSDoc 密集所致，逻辑无膨胀）；会话侧 4 个占位键（`groupOff`/`skillHidden`/`filterEmpty`/`copyBundleOf(true).residualTitle`，行内有标记）待 6.6 补 `session.*` 真键后在 group-shape 内部替换；`DefaultsGroupList.tsx` +158/−67，差异表全行落地；**词汇束外散调例外**：行级/组头「暂无匹配」标签直接 `t('entry.intentOnly')` + `t('disabled.intentOnly')` 共 4 消费点（`GroupListWording` 无该槽），6.6 补键时同步把该槽收进词汇束；`groupCount` 是完整一句（`wordingOf` 内部拼「N 个 · 已关/默认关 M」），消费方单次调用；`DefaultsGroupCopy` re-export 自 `DefaultsGroupList.tsx` 保持外部 import 面。
 
 ### TG5 面板三卡重构（根仓 · `src/client/{ToolPanelAction,CommandCard,WorkspaceDefaultsPage,WorkspaceDefaultsEditor,WorkspaceEntry,panel-failure}.tsx`）
 
@@ -692,6 +698,8 @@ export interface PanelState {
 - `grep -rn "section.state\|section.defaults\|section.disabled\|skill.pending\|workspace.copyCommand" plugins/session-tool-toggle/src/` 无输出。
 - `grep -c "\.workspacePage" plugins/session-tool-toggle/src/client/panel.module.css` 为 0 且 `grep -rn "css.workspacePage" src/client/` 无输出。
 
+**执行终形态（批次 6 实测，R3/R4/R5 见 tasks.md 附录）**：`panel-failure.tsx` 五件 + `CommandCard.tsx`（128 行，`restartCopyTimer` 命名）；`ToolPanelAction.tsx` 重写 407 行（估 330，JSDoc 密集）+ 四文件删除（−1038）；`WorkspaceDefaultsPage` −63；`WorkspaceDefaultsEditor` 273→151；`WorkspaceEntry` `hasTarget` 收敛 workspacePath 唯一寻址（R4b 连带）；19 键落地、30 删实删 28（`state.storeKind.*` 2 键暂留，R5a）；`.cardStack` 更名 + 四类删除；`GroupListWording` 增 `entryIntentOnly`/`disabledIntentOnly` 两槽收编散调；client 段 **src 侧 typecheck 清零**（test 侧 165 条归批次 8）。
+
 ### TG7 测试调整（根仓 · `test/`）
 
 **步骤**（按 1.3 逐文件）：先建 `defaults-group-list.test.tsx`（新契约的先行测试），再重写 `tool-panel.test.tsx`，再收缩其余；P-1=b 追加——`rpc.test.ts` 工作区组删 `{sessionId}` 寻址用例（改断言「session 形态 → `bad-request`」）与响应 `choices` 断言、`workspace-attribution.test.ts` 删 attributionOf 的 RPC 侧断言（`{workspacePath}` 归属用例保留）、`workspace-universe.test.ts` 删 `universeOf(deps, session)` 分支用例（工作区宇宙用例保留）、`workspace-editor.test.tsx` 夹具去 `choices`；最后删 `skill-panel.test.tsx`。
@@ -701,6 +709,8 @@ export interface PanelState {
 - `grep -c "toHaveLength(4)" plugins/session-tool-toggle/test/bundle.test.ts` ≥1；
 - 面板断言含 `queryByText('用户级默认档')` 为 `null` 与 `queryByText('工作区默认档')` 为 `null` 各一处（最强「默认档编辑面已退出面板」证据）；
 - `grep -rn "WorkspaceChoice\|choices" plugins/session-tool-toggle/test/wire-contract.test.ts` 无 `choices` 响应断言残留（P-1=b）。
+
+**执行终形态（批次 7–8 实测，R5(b)/R6 见 tasks.md 附录）**：`defaults-group-list.test.tsx` 8 用例先行全绿；全量 **24 文件 1067 用例全绿**、host/client 两段 typecheck（src+test）exit 0；`tool-panel.test.tsx` 重写 29 用例（含两处「默认档编辑面已退出面板」null 断言 `:346-347`）；`workspace-editor.test.tsx` 48→35；`skill-panel.test.tsx` 删除；`control.test.ts`/`client-index.test.ts` 为 ①1.3 清单外跟随（WorkspaceChoice 清理、形状断言四方法）；中断恢复：批次 8 经「原子代理部分落盘 + 接续子代理补齐」完成，已落盘部分未重做。
 
 ### TG8 文档与门禁（根仓 · `README.md` + 产物 + 门禁）
 

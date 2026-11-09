@@ -45,6 +45,8 @@
 
 **新纯函数**（`defaults-view.ts`）：`skillAddressOf(name)`（`skill:` 地址唯一拼接点）、`shadowedSkillAddressesOf(skills)`、`effectiveClosedOf(universe, disabled)`（整组关时组内行地址并入关闭读数）。
 
+**执行环境**：直用主工作区（衔接点判据未命中隔离：工作区干净、main 检出、无并行变更 worktree；用户确认）。布局：本仓单检出 `/home/xuqinqin/develop/person/dsh-plugins` @ main，代码与工件提交均落 main；装配：node 栈经 pnpm 包装脚本（volta 容器），执行前核对依赖已装齐（缺失补 `pnpm install`）；环境错开：无（无端口/库错开需求）；装载指纹：省略（wire 瘦身为收缩性改动，无新增/改名导出符号，执行半程不含 profile link/重启环节）；创建于 2026-11-09。
+
 ## Risks / Trade-offs
 
 - [wire 收缩为破坏性契约变化] → 仓库既定「统一版本、同 tag 安装、混装不受支持」+ 浏览器半由宿主启动图提供；新 client + 旧宿主因 parser 容忍未知键而安全，旧 client + 新宿主仅现于手工换产物（面板显 `bad-response`，可观测）。

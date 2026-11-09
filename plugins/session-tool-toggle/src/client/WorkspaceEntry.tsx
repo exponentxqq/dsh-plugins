@@ -32,8 +32,8 @@
  * 也看到同一状态。`test/workspace-editor.test.tsx` 的「与 /tools 共用状态」回归用例钉住
  * 这条链路。
  *
- * **失败展示的唯一实现点**是面板容器（`ToolPanelAction.tsx` 的 `failureOf`）：本文件复用它
- * 把 `PanelError` 映射成 `error.<code>` 文案与宿主的二级灰字，不再复制一份映射。唯一例外是
+ * **失败展示的唯一实现点**在 `panel-failure.tsx` 的 `failureOf`：本文件复用它把 `PanelError`
+ * 映射成 `error.<code>` 文案与宿主的二级灰字，不再复制一份映射。唯一例外是
  * 传输码 `unavailable`——`connection` 尚未就绪时本插件本地合成一次「暂时不可能」（**不发**
  * 请求），渲染 `workspace.unavailable` 主文案、原始说明放二级灰字，排障方向不丢。
  *
@@ -49,10 +49,9 @@ import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 // `verbatimModuleSyntax` 下零产物，浏览器 bundle 不含契约包名。
 import type { WorkspaceConfigWorkspaceContext } from '@dsh-plugins/contracts'
 import type { WorkspaceAction, WorkspaceRequest, WorkspaceValue } from '../contract.ts'
-import type { PanelFailure } from './DefaultsEditor.tsx'
 import { WorkspaceDefaultsEditor } from './WorkspaceDefaultsEditor.tsx'
 import { PanelError, type PanelClient } from './panel-client.ts'
-import { failureOf } from './ToolPanelAction.tsx'
+import { failureOf, type PanelFailure } from './panel-failure.tsx'
 import { NS } from './locales.ts'
 import css from './panel.module.css'
 
@@ -123,12 +122,12 @@ function asPanelError(error: unknown): PanelError {
 }
 
 /**
- * 请求体是否带了一个寻址形态（`sessionId` / `workspacePath` 恰好一个，见 D-11）。
+ * 请求体是否带了寻址形态（`workspacePath`，P-1=b 收缩后的唯一寻址；见 D-11）。
  * @param request - 目标请求。
  * @returns 有寻址形态时为 true。
  */
 function hasTarget(request: WorkspaceRequest): boolean {
-  return request.sessionId !== undefined || request.workspacePath !== undefined
+  return request.workspacePath !== undefined
 }
 
 /**
@@ -348,7 +347,7 @@ function WorkspaceDefaultsTarget(props: WorkspaceDefaultsTargetProps): ReactNode
   })
 
   // 挂载即读一次：分节在页面 tab 命中本节时挂载，先把目标工作区的档拉到手；失败也只是节内的
-  // 一句话。刷新走编辑器 dialog 形态自带的按钮（`onRefresh`）。
+  // 一句话。刷新走编辑器正文（`WorkspaceDefaultsPage` 概要卡）的刷新按钮（`onRefresh`）。
   useEffect(() => {
     void read()
   }, [read])
@@ -380,7 +379,6 @@ function WorkspaceDefaultsTarget(props: WorkspaceDefaultsTargetProps): ReactNode
           <WorkspaceDefaultsEditor
             workspace={value.workspace}
             universe={value.universe}
-            variant="dialog"
             saving={saving}
             saved={saved}
             failure={failure}
@@ -406,8 +404,8 @@ function WorkspaceDefaultsTarget(props: WorkspaceDefaultsTargetProps): ReactNode
  * 下根本不挂载会取数的 `WorkspaceDefaultsTarget`，请求无从发出。
  *
  * 正文交给 {@link WorkspaceDefaultsTarget}（hooks 只在拿到有效目标后调用，避免空态 ↔ 有效
- * 目标切换时 hooks 数量变化），再交给 `WorkspaceDefaultsEditor` 的 `dialog` 形态——节内
- * **没有**下拉，也没有对话框根（不渲染 `role="dialog"`）。
+ * 目标切换时 hooks 数量变化），再交给 dialog-only 的 `WorkspaceDefaultsEditor`（正文壳委托
+ * `WorkspaceDefaultsPage`）——节内**没有**下拉，也没有对话框根（不渲染 `role="dialog"`）。
  *
  * @param props - 页面份额、注入的 `resolveClient` 与 `t`。
  * @returns 空态或目标工作区的编辑器。

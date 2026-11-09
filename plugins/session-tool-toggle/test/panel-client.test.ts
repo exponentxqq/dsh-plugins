@@ -1,5 +1,5 @@
 /**
- * `panel-client` 的边界行为：五个端点的成功路径与请求 payload 形状、宿主失败信封（码 /
+ * `panel-client` 的边界行为：四个端点的成功路径与请求 payload 形状、宿主失败信封（码 /
  * 说明 / 细节原样保留）、传输异常归一，以及两种坏形状（坏信封 → `bad-response`、合法信封
  * 但响应过不了 parser → `bad-response`）。
  *
@@ -10,12 +10,10 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import {
   CHANNEL,
-  DEFAULTS_ENDPOINT,
   PANEL_ENDPOINT,
   RESET_ENDPOINT,
   TOGGLE_ENDPOINT,
   WORKSPACE_ENDPOINT,
-  type DefaultsValue,
   type Mutation,
   type PanelSnapshot,
   type ToggleValue,
@@ -27,7 +25,7 @@ import { PanelError, createPanelClient } from '../src/client/panel-client.ts'
 /** 用例里那个活着的会话 id。 */
 const SESSION_ID = 'session-1'
 
-/** 默认档文件的假绝对路径（只用于断言透传，不指向任何真实文件）。 */
+/** 默认档文件的假绝对路径（失败细节形状表用，不指向任何真实文件）。 */
 const DEFAULTS_PATH = '/fake/dsh-home/session-tool-toggle/defaults.json'
 
 /** 工作区档文件的假绝对路径（同上）。 */
@@ -40,7 +38,7 @@ const WORKSPACE_PATH = '/workspace/one'
 const CREATED_AT = 1_700_000_000_000
 
 /**
- * 一份最小的合法面板快照（strict 契约：字段不多不少）。
+ * 一份最小的合法面板快照（strict 契约：字段不多不少；**无** `defaults` / `workspace` 两键）。
  * @param overrides - 需要改写的顶层字段。
  * @returns 面板快照。
  */
@@ -51,12 +49,10 @@ function snapshot(overrides: Partial<PanelSnapshot> = {}): PanelSnapshot {
     state: { disabled: [], snapshot: [], seeded: false, updatedAt: 0, storeKind: 'memory' },
     groups: [],
     protectedNames: ['bash'],
-    defaults: { version: 1, disabled: [], path: DEFAULTS_PATH, readable: false, corrupt: false },
     intentOnly: [],
     stats: { visible: 4, denied: 0 },
     notices: [],
     skills: [],
-    workspace: null,
     ...overrides,
   }
 }
@@ -86,7 +82,7 @@ function mutationValue(overrides: Partial<Mutation> = {}): ToggleValue {
 }
 
 /**
- * 一份合法的工作区档视图（`workspace` 端点与面板快照共用形状）。
+ * 一份合法的工作区档视图（`workspace` 端点成功值夹具用）。
  * @param overrides - 需要改写的字段。
  * @returns 工作区档视图。
  */
@@ -104,30 +100,18 @@ function workspaceView(overrides: Partial<WorkspaceView> = {}): WorkspaceView {
 }
 
 /**
- * `workspace` 端点的成功值（默认是一次 `read`：无写入项）。
+ * `workspace` 端点的成功值（默认是一次 `read`：无写入项；**无** `choices` 键——该字段已随
+ * P-1=b 从契约删除）。
  * @param overrides - 需要改写的字段（`workspace: null` 是合法的「无法归属」读数）。
  * @returns 端点成功值。
  */
 function workspaceValue(overrides: Partial<WorkspaceValue> = {}): WorkspaceValue {
   return {
     workspace: workspaceView(),
-    choices: [{ key: WORKSPACE_PATH, title: '工作区一' }],
     changed: [],
     // 键必填：`null` 才表示「没有会话视角宇宙」（`{workspacePath}` 寻址）。
     universe: null,
     ...overrides,
-  }
-}
-
-/**
- * `defaults` 的成功值。
- * @param changed - 实际写入的地址（缺省一条）。
- * @returns 端点成功值。
- */
-function defaultsValue(changed: readonly string[] = ['mcp:a']): DefaultsValue {
-  return {
-    defaults: { version: 1, disabled: [...changed], path: DEFAULTS_PATH, readable: true, corrupt: false },
-    changed: [...changed],
   }
 }
 
@@ -167,7 +151,7 @@ async function failureOf(run: () => Promise<unknown>): Promise<PanelError> {
   return error as PanelError
 }
 
-describe('panel client：五个端点的成功路径与请求形状', () => {
+describe('panel client：四个端点的成功路径与请求形状', () => {
   it('panel：走 panel 端点、只带 sessionId、返回校验后的快照', async () => {
     const { call, connection } = connectionReturning({ ok: true, value: snapshot() })
 
@@ -176,7 +160,9 @@ describe('panel client：五个端点的成功路径与请求形状', () => {
     expect(panel.sessionId).toBe(SESSION_ID)
     expect(panel.createdAt).toBe(CREATED_AT)
     expect(panel.stats.visible).toBe(4)
-    expect(panel.defaults.path).toBe(DEFAULTS_PATH)
+    // 快照不再携带默认档读数（wire 收缩：defaults / workspace 两键已删）。
+    expect('defaults' in panel).toBe(false)
+    expect('workspace' in panel).toBe(false)
     expect(call).toHaveBeenCalledWith(CHANNEL, PANEL_ENDPOINT, { sessionId: SESSION_ID })
   })
 
@@ -206,64 +192,40 @@ describe('panel client：五个端点的成功路径与请求形状', () => {
     expect(call).toHaveBeenCalledWith(CHANNEL, RESET_ENDPOINT, { sessionId: SESSION_ID })
   })
 
-  it('defaults(set)：payload 是 action + addresses，不携带 sessionId', async () => {
-    const { call, connection } = connectionReturning({ ok: true, value: defaultsValue() })
-
-    const written = await createPanelClient(connection).updateDefaults('set', ['mcp:a'])
-
-    expect(written.changed).toEqual(['mcp:a'])
-    expect(written.defaults.readable).toBe(true)
-    expect(call).toHaveBeenCalledWith(CHANNEL, DEFAULTS_ENDPOINT, { action: 'set', addresses: ['mcp:a'] })
+  it('updateDefaults 已不在客户端类型面上（编译期 + 运行时 in 检查）', async () => {
+    const { connection } = connectionReturning({ ok: true, value: workspaceValue() })
+    const client = createPanelClient(connection)
+    expect('updateDefaults' in client).toBe(false)
+    // 类型面断言：该方法不存在于 `PanelClient`（本行的编译通过即证据）。
+    const absent: 'updateDefaults' extends keyof typeof client ? never : true = true
+    expect(absent).toBe(true)
   })
 
-  it('defaults(reset)：payload 只有 action（不补空数组）', async () => {
-    const { call, connection } = connectionReturning({ ok: true, value: defaultsValue([]) })
-
-    await createPanelClient(connection).updateDefaults('reset')
-
-    expect(call).toHaveBeenCalledWith(CHANNEL, DEFAULTS_ENDPOINT, { action: 'reset' })
-  })
-
-  it('defaults(reset) 即便传了地址也不上发（契约不允许该组合同现）', async () => {
-    const { call, connection } = connectionReturning({ ok: true, value: defaultsValue([]) })
-
-    await createPanelClient(connection).updateDefaults('reset', ['mcp:a'])
-
-    expect(call).toHaveBeenCalledWith(CHANNEL, DEFAULTS_ENDPOINT, { action: 'reset' })
-  })
-
-  it('defaults 非 reset 缺省地址时只发 action，形状交给宿主拒绝', async () => {
-    const { call, connection } = connectionReturning({ ok: true, value: defaultsValue() })
-
-    await createPanelClient(connection).updateDefaults('off')
-
-    expect(call).toHaveBeenCalledWith(CHANNEL, DEFAULTS_ENDPOINT, { action: 'off' })
-  })
-
-  it('workspace(read)：走 workspace 端点，payload 精确等于 {sessionId, action}', async () => {
+  it('workspace(read)：走 workspace 端点，payload 精确等于 {workspacePath, action}', async () => {
     const { call, connection } = connectionReturning({ ok: true, value: workspaceValue() })
 
-    const read = await createPanelClient(connection).workspace({ sessionId: SESSION_ID, action: 'read' })
+    const read = await createPanelClient(connection).workspace({ workspacePath: WORKSPACE_PATH, action: 'read' })
 
     expect(read.workspace?.key).toBe(WORKSPACE_PATH)
-    expect(read.choices).toEqual([{ key: WORKSPACE_PATH, title: '工作区一' }])
+    // 响应不带 choices（下拉字段已随 P-1=b 删除）。
+    expect('choices' in read).toBe(false)
     expect(read.changed).toEqual([])
-    // strict 端点：多带一个键（哪怕 `workspacePath: undefined` / `addresses: []`）即越界。
+    // strict 端点：多带一个键（哪怕 `sessionId` / `addresses: []`）即越界。
     expect(call).toHaveBeenCalledTimes(1)
     expect(call.mock.calls[0]?.[0]).toBe(CHANNEL)
     expect(call.mock.calls[0]?.[1]).toBe(WORKSPACE_ENDPOINT)
-    expect(call.mock.calls[0]?.[2]).toEqual({ sessionId: SESSION_ID, action: 'read' })
+    expect(call.mock.calls[0]?.[2]).toEqual({ workspacePath: WORKSPACE_PATH, action: 'read' })
   })
 
   it('workspace：缺省 action 不由 client 补（形状权威在宿主）', async () => {
     const { call, connection } = connectionReturning({ ok: true, value: workspaceValue() })
 
-    await createPanelClient(connection).workspace({ sessionId: SESSION_ID })
+    await createPanelClient(connection).workspace({ workspacePath: WORKSPACE_PATH })
 
-    expect(call.mock.calls[0]?.[2]).toEqual({ sessionId: SESSION_ID })
+    expect(call.mock.calls[0]?.[2]).toEqual({ workspacePath: WORKSPACE_PATH })
   })
 
-  it('workspace：workspacePath 形态不带 sessionId，地址数组被复制', async () => {
+  it('workspace：地址数组被复制（调用方 await 期间改数组不影响已发出的请求）', async () => {
     const { call, connection } = connectionReturning({ ok: true, value: workspaceValue() })
     const addresses = ['skill:openspec-propose']
 
@@ -363,7 +325,7 @@ describe('panel client：传输异常归一为 unavailable', () => {
     const { connection } = connectionThrowing(new Error('channel not mounted'))
 
     const error = await failureOf(() =>
-      createPanelClient(connection).workspace({ sessionId: SESSION_ID, action: 'read' }),
+      createPanelClient(connection).workspace({ workspacePath: WORKSPACE_PATH, action: 'read' }),
     )
 
     expect(error.code).toBe('unavailable')
@@ -411,7 +373,7 @@ describe('panel client：坏信封归一为 bad-response', () => {
 })
 
 describe('panel client：合法信封但响应过不了 parser', () => {
-  it('五个端点的成功值不合契约时都归一为 bad-response', async () => {
+  it('四个端点的成功值不合契约时都归一为 bad-response', async () => {
     const { call, connection } = connectionReturning({ ok: true, value: {} })
     const client = createPanelClient(connection)
 
@@ -419,8 +381,7 @@ describe('panel client：合法信封但响应过不了 parser', () => {
       () => client.panel(SESSION_ID),
       () => client.toggle(SESSION_ID, true, ['mcp:a']),
       () => client.reset(SESSION_ID),
-      () => client.updateDefaults('on', ['mcp:a']),
-      () => client.workspace({ sessionId: SESSION_ID, action: 'read' }),
+      () => client.workspace({ workspacePath: WORKSPACE_PATH, action: 'read' }),
     ]
     for (const run of runs) {
       const error = await failureOf(run)
@@ -450,19 +411,6 @@ describe('panel client：合法信封但响应过不了 parser', () => {
     expect(error.code).toBe('bad-response')
   })
 
-  it('defaults 的默认档版本不是 1 时拒绝', async () => {
-    const value = defaultsValue()
-    const { connection } = connectionReturning({
-      ok: true,
-      value: { ...value, defaults: { ...value.defaults, version: 2 } },
-    })
-
-    const error = await failureOf(() => createPanelClient(connection).updateDefaults('set', ['mcp:a']))
-
-    expect(error.code).toBe('bad-response')
-    expect(error.message).toContain('version')
-  })
-
   it('ok:true 但缺 value 时按坏响应处理', async () => {
     const { connection } = connectionReturning({ ok: true })
 
@@ -474,43 +422,42 @@ describe('panel client：合法信封但响应过不了 parser', () => {
   it('workspace 的 workspace 为 null 是合法读数（cwd 无法归属 / 未登记）', async () => {
     const { connection } = connectionReturning({
       ok: true,
-      value: workspaceValue({ workspace: null, choices: [], changed: [] }),
+      value: workspaceValue({ workspace: null, changed: [] }),
     })
 
-    const value = await createPanelClient(connection).workspace({ sessionId: SESSION_ID, action: 'read' })
+    const value = await createPanelClient(connection).workspace({ workspacePath: WORKSPACE_PATH, action: 'read' })
 
     expect(value.workspace).toBeNull()
-    expect(value.choices).toEqual([])
   })
 
   it('workspace 响应缺 universe 键时拒绝（键必填，null 才合法）', async () => {
     // 加宇宙之前的旧响应没有这个键：与 `workspace: null` 不同，缺键是契约漂移，不降级放行。
     const { connection } = connectionReturning({
       ok: true,
-      value: { workspace: workspaceView(), choices: [{ key: WORKSPACE_PATH, title: '工作区一' }], changed: [] },
+      value: { workspace: workspaceView(), changed: [] },
     })
 
     const error = await failureOf(() =>
-      createPanelClient(connection).workspace({ sessionId: SESSION_ID, action: 'read' }),
+      createPanelClient(connection).workspace({ workspacePath: WORKSPACE_PATH, action: 'read' }),
     )
 
     expect(error.code).toBe('bad-response')
     expect(error.message).toContain('workspace 响应.universe')
   })
 
-  it('workspace 响应多一个未知顶层键即拒绝（strict 两端同版）', async () => {
+  it('workspace 响应多一个未知顶层键即拒绝（strict 两端同版；旧宿主的 choices 也在其列）', async () => {
     const { connection } = connectionReturning({
       ok: true,
-      value: { ...workspaceValue(), updatedAt: 1 },
+      value: { ...workspaceValue(), choices: [] },
     })
 
     const error = await failureOf(() =>
-      createPanelClient(connection).workspace({ sessionId: SESSION_ID, action: 'read' }),
+      createPanelClient(connection).workspace({ workspacePath: WORKSPACE_PATH, action: 'read' }),
     )
 
     expect(error.code).toBe('bad-response')
     expect(error.message).toContain('workspace 响应')
-    expect(error.message).toContain('updatedAt')
+    expect(error.message).toContain('choices')
   })
 
   it('workspace 视图字段漂移（disabled 不是数组）也是 bad-response', async () => {
@@ -520,24 +467,10 @@ describe('panel client：合法信封但响应过不了 parser', () => {
     })
 
     const error = await failureOf(() =>
-      createPanelClient(connection).workspace({ sessionId: SESSION_ID, action: 'read' }),
+      createPanelClient(connection).workspace({ workspacePath: WORKSPACE_PATH, action: 'read' }),
     )
 
     expect(error.code).toBe('bad-response')
     expect(error.message).toContain('workspace 响应.workspace.disabled')
-  })
-
-  it('workspace 的 choices 项缺 title 时拒绝', async () => {
-    const { connection } = connectionReturning({
-      ok: true,
-      value: workspaceValue({ choices: [{ key: WORKSPACE_PATH }] as unknown as WorkspaceValue['choices'] }),
-    })
-
-    const error = await failureOf(() =>
-      createPanelClient(connection).workspace({ sessionId: SESSION_ID, action: 'read' }),
-    )
-
-    expect(error.code).toBe('bad-response')
-    expect(error.message).toContain('choices[0].title')
   })
 })

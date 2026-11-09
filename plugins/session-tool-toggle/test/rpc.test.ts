@@ -1,14 +1,15 @@
 /**
- * RPC dispatcher 测试（规范：dsh-session-tool-toggle —— 通道的五条成功路径与九条失败码）。
+ * RPC dispatcher 测试（规范：dsh-session-tool-toggle —— 通道的四条成功路径与九条失败码）。
  *
  * 全部用例都在**假 `RpcDeps`** 上驱动，不拉起宿主、不注册通道、不读写真实 `$DSH_HOME`：
- * 状态端口、层句柄（掩码 / 技能 / 工具描述投影）、默认档 / 工作区档 IO、agent 表、工作区归属
+ * 状态端口、层句柄（掩码 / 技能 / 工具描述投影）、工作区档 IO、agent 表、工作区归属
  * 与内核都是内存替身，因此「内核有没有被调用、写了几次状态、文件里落了什么、日志收到了什么」
  * 都能直接断言。工具描述没有独立注入面：它只从本会话层（`layer.visibleSchemas()`）读。
  *
  * 任务 9.4 的四条主验证句逐条落地：
  *
- * 1. **未知端点 → `bad-request`**：不猜、不落兜底分支，且内核零调用；
+ * 1. **未知端点 → `bad-request`**：不猜、不落兜底分支，且内核零调用（`defaults` 端点已随
+ *    面板收缩删除，同名派发落进同一条「未知端点」路径）；
  * 2. **parser 拒绝超长地址（>200）→ `bad-request`**：长度/数量护栏在契约层，`details.issues`
  *    带解析说明；
  * 3. **control 抛 → `internal`**：`store.read` 抛错穿透内核，dispatcher 先 `log.warn` 留原文；
@@ -17,47 +18,41 @@
  *
  * 另按 R17（9.5 前置裁定）与 D19/D20 覆盖：地址预检的三种映射（`protected` 带 `names`、
  * `reserved` 带 `names`、其余 `bad-address` 带 `{address, parseCode}`）与固定优先级、预检失败
- * 时内核零调用、`panel` 快照过 `parsePanelSnapshot`、默认档写失败 → `defaults-unwritable`
- * （`{path, reason}`）、响应自检失败（假内核返回坏形状）→ `internal`、`reset` 的 `applied`
- * 语义（被移除的关闭项）、`defaults` 不返回会话快照、dispatcher 可直接交给
+ * 时内核零调用、`panel` 快照过 `parsePanelSnapshot`、响应自检失败（假内核返回坏形状）→
+ * `internal`、`reset` 的 `applied` 语义（被移除的关闭项）、dispatcher 可直接交给
  * `connection.rpc.handle`（一次赋值即编译期断言）。
  *
- * 组 6.3（T10）追加的验证面：
+ * 组 6.3（T10）与 P-1=b 收缩后的验证面：
  *
- * - `workspace` 端点 5 动作 × 两种寻址形态的成功路径（`sessionId` / `workspacePath`）；
- * - `{sessionId}` 的会话 cwd 已删 → `workspace-unresolved{subject: sessionId}`；
+ * - `workspace` 端点只按 `{workspacePath}` 寻址（5 动作）；`{sessionId}` 形态在请求 parser
+ *   就被 strict 规则按未知字段拒绝（`bad-request`），到不了任何内核与归属解析；
  * - `{workspacePath:'/etc'}` 未登记 → `workspace-unresolved`；写盘抛错 → `workspace-unwritable`
  *   （`{path, reason}`，文件不变）；
- * - R6：未登记目录（`registered:false`）照常返回，不判 unresolved；
  * - H10：`toggle` 在组装成功值**之前** `await layer.skillsSettled()`（闸未开时 dispatch 不结算），
  *   回执 `hiddenSkills` 与快照技能行都是收敛后的事实。
  *
- * 组 7.3（T7）追加的验证面：
+ * 组 7.3（T7）与变更 improve-workspace-defaults-page（任务 3.3）追加的验证面：
  *
- * - `{sessionId}` 的读 / 写两份响应都带 `universe`（D-24：客户端写后用响应整份替换，写响应
- *   不带宇宙则分组清单会消失）；
- * - 宇宙只由本会话两读推出（`visibleSchemas()` ∪ `snapshot().deny`）：组序 `mcp → skill →
- *   builtin`，carried-only 名成行且无描述，被别的作用域掩掉的服务器不出现。
- *
- * 变更 improve-workspace-defaults-page（任务 3.3）追加的验证面（翻转旧语义：曾为
- * `{workspacePath}` → `universe:null`）：
- *
- * - `{workspacePath}` 的读 / 写响应都带该工作区宇宙：假端口 `readWorkspaceUniverse` 默认
- *   返回固定宇宙并记录每次收到的规范 key（断言它是工作区规范路径本身，不是请求原文的变体）；
+ * - `{workspacePath}` 的读 / 写响应都带该工作区宇宙（G7 / D-24：客户端写后用响应整份替换）：
+ *   假端口 `readWorkspaceUniverse` 默认返回固定宇宙并记录每次收到的规范 key（断言它是工作区
+ *   规范路径本身，不是请求原文的变体）；
  * - 端口抛错不让整次 workspace 读失败：档照常返回，宇宙降级为空宇宙（`layerReady:false`）
- *   + warn（带错误原文）；
- * - `{sessionId}` 形态零调用该端口：会话宇宙仍由本会话两读推出，两条来源不混淆。
+ *   + warn（带错误原文）。
+ *
+ * **内核与 `defaultsPath`**（R1(c) / `rpc.ts` 的 `kernelDepsOf` JSDoc）：`RpcDeps` 已把
+ * `defaultsIo` / `defaultsPath` 两字段从类型面上收缩（RPC 自身不读默认档），本套件的夹具
+ * 因此**不带**两字段；但真实内核（`control.ts`）的 `readPanel` 签名仍要求完整 `ControlDeps`。
+ * 套件据此注入一个「补字段内核」：在内核边界把两字段补回依赖视图再转发真实函数——保证
+ * `readPanel` 永不触到 `undefined` 路径，`RpcDeps` 类型面与运行时形状同时干净。
  */
 import { describe, expect, it } from 'vitest'
 import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
 import {
-  parseDefaultsValue,
   parsePanelSnapshot,
   parseToggleValue,
   parseWorkspaceValue,
   type DefaultsUniverse,
   type PanelSnapshot,
-  type WorkspaceChoice,
   type WorkspaceValue,
 } from '../src/contract.ts'
 import { PROTECTED_BASELINE, parseAddress } from '../src/host/address.ts'
@@ -65,7 +60,6 @@ import {
   readPanel,
   resetSession,
   toggleSession,
-  updateDefaults,
   updateWorkspaceDefaults,
 } from '../src/host/control.ts'
 import type { ToggleReport } from '../src/host/control.ts'
@@ -75,6 +69,7 @@ import type { AgentLookup, RpcDeps, RpcKernel } from '../src/host/rpc.ts'
 import { EMPTY_STATE } from '../src/host/state.ts'
 import type {
   AgentLike,
+  ControlDeps,
   DefaultsIo,
   LayerHandle,
   LayerSnapshot,
@@ -88,20 +83,20 @@ import type {
   WorkspaceAttribution,
 } from '../src/host/types.ts'
 
-/** 假文件系统里的默认档绝对路径（形状与生产一致，但不指向任何真实文件）。 */
+/** 假文件系统里的默认档绝对路径（只供补字段内核使用；RPC 依赖面自身不再携带它）。 */
 const DEFAULTS_PATH = '/fake/dsh-home/session-tool-toggle/defaults.json'
 
 /** 假文件系统里的工作区档绝对路径（与默认档同目录，生产口径）。 */
 const WORKSPACES_PATH = '/fake/dsh-home/session-tool-toggle/workspaces.json'
 
-/** 会话默认归属到的工作区（形态 A 的断言基准）。 */
+/** 会话默认归属到的工作区（`{workspacePath}` 寻址的断言基准）。 */
 const PRIMARY_WORKSPACE = '/w1'
 
-/** 另一个已登记工作区（形态 B / 下拉切换的断言基准）。 */
+/** 另一个已登记工作区（下拉切换的断言基准）。 */
 const SECOND_WORKSPACE = '/w2'
 
 /** 默认的已登记工作区列表（与 `workspaceChoices` 的投影同形）。 */
-const DEFAULT_CHOICES: readonly WorkspaceChoice[] = [
+const DEFAULT_CHOICES: readonly { readonly key: string; readonly title?: string }[] = [
   { key: PRIMARY_WORKSPACE, title: '工作区一' },
   { key: SECOND_WORKSPACE, title: '工作区二' },
 ]
@@ -112,13 +107,27 @@ const CREATED_AT = 1_700_000_000_000
 /** 用例里那个活着的会话 id（G6 出口断言的字面主体）。 */
 const SESSION_ID = 's1'
 
-/** 真实内核（注入面的缺省值；测试只按需替换其中一个用例）。 */
+/**
+ * 补字段内核：`RpcDeps` 类型面已收缩掉 `defaultsIo` / `defaultsPath`（RPC 自身不读默认档），
+ * 而真实内核（`control.ts`）要求完整 `ControlDeps`。本内核在**内核边界**把两字段补回依赖
+ * 视图再转发真实函数——`readPanel` 永不触到 `undefined` 路径（`kernelDepsOf` JSDoc 的纪律），
+ * RPC 依赖面自身保持收缩后的形状。两字段只被内核读取，与生产装配（`{...controlDeps}` 展开）
+ * 语义等价。
+ */
 const REAL_KERNEL: RpcKernel = {
-  toggleSession,
-  resetSession,
-  readPanel,
-  updateDefaults,
-  updateWorkspaceDefaults,
+  toggleSession: (deps, ...args) => toggleSession(withDefaultsDeps(deps), ...args),
+  resetSession: (deps, ...args) => resetSession(withDefaultsDeps(deps), ...args),
+  readPanel: (deps, ...args) => readPanel(withDefaultsDeps(deps), ...args),
+  updateWorkspaceDefaults: (deps, ...args) => updateWorkspaceDefaults(deps, ...args),
+}
+
+/**
+ * 给内核依赖视图补回收缩掉的两字段（`defaultsPath` / `defaultsIo`）。
+ * @param deps - dispatcher 传给内核的依赖（`RpcDeps` 运行时形状）。
+ * @returns 带 `defaultsIo` / `defaultsPath` 的完整 `ControlDeps` 视图。
+ */
+function withDefaultsDeps(deps: ControlDeps): ControlDeps {
+  return { ...deps, defaultsPath: DEFAULTS_PATH, defaultsIo: new FakeDefaultsIo() }
 }
 
 /**
@@ -434,6 +443,7 @@ class FakeDefaultsIo implements DefaultsIo {
 
 /**
  * 带调用计数的内核：预检 / 寻址失败时「内核未被调用」只能这样断言。
+ * 转发链与 {@link REAL_KERNEL} 同构：读侧先补回两字段再走真实函数。
  * @returns 计数内核 + 读取计数的函数。
  */
 function countingKernel(): { readonly kernel: RpcKernel; readonly calls: () => number } {
@@ -442,19 +452,18 @@ function countingKernel(): { readonly kernel: RpcKernel; readonly calls: () => n
     kernel: {
       toggleSession: (...args) => {
         calls += 1
-        return toggleSession(...args)
+        const [deps, ...rest] = args
+        return toggleSession(withDefaultsDeps(deps), ...rest)
       },
       resetSession: (...args) => {
         calls += 1
-        return resetSession(...args)
+        const [deps, ...rest] = args
+        return resetSession(withDefaultsDeps(deps), ...rest)
       },
       readPanel: (...args) => {
         calls += 1
-        return readPanel(...args)
-      },
-      updateDefaults: (...args) => {
-        calls += 1
-        return updateDefaults(...args)
+        const [deps, ...rest] = args
+        return readPanel(withDefaultsDeps(deps), ...rest)
       },
       updateWorkspaceDefaults: (...args) => {
         calls += 1
@@ -503,10 +512,6 @@ interface HarnessOptions {
   readonly disabled?: readonly string[]
   /** 本会话创建时快照。 */
   readonly snapshot?: readonly string[]
-  /** 默认档条目；`null` = 文件不存在（走 `readDefaults` 的空档降级）。 */
-  readonly defaults?: readonly string[] | null
-  /** 默认档原始文本（损坏 / 半写用例；给了就不看 `defaults`）。 */
-  readonly defaultsText?: string
   /** 实际生效的持久化通道（默认 `record`）。 */
   readonly storeKind?: StoreKind
   /** 是否提供会话层（默认 true；false 用于层未就绪的降级用例）。 */
@@ -515,8 +520,6 @@ interface HarnessOptions {
   readonly storeReadError?: Error
   /** 注入状态写入错误（驱动「已降级内存态」提示码）。 */
   readonly storeWriteError?: Error
-  /** 注入默认档写入错误（驱动 `defaults-unwritable`）。 */
-  readonly defaultsWriteError?: Error
   /** 注入工作区档写入错误（驱动 `workspace-unwritable`）。 */
   readonly workspacesWriteError?: Error
   /** agent 表行为：`live`（缺省，命中 SESSION_ID）/ `absent` / `mismatched`（拿到别的会话）。 */
@@ -525,14 +528,17 @@ interface HarnessOptions {
   readonly agentsError?: Error
   /** 会话 header 的来源标记（子代理用例）。 */
   readonly origin?: 'subagent'
-  /** 假内核（缺省真实内核）。 */
+  /** 假内核（缺省 {@link REAL_KERNEL} 补字段内核）。 */
   readonly kernel?: RpcKernel
-  /** 会话归属；`null` = cwd 无法归属（目录已删），缺省 = 归属到 `/w1`。 */
+  /**
+   * 会话归属（供会话层 / 命令面共用读数；`workspace` 端点已不再消费它——`{workspacePath}`
+   * 是唯一寻址形态）。`null` = cwd 无法归属（目录已删），缺省 = 归属到 `/w1`。
+   */
   readonly attribution?: WorkspaceAttribution | null
   /** 注入归属读数抛错（归属失败按 `workspace-unresolved` 降级）。 */
   readonly workspaceOfError?: Error
   /** 已登记工作区可选项（默认 `/w1`、`/w2` 两项）。 */
-  readonly choices?: readonly WorkspaceChoice[]
+  readonly choices?: readonly { readonly key: string; readonly title?: string }[]
   /** 工作区档条目：键 → 该工作区的关闭集；缺省 = 文件不存在。 */
   readonly workspaces?: Readonly<Record<string, readonly string[]>>
   /** 工作区档原始文本（损坏 / 半写用例；给了就不看 `workspaces`）。 */
@@ -549,7 +555,6 @@ interface Harness {
   readonly session: SessionLike
   readonly store: FakeStore
   readonly layer: FakeLayer | undefined
-  readonly defaultsIo: FakeDefaultsIo
   readonly workspacesIo: FakeDefaultsIo
   readonly log: { readonly log: SpecLog; readonly warnings: string[]; readonly errors: string[] }
   /** 工作区宇宙读数假端口（`calls` 按序记录每次收到的规范 key）。 */
@@ -576,14 +581,8 @@ function harness(options: HarnessOptions = {}): Harness {
   const store = new FakeStore(initial, options.storeKind ?? 'record', options.storeReadError, options.storeWriteError)
   const layer = options.withLayer === false ? undefined : new FakeLayer(scope, initial, options.skills)
 
-  const defaultsIo = new FakeDefaultsIo()
-  if (options.defaultsText !== undefined) defaultsIo.files.set(DEFAULTS_PATH, options.defaultsText)
-  else if (options.defaults !== null) {
-    defaultsIo.files.set(DEFAULTS_PATH, JSON.stringify({ version: 1, disabled: options.defaults ?? [] }))
-  }
-  defaultsIo.failWrite = options.defaultsWriteError
-
-  // 工作区档与默认档共用同一份假 IO 形状（生产也是同一个 `createNodeDefaultsIo` 实例）。
+  // 工作区档的假 IO（`workspace` 端点是它唯一的 RPC 消费方；默认档 IO 已随端点收缩退出本套件，
+  // 补字段内核在内核边界自行提供内存替身，见 {@link withDefaultsDeps}）。
   const workspacesIo = new FakeDefaultsIo()
   if (options.workspacesText !== undefined) {
     workspacesIo.files.set(WORKSPACES_PATH, options.workspacesText)
@@ -629,8 +628,6 @@ function harness(options: HarnessOptions = {}): Harness {
   const deps: RpcDeps = {
     store,
     layerFor: (sessionId) => (layer !== undefined && sessionId === session.id ? layer : undefined),
-    defaultsPath: DEFAULTS_PATH,
-    defaultsIo,
     protectedNames: new Set(PROTECTED_BASELINE),
     log: recorded.log,
     agents,
@@ -642,7 +639,9 @@ function harness(options: HarnessOptions = {}): Harness {
     },
     workspaceChoices: () => choices,
     readWorkspaceUniverse: universeReader.readWorkspaceUniverse,
-    ...(options.kernel === undefined ? {} : { kernel: options.kernel }),
+    // 缺省内核 = {@link REAL_KERNEL}（补字段内核）：`RpcDeps` 不带 `defaultsIo` / `defaultsPath`，
+    // 真实内核的 `readPanel` 需要它们——补字段动作在内核边界完成（kernelDepsOf JSDoc 的纪律）。
+    ...(options.kernel === undefined ? { kernel: REAL_KERNEL } : { kernel: options.kernel }),
   }
 
   return {
@@ -650,7 +649,6 @@ function harness(options: HarnessOptions = {}): Harness {
     session,
     store,
     layer,
-    defaultsIo,
     workspacesIo,
     log: recorded,
     universeReader,
@@ -712,6 +710,19 @@ describe('端点判定与请求 parser', () => {
     expect(counted.calls()).toBe(0)
   })
 
+  it("dispatch('defaults', …) → 未知端点 bad-request（defaults 端点已随面板收缩删除）", async () => {
+    const counted = countingKernel()
+    const h = harness({ kernel: counted.kernel })
+    const error = failureOf(await h.dispatch('defaults', { action: 'off', addresses: ['mcp:a'] }))
+
+    expect(error.code).toBe('bad-request')
+    expect(error.message).toContain('未知端点')
+    expect(error.message).toContain('panel / toggle / reset / workspace')
+    // 未知端点在 parser 之前就拒绝：默认档文件一个字节都不动。
+    expect(counted.calls()).toBe(0)
+    expect(h.workspacesIo.writes).toHaveLength(0)
+  })
+
   it('请求 parser 拒绝超长地址（>200 字符）→ bad-request，details.issues 带说明', async () => {
     const counted = countingKernel()
     const h = harness({ kernel: counted.kernel })
@@ -748,14 +759,13 @@ describe('端点判定与请求 parser', () => {
     for (const payload of payloads) {
       expect(failureOf(await h.dispatch('toggle', payload)).code).toBe('bad-request')
     }
-    // defaults 的 superRefine：未知 action、reset 带 addresses、非 reset 缺 addresses。
+    // workspace 的 strict：未知 action、set 缺 addresses、read 带 addresses。
     for (const payload of [
-      { action: 'bogus' },
-      { action: 'reset', addresses: ['mcp:a'] },
-      { action: 'off' },
-      { action: 'off', addresses: [] },
+      { workspacePath: '/w1', action: 'bogus' },
+      { workspacePath: '/w1', action: 'set' },
+      { workspacePath: '/w1', action: 'read', addresses: ['mcp:a'] },
     ]) {
-      expect(failureOf(await h.dispatch('defaults', payload)).code).toBe('bad-request')
+      expect(failureOf(await h.dispatch('workspace', payload)).code).toBe('bad-request')
     }
   })
 })
@@ -862,16 +872,6 @@ describe('地址预检（R17：结构化失败码由 dispatcher 产出）', () =
       ).code,
     ).toBe('reserved')
   })
-
-  it('defaults 端点的地址同样预检：tool:bash → protected，且默认档文件不动', async () => {
-    const h = harness()
-    const before = h.defaultsIo.files.get(DEFAULTS_PATH)
-    const error = failureOf(await h.dispatch('defaults', { action: 'off', addresses: ['tool:bash'] }))
-
-    expect(error.code).toBe('protected')
-    expect(h.defaultsIo.writes).toHaveLength(0)
-    expect(h.defaultsIo.files.get(DEFAULTS_PATH)).toBe(before)
-  })
 })
 
 describe('panel：只读快照', () => {
@@ -895,33 +895,21 @@ describe('panel：只读快照', () => {
     // （x / y 两条，carried 与 scoped 同一批名字，不会重复计入）。
     expect(parsed.value.stats).toStrictEqual({ visible: 1, denied: 2 })
     expect(parsed.value.groups.map((group) => group.key)).toEqual(['a', 'builtin'])
-    expect(parsed.value.defaults).toEqual({
-      version: 1,
-      disabled: [],
-      path: DEFAULTS_PATH,
-      readable: true,
-      corrupt: false,
-    })
+    // 快照不再携带默认档 / 工作区档读数（wire 收缩：两个字段已删，命令面仍走 control 读数）。
+    expect('defaults' in parsed.value).toBe(false)
+    expect('workspace' in parsed.value).toBe(false)
     // 关闭集里命中 0 的地址才进 intentOnly；`mcp:a` 命中 2，因此为空。
     expect(parsed.value.intentOnly).toEqual([])
   })
 
-  it('默认档文件不存在：readable=false / corrupt=false（按空档处理，不是损坏）', async () => {
-    const h = harness({ scope: ['bash'], defaults: null })
+  it('默认档缺失或损坏都不再进快照（D-11：无 defaults 键、无 defaults-corrupt 提示码）', async () => {
+    // 补字段内核的默认档 IO 是空表：文件不存在（缺失路径）。快照照样成功，但不带 defaults
+    // 读数，也不产 defaults-corrupt 提示码——面板不再展示默认档状态（提示码键保留给命令面）。
+    const h = harness({ scope: ['bash'] })
     const snapshot = panelOf(await h.dispatch('panel', { sessionId: SESSION_ID }))
 
-    expect(snapshot.defaults).toMatchObject({ readable: false, corrupt: false })
-    expect(snapshot.notices).toEqual([])
-    // 读路径照旧 warn 一次（R14 ②：默认档缺失也要 warn）。
-    expect(h.log.warnings.join('\n')).toContain('默认档不可读')
-  })
-
-  it('默认档损坏：readable=true / corrupt=true，提示码里带 defaults-corrupt', async () => {
-    const h = harness({ scope: ['bash'], defaultsText: '{ "version": 1, "disabled": [' })
-    const snapshot = panelOf(await h.dispatch('panel', { sessionId: SESSION_ID }))
-
-    expect(snapshot.defaults).toMatchObject({ readable: true, corrupt: true })
-    expect(snapshot.notices).toEqual(['defaults-corrupt'])
+    expect('defaults' in snapshot).toBe(false)
+    expect(snapshot.notices).not.toContain('defaults-corrupt')
   })
 
   it('持久化降级（storeKind=memory）→ 提示码由构建器自动补 persistence-degraded', async () => {
@@ -1169,110 +1157,32 @@ describe('reset：回创建时快照', () => {
   })
 })
 
-describe('defaults：默认档写（不返回会话快照）', () => {
-  it('成功：默认档视图 + changed，文件落盘，且响应里没有 snapshot', async () => {
-    const h = harness({ defaults: ['mcp:b'] })
-    const result = await h.dispatch('defaults', { action: 'off', addresses: ['mcp:a'] })
-    if (!result.ok) throw new Error(result.error.message)
+describe('workspace：工作区级默认档（{workspacePath} 唯一寻址 × 5 动作）', () => {
+  it('session 寻址形态 → 请求 parser 直接拒绝（P-1=b：{workspacePath} 是唯一寻址）', async () => {
+    const counted = countingKernel()
+    const h = harness({ kernel: counted.kernel, workspaces: { [PRIMARY_WORKSPACE]: ['mcp:a'] } })
+    const error = failureOf(await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'read' }))
 
-    const parsed = parseDefaultsValue(result.value)
-    expect(parsed.ok).toBe(true)
-    if (!parsed.ok) return
-
-    expect(parsed.value.defaults).toEqual({
-      version: 1,
-      disabled: ['mcp:a', 'mcp:b'],
-      path: DEFAULTS_PATH,
-      readable: true,
-      corrupt: false,
-    })
-    expect(parsed.value.changed).toEqual(['mcp:a', 'mcp:b'])
-    // §2.2 表末行：defaults 不回会话快照（默认档不追溯，返回反而误导）。
-    expect(Object.keys(result.value as Record<string, unknown>)).not.toContain('snapshot')
-    expect(h.defaultsIo.writes).toHaveLength(1)
+    expect(error.code).toBe('bad-request')
+    expect(error.message).toContain('未知字段')
+    // parser 拒绝发生在内核与归属解析之前：不写盘、不读归属、不调内核。
+    expect(counted.calls()).toBe(0)
+    expect(h.workspacesIo.writes).toHaveLength(0)
   })
 
-  it('reset：整份清空（不带 addresses），文件变成空关闭集', async () => {
-    const h = harness({ defaults: ['mcp:a'] })
-    const result = await h.dispatch('defaults', { action: 'reset' })
-    if (!result.ok) throw new Error(result.error.message)
-
-    const parsed = parseDefaultsValue(result.value)
-    if (!parsed.ok) throw new Error(parsed.message)
-    expect(parsed.value.defaults.disabled).toEqual([])
-    expect(parsed.value.changed).toEqual([])
-  })
-
-  it('不寻址会话：agent 不存在也照常写入（请求体里没有 sessionId）', async () => {
-    const h = harness({ agent: 'absent' })
-    const result = await h.dispatch('defaults', { action: 'off', addresses: ['mcp:a'] })
-    expect(result.ok).toBe(true)
-  })
-
-  it('写盘失败 → defaults-unwritable，details 带 {path, reason}', async () => {
-    const h = harness({ defaultsWriteError: new Error('EACCES: 目录不可写') })
-    const before = h.defaultsIo.files.get(DEFAULTS_PATH)
-    const error = failureOf(await h.dispatch('defaults', { action: 'off', addresses: ['mcp:a'] }))
-
-    expect(error.code).toBe('defaults-unwritable')
-    expect(error.details).toEqual({ path: DEFAULTS_PATH, reason: 'EACCES: 目录不可写' })
-    expect(error.message).toContain(DEFAULTS_PATH)
-    // 写失败时文件一个字节都不动。
-    expect(h.defaultsIo.files.get(DEFAULTS_PATH)).toBe(before)
-  })
-})
-
-describe('workspace：工作区级默认档（两形态 × 5 动作）', () => {
-  it('形态 A（sessionId）：read + set/off/on/reset 全动作写盘并回读一致', async () => {
-    const h = harness({ workspaces: { [PRIMARY_WORKSPACE]: ['mcp:a'] } })
-
-    // ── read：归属视图 + 下拉 + changed 为空 ──
-    const read = workspaceValueOf(await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'read' }))
-    expect(read.workspace).toEqual({
-      key: PRIMARY_WORKSPACE,
-      title: '工作区一',
-      registered: true,
-      disabled: ['mcp:a'],
-      path: WORKSPACES_PATH,
-      readable: true,
-      corrupt: false,
-    })
-    expect(read.choices).toEqual(DEFAULT_CHOICES)
-    expect(read.changed).toEqual([])
-
-    // ── set：整份覆盖 ──
-    const set = workspaceValueOf(
-      await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'set', addresses: ['skill:x'] }),
-    )
-    expect(set.changed).toEqual(['skill:x'])
-    expect(set.workspace?.disabled).toEqual(['skill:x'])
-
-    // ── off：并入当前条目（排序去重）──
-    const off = workspaceValueOf(
-      await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'off', addresses: ['mcp:b'] }),
-    )
-    expect(off.changed).toEqual(['mcp:b', 'skill:x'])
-    expect(off.workspace?.disabled).toEqual(['mcp:b', 'skill:x'])
-
-    // ── on：从当前条目移除 ──
-    const on = workspaceValueOf(
-      await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'on', addresses: ['skill:x'] }),
-    )
-    expect(on.changed).toEqual(['mcp:b'])
-    expect(on.workspace?.disabled).toEqual(['mcp:b'])
-
-    // ── reset：条目清空（保留键）──
-    const reset = workspaceValueOf(await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'reset' }))
-    expect(reset.changed).toEqual([])
-    expect(reset.workspace?.disabled).toEqual([])
-    // 落盘内容与回执一致（写路径只读 `report.after`，不回读文件）。
-    const persisted = JSON.parse(h.workspacesIo.files.get(WORKSPACES_PATH) ?? '{}') as {
-      workspaces?: Record<string, { disabled?: readonly string[] }>
+  it('session 寻址形态的写动作同样被拒（set / off / on / reset 全动作无入口）', async () => {
+    const h = harness()
+    for (const action of ['set', 'off', 'on', 'reset'] as const) {
+      const payload =
+        action === 'set' || action === 'off' || action === 'on'
+          ? { sessionId: SESSION_ID, action, addresses: ['mcp:a'] }
+          : { sessionId: SESSION_ID, action }
+      expect(failureOf(await h.dispatch('workspace', payload)).code).toBe('bad-request')
     }
-    expect(persisted.workspaces?.[PRIMARY_WORKSPACE]?.disabled).toEqual([])
+    expect(h.workspacesIo.writes).toHaveLength(0)
   })
 
-  it('形态 B（workspacePath）：read + set/off/on/reset 全动作', async () => {
+  it('{workspacePath}：read + set/off/on/reset 全动作写盘并回读一致', async () => {
     const h = harness({ workspaces: { [SECOND_WORKSPACE]: ['mcp:z'] } })
 
     const read = workspaceValueOf(
@@ -1287,7 +1197,8 @@ describe('workspace：工作区级默认档（两形态 × 5 动作）', () => {
       readable: true,
       corrupt: false,
     })
-    expect(read.choices).toEqual(DEFAULT_CHOICES)
+    // 响应不带 choices（下拉字段已随 P-1=b 删除；登记查询转为宿主私有用途）。
+    expect('choices' in read).toBe(false)
     expect(read.changed).toEqual([])
 
     const set = workspaceValueOf(
@@ -1324,37 +1235,14 @@ describe('workspace：工作区级默认档（两形态 × 5 动作）', () => {
     expect(reset.workspace?.disabled).toEqual([])
   })
 
-  it('R6：会话归属未登记目录时 registered:false 照常返回，不判 unresolved', async () => {
-    const h = harness({ attribution: { key: '/unregistered', registered: false } })
-    const value = workspaceValueOf(await h.dispatch('workspace', { sessionId: SESSION_ID }))
-
-    expect(value.workspace).toMatchObject({
-      key: '/unregistered',
-      registered: false,
-      disabled: [],
-      path: WORKSPACES_PATH,
-      readable: false,
-      corrupt: false,
-    })
-    // 未登记没有标题（契约里是可缺省字段，不塞空串）。
-    expect(value.workspace?.title).toBeUndefined()
-  })
-
-  it('工作区档损坏：readable=true / corrupt=true（按空档处理），会话照常可用', async () => {
+  it('工作区档损坏：readable=true / corrupt=true（按空档处理），读路径照常返回', async () => {
     const h = harness({ workspacesText: '{ "version": 1, "workspaces": [' })
-    const value = workspaceValueOf(await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'read' }))
+    const value = workspaceValueOf(
+      await h.dispatch('workspace', { workspacePath: PRIMARY_WORKSPACE, action: 'read' }),
+    )
 
     expect(value.workspace).toMatchObject({ readable: true, corrupt: true, disabled: [] })
     expect(h.log.warnings.join('\n')).toContain('工作区档')
-  })
-
-  it('{sessionId} 的会话 cwd 已删（归属 undefined）→ workspace-unresolved{subject: sessionId}', async () => {
-    const h = harness({ attribution: null })
-    const error = failureOf(await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'read' }))
-
-    expect(error.code).toBe('workspace-unresolved')
-    expect(error.details).toEqual({ subject: SESSION_ID })
-    expect(error.message).toContain('无法归属')
   })
 
   it('{workspacePath:"/etc"} 未登记 → workspace-unresolved{subject: 路径原文}', async () => {
@@ -1368,12 +1256,12 @@ describe('workspace：工作区级默认档（两形态 × 5 动作）', () => {
 
   it('写盘抛错 → workspace-unwritable{path, reason}，文件一个字节都不动', async () => {
     const h = harness({
-      workspaces: { [PRIMARY_WORKSPACE]: ['mcp:a'] },
+      workspaces: { [SECOND_WORKSPACE]: ['mcp:z'] },
       workspacesWriteError: new Error('EACCES: 目录不可写'),
     })
     const before = h.workspacesIo.files.get(WORKSPACES_PATH)
     const error = failureOf(
-      await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'off', addresses: ['skill:x'] }),
+      await h.dispatch('workspace', { workspacePath: SECOND_WORKSPACE, action: 'off', addresses: ['skill:x'] }),
     )
 
     expect(error.code).toBe('workspace-unwritable')
@@ -1384,9 +1272,9 @@ describe('workspace：工作区级默认档（两形态 × 5 动作）', () => {
 
   it('地址预检复用（R17）：tool:bash → protected，内核零调用、文件不动', async () => {
     const counted = countingKernel()
-    const h = harness({ kernel: counted.kernel })
+    const h = harness({ kernel: counted.kernel, workspaces: { [SECOND_WORKSPACE]: [] } })
     const error = failureOf(
-      await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'off', addresses: ['tool:bash'] }),
+      await h.dispatch('workspace', { workspacePath: SECOND_WORKSPACE, action: 'off', addresses: ['tool:bash'] }),
     )
 
     expect(error.code).toBe('protected')
@@ -1395,25 +1283,16 @@ describe('workspace：工作区级默认档（两形态 × 5 动作）', () => {
     expect(h.workspacesIo.writes).toHaveLength(0)
   })
 
-  it('会话不在宿主中运行 → session-not-live（先于归属解析）', async () => {
-    const h = harness({ agent: 'absent' })
-    const error = failureOf(await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'set', addresses: ['skill:x'] }))
-
-    expect(error.code).toBe('session-not-live')
-    expect(error.details).toEqual({ sessionId: SESSION_ID })
-    expect(h.workspacesIo.writes).toHaveLength(0)
-  })
-
-  it('坏请求 → bad-request（两形态互斥 / 动作与地址约束）', async () => {
+  it('坏请求 → bad-request（未知寻址字段 / 动作与地址约束）', async () => {
     const h = harness()
     const payloads: unknown[] = [
       {},
-      { sessionId: SESSION_ID, workspacePath: SECOND_WORKSPACE },
-      { sessionId: SESSION_ID, action: 'set' },
-      { sessionId: SESSION_ID, action: 'read', addresses: ['mcp:a'] },
-      { sessionId: SESSION_ID, action: 'reset', addresses: ['mcp:a'] },
-      { sessionId: SESSION_ID, action: 'bogus' },
-      { sessionId: SESSION_ID, extra: true },
+      { sessionId: SESSION_ID },
+      { workspacePath: '/w2', action: 'set' },
+      { workspacePath: '/w2', action: 'read', addresses: ['mcp:a'] },
+      { workspacePath: '/w2', action: 'reset', addresses: ['mcp:a'] },
+      { workspacePath: '/w2', action: 'bogus' },
+      { workspacePath: '/w2', extra: true },
       { workspacePath: 'relative/path' },
     ]
     for (const payload of payloads) {
@@ -1423,57 +1302,7 @@ describe('workspace：工作区级默认档（两形态 × 5 动作）', () => {
   })
 })
 
-describe('workspace 端点：默认档宇宙（U1 / D-24）', () => {
-  it('{sessionId} read 带宇宙：layerReady=true、组序 mcp→skill→builtin、carried 名成行', async () => {
-    const h = harness({
-      // `scope` 是「未被本插件掩码」的视角：关闭 `mcp:a::z` 与 `tool:workflow` 后，这两个名字
-      // 只剩 carried（`snapshot().deny`）一份读数；`mcp:c` 零命中（别的服务器本来就被掩掉）。
-      // 刻意不用保护名单里的内置工具（`tool:bash` 之类解析即拒绝，永远不会进 carried）。
-      scope: ['mcp__a__x', 'mcp__a__z', 'skill', 'workflow', 'ls'],
-      disabled: ['mcp:a::z', 'tool:workflow', 'mcp:c'],
-      skills: { visible: [{ name: 'pdf', description: '读 PDF' }] },
-    })
-    // 掩码后的可见投影（生产层由 restrict 生效；假层是固定 fixtures，这里显式给）。
-    h.layer?.setVisibleSchemas([
-      { name: 'mcp__a__x', description: '读取页面内容' },
-      { name: 'skill' },
-      { name: 'ls', description: '列目录' },
-    ])
-
-    const value = workspaceValueOf(await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'read' }))
-
-    expect(value.universe).not.toBeNull()
-    expect(value.universe).toMatchObject({ layerReady: true, skillsAvailable: true })
-    expect(value.universe?.groups.map((group) => group.kind)).toEqual(['mcp', 'skill', 'builtin'])
-    // 组内行 = 可见投影 ∪ carried：被掩掉的服务器（`mcp:c` 零命中）不出现。
-    expect(value.universe?.groups.filter((group) => group.kind === 'mcp').map((group) => group.key)).toEqual(['a'])
-    expect(value.universe?.groups[0]?.tools.map((tool) => tool.address)).toEqual(['mcp:a::x', 'mcp:a::z'])
-    // carried-only 的行没有描述（读不到 schema），但行仍在（已关条目保留在清单里）。
-    expect(value.universe?.groups[0]?.tools[1]).toEqual({
-      address: 'mcp:a::z',
-      shortName: 'z',
-      protected: false,
-      reserved: false,
-    })
-    // 技能组行来自 `layer.skills()` 的 visible ∪ shadowed，不是候选名。
-    expect(value.universe?.groups[1]).toMatchObject({ kind: 'skill', key: 'skill', address: 'tool:skill' })
-    expect(value.universe?.groups[1]?.tools.map((tool) => tool.address)).toEqual(['skill:pdf'])
-    expect(value.universe?.groups[2]?.tools.map((tool) => tool.address)).toEqual(['tool:ls', 'tool:workflow'])
-  })
-
-  it('{sessionId} off 写响应同样带宇宙（D-24：写后整份替换不丢清单）', async () => {
-    const h = harness({ scope: ['mcp__a__x'] })
-    h.layer?.setVisibleSchemas([{ name: 'mcp__a__x', description: '读取页面内容' }])
-
-    const value = workspaceValueOf(
-      await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'off', addresses: ['mcp:a'] }),
-    )
-
-    expect(value.changed).toEqual(['mcp:a'])
-    expect(value.universe?.layerReady).toBe(true)
-    expect(value.universe?.groups.map((group) => group.key)).toEqual(['a'])
-  })
-
+describe('workspace 端点：工作区宇宙（D-24 / G7）', () => {
   it('{workspacePath} read 返回该工作区宇宙（端口收到的是规范化 key）', async () => {
     const h = harness()
     const value = workspaceValueOf(
@@ -1514,43 +1343,6 @@ describe('workspace 端点：默认档宇宙（U1 / D-24）', () => {
     expect(value.universe).toEqual({ layerReady: false, skillsAvailable: false, groups: [] })
     // warn 带错误原文（排障用），且不让整次 workspace 读失败。
     expect(h.log.warnings.join('\n')).toContain('宇宙端口炸了')
-  })
-
-  it('{sessionId} 形态零调用工作区宇宙端口（会话宇宙仍由本会话两读推出）', async () => {
-    const h = harness({ scope: ['mcp__a__x'] })
-    h.layer?.setVisibleSchemas([{ name: 'mcp__a__x', description: '读取页面内容' }])
-
-    const readValue = workspaceValueOf(await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'read' }))
-
-    expect(readValue.universe).not.toBeNull()
-    // 读路径不经端口：会话宇宙是同步两读（visibleSchemas ∪ snapshot），与工作区宇宙不混淆。
-    expect(h.universeReader.calls).toEqual([])
-
-    await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'off', addresses: ['mcp:a'] })
-    // 写路径同样零调用。
-    expect(h.universeReader.calls).toEqual([])
-  })
-
-  it('层未就绪（withLayer:false）→ 空宇宙 {layerReady:false, skillsAvailable:false, groups:[]}', async () => {
-    const h = harness({ withLayer: false })
-    const value = workspaceValueOf(await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'read' }))
-
-    expect(value.universe).toEqual({ layerReady: false, skillsAvailable: false, groups: [] })
-    // 层缺席是正常降级（不刷 warn）；「一次 warn」只属于读数抛错路径。
-    expect(h.log.warnings.join('\n')).not.toContain('工具宇宙')
-  })
-
-  it('skills 服务不可用 → skillsAvailable:false，技能组（含整组开关）仍在', async () => {
-    const h = harness({ skills: { available: false } })
-    h.layer?.setVisibleSchemas([{ name: 'skill' }, { name: 'read', description: '读文件' }])
-
-    const value = workspaceValueOf(await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'read' }))
-
-    expect(value.universe?.layerReady).toBe(true)
-    expect(value.universe?.skillsAvailable).toBe(false)
-    expect(value.universe?.groups.map((group) => group.kind)).toEqual(['skill', 'builtin'])
-    // 降级只清行，整组开关（`tool:skill`）保留——用户仍可整档关闭。
-    expect(value.universe?.groups[0]).toEqual({ kind: 'skill', key: 'skill', address: 'tool:skill', tools: [] })
   })
 })
 

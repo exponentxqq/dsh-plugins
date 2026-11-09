@@ -7,20 +7,19 @@
  * 组件仍是**纯展示层**：状态、读、写都在父级（`useWorkspaceDefaults` / `PanelController`）。
  * 本套件只渲染真实组件、用 `vi.fn` 记录回调，逐条钉住 TS12 的出口断言面：
  *
- * 1. **两形态**：`section` 形态走 `DefaultsSectionFrame`——默认收起、标题行带计数摘要、点开
- *    才有正文（键/路径/三计数/分组清单）；`dialog` 形态是 holder 页面的分节正文——页面化后
- *    委托 `WorkspaceDefaultsPage`（任务 5.4 / G5.4），不再渲染 `<h3>`（标题降级为概要卡的
- *    `<p.cardTitle>`），也没有 `role="dialog"`（页面骨架由 holder 提供）。**两形态都不再有
- *    工作区下拉**：选择动作归 holder 页面的唯一选择框，节内只消费选中结果
- *    （`queryByRole('combobox')` 恒为 `null`，code-design §1.3「删除节内工作区下拉」/
- *    §3.9「props 删 `choices` / `onSelect`」）。
+ * 1. **单形态（dialog-only 委托）**：`WorkspaceDefaultsEditor` 收敛为统一页分节的正文容器——
+ *    会话工具面板里的分区折叠壳（`DefaultsSectionFrame`）已随面板改版删除，正文统一委托
+ *    `WorkspaceDefaultsPage`（三卡布局、全局过滤、并集/scope 说明、复制反馈、刷新与命令卡
+ *    都在页面组件里）。组件仍**没有工作区下拉**：选择动作归 holder 页面的唯一选择框，节内
+ *    只消费选中结果（`queryByRole('combobox')` 恒为 `null`，code-design §1.3「删除节内工作区
+ *    下拉」/ §3.9「props 删 `choices` / `onSelect`」）。
  * 2. **分组清单**（与用户级默认档共用 `DefaultsGroupList`）：组开关打组地址
  *    （`mcp:a` / `tool:skill`）、行开关打行地址（`mcp:a::x`）；锁态两行（保护名单 / 保留名）
  *    与「整组在档」的行禁用并带 `整组默认关` 标签；残留地址只能移除，界面上**没有任何自由
- *    文本添加入口**（跨清单的新关走 `workspace.cliHint` 里的命令）。旧的自由文本添加链用例
- *    （添加框切分 / 回车 / 空输入）与对应语言键断言已整段删除。
- * 3. **三计数与摘要**读同一份 `(universe, disabled)`：正文是整串
- *    `清单 N · 默认关 M · 残留 K`，标题行摘要 `默认关 M · 残留 K` 是它的子串。
+ *    文本添加入口**（跨清单的新关走页面命令卡的 `/tools workspace off` 模板）。旧的自由文本
+ *    添加链用例（添加框切分 / 回车 / 空输入）与对应语言键断言已整段删除。
+  * 3. **三计数**读同一份 `(universe, disabled)`：正文是整串 `清单 N · 默认关 M · 残留 K`
+ *    （页面概要卡与分节共用）。
  * 4. **降级**：`workspace === null` 只留 `workspace.unresolved`（不渲染三计数与清单）；
  *    `universe === null` 只留 `defaults.universeUnavailable` + 残留区 + 命令提示。
  * 5. **`WorkspaceDefaultsSection`**（文件末尾）：份额三态——`{kind:'workspace',…}` 按
@@ -43,7 +42,6 @@ import type {
   DefaultsUniverse,
   PanelSnapshot,
   WorkspaceAction,
-  WorkspaceChoice,
   WorkspaceRequest,
   WorkspaceValue,
   WorkspaceView,
@@ -152,11 +150,11 @@ interface Handlers {
 }
 
 /**
- * 渲染编辑器并返回记录回调的替身。
+ * 渲染编辑器并返回记录回调的替身（组件已 dialog-only：正文委托 `WorkspaceDefaultsPage`）。
  *
  * `rerenderEditor` 复用同一组 mock 重新渲染（受控组件的「再点一次」用例需要父级把新状态
  * 写回 props，例如组开关从 `off` 变成 `on`）。
- * @param overrides - 需要覆盖的 props（形态、宇宙、在途、失败等）。
+ * @param overrides - 需要覆盖的 props（宇宙、在途、失败等）。
  * @returns render 结果 + 两个 mock + 重新渲染助手。
  */
 function renderEditor(overrides: Partial<WorkspaceDefaultsEditorProps> = {}) {
@@ -167,7 +165,6 @@ function renderEditor(overrides: Partial<WorkspaceDefaultsEditorProps> = {}) {
   const base: WorkspaceDefaultsEditorProps = {
     workspace: workspaceView(),
     universe: UNIVERSE,
-    variant: 'section',
     saving: false,
     saved: false,
     t: translate,
@@ -182,22 +179,6 @@ function renderEditor(overrides: Partial<WorkspaceDefaultsEditorProps> = {}) {
       view.rerender(<WorkspaceDefaultsEditor {...base} {...next} />)
     },
   }
-}
-
-/**
- * 分区标题行的折叠按钮。
- *
- * 折叠壳（`DefaultsSectionFrame`）的按钮可访问名 = 标题 + 计数摘要（`默认关 M · 残留 K`），
- * 摘要随档读数变化，所以按「标题前缀」取而不是整串比较。
- * @returns 折叠按钮。
- */
-function frameToggle(): HTMLButtonElement {
-  return screen.getByRole('button', { name: new RegExp(`^${zh['workspace.title']}`) }) as HTMLButtonElement
-}
-
-/** 展开分区（已展开时不再点，保证用例幂等）。 */
-function expandFrame(): void {
-  if (frameToggle().getAttribute('aria-expanded') !== 'true') fireEvent.click(frameToggle())
 }
 
 /**
@@ -241,18 +222,6 @@ function rowSwitchOf(name: string): HTMLButtonElement {
 }
 
 /**
- * 分区标题行的摘要文案（`defaults.summary` 的插值结果）。
- * @param inDefaults - 「默认关」数。
- * @param residual - 「残留」数。
- * @returns 完整摘要串。
- */
-function summaryOf(inDefaults: number, residual: number): string {
-  return zh['defaults.summary']
-    .replace('{inDefaults}', String(inDefaults))
-    .replace('{residual}', String(residual))
-}
-
-/**
  * 正文的三计数行文案（`defaults.counts` 的插值结果）。
  * @param listed - 可切换条目数（组开关 + 行开关，不是行数）。
  * @param inDefaults - 「默认关」数。
@@ -282,8 +251,6 @@ const PAGE_ZH: Readonly<Record<string, string>> = {
   'workspace.commandTitle': '跨清单地址',
   'workspace.commandNote': '该命令只写「本会话所属工作区」的档；要给其他工作区补条目，请直接编辑上面的工作区档文件。',
   'workspace.commandComment': '目标工作区：{key}',
-  'workspace.copyCommand': '复制命令',
-  'workspace.copied': '已复制',
 }
 
 /**
@@ -347,156 +314,9 @@ function renderPage(overrides: Partial<WorkspaceDefaultsPageProps> = {}) {
   }
 }
 
-describe('WorkspaceDefaultsEditor（section 形态）', () => {
-  it('分区默认收起：aria-expanded=false，正文（键/三计数/组清单/开关）都不在文档里', () => {
-    renderEditor()
-
-    const toggle = frameToggle()
-    expect(toggle.getAttribute('aria-expanded')).toBe('false')
-    // 收起态标题行仍给摘要（收起的默认档不是黑盒）。
-    expect(toggle.textContent).toContain(summaryOf(2, 1))
-
-    expect(screen.queryByText(WS_PATH)).toBeNull()
-    expect(screen.queryByText(countsLineOf(8, 2, 1))).toBeNull()
-    expect(screen.queryByText('MCP 服务器')).toBeNull()
-    expect(screen.queryAllByRole('switch')).toEqual([])
-  })
-
-  it('点击标题行展开（再点收起）：正文出现', () => {
-    renderEditor()
-
-    fireEvent.click(frameToggle())
-    expect(frameToggle().getAttribute('aria-expanded')).toBe('true')
-    expect(screen.getByText(WS_PATH)).toBeTruthy()
-    expect(screen.getByText(countsLineOf(8, 2, 1))).toBeTruthy()
-    expect(groupToggleOf('MCP 服务器')).toBeTruthy()
-
-    fireEvent.click(frameToggle())
-    expect(frameToggle().getAttribute('aria-expanded')).toBe('false')
-    expect(screen.queryByText(WS_PATH)).toBeNull()
-  })
-
-  it('展开后渲染工作区键、档文件路径与登记态', () => {
-    renderEditor()
-    expandFrame()
-
-    expect(screen.getByText('/w1')).toBeTruthy()
-    expect(screen.getByText(WS_PATH)).toBeTruthy()
-    expect(screen.getByText(zh['workspace.registered'])).toBeTruthy()
-  })
-
-  it('三计数行按整串渲染（清单 8 · 默认关 2 · 残留 1）', () => {
-    renderEditor()
-    expandFrame()
-
-    // 整串匹配：摘要行 `默认关 2 · 残留 1` 是它的子串，按整串取才不会双命中。
-    expect(screen.getByText(countsLineOf(8, 2, 1))).toBeTruthy()
-    expect(screen.getByText(summaryOf(2, 1))).toBeTruthy()
-  })
-
-  it('展开后仍有作用域与并集说明（DQ2=A）', () => {
-    renderEditor()
-    expandFrame()
-
-    expect(screen.getByText(zh['workspace.scope'])).toBeTruthy()
-    expect(screen.getByText(zh['workspace.union'])).toBeTruthy()
-    // 并集语义的三个事实都在句子里：新会话、用户级默认档、本工作区默认档。
-    expect(zh['workspace.union']).toContain('新会话')
-    expect(zh['workspace.union']).toContain('用户级默认档')
-    expect(zh['workspace.union']).toContain('本工作区默认档')
-    expect(zh['workspace.union']).toContain('∪')
-  })
-
-  it('未登记工作区显示「未登记」而不是出错', () => {
-    renderEditor({ workspace: workspaceView({ registered: false }) })
-    expandFrame()
-
-    expect(screen.getByText(zh['workspace.unregistered'])).toBeTruthy()
-    // 未登记不影响清单：组开关仍可写。
-    expect(groupSwitchOf('a')).toBeTruthy()
-  })
-
-  it('损坏文件显示降级告警', () => {
-    renderEditor({ workspace: workspaceView({ corrupt: true }) })
-    expandFrame()
-
-    expect(screen.getByText(zh['workspace.corrupt'])).toBeTruthy()
-  })
-
-  it('空清单：清空按钮禁用，且没有残留区', () => {
-    renderEditor({ workspace: workspaceView({ disabled: [] }) })
-    expandFrame()
-
-    expect((screen.getByRole('button', { name: zh['workspace.clear'] }) as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.queryByText(zh['defaults.residualTitle'])).toBeNull()
-    expect(screen.getByText(countsLineOf(8, 0, 0))).toBeTruthy()
-  })
-
-  it('工作区无法归属（null）：只读降级，不渲染三计数与清单', () => {
-    renderEditor({ workspace: null })
-    expandFrame()
-
-    expect(screen.getByText(zh['workspace.unresolved'])).toBeTruthy()
-    expect(screen.queryByText(/^清单/)).toBeNull()
-    expect(screen.queryAllByRole('switch')).toEqual([])
-    expect(screen.getByText(zh['workspace.union'])).toBeTruthy()
-    // 清空按钮仍在（布局稳定），但因为没有写入目标而禁用；摘要按空档求值。
-    expect((screen.getByRole('button', { name: zh['workspace.clear'] }) as HTMLButtonElement).disabled).toBe(true)
-    expect(frameToggle().textContent).toContain(summaryOf(0, 0))
-  })
-
-  it('universe=null：只留降级说明 + 残留区 + 命令提示，不渲染组清单', () => {
-    renderEditor({ universe: null })
-    expandFrame()
-
-    expect(screen.getByText(zh['defaults.universeUnavailable'])).toBeTruthy()
-    expect(screen.queryAllByRole('switch')).toEqual([])
-    expect(screen.getByText(zh['defaults.residualTitle'])).toBeTruthy()
-    expect(screen.getByText('legacy:retired')).toBeTruthy()
-    // 宇宙不可用：listed=0、inDefaults=0、residual=|disabled|=3。
-    expect(screen.getByText(countsLineOf(0, 0, 3))).toBeTruthy()
-    expect(screen.getByText(zh['workspace.cliHint'])).toBeTruthy()
-  })
-
-  it('没有自由文本添加入口：唯一输入框是内置工具过滤，命令兜底提示在场', () => {
-    const { container } = renderEditor()
-    expandFrame()
-    // 内置工具组默认展开；显式再展开一次让「唯一输入框」不依赖默认展开口径。
-    expandGroup(zh['group.builtin'])
-
-    const inputs = [...container.querySelectorAll('input')]
-    expect(inputs).toHaveLength(1)
-    expect(inputs[0].getAttribute('placeholder')).toBe(zh['group.filter'])
-    expect(inputs[0].getAttribute('aria-label')).toBe(zh['group.filter'])
-    // 跨清单的新关只走命令，说明文案在清单组件内部（G8 handoff，本组件不重复渲染）。
-    expect(screen.getByText(zh['workspace.cliHint'])).toBeTruthy()
-  })
-
-  it('分区形态没有工作区下拉（作用域恒为本页面选中的工作区）', () => {
-    renderEditor()
-    expandFrame()
-
-    expect(screen.queryByRole('combobox')).toBeNull()
-  })
-
-  it('分区形态没有页面能力：无全局过滤框，行下没有描述次行（G4.4，面板 DOM 逐字一致）', () => {
-    renderEditor()
-    expandFrame()
-    expandGroup('MCP 服务器')
-
-    // 页面形态的全局过滤框（workspace.filter）不进面板分区；分区唯一输入框仍是内置组本地过滤
-    // （既有用例已按整文件唯一 input 钉住，这里只钉「页面过滤框缺席」这一面）。
-    expect(screen.queryByPlaceholderText(zhText('workspace.filter'))).toBeNull()
-
-    // 行详情同样是页面能力：mcp:a::y 的描述只作为 title 提示，不渲染次行文本。
-    expect(screen.queryByText('Y 工具')).toBeNull()
-  })
-})
-
 describe('WorkspaceDefaultsEditor 的开关写入动作', () => {
   it('整组开关提交 off：MCP 组 → addresses ["mcp:a"]', () => {
     const { onUpdate } = renderEditor({ workspace: workspaceView({ disabled: [] }) })
-    expandFrame()
 
     fireEvent.click(groupSwitchOf('a'))
 
@@ -506,7 +326,6 @@ describe('WorkspaceDefaultsEditor 的开关写入动作', () => {
 
   it('整组已在档时再点一次提交 on（受控回写后）', () => {
     const { onUpdate, rerenderEditor } = renderEditor({ workspace: workspaceView({ disabled: [] }) })
-    expandFrame()
 
     fireEvent.click(groupSwitchOf('a'))
     expect(onUpdate).toHaveBeenLastCalledWith('off', ['mcp:a'])
@@ -522,7 +341,6 @@ describe('WorkspaceDefaultsEditor 的开关写入动作', () => {
 
   it('行开关提交 off：mcp:a::x（行在 MCP 组里，先展开组）', () => {
     const { onUpdate } = renderEditor({ workspace: workspaceView({ disabled: [] }) })
-    expandFrame()
     expandGroup('MCP 服务器')
 
     fireEvent.click(rowSwitchOf('x'))
@@ -533,7 +351,6 @@ describe('WorkspaceDefaultsEditor 的开关写入动作', () => {
 
   it('技能组的整组开关提交 off：tool:skill', () => {
     const { onUpdate } = renderEditor({ workspace: workspaceView({ disabled: [] }) })
-    expandFrame()
 
     fireEvent.click(groupSwitchOf('技能'))
 
@@ -543,7 +360,6 @@ describe('WorkspaceDefaultsEditor 的开关写入动作', () => {
 
   it('锁态行禁用：保护名单与保留名各一行（带短标签与理由）', () => {
     renderEditor()
-    expandFrame()
 
     const protectedSwitch = rowSwitchOf('bash')
     expect(protectedSwitch.disabled).toBe(true)
@@ -560,7 +376,6 @@ describe('WorkspaceDefaultsEditor 的开关写入动作', () => {
 
   it('整组关闭（disabled 含 mcp:a）：组内行禁用 + 「整组默认关」标签，组开关本身仍可点', () => {
     renderEditor()
-    expandFrame()
     expandGroup('MCP 服务器')
 
     // 组头计数按**行数**（G8 裁定 P1）：2 行、其中 1 行在档（mcp:a::y）。
@@ -583,7 +398,6 @@ describe('WorkspaceDefaultsEditor 的开关写入动作', () => {
 
   it('残留区只读可移除：chip 只有移除按钮，移除提交 on', () => {
     const { onUpdate } = renderEditor()
-    expandFrame()
 
     expect(screen.getByText(zh['defaults.residualTitle'])).toBeTruthy()
     const chip = screen.getByText('legacy:retired').closest('li')
@@ -602,7 +416,6 @@ describe('WorkspaceDefaultsEditor 的开关写入动作', () => {
 
   it('清空是两段式：第一次只改文案，第二次才提交 reset', () => {
     const { onUpdate } = renderEditor()
-    expandFrame()
 
     fireEvent.click(screen.getByRole('button', { name: zh['workspace.clear'] }))
     expect(onUpdate).not.toHaveBeenCalled()
@@ -615,7 +428,6 @@ describe('WorkspaceDefaultsEditor 的开关写入动作', () => {
 
   it('刷新回调接父级 read', () => {
     const { onRefresh } = renderEditor()
-    expandFrame()
 
     fireEvent.click(screen.getByRole('button', { name: zh['workspace.refresh'] }))
     expect(onRefresh).toHaveBeenCalledTimes(1)
@@ -623,7 +435,6 @@ describe('WorkspaceDefaultsEditor 的开关写入动作', () => {
 
   it('在途（saving）整区禁用：组开关/行开关/残留移除/清空/刷新', () => {
     renderEditor({ saving: true })
-    expandFrame()
 
     expect(groupSwitchOf('a').disabled).toBe(true)
     expect(rowSwitchOf('alpha').disabled).toBe(true)
@@ -712,14 +523,15 @@ describe('WorkspaceDefaultsPage（页面形态正文）', () => {
     expect(command?.textContent).toContain(commandCommentOf('/w1'))
     expect(command?.textContent).toContain('/tools workspace off ')
 
-    fireEvent.click(screen.getByRole('button', { name: zhText('workspace.copyCommand') }))
+    // 复制按钮与反馈走共用 CommandCard 的文案槽（command.copy / command.copied 真键）。
+    fireEvent.click(screen.getByRole('button', { name: zh['command.copy'] }))
     await waitFor(() => { expect(writeText).toHaveBeenCalledTimes(1) })
 
     // 复制文本与代码块同源：目标键注释（含 /w1）+ 命令模板。
     expect(writeText.mock.calls[0]?.[0]).toContain(commandCommentOf('/w1'))
     expect(writeText.mock.calls[0]?.[0]).toContain('/tools workspace off ')
     // 复制成功反馈（copyState + aria-live）。
-    expect(screen.getByText(zhText('workspace.copied'))).toBeTruthy()
+    expect(screen.getByText(zh['command.copied'])).toBeTruthy()
   })
 
   it('概要卡刷新回调接父级 read（C3）', () => {
@@ -747,7 +559,7 @@ describe('WorkspaceDefaultsPage（页面形态正文）', () => {
 
 describe('WorkspaceDefaultsEditor（dialog 形态）', () => {
   it('渲染正文壳（h3 随页面化删除）：没有对话框根，也没有节内工作区下拉', () => {
-    const { container } = renderEditor({ variant: 'dialog' })
+    const { container } = renderEditor()
 
     expect(container.firstElementChild?.tagName).toBe('DIV')
     // 对话根由 holder 的页面骨架提供；本组件只交付正文壳。
@@ -765,7 +577,7 @@ describe('WorkspaceDefaultsEditor（dialog 形态）', () => {
   })
 
   it('工作区无法归属（null）时只读降级，仍然没有下拉', () => {
-    renderEditor({ variant: 'dialog', workspace: null })
+    renderEditor({ workspace: null })
 
     expect(screen.getByText(zh['workspace.unresolved'])).toBeTruthy()
     expect(screen.queryByRole('combobox')).toBeNull()
@@ -781,7 +593,7 @@ describe('WorkspaceDefaultsEditor 的失败与成功展示', () => {
     expect(zh['error.workspace-unwritable']).toContain('{path}')
     expect(text).toBe(`工作区默认档写入失败：${WS_PATH}。`)
 
-    renderEditor({ variant: 'dialog', failure: { text, detail: 'EACCES: permission denied' } })
+    renderEditor({ failure: { text, detail: 'EACCES: permission denied' } })
 
     const alert = screen.getByRole('alert')
     expect(alert.textContent).toContain(text)
@@ -789,13 +601,13 @@ describe('WorkspaceDefaultsEditor 的失败与成功展示', () => {
   })
 
   it('没有失败时不渲染 alert', () => {
-    renderEditor({ variant: 'dialog' })
+    renderEditor()
 
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('写成功渲染「已保存（本会话不变）」', () => {
-    renderEditor({ variant: 'dialog', saved: true })
+    renderEditor({ saved: true })
 
     expect(screen.getByText(zh['workspace.saved'])).toBeTruthy()
   })
@@ -804,16 +616,13 @@ describe('WorkspaceDefaultsEditor 的失败与成功展示', () => {
     const text = translate('error.workspace-unresolved', { subject: 'session-1' })
     expect(text).toBe('工作区无法归属：session-1。')
 
-    renderEditor({ variant: 'dialog', failure: { text } })
+    renderEditor({ failure: { text } })
     expect(screen.getByRole('alert').textContent).toContain(text)
   })
 })
 
 /** 用例里那个会话 id（只给 `/tools` 面的 panel 快照用；分节不再有「当前会话」寻址）。 */
 const SESSION_ID = 'session-1'
-
-/** 默认档文件的假绝对路径（只在快照字段里出现，本套件不渲染它）。 */
-const DEFAULTS_PATH = '/fake/dsh-home/session-tool-toggle/defaults.json'
 
 /** 分节的目标工作区路径（`{workspacePath}` 寻址键，与 `WorkspaceView.path` 同源）。 */
 const FIRST_KEY = '/w1'
@@ -828,12 +637,6 @@ const WORKSPACE_CONTEXT: WorkspaceDefaultsSectionProps['workspace'] = {
   title: 'w1',
   path: FIRST_KEY,
 }
-
-/** `workspace` 响应的 `choices`（契约字段仍在；本节已不渲染下拉，这里只为响应形状完整）。 */
-const SHARED_CHOICES: readonly WorkspaceChoice[] = [
-  { key: FIRST_KEY, title: 'w1' },
-  { key: SECOND_KEY, title: 'w2' },
-]
 
 /**
  * 按工作区键造一份视图（关闭集按字典序，与宿主归一后的顺序一致）。
@@ -854,24 +657,22 @@ function sharedWorkspaceView(key: string, disabled: Iterable<string>): Workspace
 }
 
 /**
- * 从同一份关闭集造一个面板快照——`/tools` 面的可视快照与 `workspace` 端点读的是同一个状态。
+ * 造一个最小合法的面板快照（`/tools` 面的读数；快照已不携带工作区档读数，
+ * 「同一份状态」的验证走假客户端的 `disabledByWorkspace`）。
  * @param sessionId - 目标会话。
- * @param disabled - 该工作区的关闭集。
- * @returns 面板快照（本套件只断言 `workspace.disabled`，其余字段取最小合法值）。
+ * @returns 面板快照（最小合法值）。
  */
-function sharedSnapshot(sessionId: string, disabled: readonly string[]): PanelSnapshot {
+function sharedSnapshot(sessionId: string): PanelSnapshot {
   return {
     sessionId,
     createdAt: 0,
     state: { disabled: [], snapshot: [], seeded: true, updatedAt: 0, storeKind: 'record' },
     groups: [],
     protectedNames: [],
-    defaults: { version: 1, disabled: [], path: DEFAULTS_PATH, readable: true, corrupt: false },
     intentOnly: [],
     stats: { visible: 0, denied: 0 },
     notices: [],
     skills: [],
-    workspace: sharedWorkspaceView(FIRST_KEY, disabled),
   }
 }
 
@@ -882,7 +683,7 @@ function sharedSnapshot(sessionId: string, disabled: readonly string[]): PanelSn
  *
  * 宇宙按寻址形态区分（契约事实）：`{sessionId}` 形态带会话视角的宇宙；`{workspacePath}`
  * 形态的 `universe` 恒为 `null`（宿主 U1 / D-24）。页面化后本节只发 `{workspacePath}`，
- * 因此分节渲染的是「不可用说明 + 残留区 + 命令兜底」形态——本套件不在这一层重测宇宙口径。
+ * 因此分节渲染的是「不可用说明 + 残留区」形态——本套件不在这一层重测宇宙口径。
  */
 class SharedStateClient implements PanelClient {
   /** 每次 `workspace` 的请求体（地址数组已复制）。 */
@@ -910,7 +711,7 @@ class SharedStateClient implements PanelClient {
 
   async panel(sessionId: string): Promise<PanelSnapshot> {
     this.panelCalls.push(sessionId)
-    return sharedSnapshot(sessionId, [...this.disabledOf(FIRST_KEY)])
+    return sharedSnapshot(sessionId)
   }
 
   async workspace(request: WorkspaceRequest): Promise<WorkspaceValue> {
@@ -941,7 +742,6 @@ class SharedStateClient implements PanelClient {
     this.universes.push(universe)
     return {
       workspace: sharedWorkspaceView(key, target),
-      choices: SHARED_CHOICES,
       changed,
       universe,
     }
@@ -954,10 +754,6 @@ class SharedStateClient implements PanelClient {
 
   async reset(): Promise<never> {
     throw new Error('工作区默认档分节不应调用 reset')
-  }
-
-  async updateDefaults(): Promise<never> {
-    throw new Error('工作区默认档分节不应调用 updateDefaults')
   }
 }
 
@@ -1131,7 +927,7 @@ describe('R15：页面宇宙的组级徽章与外来组注记', () => {
 })
 
 describe('与 /tools 共用状态（零回归红线）', () => {
-  it('分节内移除残留地址后，/tools 面（panel 快照）读到同一条记录', async () => {
+  it('分节内移除残留地址后，写入落到与 /tools 面同一份宿主状态', async () => {
     const client = new SharedStateClient()
     // 宿主侧这个工作区已有一条关闭项（本套件的假客户端只保存写入结果，这里预置一份）。
     client.disabledByWorkspace.set(FIRST_KEY, new Set(['legacy:retired']))
@@ -1151,10 +947,10 @@ describe('与 /tools 共用状态（零回归红线）', () => {
       addresses: ['legacy:retired'],
     })
 
-    // `/tools` 面（panel 快照）读的是同一份状态：同一条记录、同一个工作区键。
+    // `/tools` 面走的是同一个控制内核：快照已不携带工作区档读数，这里钉住
+    // 「分节的档写入不污染会话级关闭集」——工作区档与会话状态是两份隔离读数。
     const tools = await client.panel(SESSION_ID)
-    expect(tools.workspace?.key).toBe(FIRST_KEY)
-    expect(tools.workspace?.disabled).not.toContain('legacy:retired')
+    expect(tools.state.disabled).toEqual([])
   })
 
   it('命令面写入后，分节重挂（切走再切回）读到同一状态', async () => {

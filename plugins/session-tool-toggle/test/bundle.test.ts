@@ -12,7 +12,7 @@ import { hostSelfContainmentIssues, loaderShellIssues, requireSurfaceIssues } fr
 // 词法器仍是 `scripts/lib/artifacts.mjs` 的单一实现（R9），本套件不持有本地副本。
 import { importedWords, readArtifact, requiredWords } from '../../../scripts/lib/artifacts.mjs'
 import {
-  CHANNEL, DEFAULTS_ENDPOINT, ENDPOINTS, PANEL_ENDPOINT, RESET_ENDPOINT,
+  CHANNEL, ENDPOINTS, PANEL_ENDPOINT, RESET_ENDPOINT,
   TOGGLE_ENDPOINT, WORKSPACE_ENDPOINT,
 } from '../src/contract.ts'
 
@@ -26,7 +26,7 @@ const PACKAGE_NAME = 'dsh-plugin-session-tool-toggle'
 const CLIENT_REQUIRES = ['@deepseek-ai/dsh-client-ui-primitives', 'react', 'react/jsx-runtime']
 
 /**
- * 必须内联的契约字面量（通道 / 五端点 / 两个座位 / 命名空间）；第 5 端点与分节座位按字面量直写，
+ * 必须内联的契约字面量（通道 / 四端点 / 两个座位 / 命名空间）；第 4 端点与分节座位按字面量直写，
  * 纯度门禁 G8-a 也按它们 grep `lib/client.js`，与常量的对应由 `WORKSPACE_ENDPOINT` 钉住。
  */
 const INLINED_MARKERS = [
@@ -34,7 +34,6 @@ const INLINED_MARKERS = [
   PANEL_ENDPOINT,
   TOGGLE_ENDPOINT,
   RESET_ENDPOINT,
-  DEFAULTS_ENDPOINT,
   'workspace',
   'session-tool-toggle-panel',
   'conversation.session.header.utilities',
@@ -68,10 +67,12 @@ describe('浏览器半产物（lib/client.js）', () => {
       required: requiredWords(source), imported: importedWords(source) })).toEqual([])
   })
 
-  it('通道、五端点、座位与命名空间都是内联字面量（不靠运行时解析宿主半）', () => {
+  it('通道、四端点、座位与命名空间都是内联字面量（不靠运行时解析宿主半）', () => {
     const source = readArtifact(ROOT, 'client.js')
-    // 五个端点一个都不能少：contract.ts 的 ENDPOINTS 是唯一权威；两个手写字面量与契约常量一致。
-    expect(ENDPOINTS).toHaveLength(5)
+    // 四个端点一个都不能少：contract.ts 的 ENDPOINTS 是唯一权威（`defaults` 端点已随面板
+    // 收缩删除）；两个手写字面量与契约常量一致。
+    expect(ENDPOINTS).toHaveLength(4)
+    expect(ENDPOINTS).not.toContain('defaults')
     expect(WORKSPACE_ENDPOINT).toBe('workspace')
     for (const marker of INLINED_MARKERS) {
       expect(source).toContain(JSON.stringify(marker))
@@ -100,7 +101,7 @@ describe('宿主半产物（lib/index.js）', () => {
       words: importedWords(readArtifact(ROOT, 'index.js')) })).toEqual([])
   })
 
-  it('带有通道与五个端点（宿主是通道的挂载方）', () => {
+  it('带有通道与四个端点（宿主是通道的挂载方）', () => {
     const source = readArtifact(ROOT, 'index.js')
     for (const marker of [CHANNEL, ...ENDPOINTS]) {
       expect(source).toContain(JSON.stringify(marker))

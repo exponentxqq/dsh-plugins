@@ -5,14 +5,13 @@
  * 这里声明的窄接口，因此每条规则都能用假端口在单测里驱动，不需要拉起宿主。
  *
  * 本文件**只声明类型与文档**：不含任何运行时代码，import 全部是 `import type`（编译期擦除）。
- * `ControlDeps.workspaceChoices` 的返回形状就是线上契约（`contract.ts`）里的
- * `WorkspaceChoice`，两处共用一份声明而不是各写一份结构相同的副本；诊断端口则是
+ * `ControlDeps.workspaceChoices` 的返回形状是已登记工作区的 `{key,title}` 投影（内联窄面，
+ * 与工作区下拉共用一份声明）；诊断端口则是
  * `@dsh-plugins/host-kit/log` 的 `LogSink`（G4 起三份同形适配器只有一份声明）。
  *
  * @module dsh-plugin-session-tool-toggle/host/types
  */
 
-import type { WorkspaceChoice } from '../contract.ts'
 import type { LogSink } from '@dsh-plugins/host-kit/log'
 
 /** 一条已提交事件的最小面（真实类型是宿主的 `SessionEvent`）。 */
@@ -416,12 +415,12 @@ export interface ControlDeps {
    */
   readonly workspaceOf: (session: SessionLike) => Promise<WorkspaceAttribution | undefined>
   /**
-   * 已登记工作区投影（`workspaceRegistry.list()` 的 `{path,title}`）。
+   * 已登记工作区投影（`workspaceRegistry.list()` 的 `{path,title}` → `{key,title}`）。
    *
-   * 两个消费者：panels/footer 的下拉可选项，以及 `{kind:'path'}` 写目标的白名单——
-   * 只有列在这里的规范路径才允许写工作区档（D-11：拒绝任意路径探测）。
+   * 两个消费者：工作区默认档页面的下拉可选项，以及 `{workspacePath}` 的登记白名单——
+   * 只有列在这里的规范路径才允许读 / 写工作区档（D-11：拒绝任意路径探测）。
    */
-  readonly workspaceChoices: () => readonly WorkspaceChoice[]
+  readonly workspaceChoices: () => readonly { readonly key: string; readonly title?: string }[]
   /** 生效保护名单（基线 ∪ config 追加），装配期算好，只读。 */
   readonly protectedNames: ReadonlySet<string>
   /** 诊断出口。 */
@@ -440,24 +439,6 @@ export type NoticeCode =
   | 'skills-unavailable'
   /** 影子 stub 注册未胜出（同层先到先得）：该技能行的开关不可用。 */
   | 'skill-shadow-failed'
-
-/**
- * 面板的工作区档读数（`panel.ts` 据此合成工作区视图）。
- *
- * `attribution` 缺席 = cwd 无法归属（fail-closed）：视图为 `null`，只展示用户级默认档。
- */
-export interface WorkspacePanelInputs {
-  /** 会话所属工作区；缺席 = 无法归属。 */
-  readonly attribution?: WorkspaceAttribution
-  /** 该工作区的默认关闭集（`disabledOf(工作区档, key)`；无归属时为空）。 */
-  readonly disabled: readonly string[]
-  /** 工作区档文件绝对路径（面板展示，便于手编）。 */
-  readonly path: string
-  /** 文件可读（false = 不存在，按空档处理）。 */
-  readonly readable: boolean
-  /** 文件存在但损坏 / 半写（已降级空档）。 */
-  readonly corrupt: boolean
-}
 
 /**
  * 面板快照构建器（`panel.ts`）的输入：全部是宿主侧已经读到的事实。
@@ -480,26 +461,12 @@ export interface PanelInputs {
   readonly carried: readonly string[]
   /** 生效保护名单（排序后的文本）。 */
   readonly protectedNames: readonly string[]
-  /** 默认档当前内容。 */
-  readonly defaults: DefaultsFile
-  /** 默认档文件绝对路径（面板展示，便于手编）。 */
-  readonly defaultsPath: string
-  /** 默认档文件可读（false = 不存在，按空档处理）。 */
-  readonly defaultsReadable: boolean
-  /** 默认档文件存在但损坏 / 半写（已降级空档）。 */
-  readonly defaultsCorrupt: boolean
   /**
    * 本会话的技能分面读数（`layer.skills()`）。
    *
    * 缺席 = 宿主侧没有读到技能面（层未就绪）：面板按「技能不可用」处理。
    */
   readonly skills?: SkillLayerSnapshot
-  /**
-   * 本会话所属工作区的档读数。
-   *
-   * 缺席 = 宿主侧没有读到工作区面：面板的工作区视图为 `null`。
-   */
-  readonly workspace?: WorkspacePanelInputs
   /** 需要展示的提示码。 */
   readonly notices: readonly NoticeCode[]
   /** 工具描述（public name → 描述原文）；构建器负责截断到 160 字符。 */

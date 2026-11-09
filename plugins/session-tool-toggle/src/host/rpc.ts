@@ -2,8 +2,8 @@
  * Connection RPC 通道的宿主半 dispatcher：端点派发 → 契约 parser → 控制内核 → 信封映射。
  *
  * 本模块是**纯逻辑**：不认识 Cordis、不注册通道、不写任何宿主状态；所有宿主面（状态端口、
- * 层句柄、默认档 IO、全局层读数、agent 表、诊断出口、工作区档端口、工作区宇宙端口与会话归属）
- * 都由 {@link RpcDeps} 注入，因此九条失败码与五条成功路径都能用假端口在单测里驱动
+ * 层句柄、全局层读数、agent 表、诊断出口、工作区档端口与工作区宇宙端口）都由 {@link RpcDeps}
+ * 注入，因此九条失败码与四条成功路径都能用假端口在单测里驱动
  * （`test/rpc.test.ts`）。通道挂载属任务 9.5
  * （`src/host/index.ts` 的 `connection.rpc.handle(CHANNEL, dispatcher)`；挂载经
  * `callerConnectionOf` 适配 cordis 4.1.0 traceable shadow——直接在定义点切片读数上挂载
@@ -17,13 +17,13 @@
  * 3. **sessionId 三步校验**（附录 §2.4）：形状已由 parser 保证；`agents.get(sessionId)` 为
  *    undefined，或 `agent.session.id !== sessionId` → `session-not-live`，`details = {sessionId}`。
  *    状态永远按 sessionId 现读，不缓存、不跨会话复用；
- * 4. **地址预检**（R17 的 9.5 前置裁定）：`toggle` / `defaults` / `workspace` 的地址先用
+ * 4. **地址预检**（R17 的 9.5 前置裁定）：`toggle` / `workspace` 的地址先用
  *    `address.ts` 的 `parseAddress` 逐条解析——`protected-tool` → `protected`（`{names}`）、
  *    `reserved-tool` → `reserved`（`{names}`）、其余 → `bad-address`（`{address, parseCode}`）；
  *    **全部通过后才调内核**（内核内部会再校验一次，幂等、不必改 `control.ts`）；
- * 5. **调内核**（`control.ts` 的用例；`updateDefaults` 的写盘失败 → `defaults-unwritable`，
- *    `updateWorkspaceDefaults` 的写盘失败 → `workspace-unwritable`，`details = {path, reason}`
- *    由本文件组装）；工作区目标无法归属 / 未登记 → `workspace-unresolved`（`{subject}`）；
+ * 5. **调内核**（`control.ts` 的用例；`updateWorkspaceDefaults` 的写盘失败 →
+ *    `workspace-unwritable`，`details = {path, reason}` 由本文件组装）；工作区路径未登记 →
+ *    `workspace-unresolved`（`{subject}`）；
  * 6. **技能收敛**（H10 / D-4）：`toggle` 在组装成功值**之前** `await layer.skillsSettled()`，
  *    否则回执里的 `hiddenSkills` 与快照里的技能行会读到「影子 stub 还没注册」的中间态；
  * 7. **响应自检**：成功值先过对应的响应 parser，不合契约说明**本端产出**与契约漂移 → `internal`
@@ -45,18 +45,14 @@
 import {
   ENDPOINTS,
   REQUEST_PARSERS,
-  parseDefaultsValue,
   parsePanelSnapshot,
   parseResetValue,
   parseToggleValue,
   parseWorkspaceValue,
   type BadAddressDetails,
   type BadRequestDetails,
-  type DefaultsAction,
-  type DefaultsRequest,
   type DefaultsUniverse,
   type DefaultsUnwritableDetails,
-  type DefaultsValue,
   type HostFailureCode,
   type Mutation,
   type MutationApplied,
@@ -69,7 +65,6 @@ import {
   type SessionToolToggleEndpoint,
   type ToggleRequest,
   type ToggleValue,
-  type WorkspaceChoice,
   type WorkspaceRequest,
   type WorkspaceUnresolvedDetails,
   type WorkspaceValue,
@@ -80,33 +75,26 @@ import {
   readPanel,
   resetSession,
   toggleSession,
-  updateDefaults,
   updateWorkspaceDefaults,
 } from './control.ts'
 import type {
-  DefaultsWriteReport,
   PanelReading,
   ResetReport,
   ToggleReport,
   WorkspaceDefaultsReport,
   WorkspaceTarget,
 } from './control.ts'
-import { EMPTY_DEFAULTS } from './defaults.ts'
-import { buildDefaultsUniverse, buildPanelSnapshot } from './panel.ts'
+import { buildPanelSnapshot } from './panel.ts'
 import { EMPTY_WORKSPACES, disabledOf, readWorkspaces } from './workspaces.ts'
 import type { WorkspaceDefaultsFile } from './workspaces.ts'
 import type {
   AgentLike,
   ControlDeps,
-  DefaultsFile,
   DefaultsIo,
   NoticeCode,
   PanelInputs,
   SessionLike,
   SkillLayerSnapshot,
-  VisibleToolSchema,
-  WorkspaceAttribution,
-  WorkspacePanelInputs,
 } from './types.ts'
 
 // ---------------------------------------------------------------------------
@@ -141,8 +129,6 @@ export interface RpcKernel {
   readonly resetSession: typeof resetSession
   /** `panel` / `toggle` / `reset` 的成功值都要一份现读快照。 */
   readonly readPanel: typeof readPanel
-  /** `defaults` 端点用的内核用例。 */
-  readonly updateDefaults: typeof updateDefaults
   /** `workspace` 端点的写入用例（唯一写入路径，任务 H7）。 */
   readonly updateWorkspaceDefaults: typeof updateWorkspaceDefaults
 }
@@ -160,20 +146,20 @@ const DEFAULT_KERNEL: RpcKernel = Object.freeze({
   toggleSession,
   resetSession,
   readPanel,
-  updateDefaults,
   updateWorkspaceDefaults,
 })
 
 /**
  * dispatcher 的依赖注入面。
  *
- * `ControlDeps` 的全部字段（状态端口、层句柄、默认档路径与 IO、保护名单、日志、
- * 工作区档四件套）与命令面**共用同一份对象**——这正是 D14「不存在两份状态」在类型上的表达；
- * 这里补三件命令面不需要的东西：agent 表（判 `session-not-live`）、工作区宇宙端口
- * （路径形态的 `workspace` 响应清单）与可选的单测内核。
+ * `ControlDeps` 的大部分字段（状态端口、层句柄、保护名单、日志、工作区档四件套）与命令面
+ * **共用同一份对象**——这正是 D14「不存在两份状态」在类型上的表达；`defaultsIo` /
+ * `defaultsPath` 两字段经 {@link Omit} 从本面排除（`defaults` 端点已删，RPC 侧不再读默认档；
+ * 两者仍是命令面与 `readPanel` 的 `ControlDeps` 字段）。这里补两件命令面不需要的东西：
+ * agent 表（判 `session-not-live`）与工作区宇宙端口（`workspace` 响应的清单面）。
  * 工具描述不另设注入面：它只从本会话层（`layer.visibleSchemas()`）读（H6）。
  */
-export interface RpcDeps extends ControlDeps {
+export interface RpcDeps extends Omit<ControlDeps, 'defaultsIo' | 'defaultsPath'> {
   /** 会话寻址端口（`session-not-live` 判定与拿 `SessionLike` 都靠它）。 */
   readonly agents: AgentLookup
   /**
@@ -278,8 +264,6 @@ async function dispatch(deps: RpcDeps, endpoint: string, payload: unknown): Prom
       return await handleToggle(deps, parsed.value as ToggleRequest)
     case 'reset':
       return await handleReset(deps, parsed.value as ResetRequest)
-    case 'defaults':
-      return await handleDefaults(deps, parsed.value as DefaultsRequest)
     case 'workspace':
       return await handleWorkspace(deps, parsed.value as WorkspaceRequest)
     default:
@@ -288,7 +272,7 @@ async function dispatch(deps: RpcDeps, endpoint: string, payload: unknown): Prom
   }
 }
 
-/** `panel`：只读快照（清单 + 关闭集 + 保护名单 + 默认档 + 统计 + 提示）。 */
+/** `panel`：只读快照（清单 + 关闭集 + 保护名单 + 统计 + 提示）。 */
 async function handlePanel(deps: RpcDeps, request: PanelRequest): Promise<RpcEnvelope<unknown>> {
   const live = liveSessionOf(deps, request.sessionId)
   if (!live.ok) return live.failure
@@ -305,7 +289,7 @@ async function handleToggle(deps: RpcDeps, request: ToggleRequest): Promise<RpcE
   const precheck = precheckAddresses(request.addresses, deps.protectedNames)
   if (!precheck.ok) return precheck.failure
 
-  const outcome = kernelOf(deps).toggleSession(deps, live.session, request.addresses, request.on)
+  const outcome = kernelOf(deps).toggleSession(kernelDepsOf(deps), live.session, request.addresses, request.on)
   // 预检与内核用的是同一套 `parseAddress`，因此这条分支理论上不可达；真走到这里说明内核
   // 自己新增了拒绝理由——按 `bad-request` 出网（带原文），不猜成别的码。
   if (!outcome.ok) return failure('bad-request', outcome.text, { issues: outcome.text })
@@ -329,8 +313,8 @@ async function handleReset(deps: RpcDeps, request: ResetRequest): Promise<RpcEnv
 
   const kernel = kernelOf(deps)
   // 变更前读数：`ResetReport` 只带「变更后的快照」，被移除项与它们的命中数只能从变更前读一次。
-  const before = await kernel.readPanel(deps, live.session)
-  const report = kernel.resetSession(deps, live.session)
+  const before = await kernel.readPanel(kernelDepsOf(deps), live.session)
+  const report = kernel.resetSession(kernelDepsOf(deps), live.session)
   // ⑥ 技能收敛（H10 / D-4）：reset 同样可能增删技能关闭项，回执数字取收敛后的「已生效」口径。
   await settledSkills(deps, live.session)
   const value = await valueOf(
@@ -341,35 +325,8 @@ async function handleReset(deps: RpcDeps, request: ResetRequest): Promise<RpcEnv
   return checked(parseResetValue(value), deps, 'reset 响应')
 }
 
-/** `defaults`：用户级默认档写（不寻址会话、不返回会话快照，见 §2.2 表末行）。 */
-async function handleDefaults(deps: RpcDeps, request: DefaultsRequest): Promise<RpcEnvelope<unknown>> {
-  // `reset` 不接受地址（parser 已拦）；其余三种动作的地址同样要先过文法 / 保护 / 保留名预检。
-  if (request.addresses !== undefined) {
-    const precheck = precheckAddresses(request.addresses, deps.protectedNames)
-    if (!precheck.ok) return precheck.failure
-  }
-
-  const attempt = await writeDefaultsOf(deps, request.action, request.addresses ?? [])
-  if (!attempt.ok) return attempt.failure
-
-  const report = attempt.report
-  // 写成功即文件内容：`writeDefaults` 用原子替换写入的就是这份载荷，因此不再读回一遍
-  // （读回反而可能读到别的进程的并发改动，把「我刚写成功」说成 `corrupt`）。
-  const value: DefaultsValue = {
-    defaults: {
-      version: 1,
-      disabled: [...report.after.disabled],
-      path: report.path,
-      readable: true,
-      corrupt: false,
-    },
-    changed: [...report.after.disabled],
-  }
-  return checked(parseDefaultsValue(value), deps, 'defaults 响应')
-}
-
 // ---------------------------------------------------------------------------
-// workspace 端点（第 5 端点，H10）
+// workspace 端点（H10）
 // ---------------------------------------------------------------------------
 
 /** 工作区目标解析的结论：工作区键 + 展示元数据 + 交给内核的寻址形态。 */
@@ -390,16 +347,13 @@ type WorkspaceResolution =
   | { readonly ok: false; readonly failure: RpcEnvelope<never> }
 
 /**
- * `workspace`：工作区级默认档的读 / 写（两种寻址形态，动作缺省 `read`）。
+ * `workspace`：工作区级默认档的读 / 写（按工作区规范路径寻址，动作缺省 `read`）。
  *
  * 顺序：**目标解析 → 地址预检 → 读路径直接读档 / 写路径调内核 → 组装 → 响应自检**。
  * 读与写共享同一份目标解析，「面板显示哪个工作区」和「写到哪个键」因此不会分叉。
  *
- * 关键语义（R6 / D-11）：
+ * 关键语义（D-11）：
  *
- * - `{sessionId}` 的归属来自 `deps.workspaceOf`——cwd 缺失或 realpath 全程失败 → `undefined`
- *   → `workspace-unresolved{subject: sessionId}`；目录**未登记**但存在仍是合法归属
- *   （`registered:false`），不返回失败；
  * - `{workspacePath}` 只接受已登记工作区的规范路径（`deps.workspaceChoices` 精确匹配），
  *   未登记 → `workspace-unresolved{subject: 路径原文}`；
  * - 写盘失败（`writeWorkspaces` 抛错）→ `workspace-unwritable`，`details = {path, reason}`。
@@ -414,43 +368,33 @@ async function handleWorkspace(deps: RpcDeps, request: WorkspaceRequest): Promis
   const resolved = resolution.resolved
   const action = request.action ?? 'read'
 
-  // 地址预检与 toggle/defaults 同一套：保护 > 保留名 > 文法（read/reset 没有地址）。
+  // 地址预检与 toggle 同一套：保护 > 保留名 > 文法（read/reset 没有地址）。
   if (request.addresses !== undefined) {
     const precheck = precheckAddresses(request.addresses, deps.protectedNames)
     if (!precheck.ok) return precheck.failure
   }
-
-  const choices = choicesOf(deps)
-  // 宇宙按目标形态分派（U1 / D-24）：`{sessionId}` 仍读本会话两读的宇宙（原样，面板零回归）；
-  // `{workspacePath}` 读**该工作区**的宇宙（`resolved.key` 是登记表里的规范路径，不是请求原文），
-  // 两种寻址都给完整清单，不再按契约给 `null`。闭包在**档动作完成之后**才求值（读路径读完
-  // 档、写路径写盘成功后），「技能目录发现」因此不拖慢一次开关写入；写响应同样带宇宙
-  // （G7：客户端写后用响应整份替换，缺了清单会消失），两条路径共用这一份口径。
-  const universeOfTarget = async (): Promise<DefaultsUniverse> =>
-    resolved.target.kind === 'session'
-      ? universeOf(deps, resolved.target.session)
-      : readWorkspaceUniverseOf(deps, resolved.key)
 
   // 读路径：先读档，再算宇宙。
   if (action === 'read') {
     const reading = await workspaceFileOf(deps)
     const value: WorkspaceValue = {
       workspace: workspaceViewOf(deps, resolved, disabledOf(reading.file, resolved.key), reading),
-      choices,
       // read 不写任何东西（契约字段语义）。
       changed: [],
-      universe: await universeOfTarget(),
+      // 闭包时序（G7）：档动作完成之后才求值宇宙，「技能目录发现」不拖慢一次读。
+      universe: await readWorkspaceUniverseOf(deps, resolved.key),
     }
     return checked(parseWorkspaceValue(value), deps, 'workspace 响应')
   }
 
   // 写路径：先写盘，成功后再算宇宙。
-  const attempt = await writeWorkspaceOf(deps, resolved, action, request.addresses ?? [], workspaceSubjectOf(request))
+  const attempt = await writeWorkspaceOf(deps, resolved, action, request.addresses ?? [], request.workspacePath)
   if (!attempt.ok) return attempt.failure
 
   const report = attempt.report
   // 写成功即文件内容：原子替换写入的就是 `report.after`，不再读回（读回可能看到别的进程的
-  // 并发改动，把「我刚写成功」说成损坏）。`changed` 与 defaults 端点同构：写后的整份集合。
+  // 并发改动，把「我刚写成功」说成损坏）。`changed` 是写后的整份集合；写响应同样带宇宙
+  // （G7：客户端写后用响应整份替换，缺了清单会消失）。
   const disabled = disabledOf(report.after, report.key)
   const value: WorkspaceValue = {
     workspace: workspaceViewOf(deps, resolved, disabled, {
@@ -458,9 +402,8 @@ async function handleWorkspace(deps: RpcDeps, request: WorkspaceRequest): Promis
       readable: true,
       corrupt: false,
     }),
-    choices,
     changed: [...disabled],
-    universe: await universeOfTarget(),
+    universe: await readWorkspaceUniverseOf(deps, resolved.key),
   }
   return checked(parseWorkspaceValue(value), deps, 'workspace 响应')
 }
@@ -468,52 +411,26 @@ async function handleWorkspace(deps: RpcDeps, request: WorkspaceRequest): Promis
 /**
  * 解析请求里的工作区目标。
  *
- * `{sessionId}` 先过会话三步校验（会话不在 → `session-not-live`，不猜归属）；`{workspacePath}`
- * 只看 `workspaceChoices`（登记集合的 key 已是 realpath，R6 把「未登记」定为这一形态的唯一
- * 失败条件）。
+ * 只看 `workspaceChoices`（登记集合的 key 已是 realpath，D-11 把「未登记」定为唯一的
+ * 失败条件；请求里的 `workspacePath` 已由 parser 保证以 `/` 开头）。
  *
  * @param deps - 依赖注入面。
- * @param request - 请求体（parser 保证两种形态恰好出现一种）。
+ * @param request - 请求体。
  * @returns 目标，或失败信封。
  */
 async function resolveWorkspace(
   deps: RpcDeps,
   request: WorkspaceRequest,
 ): Promise<WorkspaceResolution> {
-  if (request.sessionId !== undefined) {
-    const live = liveSessionOf(deps, request.sessionId)
-    if (!live.ok) return { ok: false, failure: live.failure }
-    const attribution = await attributionOf(deps, live.session)
-    if (attribution === undefined) {
-      return {
-        ok: false,
-        failure: failure(
-          'workspace-unresolved',
-          `会话「${request.sessionId}」的 cwd 无法归属工作区（cwd 缺失或目录已被删除）`,
-          { subject: request.sessionId },
-        ),
-      }
-    }
-    return {
-      ok: true,
-      resolved: {
-        key: attribution.key,
-        registered: attribution.registered,
-        ...(attribution.title === undefined ? {} : { title: attribution.title }),
-        target: { kind: 'session', session: live.session },
-      },
-    }
-  }
-
-  // parser 已保证 `workspacePath` 存在且以 `/` 开头；这里只问「登记了吗」。
-  const path = request.workspacePath ?? ''
-  const choice = choicesOf(deps).find((item) => item.key === path)
+  const choice = choicesOf(deps).find((item) => item.key === request.workspacePath)
   if (choice === undefined) {
     return {
       ok: false,
-      failure: failure('workspace-unresolved', `路径「${path}」不是已登记的工作区（只接受工作区路径下拉里的规范路径）`, {
-        subject: path,
-      }),
+      failure: failure(
+        'workspace-unresolved',
+        `路径「${request.workspacePath}」不是已登记的工作区（只接受工作区路径下拉里的规范路径）`,
+        { subject: request.workspacePath },
+      ),
     }
   }
   return {
@@ -528,30 +445,12 @@ async function resolveWorkspace(
 }
 
 /**
- * 读一次会话归属；读数抛错时降级为 `undefined`（面板/端点按「无法归属」处理，不让整个端点
- * 变成 internal——归属失败本身就是 `workspace-unresolved` 的语义）。
- * @param deps - 依赖注入面。
- * @param session - 目标会话。
- * @returns 归属结果或 undefined。
- */
-async function attributionOf(
-  deps: RpcDeps,
-  session: SessionLike,
-): Promise<WorkspaceAttribution | undefined> {
-  try {
-    return await deps.workspaceOf(session)
-  } catch (error) {
-    deps.log.warn(`读取会话 ${session.id} 的工作区归属失败：${messageOf(error)}`)
-    return undefined
-  }
-}
-
-/**
- * 读工作区下拉可选项；registry 读数抛错时降级为空数组（R6：缺席只降级）。
+ * 读工作区下拉可选项（私有登记查询，`resolveWorkspace` 的白名单来源）；
+ * registry 读数抛错时降级为空数组（D-11：缺席只降级）。
  * @param deps - 依赖注入面。
  * @returns 可选项（可能为空）。
  */
-function choicesOf(deps: RpcDeps): readonly WorkspaceChoice[] {
+function choicesOf(deps: RpcDeps): readonly { readonly key: string; readonly title?: string }[] {
   try {
     return deps.workspaceChoices()
   } catch (error) {
@@ -622,7 +521,7 @@ type WorkspaceWriteAttempt =
  * - `updateWorkspaceDefaults` 的**业务拒绝**（目标二次解析失败 / 地址校验失败）→
  *   `workspace-unresolved`：地址已由本文件预检过，能走到这里的业务拒绝只剩「目标没法解析」
  *   这一种；`subject` 取请求里的原值，与解析阶段的码同一形状；
- * - **抛错** = `writeWorkspaces` 的原始错误（与 `updateDefaults` 同一纪律）→
+ * - **抛错** = `writeWorkspaces` 的原始错误（写盘失败不让请求挂起，折成结构化失败码）→
  *   `workspace-unwritable`，`{path, reason}` 由本文件组装。
  *
  * @param deps - 依赖注入面。
@@ -640,7 +539,7 @@ async function writeWorkspaceOf(
   subject: string,
 ): Promise<WorkspaceWriteAttempt> {
   try {
-    const outcome = await kernelOf(deps).updateWorkspaceDefaults(deps, resolved.target, action, texts)
+    const outcome = await kernelOf(deps).updateWorkspaceDefaults(kernelDepsOf(deps), resolved.target, action, texts)
     if (!outcome.ok) {
       return {
         ok: false,
@@ -662,19 +561,10 @@ async function writeWorkspaceOf(
 }
 
 /**
- * 取请求的失败主体（会话 id 优先，其次路径原文）。
- * @param request - `workspace` 请求（parser 保证两种形态恰好出现一种）。
- * @returns 用于 `workspace-unresolved.details.subject` 的文本。
- */
-function workspaceSubjectOf(request: WorkspaceRequest): string {
-  return request.sessionId ?? request.workspacePath ?? ''
-}
-
-/**
  * 读工作区宇宙：端口抛错不让整次 workspace 读失败。
  *
  * 档本身仍可读（关闭集 / 两态不受影响），只是清单退化为 {@link EMPTY_UNIVERSE}
- * （`layerReady:false`，页面只留残留区）；与 `attributionOf` / `choicesOf` 同一条纪律——
+ * （`layerReady:false`，页面只留残留区）；与 `choicesOf` 同一条纪律——
  * 软读数的失败只降级 + warn，不放大成端点失败。
  * @param deps - 依赖注入面。
  * @param key - 工作区规范路径（`resolved.key`，不是请求原文）。
@@ -824,20 +714,17 @@ function toolNameOf(text: string): string {
 /**
  * 读一份面板快照：`readPanel` 的读数 → `PanelInputs` → 纯函数构建器。
  *
- * 读数复用控制内核的 `readPanel`（三读并集、默认档、工作区视图、保护名单都在里面），因此
- * 面板与 `/tools status` 看到的永远是同一组事实（D14）；这里只补 `readPanel` 不产出的三样：
- * 默认档的 `readable` / `corrupt` 两态、技能分面与工具描述（都读本会话层：`layer.skills()` /
- * `layer.visibleSchemas()`，投影在 `panel.ts`）以及提示码。
+ * 读数复用控制内核的 `readPanel`（三读并集、保护名单都在里面），因此面板与 `/tools status`
+ * 看到的永远是同一组事实（D14）；这里只补 `readPanel` 不产出的两样：技能分面与工具描述
+ * （都读本会话层：`layer.skills()` / `layer.visibleSchemas()`，投影在 `panel.ts`）以及提示码。
  * @param deps - 依赖注入面。
  * @param session - 目标会话。
  * @returns 契约形状的面板快照（与 `panel.ts` 的宿主侧形状由交叉可赋值锁住一致）。
  */
 async function snapshotOf(deps: RpcDeps, session: SessionLike): Promise<PanelSnapshot> {
-  const reading = await kernelOf(deps).readPanel(deps, session)
-  const defaultsState = await defaultsStateOf(deps, reading.defaults)
+  const reading = await kernelOf(deps).readPanel(kernelDepsOf(deps), session)
   const descriptions = descriptionsOf(deps, session)
   const skills = skillsOf(deps, session)
-  const workspace = workspacePanelInputsOf(reading)
 
   const inputs: PanelInputs = {
     sessionId: session.id,
@@ -847,16 +734,11 @@ async function snapshotOf(deps: RpcDeps, session: SessionLike): Promise<PanelSna
     scoped: reading.scoped,
     carried: reading.appliedDeny,
     protectedNames: reading.protectedNames,
-    defaults: reading.defaults,
-    defaultsPath: reading.defaultsPath,
-    defaultsReadable: defaultsState.readable,
-    defaultsCorrupt: defaultsState.corrupt,
     // 提示码的分工（H6）：构建器只排序去重，技能两条由组装层从技能分面与关闭集推导。
     notices: noticesOf(session, reading, skills),
-    // 技能行、工作区视图与描述列的**投影**在 `panel.ts` 构建器里（H6）：这里只交原始读数，
+    // 技能行与描述列的**投影**在 `panel.ts` 构建器里（H6）：这里只交原始读数，
     // 面板、`/tools status` 与命令面因此共享同一份事实（D14）。描述恒传：层缺席时是空表。
     ...(skills === undefined ? {} : { skills }),
-    ...(workspace === undefined ? {} : { workspace }),
     descriptions,
   }
   return buildPanelSnapshot(inputs)
@@ -883,7 +765,7 @@ function skillsOf(deps: RpcDeps, session: SessionLike): SkillLayerSnapshot | und
 }
 
 // ---------------------------------------------------------------------------
-// 默认档宇宙（分组开关界面的候选清单，目标无关）
+// 默认档宇宙（工作区宇宙读失败的降级兜底）
 // ---------------------------------------------------------------------------
 
 /** 层不可用时的空宇宙（冻结；`layerReady:false` 让界面只渲染残留区）。 */
@@ -894,63 +776,10 @@ const EMPTY_UNIVERSE: DefaultsUniverse = Object.freeze({
 })
 
 /**
- * 读本会话的工具宇宙（目标无关）。层缺席 / 读失败 → 空宇宙 + 一次 warn。
- * @param deps - 依赖注入面。
- * @param session - 目标会话。
- * @returns 宇宙（永不抛错）。
- */
-function universeOf(deps: RpcDeps, session: SessionLike): DefaultsUniverse {
-  const layer = deps.layerFor(session.id)
-  if (layer === undefined) return EMPTY_UNIVERSE
-  let schemas: readonly VisibleToolSchema[]
-  let carried: readonly string[]
-  try {
-    schemas = layer.visibleSchemas()
-    carried = layer.snapshot().deny
-  } catch (error) {
-    deps.log.warn(`读取会话 ${session.id} 的工具宇宙失败（默认档界面将只显示残留区）：${messageOf(error)}`)
-    return EMPTY_UNIVERSE
-  }
-  return buildDefaultsUniverse({
-    layerReady: true,
-    schemas,
-    carried,
-    skills: skillsOf(deps, session),
-    protectedNames: deps.protectedNames,
-  })
-}
-
-/**
- * 把控制读数的 `workspace` 视图转成面板构建器的入参（归属 + 该键的关闭集 + 路径与两态）。
- *
- * 复用 `readPanel` 已算好的 `WorkspaceView`（`control.ts` 的 `workspaceViewOf`），不再重复
- * 调 `workspaceOf` / 读工作区档：一次面板请求因此只有一份归属读数与一次文件读（D14 的
- * 「不存在两份状态」同样适用于只读面）。`null` = 归属失败，面板只展示用户级默认档
- * （R6：fail-closed 只作用于工作区档，不阻塞面板）。
- * @param reading - 控制内核的只读读数。
- * @returns 面板的工作区输入或 undefined。
- */
-function workspacePanelInputsOf(reading: PanelReading): WorkspacePanelInputs | undefined {
-  const view = reading.workspace
-  if (view === null) return undefined
-  return {
-    attribution: {
-      key: view.key,
-      registered: view.registered,
-      ...(view.title === undefined ? {} : { title: view.title }),
-    },
-    disabled: view.disabled,
-    path: view.path,
-    readable: view.readable,
-    corrupt: view.corrupt,
-  }
-}
-
-/**
  * 组装提示码：会话身份一条 + 技能分面两条。
  *
- * `persistence-degraded` / `defaults-corrupt` 由构建器从 `storeKind` / `defaultsCorrupt` 自行
- * 补出（面板不轻信单个字段）；`session-subagent` 属会话身份，`skills-unavailable` /
+ * `persistence-degraded` 由构建器从 `storeKind` 自行补出（面板不轻信单个字段）；
+ * `session-subagent` 属会话身份，`skills-unavailable` /
  * `skill-shadow-failed` 属技能分面——后两者必须在**有技能读数的地方**（本函数）推导，
  * 构建器只负责排序去重（见 `panel.ts` 的 `noticesOf` 分工说明）。
  *
@@ -1035,28 +864,9 @@ function originOf(session: SessionLike): SessionLike['header']['origin'] {
 }
 
 /**
- * 默认档的两态（`readable` / `corrupt`）。
+ * 问「读得到吗」（一次只读探测，工作区档的两态判定用）。
  *
- * `readDefaults` 把「不存在 / 损坏 / schema 不符」都折成同一份 `EMPTY_DEFAULTS`，线上视图却
- * 要两态区分。只有落到降级常量时才补一次只读探测：读得到 = 文件存在但不可用（`corrupt`），
- * 读不到 = 不存在（按空档处理，不算损坏）；文件正常时不多读一遍。
- * @param deps - 依赖注入面（默认档 IO 与路径）。
- * @param defaults - 内核读到的默认档（与 {@link EMPTY_DEFAULTS} 同引用即降级）。
- * @returns 两态标记。
- */
-async function defaultsStateOf(
-  deps: RpcDeps,
-  defaults: DefaultsFile,
-): Promise<{ readonly readable: boolean; readonly corrupt: boolean }> {
-  if (defaults !== EMPTY_DEFAULTS) return { readable: true, corrupt: false }
-  const readable = await canReadFile(deps.defaultsIo, deps.defaultsPath)
-  return { readable, corrupt: readable }
-}
-
-/**
- * 问「读得到吗」（一次只读探测，默认档与工作区档共用）。
- *
- * 只问可读性，不解码内容：内容的好坏由各自 `readX` 的降级常量判定，两处不重复实现校验规则。
+ * 只问可读性，不解码内容：内容的好坏由 `readWorkspaces` 的降级常量判定，不重复实现校验规则。
  * @param io - 文件读写端口。
  * @param path - 绝对路径。
  * @returns 端口 resolve 为 true。
@@ -1188,65 +998,14 @@ function mutationOfReset(
 /**
  * 变更回执的提示码。
  *
- * 只可能是「状态没写进会话日志、已降级内存态」（`persistence-degraded`）：`defaults-corrupt`
- * 属默认档读面、`session-subagent` 属会话身份，都不随一次变更变化；`layerFailed`（掩码没更新）
+ * 只可能是「状态没写进会话日志、已降级内存态」（`persistence-degraded`）：`session-subagent`
+ * 属会话身份，不随一次变更变化；`layerFailed`（掩码没更新）
  * 在契约里没有对应码，按 §2.3 只进宿主日志。
  * @param persistFailed - 内核的写日志失败标记。
  * @returns 提示码（可能为空）。
  */
 function mutationNotices(persistFailed: boolean): readonly NoticeCode[] {
   return persistFailed ? ['persistence-degraded'] : []
-}
-
-// ---------------------------------------------------------------------------
-// 默认档写入
-// ---------------------------------------------------------------------------
-
-/** 默认档写入的一次尝试：成功给内核回执，失败给一条可直接出网的信封。 */
-type DefaultsAttempt =
-  | { readonly ok: true; readonly report: DefaultsWriteReport }
-  | { readonly ok: false; readonly failure: RpcEnvelope<never> }
-
-/**
- * 调内核写默认档，并把**写盘失败**折成 `defaults-unwritable`。
- *
- * `updateDefaults` 的文档契约是「唯一抛错来源是 `writeDefaults`」（R14），因此这里把它的
- * 任何抛错都映射成 `defaults-unwritable`，`{path, reason}` 由本文件组装（R17）；业务拒绝
- * （地址校验失败）仍是值，映射成 `bad-request`。
- * @param deps - 依赖注入面。
- * @param action - 四种写动作。
- * @param addresses - 地址原文（`reset` 为空）。
- * @returns 写入回执或失败信封。
- */
-async function writeDefaultsOf(
-  deps: RpcDeps,
-  action: DefaultsAction,
-  addresses: readonly string[],
-): Promise<DefaultsAttempt> {
-  try {
-    // `DefaultsAction` 与 `DefaultsMode` 是同一组四个字面量（契约 §2.2 / 内核 §3.7），直传。
-    return settled(await kernelOf(deps).updateDefaults(deps, action, addresses))
-  } catch (error) {
-    const reason = messageOf(error)
-    deps.log.warn(`默认档写入失败（${deps.defaultsPath}）：${reason}`)
-    return {
-      ok: false,
-      failure: failure('defaults-unwritable', `默认档写入失败（${deps.defaultsPath}）：${reason}`, {
-        path: deps.defaultsPath,
-        reason,
-      }),
-    }
-  }
-}
-
-/**
- * 把内核的成功/业务拒绝折成 {@link DefaultsAttempt}。
- * @param outcome - 内核结果。
- * @returns 写入回执或 `bad-request` 信封。
- */
-function settled(outcome: Awaited<ReturnType<typeof updateDefaults>>): DefaultsAttempt {
-  if (outcome.ok) return { ok: true, report: outcome.report }
-  return { ok: false, failure: failure('bad-request', outcome.text, { issues: outcome.text }) }
 }
 
 // ---------------------------------------------------------------------------
@@ -1310,6 +1069,22 @@ function isEndpoint(value: string): value is SessionToolToggleEndpoint {
  */
 function kernelOf(deps: RpcDeps): RpcKernel {
   return deps.kernel ?? DEFAULT_KERNEL
+}
+
+/**
+ * 把 RPC 依赖面补成内核用例需要的完整 `ControlDeps` 视图。
+ *
+ * `RpcDeps` 经 `Omit` 排除了 `defaultsIo` / `defaultsPath`（`defaults` 端点已删，RPC 自身
+ * 不再读默认档），而内核用例（`control.ts`）的签名仍要求完整 `ControlDeps`。装配点的
+ * `rpcDeps` 由 `{...controlDeps}` 展开而来，运行时恒携带这两字段——这里的断言只是把这条
+ * **装配不变式**告诉类型系统（TS2349 级的 direct cast 因两字段缺失被拒，故经 `unknown`）；
+ * RPC 代码自身绝不读它们，唯一的读取方是内核内部。测试夹具若按收缩后的 `RpcDeps` 不带
+ * 两字段，必须同时注入假内核，不得让默认内核的 `readPanel` 触到 `undefined` 路径。
+ * @param deps - 依赖注入面。
+ * @returns 可直接交给内核用例的依赖视图。
+ */
+function kernelDepsOf(deps: RpcDeps): ControlDeps {
+  return deps as unknown as ControlDeps
 }
 
 /**

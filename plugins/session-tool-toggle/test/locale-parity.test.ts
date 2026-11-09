@@ -64,47 +64,58 @@ const SECTION_3_5: ReadonlyArray<readonly [FailureKey, string]> = [
 /** §3.5 表里出现的键名类型（`Key` 的子集，写错键名在编译期就会被抓）。 */
 type FailureKey = Extract<Key, `error.${string}`>
 
-/** 面板真正会读的键（入口、骨架、六分区、行级标记、关闭集、默认档、技能、工作区、状态摘要）。 */
+/** 面板真正会读的键（入口、骨架、会话三卡、分组、行级标记、关闭集、默认档、技能、工作区、状态摘要）。 */
 const REQUIRED_KEYS: readonly Key[] = [
   // 入口按钮（设计 §3.1）
   'action.label',
   'action.title',
   'action.aria',
-  // 面板骨架（设计 §3.2）
+  // 面板骨架（三卡 Modal：title + description + footer 的刷新/关闭）
   'panel.title',
   'panel.close',
   'panel.loading',
   'panel.empty',
   'panel.refresh',
-  // 六分区标题（工作区分区的标题是 `workspace.title`，见下）
-  'section.state',
+  // 会话面板三卡（code-design ③3.8：概要卡 facts + 第三计数、清单卡语义、命令卡）
+  'session.title',
+  'session.id',
+  'session.createdAt',
+  'session.snapshotCount',
+  'session.count',
+  'session.store',
+  'session.store.record',
+  'session.store.memory',
+  'state.closedCount',
+  'session.listHint',
+  'session.filter',
+  'session.residualTitle',
+  'session.groupOff',
+  'session.commandTitle',
+  'session.commandNote',
+  'session.commandComment',
+  // 命令卡复制词汇（面板与页面两处 CommandCard 共用）
+  'command.copy',
+  'command.copied',
+  'command.copyFailed',
+  // 清单卡标题（三卡整编后只剩这一枚分区标题）
   'section.groups',
-  'section.skills',
-  'section.defaults',
-  'section.disabled',
   // 分组（设计 §3.3）
   'group.mcp',
   'group.skill',
   'group.builtin',
   'group.toolCount',
   'group.disabledCount',
-  // 行级标记
-  'entry.disabled',
+  // 行级标记（「暂无匹配」短标签与其 title 解释句经词汇束成员取用）
   'entry.protected',
   'entry.reserved',
   'entry.intentOnly',
   // 开关操作
   'toggle.failed',
   'toggle.pending',
-  // 关闭集
-  'disabled.listTitle',
+  // 关闭集（分节标题已删；「暂无匹配」解释句仍由标签 title 消费）
   'disabled.intentOnly',
-  'disabled.empty',
-  // 默认档（设计 §3.4；B 的分组开关界面，code-design ③3.20）
-  'defaults.path',
-  'defaults.note',
+  // 默认档（默认档形态词汇表：页面清单卡与面板会话清单共用，③3.20）
   'defaults.counts',
-  'defaults.summary',
   'defaults.residualTitle',
   'defaults.universeUnavailable',
   'defaults.groupCount',
@@ -113,20 +124,13 @@ const REQUIRED_KEYS: readonly Key[] = [
   'defaults.groupOff',
   'defaults.switchLabel',
   'defaults.groupSwitchLabel',
-  'defaults.cliHint',
   'defaults.remove',
-  'defaults.saved',
-  // 技能分面（设计 §3.3 的技能段 / D-7：行不进 `ToolGroup`）
-  'skill.region',
+  // 技能分面（降级与状态标签；分节标题与逐技能开关可访问名已删）
   'skill.unavailable',
   'skill.blocked',
-  'skill.empty',
-  'skill.pending',
-  'skill.switchLabel',
   'skill.effective',
   'skill.intentOnly',
-  // 工作区默认档（设计 §3.4 / C2；面板分区与页面分节共用同一组键）
-  'workspace.title',
+  // 工作区默认档（页面分节用；分节标题与命令卡复制三键已删/切换）
   'workspace.noTarget',
   'workspace.refresh',
   'workspace.loading',
@@ -139,17 +143,15 @@ const REQUIRED_KEYS: readonly Key[] = [
   'workspace.corrupt',
   'workspace.scope',
   'workspace.union',
-  'workspace.cliHint',
   'workspace.remove',
   'workspace.removeAria',
   'workspace.saved',
   'workspace.clear',
   'workspace.clearConfirm',
-  // 工作区默认档页面（页面必读键：清单卡标题/过滤框/命令卡标题/复制按钮）
+  // 工作区默认档页面（清单卡标题/过滤框/命令卡标题；复制三键已切到 `command.*`）
   'workspace.listTitle',
   'workspace.filter',
   'workspace.commandTitle',
-  'workspace.copyCommand',
   // R15：外来项目级 MCP 注记 + MCP 组级徽章（来源 / token 计入）
   'workspace.foreignProjectMcp',
   'mcp.sourceUser',
@@ -158,13 +160,9 @@ const REQUIRED_KEYS: readonly Key[] = [
   'mcp.sourceProjectHint',
   'mcp.tokens',
   'mcp.tokensHint',
-  // 状态摘要
+  // 状态摘要（两计数；快照/创建时间/持久化通道的事实行已由 `session.*` 键表达）
   'state.visible',
   'state.denied',
-  'state.storeKind.record',
-  'state.storeKind.memory',
-  'state.snapshot',
-  'state.createdAt',
 ]
 
 /**

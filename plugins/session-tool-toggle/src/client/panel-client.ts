@@ -1,5 +1,5 @@
 /**
- * 浏览器半的 Connection RPC 客户端：把 `/session-tool-toggle` 通道上五个端点的线上形状
+ * 浏览器半的 Connection RPC 客户端：把 `/session-tool-toggle` 通道上四个端点的线上形状
  * 收成一个可直接调用的接口，并把所有失败归一成携带稳定失败码的 {@link PanelError}。
  *
  * 本层只做三件事，**不缓存任何状态、不订阅任何事件**（快照缓存与刷新归
@@ -35,20 +35,15 @@
 import type { ConnectionHandle, ConnectionRpcResult } from '@deepseek-ai/dsh-client-connection/client'
 import {
   CHANNEL,
-  DEFAULTS_ENDPOINT,
   PANEL_ENDPOINT,
   RESET_ENDPOINT,
   TOGGLE_ENDPOINT,
   WORKSPACE_ENDPOINT,
-  parseDefaultsValue,
   parseFailureDetails,
   parsePanelSnapshot,
   parseResetValue,
   parseToggleValue,
   parseWorkspaceValue,
-  type DefaultsAction,
-  type DefaultsRequest,
-  type DefaultsValue,
   type FailureDetails,
   type PanelSnapshot,
   type Parsed,
@@ -79,18 +74,17 @@ export class PanelError extends Error {
 }
 
 /**
- * 面板与默认档编辑消费的调用面（五个方法 ↔ 五个端点）。
+ * 会话工具面板消费的调用面（四个方法 ↔ 四个端点）。
  *
- * 默认档是**用户级**状态、不按会话寻址（`DefaultsRequest` 只有 `action` / `addresses`），
- * 所以 `updateDefaults` 没有 `sessionId`：多带一个字段会被宿主 strict parser 判成
- * `bad-request`。工作区档则按 `sessionId`（本会话 cwd 的归属）或 `workspacePath`
- * （footer 下拉切换的已登记路径）二选一寻址，见 {@link PanelClient.workspace}。
+ * 工作区档只按工作区规范路径寻址（`WorkspaceRequest.workspacePath` 必填：页面统一选择框
+ * 给出的已登记路径，按会话 id 的旧寻址形态已随契约收缩移除），只影响之后新建的会话、
+ * 不追溯，见 {@link PanelClient.workspace}。
  */
 export interface PanelClient {
   /**
    * 读面板快照。
    * @param sessionId - 目标会话 id。
-   * @returns 面板快照（清单 + 关闭集 + 保护名单 + 默认档 + 统计 + 提示）。
+   * @returns 面板快照（清单 + 关闭集 + 保护名单 + 统计 + 提示 + 技能行）。
    * @throws {PanelError} 宿主拒绝、传输异常或响应不可读。
    */
   panel(sessionId: string): Promise<PanelSnapshot>
@@ -111,20 +105,12 @@ export interface PanelClient {
    */
   reset(sessionId: string): Promise<ResetValue>
   /**
-   * 写用户级默认档（不追溯已存在的会话）。
-   * @param action - `set` / `off` / `on` / `reset`。
-   * @param addresses - 目标地址；`reset` 时不传（传了也不上发，契约不允许该组合同现）。
-   * @returns 写入后的默认档视图 + 实际写入的地址。
-   * @throws {PanelError} 宿主拒绝、传输异常或响应不可读。
-   */
-  updateDefaults(action: DefaultsAction, addresses?: readonly string[]): Promise<DefaultsValue>
-  /**
-   * 读 / 写工作区级默认档（两种寻址形态：`sessionId` 或 `workspacePath`，恰好一个）。
+   * 读 / 写工作区级默认档（只按工作区规范路径 `workspacePath` 寻址）。
    *
    * 请求体由 {@link workspacePayload} **精确**构造：调用方没给的字段不会出现在 payload
    * 里（缺省 `action` 由宿主归一为 `read`，`read` / `reset` 下连 `addresses: []` 都是越界）。
-   * @param request - 工作区请求（寻址字段 + 动作 + 可选地址）。
-   * @returns 目标工作区视图（可为 `null`）+ 下拉可选项 + 实际写入项。
+   * @param request - 工作区请求（目标路径 + 动作 + 可选地址）。
+   * @returns 目标工作区视图（可为 `null`）+ 实际写入地址 + 目标工具宇宙。
    * @throws {PanelError} 宿主拒绝、传输异常或响应不可读。
    */
   workspace(request: WorkspaceRequest): Promise<WorkspaceValue>
@@ -184,43 +170,24 @@ function unwrapEnvelope(result: unknown): unknown {
 }
 
 /**
- * 构造 `defaults` 端点的请求体。
- *
- * `reset` 表示整份清空，契约**不允许**同时出现 `addresses`（§2.2 的 `superRefine`）；
- * 非 `reset` 缺省地址时也不补空数组——让宿主按"必需"拒绝，比在 client 造一个
- * `bad-request` 更符合「形状权威在宿主」的划分。
- * @param action - 动作。
- * @param addresses - 目标地址（可缺省）。
- * @returns `defaults` 请求体。
- */
-function defaultsPayload(action: DefaultsAction, addresses?: readonly string[]): DefaultsRequest {
-  if (action === 'reset' || addresses === undefined) return { action }
-  return { action, addresses: [...addresses] }
-}
-
-/**
  * 构造 `workspace` 端点的请求体（**精确 payload**：只含调用方显式给出的字段）。
  *
  * 两点都不是优化而是契约要求：
  *
- * - 不补缺省 `action`：宿主 `parseWorkspaceRequest` 会把缺省归一为 `read`，client 代劳只会
- *   让「G7：`workspace({sessionId:'s',action:'read'})` 的 payload 精确等于
- *   `{sessionId:'s',action:'read'}`」这条断言失真；
+ * - 不补缺省 `action`：宿主 `parseWorkspaceRequest` 会把缺省归一为 `read`，client 代劳会
+ *   让「payload 精确等于调用方显式给出的字段集」这条精确性断言失真；
  * - 不补空数组：`read` / `reset` 下 `addresses` 出现即 `bad-request`（strict）。
  *
  * 地址数组照例复制，避免调用方在 `await` 期间改自己的数组影响已发出的请求。
- * @param request - 调用方给出的请求（两种寻址形态之一）。
+ * @param request - 调用方给出的请求（`workspacePath` 必填）。
  * @returns 只含显式字段的请求体。
  */
 function workspacePayload(request: WorkspaceRequest): WorkspaceRequest {
   const payload: {
-    sessionId?: string
-    workspacePath?: string
+    workspacePath: string
     action?: WorkspaceAction
     addresses?: readonly string[]
-  } = {}
-  if (request.sessionId !== undefined) payload.sessionId = request.sessionId
-  if (request.workspacePath !== undefined) payload.workspacePath = request.workspacePath
+  } = { workspacePath: request.workspacePath }
   if (request.action !== undefined) payload.action = request.action
   if (request.addresses !== undefined) payload.addresses = [...request.addresses]
   return payload
@@ -230,7 +197,7 @@ function workspacePayload(request: WorkspaceRequest): WorkspaceRequest {
  * 在 Connection handle 上建面板客户端。
  * @param connection - 浏览器半的 Connection 服务（渲染期软读，可能晚到；缺失或没有 `rpc`
  *   时调用会抛 `unavailable`，与通道未挂载走同一条归一路径，不把 `TypeError` 漏给渲染层）。
- * @returns 五个端点的调用面；失败一律是 {@link PanelError}。
+ * @returns 四个端点的调用面；失败一律是 {@link PanelError}。
  */
 export function createPanelClient(connection: ConnectionHandle): PanelClient {
   /**
@@ -269,9 +236,6 @@ export function createPanelClient(connection: ConnectionHandle): PanelClient {
     },
     async reset(sessionId) {
       return call(RESET_ENDPOINT, { sessionId }, parseResetValue)
-    },
-    async updateDefaults(action, addresses) {
-      return call(DEFAULTS_ENDPOINT, defaultsPayload(action, addresses), parseDefaultsValue)
     },
     async workspace(request) {
       return call(WORKSPACE_ENDPOINT, workspacePayload(request), parseWorkspaceValue)

@@ -1,68 +1,52 @@
 /**
- * 工作区默认档编辑器（`code-design.md` ③ 3.19 / W8；D10 / D11 / D13 / D-20）。
+ * 工作区默认档编辑器（`code-design.md` ③ 3.19 / W8；D10 / D11 / D-20）。
  *
- * 字段面与用户级 `DefaultsEditor` 同构（同一个 `DefaultsGroupList`、同一套三计数口径），但有三处
- * 差异，全部来自「目标是一份工作区档」这个事实：
+ * 统一「工作区配置」页里本分节的正文容器（`workspace-config.section` 座位）。TG5 步骤 4 起
+ * 本组件收敛为 **dialog-only**：会话工具面板里的分区形态（折叠壳）随面板改版删除，正文壳
+ * 统一委托给 `<WorkspaceDefaultsPage/>`——三卡布局、全局过滤、并集/scope 说明、复制反馈、
+ * 刷新与命令卡都在页面组件里，本组件只下传状态与动作。holder 的页面壳提供分节容器（不渲染
+ * `role="dialog"`，两侧都只交付正文，再包一层会成嵌套 dialog/landmark）。
  *
- * 1. **两形态**（D11）：
- *    - `variant='dialog'` 是统一「工作区配置」页里本分节的正文（`workspace-config.section` 座位）：
- *      正文壳委托给 `<WorkspaceDefaultsPage/>`——三卡布局、全局过滤、复制反馈与命令卡都在页面
- *      组件里，本组件只下传状态与动作。holder 的页面壳提供分节容器（不渲染 `role="dialog"`，
- *      两侧都只交付正文，再包一层会成嵌套 dialog/landmark）；
- *    - `variant='section'` 是会话工具面板里的一个分区：外壳交给 `DefaultsSectionFrame`（D13，
- *      **默认收起**、标题行带计数摘要）。
- *    **两形态都不带工作区选择控件**（需求 3：三个分节 SHALL NOT 各自携带工作区选择控件）：
- *    选择框由 holder 页面的工具栏统一提供，写入目标经座位 owner 份额以纯数据上下文下传，
- *    本组件只渲染拿到的那份 `workspace` 视图。`section` 形态**不再**自己包 `<section>`：
- *    折叠壳自带壳与间距。
- * 2. **并集一句说明**（DQ2=A，沿用）：界面**不**标注每一项来自用户档还是工作区档，只给一句
- *    「新会话初始关闭 = 用户级默认档 ∪ 本工作区默认档」（`workspace.union`），把合并语义先说清、
- *    再让用户看到本工作区的增量。
- * 3. **工作区无法归属**（`workspace === null`）：只读降级——显示 `workspace.unresolved`，不渲染
- *    分组清单与三计数（没有目标档就没有可数的关闭集），清空按钮禁用。分节的目标三态（真实
- *    工作区 / 未分配 / 清单未就绪）由容器先判、以空态呈现；这里的 `null` 分支是宿主返回
- *    「目标无法归属」时的兜底。
+ * 组件**不带工作区选择控件**（需求 3：三个分节 SHALL NOT 各自携带工作区选择控件）：选择框
+ * 由 holder 页面的工具栏统一提供，写入目标经座位 owner 份额以纯数据上下文下传，本组件只
+ * 渲染拿到的那份 `workspace` 视图。
+ *
+ * **工作区无法归属**（`workspace === null`）：只读降级——页面概要卡退化为
+ * `workspace.unresolved`，不渲染分组清单与三计数（没有目标档就没有可数的关闭集）；分节的
+ * 目标三态（真实工作区 / 未分配 / 清单未就绪）由容器先判、以空态呈现，这里的 `null` 分支是
+ * 宿主返回「目标无法归属」时的兜底。
  *
  * 与用户级编辑器的同一条纪律：**没有自由文本添加**（D8）。开关打的是宿主给的规范形地址
  * （`group.address` / `entry.address`），文法、保护名单与上限的唯一权威在宿主；跨清单的新关
- * 一律走命令（`/tools workspace off <地址>`，命令兜底说明由清单组件渲染）。
+ * 一律走命令（`/tools workspace off <地址>`，命令模板由页面命令卡渲染）。
  *
- * 失败文案的唯一形状是 {@link PanelFailure}（从 `DefaultsEditor.tsx` 导入，重写不改归属）：宿主回
- * 稳定码（`workspace-unresolved` / `workspace-unwritable` / …），主文案按 `error.<code>` 由持有
- * 控制器的容器插值后传进来，本组件只渲染字符串。
+ * 失败文案的唯一形状是 {@link PanelFailure}（从 `panel-failure.tsx` 导入）：宿主回稳定码
+ * （`workspace-unresolved` / `workspace-unwritable` / …），主文案按 `error.<code>` 由持有
+ * 控制器的容器插值后传进来，本组件只把字符串传给页面。
  *
- * 每个动作都是一次**立即写入**（宿主 `workspaces.json`），没有独立的「保存」按钮：
- * `off` = 加入本工作区档、`on` = 移出、`reset` = 清空本工作区条目。写入成功的确认走 `saved`
- * （「已保存（本会话不变）」）——工作区档与默认档一样不追溯（D18）。
- *
- * 渲染归属（G8 handoff）：`section` 正文的残留区与命令兜底说明都在 `DefaultsGroupList` 内部
- * 渲染，本组件**不**再单独渲染，否则同一句会出现两次；`dialog` 形态的命令兜底改走页面组件的
- * 命令卡（清单侧的兜底说明在页面形态缺省不渲染）。
+ * 本组件持有的本地状态只剩**清空的两段式确认**（`armed`，不可逆性低，用文案变化代替
+ * `RiskConfirmation`）与**三计数 memo**（D11 口径：与清单共用同一份 `(universe, disabled)`
+ * 读数，页面不自算）。每个动作都是一次**立即写入**（宿主 `workspaces.json`），没有独立的
+ * 「保存」按钮：`off` = 加入本工作区档、`on` = 移出、`reset` = 清空本工作区条目。写入成功
+ * 的确认走 `saved`（「已保存（本会话不变）」）——工作区档与默认档一样不追溯（D18）。
  *
  * @module dsh-plugin-session-tool-toggle/client/WorkspaceDefaultsEditor
  */
 
 import { useMemo, useState, type ReactNode } from 'react'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   DefaultsUniverse,
   WorkspaceAction,
   WorkspaceView,
 } from '../contract.ts'
-import type { PanelFailure } from './DefaultsEditor.tsx'
+import type { PanelFailure } from './panel-failure.tsx'
 import { defaultsCountsOf } from './defaults-view.ts'
-import { DefaultsGroupList } from './DefaultsGroupList.tsx'
-import { DefaultsSectionFrame } from './DefaultsSectionFrame.tsx'
 import { WorkspaceDefaultsPage } from './WorkspaceDefaultsPage.tsx'
 import { NS } from './locales.ts'
-import css from './panel.module.css'
 
 /** 本组件消费的转发函数（命名空间键联合，由 `locales.ts` 的 `declare module` 提供）。 */
 type Translate = TranslateNS<typeof NS>
-
-/** 渲染形态：面板分区，或统一「工作区配置」页的分节正文。 */
-export type WorkspaceDefaultsVariant = 'section' | 'dialog'
 
 /**
  * 目标档缺席（`workspace === null`）时的空关闭集。
@@ -77,21 +61,16 @@ export interface WorkspaceDefaultsEditorProps {
   /**
    * 当前编辑目标的工作区视图（宿主返回的活视图）。
    *
-   * `null` = 宿主无法归属本分节的目标（目标未登记 / 读数缺席）：界面按只读降级，不渲染
-   * 分组清单与写入入口。
+   * `null` = 宿主无法归属本分节的目标（目标未登记 / 读数缺席）：界面按只读降级，页面概要卡
+   * 退化为 `workspace.unresolved`，不渲染分组清单与写入入口。
    */
   readonly workspace: WorkspaceView | null
   /**
-   * 目标工具宇宙。
-   *
-   * `dialog` 形态来自 `WorkspaceValue.universe`（页面形态以 `{workspacePath}` 寻址：宇宙 =
-   * 宿主全局工具注册表 ∪ 该工作区目录技能，新宿主恒返回对象），`section` 形态来自面板快照的
-   * 投影（`universeOfSnapshot`）。响应可能为 null 的降级：`null` 只是旧宿主混合版本的兼容形
+   * 目标工具宇宙（页面形态以 `{workspacePath}` 寻址：宇宙 = 宿主全局工具注册表 ∪ 该工作区
+   * 目录技能，新宿主恒返回对象）。响应可能为 null 的降级：`null` 只是旧宿主混合版本的兼容形
    * （新宿主不产生），此时清单组件只留残留区。
    */
   readonly universe: DefaultsUniverse | null
-  /** 渲染形态（见文件头注释）。 */
-  readonly variant: WorkspaceDefaultsVariant
   /** 写在途（父级 hook 的 `saving`）：整区禁用。 */
   readonly saving: boolean
   /** 上一次写入已被宿主确认（「已保存（本会话不变）」）。 */
@@ -107,21 +86,20 @@ export interface WorkspaceDefaultsEditorProps {
    * @param addresses - 目标地址（`reset` 时缺省）。
    */
   readonly onUpdate: (action: WorkspaceAction, addresses?: readonly string[]) => void
-  /** 重新读取当前目标工作区（父级 hook 的 `read`）。 */
+  /** 重新读取当前目标工作区（父级 hook 的 `read`；页面概要卡的刷新入口，D12）。 */
   readonly onRefresh: () => void
   /** 本插件命名空间的翻译函数。 */
   readonly t: Translate
 }
 
 /**
- * 工作区默认档编辑器。
+ * 工作区默认档编辑器：armed 状态机 + 三计数 memo + 页面正文委托。
  * @param props - 见 {@link WorkspaceDefaultsEditorProps}。
- * @returns 面板分区（折叠壳），或委托页面组件渲染的统一页分节正文。
+ * @returns 委托 {@link WorkspaceDefaultsPage} 渲染的分节正文。
  */
 export function WorkspaceDefaultsEditor({
   workspace,
   universe,
-  variant,
   saving,
   saved,
   failure,
@@ -132,14 +110,10 @@ export function WorkspaceDefaultsEditor({
   /** 清空按钮的两段式确认（不可逆性低，用文案变化代替 `RiskConfirmation`）。 */
   const [armed, setArmed] = useState(false)
 
-  const dialog = variant === 'dialog'
-  /** 写入目标存在才允许写（`null` = 工作区无法归属 / 未登记）。 */
-  const writable = workspace !== null
   const disabled = workspace?.disabled ?? EMPTY_DISABLED
 
-  // 三计数与清单共用同一份 (universe, disabled) 读数：摘要 / 计数行 / 清单不会各算一套。
-  // 目标档缺席时按空档求值（listed 仍取宇宙、inDefaults 与 residual 都是 0）：标题行的摘要
-  // 需要一个字符串，折叠态也要能看出「没有默认关的东西」。
+  // 三计数与清单共用同一份 (universe, disabled) 读数（D11）：目标档缺席时按空档求值
+  // （listed 仍取宇宙、inDefaults 与 residual 都是 0），标题行的摘要仍有一个字符串可显示。
   const counts = useMemo(() => defaultsCountsOf(universe, disabled), [universe, disabled])
 
   /** 清空本工作区条目：第一次点击只改文案，第二次才真的发请求。 */
@@ -152,122 +126,26 @@ export function WorkspaceDefaultsEditor({
     onUpdate('reset')
   }
 
-  const body = (
-    <>
-      {workspace === null
-        ? <p className={css.muted}>{t('workspace.unresolved')}</p>
-        : (
-          <>
-            <p className={css.meta}>
-              <span>{t('workspace.key')}</span>
-              <code className={css.path}>{workspace.key}</code>
-              <span>{workspace.registered ? t('workspace.registered') : t('workspace.unregistered')}</span>
-            </p>
-
-            <p className={css.meta}>
-              <span>{t('workspace.path')}</span>
-              <code className={css.path}>{workspace.path}</code>
-            </p>
-
-            {workspace.corrupt && <p className={css.warning}>{t('workspace.corrupt')}</p>}
-
-            {/* 三计数是「这份工作区档」的读数：目标档缺席时不渲染（见文件头的降级口径）。 */}
-            <p className={css.meta}>
-              {t('defaults.counts', {
-                listed: counts.listed,
-                inDefaults: counts.inDefaults,
-                residual: counts.residual,
-              })}
-            </p>
-
-            {/* 分组清单 + 残留区 + 命令兜底说明都由清单组件渲染（G8 handoff）。 */}
-            <DefaultsGroupList
-              universe={universe}
-              disabled={workspace.disabled}
-              busy={saving}
-              onToggle={(address, on) => {
-                // 任何一次开关都撤掉「清空」的待确认态：它描述的上一次意图已经过期。
-                setArmed(false)
-                onUpdate(on ? 'on' : 'off', [address])
-              }}
-              copy={{
-                residualTitle: t('defaults.residualTitle'),
-                removeLabel: t('workspace.remove'),
-                removeAria: (a) => t('workspace.removeAria', { address: a }),
-                cliHint: t('workspace.cliHint'),
-              }}
-              t={t}
-            />
-          </>
-        )}
-
-      <p className={css.muted}>{t('workspace.scope')}</p>
-      <p className={css.muted}>{t('workspace.union')}</p>
-
-      <div className={css.actions}>
-        {!dialog && (
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={saving}
-            onClick={() => {
-              onRefresh()
-            }}
-          >
-            {t('workspace.refresh')}
-          </Button>
-        )}
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={!writable || saving || disabled.length === 0}
-          onClick={clear}
-        >
-          {armed ? t('workspace.clearConfirm') : t('workspace.clear')}
-        </Button>
-        {saved && <span className={css.saved}>{t('workspace.saved')}</span>}
-      </div>
-
-      {failure !== undefined && (
-        <div role="alert">
-          <p className={css.error}>{failure.text}</p>
-          {failure.detail !== undefined && <p className={css.detail}>{failure.detail}</p>}
-        </div>
-      )}
-    </>
+  // dialog-only 委托（D11）：三卡布局 / 全局过滤 / 复制反馈 / 命令卡 / 失败 alert 都在
+  // `WorkspaceDefaultsPage`；armed 状态机留在本组件，页面只展示。任何一次开关都撤掉「清空」
+  // 的待确认态——它描述的上一次意图已经过期。页面壳（标题栏 / 选择框 / 布局）归 holder，
+  // 两侧都只交付正文——再包一层会成嵌套 landmark。
+  return (
+    <WorkspaceDefaultsPage
+      workspace={workspace}
+      universe={universe}
+      counts={counts}
+      saving={saving}
+      saved={saved}
+      failure={failure}
+      armed={armed}
+      onToggle={(address: string, on: boolean) => {
+        setArmed(false)
+        onUpdate(on ? 'on' : 'off', [address])
+      }}
+      onClear={clear}
+      onRefresh={onRefresh}
+      t={t}
+    />
   )
-
-  // dialog 形态委托页面正文组件（D11）：三卡布局 / 全局过滤 / 复制反馈 / 命令卡都在
-  // `WorkspaceDefaultsPage`；清空的两段式确认态（armed）状态机留在本组件，页面只展示。
-  // 页面壳（标题栏 / 选择框 / 布局）归 holder，两侧都只交付正文——再包一层会成嵌套 landmark。
-  return dialog
-    ? (
-      <WorkspaceDefaultsPage
-        workspace={workspace}
-        universe={universe}
-        counts={counts}
-        saving={saving}
-        saved={saved}
-        failure={failure}
-        armed={armed}
-        onToggle={(address: string, on: boolean) => {
-          // 任何一次开关都撤掉「清空」的待确认态：它描述的上一次意图已经过期。
-          setArmed(false)
-          onUpdate(on ? 'on' : 'off', [address])
-        }}
-        onClear={clear}
-        onRefresh={onRefresh}
-        t={t}
-      />
-    )
-    // 分区形态：折叠壳（标题 + 计数摘要 + `aria-expanded`）自带 `<section>` 与间距，
-    // 这里**不**再包一层——否则网格/外边距会叠两次（G8 handoff）。
-    : (
-      <DefaultsSectionFrame
-        title={t('workspace.title')}
-        summary={t('defaults.summary', { inDefaults: counts.inDefaults, residual: counts.residual })}
-      >
-        {body}
-      </DefaultsSectionFrame>
-    )
 }
