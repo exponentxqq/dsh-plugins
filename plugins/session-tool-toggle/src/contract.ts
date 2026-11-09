@@ -145,6 +145,12 @@ export const TOOL_GROUP_KINDS = ['mcp', 'skill', 'builtin'] as const
 /** 工具分组来源类型。 */
 export type ToolGroupKind = (typeof TOOL_GROUP_KINDS)[number]
 
+/** MCP 组的配置来源（R15）：profile 级（所有工作区可见）/ 本工作区项目级。 */
+export const GROUP_SOURCES = ['user', 'project'] as const
+
+/** MCP 组配置来源类型。 */
+export type GroupSource = (typeof GROUP_SOURCES)[number]
+
 /**
  * 面板提示码：`PanelSnapshot.notices` 与 `Mutation.notices` 的元素（§2.2 `NoticeCodeSchema`）。
  *
@@ -444,6 +450,15 @@ export interface DefaultsEntry {
   readonly protected: boolean
   /** 注册表保留名（`run_code`）：`restrict` 拒绝，永远不可关。 */
   readonly reserved: boolean
+  /**
+   * 技能行：模型可经 `skill` 工具加载（默认档里「占对话 token」）。
+   * 与 `userInvocable` **成对出现**；只在 `skill:<name>` 地址上合法。
+   */
+  readonly modelInvocable?: boolean
+  /** 技能行：用户可经 `/<name>` 手动调用。 */
+  readonly userInvocable?: boolean
+  /** 技能行：来源（`dsh-skill` 的 `source` 原值；短标签由 client 映射）。 */
+  readonly source?: string
 }
 
 /** 一个默认档分组。`kind:'skill'` 的行是 `skill:<name>`，组地址是 `tool:skill`。 */
@@ -456,9 +471,21 @@ export interface DefaultsGroup {
   readonly address: string | null
   /** 组内可切换条目（按地址升序）。 */
   readonly tools: readonly DefaultsEntry[]
+  /**
+   * MCP 组的配置来源（R15）：`'user'` = profile 级配置（所有工作区可见）、`'project'` =
+   * 本工作区 `.dsh/mcp/` 的项目级配置。只允许出现在 `kind: 'mcp'` 组上；`'project'` 组
+   * 仅在**目标工作区**的根集归属下才出现（其他工作区的项目级服务器整组不进清单）。
+   */
+  readonly source?: 'user' | 'project'
+  /**
+   * 组是否计入对话 token（R15）：MCP 组恒 `true`——每个可见工具的 schema 与服务器指令都
+   * 进入每次请求。只允许出现在 `kind: 'mcp'` 组上（技能组有逐行 `modelInvocable`，内置组
+   * 本就计入且组级标注无意义）。
+   */
+  readonly countsTokens?: boolean
 }
 
-/** 本会话视角的工具宇宙（`{sessionId}` 寻址的 `workspace` 响应携带）。 */
+/** 默认档宇宙（目标无关形状）：`{sessionId}` 的会话宇宙与 `{workspacePath}` 的工作区宇宙共用。 */
 export interface DefaultsUniverse {
   /** 会话层读数是否可用（false = 读不到清单，界面只能展示残留区）。 */
   readonly layerReady: boolean
@@ -466,9 +493,18 @@ export interface DefaultsUniverse {
   readonly skillsAvailable: boolean
   /** 分组（MCP 组按 server 升序 → 技能组 → 内置工具组；空组不出现）。 */
   readonly groups: readonly DefaultsGroup[]
+  /** 工作区宇宙：`mcp__` 前缀但无法还原服务器名的工具数（未归组；缺省 = 0）。 */
+  readonly ungroupedMcp?: number
+  /** 工作区宇宙：技能目录观测是否完整（缺省 = 未观测 / 旧响应）。 */
+  readonly skillsComplete?: boolean
+  /**
+   * 工作区宇宙：因属于**其他工作区**的项目级 MCP 而被整组剔除的服务器数（R15；缺省 = 0）。
+   * 页面据此显示「另有 N 个其他工作区的项目级 MCP 未列入」注记；仅 >0 时出现。
+   */
+  readonly foreignProjectMcp?: number
 }
 
-/** `workspace` 端点的成功值：目标工作区视图 + 下拉可选项 + 实际写入项 + 会话视角宇宙。 */
+/** `workspace` 端点的成功值：目标工作区视图 + 下拉可选项 + 实际写入项 + 目标工具宇宙。 */
 export interface WorkspaceValue {
   /** 目标工作区视图；`null` = cwd 无法归属 / 路径未登记。 */
   readonly workspace: WorkspaceView | null
@@ -477,8 +513,10 @@ export interface WorkspaceValue {
   /** 本次实际写入的规范形地址（`read` 时为空数组）。 */
   readonly changed: readonly string[]
   /**
-   * 会话视角的工具宇宙；`{workspacePath}` 寻址时为 `null`。
-   * 层读数不可用时**非 null**，而是 `layerReady:false`。
+   * 目标工具宇宙。
+   * - `{sessionId}`：本会话宇宙（`scoped ∪ carried`），面板/命令同源；
+   * - `{workspacePath}`：该工作区的宇宙（全局工具注册表 ∪ 该 cwd 技能），本版本**不再返回 null**；
+   * - `null` 只为混合版本兼容保留（旧宿主）；新宿主不产生。
    */
   readonly universe: DefaultsUniverse | null
 }
@@ -646,6 +684,40 @@ function readBooleanField(record: Record<string, unknown>, key: string, subject:
 }
 
 /**
+ * 读可选布尔字段：字段缺省（或值为 `undefined`）时返回 `undefined`。
+ * @param record - 已通过 strict 检查的对象。
+ * @param key - 字段名。
+ * @param subject - 字段路径前缀。
+ * @returns 布尔值、`undefined`，或不合契约的原因。
+ */
+function readOptionalBooleanField(
+  record: Record<string, unknown>,
+  key: string,
+  subject: string,
+): Parsed<boolean | undefined> {
+  if (record[key] === undefined) return { ok: true, value: undefined }
+  return readBooleanField(record, key, subject)
+}
+
+/**
+ * 读可选枚举字段（缺省 = 键不存在；存在但取值越界 → 拒绝）。
+ * @param record - 已通过 strict 检查的对象。
+ * @param key - 字段名。
+ * @param subject - 字段路径前缀。
+ * @param allowed - 允许的取值表。
+ * @returns 枚举值或 `undefined`，或不合契约的原因。
+ */
+function readOptionalEnumField<T extends string>(
+  record: Record<string, unknown>,
+  key: string,
+  subject: string,
+  allowed: readonly T[],
+): Parsed<T | undefined> {
+  if (record[key] === undefined) return { ok: true, value: undefined }
+  return readEnumField(record, key, subject, allowed)
+}
+
+/**
  * 读非负安全整数字段（计数、epoch ms）。
  * @param record - 已通过 strict 检查的对象。
  * @param key - 字段名。
@@ -658,6 +730,22 @@ function readCountField(record: Record<string, unknown>, key: string, subject: s
     return fail(`${subject}.${key} 不是非负安全整数`)
   }
   return { ok: true, value }
+}
+
+/**
+ * 读可选非负安全整数字段：字段缺省（或值为 `undefined`）时返回 `undefined`。
+ * @param record - 已通过 strict 检查的对象。
+ * @param key - 字段名。
+ * @param subject - 字段路径前缀。
+ * @returns 非负整数、`undefined`，或不合契约的原因。
+ */
+function readOptionalCountField(
+  record: Record<string, unknown>,
+  key: string,
+  subject: string,
+): Parsed<number | undefined> {
+  if (record[key] === undefined) return { ok: true, value: undefined }
+  return readCountField(record, key, subject)
 }
 
 /**
@@ -1045,14 +1133,30 @@ const WORKSPACE_CHOICE_KEYS = ['key', 'title'] as const
 /** `WorkspaceView` 的字段集（strict）。 */
 const WORKSPACE_VIEW_KEYS = ['key', 'title', 'registered', 'disabled', 'path', 'readable', 'corrupt'] as const
 
-/** `DefaultsEntry` 的字段集（strict）。 */
-const DEFAULTS_ENTRY_KEYS = ['address', 'shortName', 'description', 'protected', 'reserved'] as const
+/** `DefaultsEntry` 的字段集（strict；技能三字段只允许在 `skill:` 行上且 invocation 成对）。 */
+const DEFAULTS_ENTRY_KEYS = [
+  'address',
+  'shortName',
+  'description',
+  'protected',
+  'reserved',
+  'modelInvocable',
+  'userInvocable',
+  'source',
+] as const
 
-/** `DefaultsGroup` 的字段集（strict）。 */
-const DEFAULTS_GROUP_KEYS = ['kind', 'key', 'address', 'tools'] as const
+/** `DefaultsGroup` 的字段集（strict；source/countsTokens 只允许在 mcp 组上）。 */
+const DEFAULTS_GROUP_KEYS = ['kind', 'key', 'address', 'tools', 'source', 'countsTokens'] as const
 
-/** `DefaultsUniverse` 的字段集（strict）。 */
-const DEFAULTS_UNIVERSE_KEYS = ['layerReady', 'skillsAvailable', 'groups'] as const
+/** `DefaultsUniverse` 的字段集（strict；后两键只由工作区宇宙产生，缺省 = 旧响应）。 */
+const DEFAULTS_UNIVERSE_KEYS = [
+  'layerReady',
+  'skillsAvailable',
+  'groups',
+  'ungroupedMcp',
+  'skillsComplete',
+  'foreignProjectMcp',
+] as const
 
 /** `SkillView` 的字段集（strict）。 */
 const SKILL_VIEW_KEYS = ['name', 'description', 'disabled', 'shadowed'] as const
@@ -1376,6 +1480,26 @@ function readDefaultsEntry(value: unknown, subject: string): Parsed<DefaultsEntr
   if (!isProtected.ok) return isProtected
   const reserved = readBooleanField(record, 'reserved', subject)
   if (!reserved.ok) return reserved
+  const modelInvocable = readOptionalBooleanField(record, 'modelInvocable', subject)
+  if (!modelInvocable.ok) return modelInvocable
+  const userInvocable = readOptionalBooleanField(record, 'userInvocable', subject)
+  if (!userInvocable.ok) return userInvocable
+  const source = readOptionalStringField(record, 'source', subject, { minLength: 1 })
+  if (!source.ok) return source
+  // invocation 对：`modelInvocable` / `userInvocable` 必须同给同缺（只给一个 → 拒绝）。
+  const hasPair = modelInvocable.value !== undefined && userInvocable.value !== undefined
+  const hasAnyInvocation = modelInvocable.value !== undefined || userInvocable.value !== undefined
+  if (hasAnyInvocation && !hasPair) {
+    return fail(`${subject} 的 modelInvocable 与 userInvocable 必须成对出现`)
+  }
+  // 技能字段只允许在 `skill:` 行上：MCP / 内置行带了即越界（即使是一对合法的 invocation）。
+  if (hasAnyInvocation && !address.value.startsWith('skill:')) {
+    return fail(`${subject} 只有 skill: 地址允许携带技能字段`)
+  }
+  // `source` 与 invocation 对同生：出现 `source` 时缺对 → 拒绝。
+  if (source.value !== undefined && !hasPair) {
+    return fail(`${subject} 出现 source 时 modelInvocable 与 userInvocable 必须同时在场`)
+  }
   return {
     ok: true,
     value: {
@@ -1384,6 +1508,10 @@ function readDefaultsEntry(value: unknown, subject: string): Parsed<DefaultsEntr
       ...(description.value === undefined ? {} : { description: description.value }),
       protected: isProtected.value,
       reserved: reserved.value,
+      ...(hasPair
+        ? { modelInvocable: modelInvocable.value, userInvocable: userInvocable.value }
+        : {}),
+      ...(source.value === undefined ? {} : { source: source.value }),
     },
   }
 }
@@ -1406,9 +1534,26 @@ function readDefaultsGroup(value: unknown, subject: string): Parsed<DefaultsGrou
   if (!address.ok) return address
   const tools = readArrayField(record, 'tools', subject, readDefaultsEntry)
   if (!tools.ok) return tools
+  // R15 组级来源与 token 标注：只允许 `kind: 'mcp'` 组携带（技能组有逐行 invocation 标注、
+  // 内置组无来源分野——带了即越界，与「技能字段只允许 `skill:` 行」同一 fail-closed 纪律）。
+  const source = readOptionalEnumField(record, 'source', subject, GROUP_SOURCES)
+  if (!source.ok) return source
+  const countsTokens = readOptionalBooleanField(record, 'countsTokens', subject)
+  if (!countsTokens.ok) return countsTokens
+  const hasGroupMeta = source.value !== undefined || countsTokens.value !== undefined
+  if (hasGroupMeta && kind.value !== 'mcp') {
+    return fail(`${subject} 的 source/countsTokens 只允许出现在 mcp 分组上`)
+  }
   return {
     ok: true,
-    value: { kind: kind.value, key: key.value, address: address.value, tools: tools.value },
+    value: {
+      kind: kind.value,
+      key: key.value,
+      address: address.value,
+      tools: tools.value,
+      ...(source.value === undefined ? {} : { source: source.value }),
+      ...(countsTokens.value === undefined ? {} : { countsTokens: countsTokens.value }),
+    },
   }
 }
 
@@ -1429,12 +1574,24 @@ function readNullableDefaultsUniverse(value: unknown, subject: string): Parsed<D
   if (!skillsAvailable.ok) return skillsAvailable
   const groups = readArrayField(record, 'groups', subject, readDefaultsGroup)
   if (!groups.ok) return groups
+  const ungroupedMcp = readOptionalCountField(record, 'ungroupedMcp', subject)
+  if (!ungroupedMcp.ok) return ungroupedMcp
+  const skillsComplete = readOptionalBooleanField(record, 'skillsComplete', subject)
+  if (!skillsComplete.ok) return skillsComplete
+  const foreignProjectMcp = readOptionalCountField(record, 'foreignProjectMcp', subject)
+  if (!foreignProjectMcp.ok) return foreignProjectMcp
   return {
     ok: true,
     value: {
       layerReady: layerReady.value,
       skillsAvailable: skillsAvailable.value,
       groups: groups.value,
+      // 工作区宇宙专属字段缺省不补键：缺省语义由类型注释约定（`ungroupedMcp` = 0、
+      // `skillsComplete` = 未观测 / 旧响应、`foreignProjectMcp` = 0），伪造 `undefined`
+      // 键会让 JSON 多一项。
+      ...(ungroupedMcp.value === undefined ? {} : { ungroupedMcp: ungroupedMcp.value }),
+      ...(skillsComplete.value === undefined ? {} : { skillsComplete: skillsComplete.value }),
+      ...(foreignProjectMcp.value === undefined ? {} : { foreignProjectMcp: foreignProjectMcp.value }),
     },
   }
 }

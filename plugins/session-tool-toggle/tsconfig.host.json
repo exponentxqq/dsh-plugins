@@ -18,6 +18,7 @@
     "test/state.test.ts",
     "test/wire-contract.test.ts",
     "test/workspace-attribution.test.ts",
+    "test/workspace-universe.test.ts",
     "test/workspaces.test.ts"
   ]
 }

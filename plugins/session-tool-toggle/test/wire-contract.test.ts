@@ -1210,6 +1210,186 @@ describe('parseWorkspaceValue：工作区档视图', () => {
   ])
 })
 
+/**
+ * 条目技能字段与宇宙扩展（code-design ③3.3 / ⑤G2.3）。
+ *
+ * 校验规则逐条对应 code-design 3.3 的 parser 规则：
+ *
+ * - `modelInvocable` / `userInvocable` 必须成对（只给一个 → 拒绝）；
+ * - 任一技能字段出现时 `address` 必须 `skill:` 开头（MCP / 内置行 → 拒绝）；
+ * - `source` 可选非空字符串，且与 invocation 对**同生**（出现 `source` 缺对 → 拒绝）；
+ * - `ungroupedMcp` 可选非负安全整数；`skillsComplete` 可选布尔；
+ * - 未知键仍 strict 拒绝（旧字段集不放宽，entry 与 universe 字段集不互通）；
+ * - `universe: null` 仍合法（旧宿主兼容，扩键不改变 null 分支）。
+ */
+describe('parseWorkspaceValue：条目技能字段与宇宙扩展', () => {
+  it('技能条目带完整技能字段（invocation 成对 + source）原样通过并读出', () => {
+    // 技能字段只落在 `skill:` 行上：夹具的 skill 组条目地址恰为 `skill:skill-creator`。
+    const raw = setAt(
+      setAt(
+        setAt(WORKSPACE_VALUE, 'universe.groups.1.tools.0.modelInvocable', true),
+        'universe.groups.1.tools.0.userInvocable',
+        true,
+      ),
+      'universe.groups.1.tools.0.source',
+      'openspec',
+    )
+    const result = parseWorkspaceValue(raw)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const entry = result.value.universe?.groups[1].tools[0]
+    expect(entry?.address).toBe('skill:skill-creator')
+    expect(entry?.modelInvocable).toBe(true)
+    expect(entry?.userInvocable).toBe(true)
+    expect(entry?.source).toBe('openspec')
+  })
+
+  it('宇宙带两个工作区字段（ungroupedMcp + skillsComplete）原样通过并读出', () => {
+    const raw = setAt(setAt(WORKSPACE_VALUE, 'universe.ungroupedMcp', 2), 'universe.skillsComplete', true)
+    const result = parseWorkspaceValue(raw)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.universe?.ungroupedMcp).toBe(2)
+    expect(result.value.universe?.skillsComplete).toBe(true)
+  })
+
+  it('ungroupedMcp 为 0 合法（非负含零）且 skillsComplete 缺省合法', () => {
+    const result = parseWorkspaceValue(setAt(WORKSPACE_VALUE, 'universe.ungroupedMcp', 0))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.universe?.ungroupedMcp).toBe(0)
+    expect(result.value.universe?.skillsComplete).toBeUndefined()
+  })
+
+  it('universe 为 null 仍合法（旧宿主兼容，扩键不改变 null 分支）', () => {
+    const result = parseWorkspaceValue(setAt(WORKSPACE_VALUE, 'universe', null))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.universe).toBeNull()
+  })
+
+  it('R15：mcp 组带 source + countsTokens 原样通过并读出', () => {
+    const raw = setAt(
+      setAt(WORKSPACE_VALUE, 'universe.groups.0.source', 'project'),
+      'universe.groups.0.countsTokens',
+      true,
+    )
+    const result = parseWorkspaceValue(raw)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const group = result.value.universe?.groups[0]
+    expect(group?.source).toBe('project')
+    expect(group?.countsTokens).toBe(true)
+  })
+
+  it('R15：mcp 组 source 为 user 合法（profile 级）', () => {
+    const result = parseWorkspaceValue(setAt(WORKSPACE_VALUE, 'universe.groups.0.source', 'user'))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.universe?.groups[0]?.source).toBe('user')
+    expect(result.value.universe?.groups[0]?.countsTokens).toBeUndefined()
+  })
+
+  it('R15：universe.foreignProjectMcp 原样通过并读出', () => {
+    const result = parseWorkspaceValue(setAt(WORKSPACE_VALUE, 'universe.foreignProjectMcp', 3))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.universe?.foreignProjectMcp).toBe(3)
+  })
+
+  runRejected(parseWorkspaceValue, [
+    {
+      name: 'R15：source 取值越界（不是 user/project 枚举）',
+      raw: setAt(WORKSPACE_VALUE, 'universe.groups.0.source', 'other'),
+      fragment: /不是已知取值/,
+    },
+    {
+      name: 'R15：countsTokens 不是布尔值',
+      raw: setAt(WORKSPACE_VALUE, 'universe.groups.0.countsTokens', 'yes'),
+    },
+    {
+      name: 'R15：技能组带 source（组级标注只在 mcp 组合法）',
+      raw: setAt(WORKSPACE_VALUE, 'universe.groups.1.source', 'user'),
+      fragment: /只允许出现在 mcp 分组/,
+    },
+    {
+      name: 'R15：内置组带 countsTokens（组级标注只在 mcp 组合法）',
+      raw: setAt(WORKSPACE_VALUE, 'universe.groups.2.countsTokens', true),
+      fragment: /只允许出现在 mcp 分组/,
+    },
+    {
+      name: 'R15：foreignProjectMcp 为负数',
+      raw: setAt(WORKSPACE_VALUE, 'universe.foreignProjectMcp', -1),
+      fragment: /不是非负安全整数/,
+    },
+    {
+      name: '技能条目只给 modelInvocable（invocation 必须成对）',
+      raw: setAt(WORKSPACE_VALUE, 'universe.groups.1.tools.0.modelInvocable', true),
+      fragment: /必须成对/,
+    },
+    {
+      name: '技能条目只给 userInvocable（invocation 必须成对）',
+      raw: setAt(WORKSPACE_VALUE, 'universe.groups.1.tools.0.userInvocable', true),
+      fragment: /必须成对/,
+    },
+    {
+      name: '内置工具行（tool:bash）带成对技能字段（技能字段只在 skill: 地址上合法）',
+      raw: setAt(
+        setAt(WORKSPACE_VALUE, 'universe.groups.2.tools.0.modelInvocable', true),
+        'universe.groups.2.tools.0.userInvocable',
+        true,
+      ),
+      fragment: /只有 skill: 地址/,
+    },
+    {
+      name: 'MCP 工具行带成对技能字段（技能字段只在 skill: 地址上合法）',
+      raw: setAt(
+        setAt(WORKSPACE_VALUE, 'universe.groups.0.tools.0.modelInvocable', true),
+        'universe.groups.0.tools.0.userInvocable',
+        true,
+      ),
+      fragment: /只有 skill: 地址/,
+    },
+    {
+      name: 'source 出现但无 invocation 对（source 与技能字段同生）',
+      raw: setAt(WORKSPACE_VALUE, 'universe.groups.1.tools.0.source', 'openspec'),
+      fragment: /同时在场/,
+    },
+    {
+      name: 'source 为空串（来源必须非空）',
+      raw: setAt(
+        setAt(
+          setAt(WORKSPACE_VALUE, 'universe.groups.1.tools.0.modelInvocable', true),
+          'universe.groups.1.tools.0.userInvocable',
+          true,
+        ),
+        'universe.groups.1.tools.0.source',
+        '',
+      ),
+      fragment: /为空/,
+    },
+    {
+      name: 'ungroupedMcp 为负数（-1）',
+      raw: setAt(WORKSPACE_VALUE, 'universe.ungroupedMcp', -1),
+      fragment: /不是非负安全整数/,
+    },
+    {
+      name: 'ungroupedMcp 为小数（1.5 非安全整数）',
+      raw: setAt(WORKSPACE_VALUE, 'universe.ungroupedMcp', 1.5),
+      fragment: /不是非负安全整数/,
+    },
+    {
+      name: 'skillsComplete 不是布尔值',
+      raw: setAt(WORKSPACE_VALUE, 'universe.skillsComplete', 'yes'),
+    },
+    {
+      name: '条目带宇宙字段（entry 与 universe 字段集不互通，未知键仍 strict）',
+      raw: setAt(WORKSPACE_VALUE, 'universe.groups.1.tools.0.ungroupedMcp', 1),
+      fragment: /未知字段：ungroupedMcp/,
+    },
+  ])
+})
+
 describe('端点之间的形状互不串用（一个端点一种响应）', () => {
   it('panel 快照不能被当 toggle / defaults / workspace 成功值解码', () => {
     expect(parseToggleValue(plain(SNAPSHOT)).ok).toBe(false)

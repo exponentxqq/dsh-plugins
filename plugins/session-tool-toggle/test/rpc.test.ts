@@ -37,8 +37,16 @@
  * - `{sessionId}` 的读 / 写两份响应都带 `universe`（D-24：客户端写后用响应整份替换，写响应
  *   不带宇宙则分组清单会消失）；
  * - 宇宙只由本会话两读推出（`visibleSchemas()` ∪ `snapshot().deny`）：组序 `mcp → skill →
- *   builtin`，carried-only 名成行且无描述，被别的作用域掩掉的服务器不出现；
- * - `{workspacePath}` 形态没有会话视角 → `universe:null`；层缺席 → 空宇宙（永不抛错）。
+ *   builtin`，carried-only 名成行且无描述，被别的作用域掩掉的服务器不出现。
+ *
+ * 变更 improve-workspace-defaults-page（任务 3.3）追加的验证面（翻转旧语义：曾为
+ * `{workspacePath}` → `universe:null`）：
+ *
+ * - `{workspacePath}` 的读 / 写响应都带该工作区宇宙：假端口 `readWorkspaceUniverse` 默认
+ *   返回固定宇宙并记录每次收到的规范 key（断言它是工作区规范路径本身，不是请求原文的变体）；
+ * - 端口抛错不让整次 workspace 读失败：档照常返回，宇宙降级为空宇宙（`layerReady:false`）
+ *   + warn（带错误原文）；
+ * - `{sessionId}` 形态零调用该端口：会话宇宙仍由本会话两读推出，两条来源不混淆。
  */
 import { describe, expect, it } from 'vitest'
 import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
@@ -47,6 +55,7 @@ import {
   parsePanelSnapshot,
   parseToggleValue,
   parseWorkspaceValue,
+  type DefaultsUniverse,
   type PanelSnapshot,
   type WorkspaceChoice,
   type WorkspaceValue,
@@ -474,6 +483,18 @@ const BAD_TOGGLE_REPORT = {
   layerFailed: false,
 } as unknown as ToggleReport
 
+/**
+ * 工作区宇宙读数假端口返回的固定宇宙（最小合法形状：一个空 builtin 组）。
+ *
+ * 形状与 `parseWorkspaceValue` 的响应自检兼容（strict：宇宙三键 + 组四键），用例按深相等
+ * 断言「端口返回被整份透传进响应」。
+ */
+const FAKE_WORKSPACE_UNIVERSE: DefaultsUniverse = {
+  layerReady: true,
+  skillsAvailable: true,
+  groups: [{ kind: 'builtin', key: 'builtin', address: null, tools: [] }],
+}
+
 /** 假端口的构造参数（只写用例关心的部分）。 */
 interface HarnessOptions {
   /** 该 agent 未被掩码时的视角名字（工具读数唯一来源；缺省为空）。 */
@@ -516,6 +537,8 @@ interface HarnessOptions {
   readonly workspaces?: Readonly<Record<string, readonly string[]>>
   /** 工作区档原始文本（损坏 / 半写用例；给了就不看 `workspaces`）。 */
   readonly workspacesText?: string
+  /** 注入工作区宇宙读数抛错（驱动「档照常返回 + 空宇宙降级 + warn」）。 */
+  readonly universeReaderError?: Error
   /** 假层的技能分面配置。 */
   readonly skills?: FakeSkillOptions
 }
@@ -529,6 +552,8 @@ interface Harness {
   readonly defaultsIo: FakeDefaultsIo
   readonly workspacesIo: FakeDefaultsIo
   readonly log: { readonly log: SpecLog; readonly warnings: string[]; readonly errors: string[] }
+  /** 工作区宇宙读数假端口（`calls` 按序记录每次收到的规范 key）。 */
+  readonly universeReader: { readonly calls: string[] }
   readonly dispatch: ReturnType<typeof createRpcDispatcher>
 }
 
@@ -576,6 +601,18 @@ function harness(options: HarnessOptions = {}): Harness {
       : options.attribution ?? { key: PRIMARY_WORKSPACE, registered: true, title: '工作区一' }
   const choices = options.choices ?? DEFAULT_CHOICES
 
+  // 工作区宇宙读数假端口：默认返回固定宇宙并按序记录每次收到的规范 key。路径形态的读 / 写
+  // 都经它取宇宙；`{sessionId}` 形态零调用（会话宇宙仍由本会话两读推出，不走该端口）。
+  const universeReaderCalls: string[] = []
+  const universeReader = {
+    calls: universeReaderCalls,
+    readWorkspaceUniverse: async (workspacePath: string): Promise<DefaultsUniverse> => {
+      universeReaderCalls.push(workspacePath)
+      if (options.universeReaderError !== undefined) throw options.universeReaderError
+      return FAKE_WORKSPACE_UNIVERSE
+    },
+  }
+
   const agents: AgentLookup = {
     get: (sessionId) => {
       if (options.agentsError !== undefined) throw options.agentsError
@@ -604,6 +641,7 @@ function harness(options: HarnessOptions = {}): Harness {
       return attribution
     },
     workspaceChoices: () => choices,
+    readWorkspaceUniverse: universeReader.readWorkspaceUniverse,
     ...(options.kernel === undefined ? {} : { kernel: options.kernel }),
   }
 
@@ -615,6 +653,7 @@ function harness(options: HarnessOptions = {}): Harness {
     defaultsIo,
     workspacesIo,
     log: recorded,
+    universeReader,
     dispatch: createRpcDispatcher(deps),
   }
 }
@@ -1435,13 +1474,61 @@ describe('workspace 端点：默认档宇宙（U1 / D-24）', () => {
     expect(value.universe?.groups.map((group) => group.key)).toEqual(['a'])
   })
 
-  it('{workspacePath} read 的 universe 为 null（路径形态没有会话视角）', async () => {
+  it('{workspacePath} read 返回该工作区宇宙（端口收到的是规范化 key）', async () => {
     const h = harness()
     const value = workspaceValueOf(
       await h.dispatch('workspace', { workspacePath: SECOND_WORKSPACE, action: 'read' }),
     )
 
-    expect(value.universe).toBeNull()
+    // 旧语义（已翻转）：路径形态曾返回 `universe:null`；现在端口返回的宇宙被整份透传。
+    expect(value.universe).not.toBeNull()
+    expect(value.universe).toEqual(FAKE_WORKSPACE_UNIVERSE)
+    // 端口收到的就是工作区规范路径本身（resolved.key），不是请求原文的变体。
+    expect(h.universeReader.calls).toEqual([SECOND_WORKSPACE])
+  })
+
+  it('{workspacePath} off 写响应同样带该工作区宇宙（G7：写后整份替换不丢清单）', async () => {
+    const h = harness({ workspaces: { [SECOND_WORKSPACE]: ['mcp:b'] } })
+    const value = workspaceValueOf(
+      await h.dispatch('workspace', {
+        workspacePath: SECOND_WORKSPACE,
+        action: 'off',
+        addresses: ['mcp:c'],
+      }),
+    )
+
+    expect(value.changed).toEqual(['mcp:b', 'mcp:c'])
+    expect(value.universe).toEqual(FAKE_WORKSPACE_UNIVERSE)
+    // 写路径同样走端口：宇宙在档动作完成后再算，写响应不特殊处理。
+    expect(h.universeReader.calls).toEqual([SECOND_WORKSPACE])
+  })
+
+  it('{workspacePath} 宇宙读数抛错 → 档照常返回 + 空宇宙降级 + warn', async () => {
+    const h = harness({ universeReaderError: new Error('宇宙端口炸了') })
+    const value = workspaceValueOf(
+      await h.dispatch('workspace', { workspacePath: SECOND_WORKSPACE, action: 'read' }),
+    )
+
+    // 档本身不受端口抛错影响；清单退化为「layerReady:false」（页面只显示残留区）。
+    expect(value.workspace).not.toBeNull()
+    expect(value.universe).toEqual({ layerReady: false, skillsAvailable: false, groups: [] })
+    // warn 带错误原文（排障用），且不让整次 workspace 读失败。
+    expect(h.log.warnings.join('\n')).toContain('宇宙端口炸了')
+  })
+
+  it('{sessionId} 形态零调用工作区宇宙端口（会话宇宙仍由本会话两读推出）', async () => {
+    const h = harness({ scope: ['mcp__a__x'] })
+    h.layer?.setVisibleSchemas([{ name: 'mcp__a__x', description: '读取页面内容' }])
+
+    const readValue = workspaceValueOf(await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'read' }))
+
+    expect(readValue.universe).not.toBeNull()
+    // 读路径不经端口：会话宇宙是同步两读（visibleSchemas ∪ snapshot），与工作区宇宙不混淆。
+    expect(h.universeReader.calls).toEqual([])
+
+    await h.dispatch('workspace', { sessionId: SESSION_ID, action: 'off', addresses: ['mcp:a'] })
+    // 写路径同样零调用。
+    expect(h.universeReader.calls).toEqual([])
   })
 
   it('层未就绪（withLayer:false）→ 空宇宙 {layerReady:false, skillsAvailable:false, groups:[]}', async () => {

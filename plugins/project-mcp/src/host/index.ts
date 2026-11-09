@@ -37,6 +37,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-workspace'
+import { ProjectMcpAttributionService } from './attribution-service.ts'
 import { RootAttributor } from './attribution.ts'
 import { sweepLiveSessions } from './boot-sweep.ts'
 import { nodeRealpathIo, nodeScanIo, nodeWatchIo, scanLog } from './host-io.ts'
@@ -101,6 +102,13 @@ export function apply(ctx: Context): void {
   // roots) are reported instead of silently absorbed; attribution itself stays
   // fail-closed (see `attribution.ts`).
   const attributor = new RootAttributor(nodeRealpathIo, { onAnomaly: log.warn })
+
+  // Cross-plugin attribution query service (`ctx.get('projectMcp')`): the
+  // workspace-defaults page reads "what did this workspace configure" by
+  // workspace path, which no session-scoped face answers. Construction is the
+  // registration; the service disappears with this fiber and consumers read
+  // `undefined` — the correct "no project-level MCP" answer.
+  new ProjectMcpAttributionService(ctx, manager, attributor)
 
   const isolation = new IsolationLayer({
     // The plugin's own context sees the unrestricted registry: deriving a deny

@@ -145,6 +145,19 @@ const REQUIRED_KEYS: readonly Key[] = [
   'workspace.saved',
   'workspace.clear',
   'workspace.clearConfirm',
+  // 工作区默认档页面（页面必读键：清单卡标题/过滤框/命令卡标题/复制按钮）
+  'workspace.listTitle',
+  'workspace.filter',
+  'workspace.commandTitle',
+  'workspace.copyCommand',
+  // R15：外来项目级 MCP 注记 + MCP 组级徽章（来源 / token 计入）
+  'workspace.foreignProjectMcp',
+  'mcp.sourceUser',
+  'mcp.sourceUserHint',
+  'mcp.sourceProject',
+  'mcp.sourceProjectHint',
+  'mcp.tokens',
+  'mcp.tokensHint',
   // 状态摘要
   'state.visible',
   'state.denied',

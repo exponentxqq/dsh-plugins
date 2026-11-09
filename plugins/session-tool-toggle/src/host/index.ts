@@ -120,6 +120,7 @@ import {
 import { createRpcDispatcher, type AgentLookup, type RpcDeps } from './rpc.ts'
 import { SessionLayer } from './session-layer.ts'
 import { disabledOf, mergeSeed, readWorkspaces, workspacesPath } from './workspaces.ts'
+import { createWorkspaceUniverseReader } from './workspace-universe.ts'
 import type {
   AgentLike,
   Config as SessionToolToggleConfig,
@@ -810,13 +811,23 @@ export function apply(ctx: Context, config?: SessionToolToggleConfig): void {
    * 已经随 `...controlDeps` 一并带过来：`snapshotOf` 组装工作区视图、`handleWorkspace` 的
    * 两种寻址形态与路径白名单都读这一份，装配层不另造读数逻辑（D14）。
    *
-   * `RpcDeps` 相对 `ControlDeps` 的增量只有 `agents`：判 `session-not-live` 与取活会话（附录
-   * §2.4 三步校验的第二、三步）。**描述读数不在装配层**：`rpc.ts` 内部的 `descriptionsOf`
+   * `RpcDeps` 相对 `ControlDeps` 的增量有两件：`agents` 判 `session-not-live` 与取活会话
+   * （附录 §2.4 三步校验的第二、三步）；`readWorkspaceUniverse` 按工作区规范路径读该工作区的
+   * 宇宙（工作区默认档页面的清单面）。后者是**一行映射**（code-design §3.1：装配点零分支）：
+   * 失败矩阵（`tools` 缺席 / 读抛错 → 空宇宙 + 降级 warn，`skills` 缺席 → 受支持的降级）
+   * 全部收在 `workspace-universe.ts` 的 reader 里，本文件不写任何业务分支。服务面经
+   * `ctx.get` **软读**现取、不新增 `inject`（延续 C10：任何 profile 仍可安装）——`skills`
+   * 只在每 agent 层软注入、从不在根 ctx 的注入名单里，`tools` 虽在 `inject`（装配顺序契约）
+   * 中，reader 仍按「现取 + 缺席降级」设计，两类服务同一条软读路径，不引入第二套取数纪律。
+   *
+   * **描述读数不在装配层**：`rpc.ts` 内部的 `descriptionsOf`
    * 经 `layerFor(session.id)` 从本会话层取（D-4），这里不传任何全局读数。
    */
   const rpcDeps: RpcDeps = {
     ...controlDeps,
     agents: agentsPort,
+    // 按工作区路径读宇宙：reader **永不抛错**（空宇宙是读数不是错误），rpc.ts 的兜底只是防线。
+    readWorkspaceUniverse: createWorkspaceUniverseReader({ get: (name) => ctx.get(name), protectedNames, log }),
   }
 
   // 6. Web 面板的 RPC 通道 `/session-tool-toggle`（D20 的五个端点）。注入要求与挂载姿势的

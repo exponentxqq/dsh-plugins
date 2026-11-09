@@ -80,11 +80,26 @@ export const zh = {
   'skill.effective': '模型不可见（`/name` 仍可用）',
   'skill.intentOnly': '已记录，暂未生效',
 
+  // —— 技能来源短标签（code-design ③3.5）：映射表在 WorkspaceDefaultsPage.tsx，未知 source 原样显示 ——
+  'skill.source.project-dsh': '项目',
+  'skill.source.project-agents': '项目(agents)',
+  'skill.source.custom': '自定义',
+  'skill.source.user-dsh': '用户',
+  'skill.source.user-agents': '用户(agents)',
+  'skill.source.bundled': '内置',
+  'skill.source.runtime': '运行时',
+
   // —— 行级标记：组内条目上的短标签（设计 §3.3 的 `[保护]` / `[不可关闭]`） ——
   'entry.disabled': '已关闭',
   'entry.protected': '保护',
   'entry.reserved': '不可关闭',
   'entry.intentOnly': '暂无匹配',
+  // 工作区页面的技能行标签（code-design ③3.5）：模型调用代价 / 手动调用方式 / 新会话初始态。
+  'entry.skillTokens': '占对话 token',
+  'entry.skillNoTokens': '不占对话 token',
+  'entry.skillUserInvocable': '`/{name}` 可用',
+  'entry.skillUserBlocked': '不可手动调用',
+  'entry.skillHidden': '新会话默认隐藏',
 
   // —— 徽标与禁用理由：禁用开关的 `title` 必须给同一句解释（设计 §3.3） ——
   'badge.protected': '在保护名单内，不能关闭。',
@@ -119,6 +134,8 @@ export const zh = {
   'defaults.summary': '默认关 {inDefaults} · 残留 {residual}',
   'defaults.residualTitle': '残留地址（不在本会话清单里，只能移除）',
   'defaults.universeUnavailable': '本会话的工具清单暂不可用：只能查看与移除档内已有条目。',
+  // 全局过滤无结果的空态（code-design ③3.5；工作区页面清单卡的 DefaultsGroupList 用）。
+  'defaults.filterEmpty': '没有匹配「{query}」的条目。',
   // 分组标题行：条目数 / 档内计数 / 合成 title（读屏与悬浮共用 groupSummary）。
   'defaults.groupCount': '{count} 项',
   'defaults.groupInDefaults': '默认关 {count} 项',
@@ -156,6 +173,31 @@ export const zh = {
   'workspace.clear': '清空工作区默认档',
   'workspace.clearConfirm': '再点一次确认清空',
   'workspace.refresh': '刷新工作区档',
+  // —— 工作区页面（WorkspaceDefaultsPage，code-design ③3.5）：清单卡 ——
+  'workspace.listTitle': '默认关闭项',
+  'workspace.listHint': '开关只写本工作区默认档：关闭 = 之后在此工作区新建的会话初始不可用。',
+  'workspace.filter': '过滤工具、技能或地址…',
+  'workspace.emptyDefaults': '本工作区还没有默认关闭项。',
+  'workspace.emptyDefaultsHint': '在下方清单里关闭任意条目即写入；只影响之后在此工作区新建的会话。',
+  'workspace.emptyUniverse': '宿主没有提供可列出的工具清单，暂时只能查看与移除档内已有条目。',
+  'workspace.universeUnavailable': '宿主全局工具注册表暂不可用：只能查看与移除档内已有条目。',
+  'workspace.ungrouped': '另有 {count} 个 MCP 工具名无法归组（公开名归一化/截断后无法还原服务器名），本页不提供开关。',
+  'workspace.skillsIncomplete': '技能目录观测不完整，清单可能缺项。',
+  'workspace.foreignProjectMcp': '另有 {count} 个其他工作区的项目级 MCP 服务器未列入（仅其所属工作区可见）。',
+  'mcp.sourceUser': '用户级',
+  'mcp.sourceUserHint': 'profile 级配置：所有工作区的会话都可见。',
+  'mcp.sourceProject': '项目级',
+  'mcp.sourceProjectHint': '本工作区 .dsh/mcp/ 的项目级配置：仅本工作区的会话可见。',
+  'mcp.tokens': '计入对话上下文',
+  'mcp.tokensHint': '每个可见工具的参数 schema 与服务器指令会计入每次对话请求。',
+  'workspace.globalUnion': '工具清单来自宿主进程的全局注册表（所有已加载工作区的并集）：可能列出本工作区看不到的 MCP 工具；写入只保留意图，新会话不存在该工具时不生效。技能清单按本工作区目录读取。',
+  // —— 命令卡：跨清单地址的复制兜底（同 ③3.5） ——
+  'workspace.commandTitle': '跨清单地址',
+  'workspace.commandNote': '该命令只写「本会话所属工作区」的档；要给其他工作区补条目，请直接编辑上面的工作区档文件。',
+  'workspace.commandComment': '目标工作区：{key}',
+  'workspace.copyCommand': '复制命令',
+  'workspace.copied': '已复制',
+  'workspace.copyFailed': '复制失败，请手动选择文本。',
   // 侧栏 footer 入口与自绘对话框（7.3）：标题/范围说明复用上面的 workspace.title / workspace.scope，
   // 这里只补两处只属于「入口壳」的状态文案。
   'workspace.loading': '正在读取工作区默认档…',
@@ -246,11 +288,28 @@ export const en = {
   'skill.effective': 'Hidden from the model (`/name` still works)',
   'skill.intentOnly': 'Recorded; no effect yet',
 
+  // Skill source short tags (code-design ③3.5); the mapping table lives in
+  // WorkspaceDefaultsPage.tsx and unknown sources render as-is.
+  'skill.source.project-dsh': 'Project',
+  'skill.source.project-agents': 'Project (agents)',
+  'skill.source.custom': 'Custom',
+  'skill.source.user-dsh': 'User',
+  'skill.source.user-agents': 'User (agents)',
+  'skill.source.bundled': 'Bundled',
+  'skill.source.runtime': 'Runtime',
+
   // —— 行级标记 ——
   'entry.disabled': 'Off',
   'entry.protected': 'Protected',
   'entry.reserved': 'Locked',
   'entry.intentOnly': 'No match yet',
+  // Skill row tags of the workspace page (code-design ③3.5): model invocation cost / manual
+  // invocation / initial state in new sessions.
+  'entry.skillTokens': 'Uses dialog tokens',
+  'entry.skillNoTokens': 'No dialog tokens',
+  'entry.skillUserInvocable': '`/{name}` available',
+  'entry.skillUserBlocked': 'No manual invocation',
+  'entry.skillHidden': 'Off in new sessions',
 
   // —— 徽标与禁用理由 ——
   'badge.protected': 'On the protected list; cannot be turned off.',
@@ -286,6 +345,9 @@ export const en = {
   'defaults.residualTitle': 'Residual addresses (not in this session\'s list; removal only)',
   'defaults.universeUnavailable':
     'This session\'s tool list is unavailable right now: you can only view and remove entries already in the tier.',
+  // Empty state when the global filter matches nothing (code-design ③3.5; used by the
+  // DefaultsGroupList of the workspace page's list card).
+  'defaults.filterEmpty': 'No entry matches “{query}”.',
   // Group header row: entry count / in-tier count / combined title (screen readers and hover).
   'defaults.groupCount': '{count} items',
   'defaults.groupInDefaults': '{count} off by default',
@@ -327,6 +389,39 @@ export const en = {
   'workspace.clear': 'Clear workspace defaults',
   'workspace.clearConfirm': 'Click again to clear',
   'workspace.refresh': 'Refresh workspace defaults',
+  // —— Workspace page (WorkspaceDefaultsPage, code-design ③3.5): list card ——
+  'workspace.listTitle': 'Off-by-default entries',
+  'workspace.listHint':
+    'Switches write this workspace\'s defaults: off means sessions created here later start with the tool unavailable.',
+  'workspace.filter': 'Filter tools, skills, or addresses…',
+  'workspace.emptyDefaults': 'No off-by-default entries in this workspace yet.',
+  'workspace.emptyDefaultsHint':
+    'Turn any entry off below to write it to this workspace\'s defaults; only sessions created here afterwards are affected.',
+  'workspace.emptyUniverse':
+    'The host exposes no tool catalog right now, so only existing entries can be viewed or removed.',
+  'workspace.universeUnavailable':
+    'The host\'s global tool registry is unavailable: only existing entries can be viewed or removed.',
+  'workspace.ungrouped':
+    '{count} more MCP tool names cannot be grouped (their public names lost the server boundary after normalization/truncation); they are not switchable here.',
+  'workspace.skillsIncomplete': 'The skill catalog observation is incomplete; the list may miss entries.',
+  'workspace.foreignProjectMcp':
+    '{count} more project-level MCP server(s) from other workspaces are not listed (visible only to their own workspace).',
+  'mcp.sourceUser': 'User-level',
+  'mcp.sourceUserHint': 'Profile-level configuration: visible to every workspace\'s sessions.',
+  'mcp.sourceProject': 'Project-level',
+  'mcp.sourceProjectHint': 'Project-level configuration in this workspace\'s .dsh/mcp/: visible only to this workspace\'s sessions.',
+  'mcp.tokens': 'Counts into context',
+  'mcp.tokensHint': 'Each visible tool\'s parameter schema and the server instructions count into every dialog request.',
+  'workspace.globalUnion':
+    'The tool list comes from the host process\'s global registry (the union of all loaded workspaces): it may include MCP tools this workspace cannot see; a write only records intent and has no effect where the tool does not exist. The skill list is read for this workspace\'s directory.',
+  // —— Command card: the copy fallback for addresses outside the list (same ③3.5) ——
+  'workspace.commandTitle': 'Addresses outside the list',
+  'workspace.commandNote':
+    'The command writes only the workspace this session belongs to; to add entries for another workspace, edit the defaults file shown above.',
+  'workspace.commandComment': 'Target workspace: {key}',
+  'workspace.copyCommand': 'Copy command',
+  'workspace.copied': 'Copied',
+  'workspace.copyFailed': 'Copy failed; select the text manually.',
   // The sidebar footer entry and its own dialog (7.3): the title/scope reuse workspace.title /
   // workspace.scope above; only these two state lines belong to the entry shell.
   'workspace.loading': 'Reading the workspace defaults…',

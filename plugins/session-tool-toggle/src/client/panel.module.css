@@ -397,3 +397,237 @@
   line-height: 18px;
 }
 
+/* —— 工作区默认档页面（`WorkspaceDefaultsPage`，B1 三卡 + 脚注 + 页脚；设计 ③3.7）——
+ * 页面正文从「六段平铺」重排为卡片布局：浅底卡（bg-layer-2）+ 12px 圆角 + 细边（border-l1），
+ * 与统一「工作区配置」页的其他分节同一视觉语言。令牌纪律与上文一致：每处
+ * `var(--dsw-alias-*, <静态兜底>)`，令牌改名时最坏退化成可读的黑白而不是透明。 */
+
+/* 页面正文壳：三卡、脚注、页脚动作区纵向排布，卡间一档间距。 */
+.workspacePage {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* 页面卡片（概要卡 / 清单卡 / 命令卡共用）：浅底细边圆角，卡内元素纵向间距 10px。 */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--dsw-alias-bg-layer-2, #f7f7f8);
+  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));
+  border-radius: 12px;
+}
+
+/* 卡头：标题 + 徽章 + 右推动作同行排布，窄处允许换行。 */
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 卡标题（<p>，非 heading——可访问名由 holder 的 tab 提供）：与分区标题同字号加重。 */
+.cardTitle {
+  margin: 0;
+  color: var(--dsw-alias-label-primary, #000);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+/* 登记态徽章：`.badge` 在面板里已是 intent 徽标（蓝底白字，`.chip` 内），CSS module 同名
+ * 导出只有一个类名，页面徽章借它渲染——在 `.cardHeader` 作用域内全量换成「细边 + 灰字 +
+ * 透明底」的登记态视觉；面板 intent 徽标不在此作用域，零影响。 */
+.cardHeader .badge {
+  padding: 0 6px;
+  color: var(--dsw-alias-label-tertiary, #7f8287);
+  font-size: 11px;
+  line-height: 16px;
+  background: none;
+  border: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 12%));
+  border-radius: 999px;
+}
+
+/* 卡头右推占位 / 推钮：把刷新按钮推到行尾。 */
+.push {
+  margin-left: auto;
+}
+
+/* 概要事实行（dl）：工作区 key / 档文件路径两行键值对。 */
+.facts {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.fact {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.factTerm {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary, #7f8287);
+}
+
+/* 事实值（key / 路径）：等宽、可断行——规范路径可能很长。 */
+.factValue {
+  min-width: 0;
+  color: var(--dsw-alias-label-secondary, #545557);
+  font-family: var(--ds-font-family-code, monospace);
+  word-break: break-all;
+}
+
+/* 三计数摘要行（清单 N · 默认关 M · 残留 K）：等宽数字避免刷新时跳动。 */
+.counts {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary, #545557);
+  font-size: 12px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 清单卡头（③3.7 冻结名）：与 `.cardHeader` 同款排布，供结构图的清单卡头位取用。 */
+.listHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 页面级全局过滤框：右推到卡头行尾，宽上限 280px、窄处收缩到满宽。 */
+.pageFilter {
+  margin-left: auto;
+  width: min(280px, 100%);
+}
+
+/* 空态块（空档 / 空宇宙）：虚线边框 + 卡内浅底，与可交互的清单体拉开。 */
+.emptyBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  border: 1px dashed var(--dsw-alias-border-l2, rgb(0 0 0 / 12%));
+  border-radius: 8px;
+}
+
+/* 空态标题：主字色加重，与下方提示拉开一级。 */
+.emptyTitle {
+  margin: 0;
+  color: var(--dsw-alias-label-primary, #000);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+/* 空态提示：三级灰，讲清下一步去哪关第一项 / 为什么清单是空的。 */
+.emptyHint {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary, #7f8287);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* 命令卡命令行：代码块占主列、复制按钮右列，顶对齐（按钮矮于多行代码块）。 */
+.commandRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+/* 命令代码块：文本即复制文本（D8）——浅底细边、等宽、可换行不断语义。 */
+.command {
+  flex: 1;
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));
+  border-radius: 8px;
+  font-family: var(--ds-font-family-code, monospace);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* 脚注容器：影响范围 / 并集语义两句纵向紧凑排列。 */
+.footnotes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* 次级注记：清单语义句、三条条件注记、命令边界说明与脚注段共用同款。 */
+.note {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary, #7f8287);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* 行详情主列（`DefaultsGroupList` 的 `showDetails` 路径）：名称 + 描述 + 标签纵排，
+ * 开关仍在右列；`min-width: 0` 让省略号在 flex 行内生效。 */
+.rowMain {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* 行描述次行：单行省略，全文经 `title` 悬停可见。 */
+.rowDescription {
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary, #7f8287);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 技能标签行：来源 / 调用方式等小标签的换行集合。 */
+.rowTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* 技能来源标签：圆角细边小标签，不换行（整个标签移到下一行而不是断开）。 */
+.metaTag {
+  padding: 0 6px;
+  color: var(--dsw-alias-label-tertiary, #7f8287);
+  font-size: 11px;
+  line-height: 16px;
+  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+/* —— R15 标签着色变体：组合类（叠在 `.tag` / `.metaTag` 上），只覆盖前景与描边，
+   底色保持透明；色值全部走 alias 状态变量带字面量回退（暗色主题安全，与仓内
+   `state-business/warn/error/success` 先例同源）。 —— */
+.toneInfo {
+  color: var(--dsw-alias-state-business-primary, #1a67e0);
+  border-color: var(--dsw-alias-state-business-primary, #1a67e0);
+}
+
+.toneSuccess {
+  color: var(--dsw-alias-state-success-primary, #16955f);
+  border-color: var(--dsw-alias-state-success-primary, #16955f);
+}
+
+.toneWarn {
+  color: var(--dsw-alias-state-warn-primary, #dd8629);
+  border-color: var(--dsw-alias-state-warn-primary, #dd8629);
+}
+
+.toneDanger {
+  color: var(--dsw-alias-state-error-primary, #ec1313);
+  border-color: var(--dsw-alias-state-error-primary, #ec1313);
+}
+

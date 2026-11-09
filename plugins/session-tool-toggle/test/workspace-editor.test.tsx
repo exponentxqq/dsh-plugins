@@ -1,16 +1,19 @@
 // @vitest-environment jsdom
 /**
  * 工作区默认档编辑器的组件测试（任务 9.5 / TS12，code-design ③ 3.19、D10 / D11 / D13、G7-b / G8；
- * 页面化适配见 code-design §1.3 / §3.9，变更 `2026-11-08-workspace-config-page` 任务 4.3）。
+ * 页面化适配见 code-design §1.3 / §3.9，变更 `2026-11-08-workspace-config-page` 任务 4.3；
+ * 本次页面化改造 = 变更 `improve-workspace-defaults-page` 任务 5.4，新增 ③ 3.4–3.6 的页面用例）。
  *
  * 组件仍是**纯展示层**：状态、读、写都在父级（`useWorkspaceDefaults` / `PanelController`）。
  * 本套件只渲染真实组件、用 `vi.fn` 记录回调，逐条钉住 TS12 的出口断言面：
  *
  * 1. **两形态**：`section` 形态走 `DefaultsSectionFrame`——默认收起、标题行带计数摘要、点开
- *    才有正文（键/路径/三计数/分组清单）；`dialog` 形态是 holder 页面的分节正文——自带
- *    `<h3>`，但没有 `role="dialog"`（页面骨架由 holder 提供）。**两形态都不再有工作区下拉**：
- *    选择动作归 holder 页面的唯一选择框，节内只消费选中结果（`queryByRole('combobox')` 恒为
- *    `null`，code-design §1.3「删除节内工作区下拉」/ §3.9「props 删 `choices` / `onSelect`」）。
+ *    才有正文（键/路径/三计数/分组清单）；`dialog` 形态是 holder 页面的分节正文——页面化后
+ *    委托 `WorkspaceDefaultsPage`（任务 5.4 / G5.4），不再渲染 `<h3>`（标题降级为概要卡的
+ *    `<p.cardTitle>`），也没有 `role="dialog"`（页面骨架由 holder 提供）。**两形态都不再有
+ *    工作区下拉**：选择动作归 holder 页面的唯一选择框，节内只消费选中结果
+ *    （`queryByRole('combobox')` 恒为 `null`，code-design §1.3「删除节内工作区下拉」/
+ *    §3.9「props 删 `choices` / `onSelect`」）。
  * 2. **分组清单**（与用户级默认档共用 `DefaultsGroupList`）：组开关打组地址
  *    （`mcp:a` / `tool:skill`）、行开关打行地址（`mcp:a::x`）；锁态两行（保护名单 / 保留名）
  *    与「整组在档」的行禁用并带 `整组默认关` 标签；残留地址只能移除，界面上**没有任何自由
@@ -24,6 +27,10 @@
  *    `{workspacePath}` 寻址读一次、`{kind:'unassigned'}` / `{kind:'none'}` 渲染
  *    `workspace.noTarget` 空态且**不发请求**；`key={path}` 让「换工作区 = 重挂重读」；client
  *    缺席 / 晚就绪的降级，以及「与 `/tools` 共用同一份宿主状态」的双向回归。
+ * 6. **页面形态正文**（`WorkspaceDefaultsPage`，任务 5.4）：概要卡（名/key/档文件/三计数/
+ *    登记徽章/刷新）、清单卡（全局过滤 + 无匹配文案 + 空档块）、命令卡（代码文本含目标键 +
+ *    复制调用 + 已复制反馈）；页面没有 heading、对话框根与工作区下拉。页面新增 locale 键由
+ *    G6.2 并行落地，断言经 {@link zhText} 先取 zh 词典、缺键回退 code-design ③3.5 文本。
  *
  * 每个开关都是一次立即写入（宿主 `workspaces.json`）：`off` = 加入本工作区档、`on` = 移出、
  * `reset` = 清空本工作区条目；失败/成功展示沿用面板容器的唯一失败形状 {@link PanelFailure}。
@@ -45,8 +52,10 @@ import {
   WorkspaceDefaultsEditor,
   type WorkspaceDefaultsEditorProps,
 } from '../src/client/WorkspaceDefaultsEditor.tsx'
+import { WorkspaceDefaultsPage, type WorkspaceDefaultsPageProps } from '../src/client/WorkspaceDefaultsPage.tsx'
 import { WorkspaceDefaultsSection, type WorkspaceDefaultsSectionProps } from '../src/client/WorkspaceEntry.tsx'
 import type { PanelClient } from '../src/client/panel-client.ts'
+import { defaultsCountsOf } from '../src/client/defaults-view.ts'
 import { NS, zh } from '../src/client/locales.ts'
 
 /** 本组件消费的转发函数（与组件内部同一类型，含共享 common 词汇）。 */
@@ -257,6 +266,87 @@ function countsLineOf(listed: number, inDefaults: number, residual: number): str
     .replace('{residual}', String(residual))
 }
 
+/**
+ * 页面形态新增的 locale 键 → code-design ③3.5 的 zh 文本（权威源摘录）。
+ *
+ * 这些键由 G6.2 并行落地；{@link zhText} 先查已落地的 zh 词典，缺键时回退本表，保证
+ * locales 落地前后断言目标一致（落地后自动切换到词典值，本表即退役为对照样本）。
+ */
+const PAGE_ZH: Readonly<Record<string, string>> = {
+  'workspace.listTitle': '默认关闭项',
+  'workspace.listHint': '开关只写本工作区默认档：关闭 = 之后在此工作区新建的会话初始不可用。',
+  'workspace.filter': '过滤工具、技能或地址…',
+  'defaults.filterEmpty': '没有匹配「{query}」的条目。',
+  'workspace.emptyDefaults': '本工作区还没有默认关闭项。',
+  'workspace.emptyDefaultsHint': '在下方清单里关闭任意条目即写入；只影响之后在此工作区新建的会话。',
+  'workspace.commandTitle': '跨清单地址',
+  'workspace.commandNote': '该命令只写「本会话所属工作区」的档；要给其他工作区补条目，请直接编辑上面的工作区档文件。',
+  'workspace.commandComment': '目标工作区：{key}',
+  'workspace.copyCommand': '复制命令',
+  'workspace.copied': '已复制',
+}
+
+/**
+ * 取页面形态 locale 文本：zh 词典已落地（G6.2）用词典值，缺键回退 ③3.5 权威源文本。
+ * @param key - locale 键（页面新增键）。
+ * @returns 断言用的 zh 文本。
+ */
+function zhText(key: string): string {
+  return (zh as Record<string, string>)[key] ?? PAGE_ZH[key] ?? key
+}
+
+/**
+ * 复制文本里的目标键注释行（`workspace.commandComment` 的插值结果）。
+ * @param key - 目标工作区键。
+ * @returns 注释行全文。
+ */
+function commandCommentOf(key: string): string {
+  return zhText('workspace.commandComment').replace('{key}', key)
+}
+
+/**
+ * 替身 `navigator.clipboard.writeText`（jsdom 未实现 clipboard API）：记录复制调用并立即成功。
+ * @returns 记录调用的 mock（`mock.calls[i][0]` 即复制文本）。
+ */
+function stubClipboardWriteText() {
+  const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
+  Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+  return writeText
+}
+
+/**
+ * 渲染页面形态正文组件并返回记录回调的替身。
+ *
+ * `counts` 按与清单同一份读数算出（③3.4「由父级算好的三计数」）：默认夹具是
+ * `defaultsCountsOf(UNIVERSE, DEFAULT_DISABLED)`；覆盖 `workspace.disabled` 的用例要
+ * 一并显式传对齐的 `counts`（父级两个读数同源，页面不重算）。
+ * @param overrides - 需要覆盖的 props（宇宙、在途、登记态等）。
+ * @returns render 结果 + 三个 mock 回调。
+ */
+function renderPage(overrides: Partial<WorkspaceDefaultsPageProps> = {}) {
+  const handlers = {
+    onToggle: vi.fn<WorkspaceDefaultsPageProps['onToggle']>(),
+    onClear: vi.fn<WorkspaceDefaultsPageProps['onClear']>(),
+    onRefresh: vi.fn<WorkspaceDefaultsPageProps['onRefresh']>(),
+  }
+  const base: WorkspaceDefaultsPageProps = {
+    workspace: workspaceView(),
+    universe: UNIVERSE,
+    counts: defaultsCountsOf(UNIVERSE, DEFAULT_DISABLED),
+    saving: false,
+    saved: false,
+    armed: false,
+    ...handlers,
+    t: translate,
+    ...overrides,
+  }
+  const view = render(<WorkspaceDefaultsPage {...base} />)
+  return {
+    ...view,
+    ...handlers,
+  }
+}
+
 describe('WorkspaceDefaultsEditor（section 形态）', () => {
   it('分区默认收起：aria-expanded=false，正文（键/三计数/组清单/开关）都不在文档里', () => {
     renderEditor()
@@ -387,6 +477,19 @@ describe('WorkspaceDefaultsEditor（section 形态）', () => {
     expandFrame()
 
     expect(screen.queryByRole('combobox')).toBeNull()
+  })
+
+  it('分区形态没有页面能力：无全局过滤框，行下没有描述次行（G4.4，面板 DOM 逐字一致）', () => {
+    renderEditor()
+    expandFrame()
+    expandGroup('MCP 服务器')
+
+    // 页面形态的全局过滤框（workspace.filter）不进面板分区；分区唯一输入框仍是内置组本地过滤
+    // （既有用例已按整文件唯一 input 钉住，这里只钉「页面过滤框缺席」这一面）。
+    expect(screen.queryByPlaceholderText(zhText('workspace.filter'))).toBeNull()
+
+    // 行详情同样是页面能力：mcp:a::y 的描述只作为 title 提示，不渲染次行文本。
+    expect(screen.queryByText('Y 工具')).toBeNull()
   })
 })
 
@@ -532,15 +635,126 @@ describe('WorkspaceDefaultsEditor 的开关写入动作', () => {
   })
 })
 
+describe('WorkspaceDefaultsPage（页面形态正文）', () => {
+  it('概要卡：工作区名、登记徽章、key、档文件与三计数同卡在场', () => {
+    renderPage()
+
+    // 卡标题是工作区名（workspace.title ?? key），登记徽章紧随其后（③3.6 概要卡）。
+    expect(screen.getByText('w1')).toBeTruthy()
+    expect(screen.getByText(zh['workspace.registered'])).toBeTruthy()
+    // facts 两行：工作区键与档文件路径（等宽、可换行）。
+    expect(screen.getByText('/w1')).toBeTruthy()
+    expect(screen.getByText(WS_PATH)).toBeTruthy()
+    // 三计数与清单同一份 (universe, disabled) 读数：清单 8 · 默认关 2 · 残留 1。
+    expect(screen.getByText(countsLineOf(8, 2, 1))).toBeTruthy()
+  })
+
+  it('清单卡：标题、开关语义说明与全局过滤框在场', () => {
+    const { container } = renderPage()
+
+    expect(screen.getByText(zhText('workspace.listTitle'))).toBeTruthy()
+    expect(screen.getByText(zhText('workspace.listHint'))).toBeTruthy()
+
+    // 全局过滤框取代内置组的本地过滤（过滤框仅在 universe ready 且有候选时渲染）。
+    const filter = screen.getByPlaceholderText(zhText('workspace.filter'))
+    expect(filter.tagName).toBe('INPUT')
+    // 页面唯一的输入框就是全局过滤：内置组的本地过滤框在页面形态被隐藏。
+    expect(container.querySelectorAll('input')).toHaveLength(1)
+  })
+
+  it('全局过滤按描述命中：命中组保留整组，未命中组连同开关一起消失', () => {
+    renderPage()
+
+    // `mcp:a::y` 的描述命中查询词 → mcp:a 组保留整组（y 行仍可切换）。
+    fireEvent.change(screen.getByPlaceholderText(zhText('workspace.filter')), {
+      target: { value: 'Y 工具' },
+    })
+    expect(rowSwitchOf('y')).toBeTruthy()
+    // 技能 / 内置组未命中：整组消失（过滤时组头非交互，按开关缺席断言）。
+    expect(screen.queryByRole('switch', { name: translate('defaults.switchLabel', { name: 'alpha' }) })).toBeNull()
+    expect(screen.queryByRole('switch', { name: translate('defaults.switchLabel', { name: 'bash' }) })).toBeNull()
+  })
+
+  it('全局过滤无匹配：渲染 filterEmpty 文案，所有开关消失', () => {
+    renderPage()
+
+    fireEvent.change(screen.getByPlaceholderText(zhText('workspace.filter')), {
+      target: { value: 'zzz' },
+    })
+
+    expect(screen.getByText(zhText('defaults.filterEmpty').replace('{query}', 'zzz'))).toBeTruthy()
+    // 残留 chip 同样按查询词筛（'zzz' 不命中任何地址）：清单与残留一起清空。
+    expect(screen.queryAllByRole('switch')).toEqual([])
+    expect(screen.queryByText('legacy:retired')).toBeNull()
+  })
+
+  it('空档（档内无条目）：渲染空档标题与引导，清单仍可写（C6）', () => {
+    renderPage({
+      workspace: workspaceView({ disabled: [] }),
+      counts: defaultsCountsOf(UNIVERSE, []),
+    })
+
+    expect(screen.getByText(zhText('workspace.emptyDefaults'))).toBeTruthy()
+    expect(screen.getByText(zhText('workspace.emptyDefaultsHint'))).toBeTruthy()
+    // 空档不是空宇宙：组开关仍可写（G8.5 ①「空档 + 清单仍可见」）。
+    expect(groupSwitchOf('a')).toBeTruthy()
+  })
+
+  it('命令卡：代码文本含目标键注释与 /tools workspace off，复制调用携带同一文本并出现已复制反馈', async () => {
+    const { container } = renderPage()
+    const writeText = stubClipboardWriteText()
+
+    expect(screen.getByText(zhText('workspace.commandTitle'))).toBeTruthy()
+    expect(screen.getByText(zhText('workspace.commandNote'))).toBeTruthy()
+
+    // 代码块两行：`# 目标工作区：<key>` + `/tools workspace off <地址>`（D8 决策）。
+    const command = container.querySelector('pre code')
+    expect(command?.textContent).toContain(commandCommentOf('/w1'))
+    expect(command?.textContent).toContain('/tools workspace off ')
+
+    fireEvent.click(screen.getByRole('button', { name: zhText('workspace.copyCommand') }))
+    await waitFor(() => { expect(writeText).toHaveBeenCalledTimes(1) })
+
+    // 复制文本与代码块同源：目标键注释（含 /w1）+ 命令模板。
+    expect(writeText.mock.calls[0]?.[0]).toContain(commandCommentOf('/w1'))
+    expect(writeText.mock.calls[0]?.[0]).toContain('/tools workspace off ')
+    // 复制成功反馈（copyState + aria-live）。
+    expect(screen.getByText(zhText('workspace.copied'))).toBeTruthy()
+  })
+
+  it('概要卡刷新回调接父级 read（C3）', () => {
+    const { onRefresh } = renderPage()
+
+    fireEvent.click(screen.getByRole('button', { name: zh['workspace.refresh'] }))
+    expect(onRefresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('在途（saving）时概要卡刷新按钮禁用', () => {
+    renderPage({ saving: true })
+
+    expect((screen.getByRole('button', { name: zh['workspace.refresh'] }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('页面形态：没有 heading、没有对话框根、也没有工作区下拉（Q4 + 页面骨架由 holder 提供）', () => {
+    renderPage()
+
+    // h3 已随页面化删除：标题降级为概要卡 <p.cardTitle>，页面不再有任何 heading。
+    expect(screen.queryByRole('heading')).toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByRole('combobox')).toBeNull()
+  })
+})
+
 describe('WorkspaceDefaultsEditor（dialog 形态）', () => {
-  it('渲染正文壳：<h3> 标题 + 正文，没有对话框根，也没有节内工作区下拉', () => {
+  it('渲染正文壳（h3 随页面化删除）：没有对话框根，也没有节内工作区下拉', () => {
     const { container } = renderEditor({ variant: 'dialog' })
 
     expect(container.firstElementChild?.tagName).toBe('DIV')
     // 对话根由 holder 的页面骨架提供；本组件只交付正文壳。
     expect(container.firstElementChild?.getAttribute('role')).toBeNull()
     expect(container.querySelector('section')).toBeNull()
-    expect(screen.getByRole('heading', { name: zh['workspace.title'], level: 3 })).toBeTruthy()
+    // h3 断言随任务 5.4 删除（Q4）：dialog 形态委托 WorkspaceDefaultsPage，标题降级为
+    // 概要卡的 <p.cardTitle>；页面正文的无 heading 断言在上方页面用例组钉住。
     // 工作区选择框已上移到 holder 页面：节内不再有 combobox（code-design §1.3 / §3.9）。
     expect(screen.queryByRole('combobox')).toBeNull()
     // 正文仍在：键、档文件路径、作用域与并集说明。
@@ -782,7 +996,8 @@ describe('WorkspaceDefaultsSection（页面的分节，dialog 形态）', () => 
     expect(container.firstElementChild?.getAttribute('role')).toBeNull()
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(container.querySelector('section')).toBeNull()
-    expect(screen.getByRole('heading', { name: zh['workspace.title'], level: 3 })).toBeTruthy()
+    // h3 断言随任务 5.4 删除（Q4）：正文锚点改用概要卡 facts 里的工作区键。
+    expect(screen.getByText('/w1')).toBeTruthy()
     // 下拉已上移到页面：节内不再有 combobox（code-design §1.3「删除节内工作区下拉」）。
     expect(screen.queryByRole('combobox')).toBeNull()
   })
@@ -833,7 +1048,8 @@ describe('WorkspaceDefaultsSection（页面的分节，dialog 形态）', () => 
     renderSection({ resolveClient: () => client })
     await waitFor(() => { expect(client.workspaceCalls).toHaveLength(1) })
     expect(screen.queryByRole('alert')).toBeNull()
-    expect(screen.getByRole('heading', { name: zh['workspace.title'], level: 3 })).toBeTruthy()
+    // h3 断言随任务 5.4 删除（Q4）：恢复后的正文锚点改用概要卡 facts 里的工作区键。
+    expect(screen.getByText('/w1')).toBeTruthy()
   })
 
   it('换工作区 = 换 key 重挂重读：旧目标卸载，新目标按新路径重读一次', async () => {
@@ -850,6 +1066,67 @@ describe('WorkspaceDefaultsSection（页面的分节，dialog 形态）', () => 
     // `key={path}` 让目标组件整体重挂：不是「同一份状态换个读数」，而是旧目标卸载 + 新目标重读。
     await waitFor(() => { expect(client.workspaceCalls).toHaveLength(2) })
     expect(client.workspaceCalls[1]).toEqual({ workspacePath: SECOND_KEY, action: 'read' })
+  })
+})
+
+/**
+ * R15 夹具：在共享状态客户端之上固定注入带组级标注的宇宙（页面只渲染宿主给的形状，
+ * 不重算过滤）——组头徽章（来源 / token）与外来组计数注记的渲染断言用。
+ */
+class AnnotatedUniverseClient extends SharedStateClient {
+  override async workspace(request: WorkspaceRequest): Promise<WorkspaceValue> {
+    const value = await super.workspace(request)
+    return {
+      ...value,
+      universe: {
+        layerReady: true,
+        skillsAvailable: true,
+        foreignProjectMcp: 2,
+        groups: [
+          {
+            kind: 'mcp',
+            key: 'cb',
+            address: 'mcp:cb',
+            source: 'user',
+            countsTokens: true,
+            tools: [{ address: 'mcp:cb.search', shortName: 'search', protected: false, reserved: false }],
+          },
+          {
+            kind: 'mcp',
+            key: 'figma',
+            address: 'mcp:figma',
+            source: 'project',
+            countsTokens: true,
+            tools: [{ address: 'mcp:figma.get', shortName: 'get', protected: false, reserved: false }],
+          },
+        ],
+      },
+    }
+  }
+}
+
+describe('R15：页面宇宙的组级徽章与外来组注记', () => {
+  it('mcp 组头渲染来源徽章（用户级/项目级）与 token 计入徽章，title 带可见范围说明', async () => {
+    const client = new AnnotatedUniverseClient()
+    renderSection({ resolveClient: () => client })
+    await waitFor(() => { expect(client.workspaceCalls).toHaveLength(1) })
+
+    // 来源徽章：两组各一枚，文案与 title 分野正确。
+    const userTag = screen.getByTitle(zh['mcp.sourceUserHint'])
+    expect(userTag.textContent).toBe(zh['mcp.sourceUser'])
+    const projectTag = screen.getByTitle(zh['mcp.sourceProjectHint'])
+    expect(projectTag.textContent).toBe(zh['mcp.sourceProject'])
+    // token 徽章：两枚（每个 mcp 组一枚）。
+    expect(screen.getAllByTitle(zh['mcp.tokensHint']).length).toBe(2)
+    expect(screen.getAllByText(zh['mcp.tokens']).length).toBe(2)
+  })
+
+  it('外来项目级组计数渲染为清单注记行（count 插值）', async () => {
+    const client = new AnnotatedUniverseClient()
+    renderSection({ resolveClient: () => client })
+    await waitFor(() => { expect(client.workspaceCalls).toHaveLength(1) })
+
+    expect(screen.getByText(zh['workspace.foreignProjectMcp'].replace('{count}', '2'))).toBeTruthy()
   })
 })
 

@@ -35,8 +35,8 @@ window.__ModuleLoader__.load({
 		module.exports = __toCommonJS(index_exports);
 
 		// src/client/ToolPanelAction.tsx
-		var import_react6 = require("react");
-		var import_dsh_client_ui_primitives7 = require("@deepseek-ai/dsh-client-ui-primitives");
+		var import_react7 = require("react");
+		var import_dsh_client_ui_primitives8 = require("@deepseek-ai/dsh-client-ui-primitives");
 
 		// src/contract.ts
 		var CHANNEL = "/session-tool-toggle";
@@ -68,6 +68,7 @@ window.__ModuleLoader__.load({
 		var TRANSPORT_FAILURE_CODES = ["unavailable", "bad-response"];
 		var FAILURE_CODES = [...HOST_FAILURE_CODES, ...TRANSPORT_FAILURE_CODES];
 		var TOOL_GROUP_KINDS = ["mcp", "skill", "builtin"];
+		var GROUP_SOURCES = ["user", "project"];
 		var NOTICE_CODES = [
 		  /** 记录通道不可用，已降级内存态。 */
 		  "persistence-degraded",
@@ -119,12 +120,24 @@ window.__ModuleLoader__.load({
 		  if (typeof value !== "boolean") return fail(`${subject}.${key} \u4E0D\u662F\u5E03\u5C14\u503C`);
 		  return { ok: true, value };
 		}
+		function readOptionalBooleanField(record, key, subject) {
+		  if (record[key] === void 0) return { ok: true, value: void 0 };
+		  return readBooleanField(record, key, subject);
+		}
+		function readOptionalEnumField(record, key, subject, allowed) {
+		  if (record[key] === void 0) return { ok: true, value: void 0 };
+		  return readEnumField(record, key, subject, allowed);
+		}
 		function readCountField(record, key, subject) {
 		  const value = record[key];
 		  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
 		    return fail(`${subject}.${key} \u4E0D\u662F\u975E\u8D1F\u5B89\u5168\u6574\u6570`);
 		  }
 		  return { ok: true, value };
+		}
+		function readOptionalCountField(record, key, subject) {
+		  if (record[key] === void 0) return { ok: true, value: void 0 };
+		  return readCountField(record, key, subject);
 		}
 		function readIntField(record, key, subject) {
 		  const value = record[key];
@@ -204,9 +217,25 @@ window.__ModuleLoader__.load({
 		var STATS_VIEW_KEYS = ["visible", "denied"];
 		var WORKSPACE_CHOICE_KEYS = ["key", "title"];
 		var WORKSPACE_VIEW_KEYS = ["key", "title", "registered", "disabled", "path", "readable", "corrupt"];
-		var DEFAULTS_ENTRY_KEYS = ["address", "shortName", "description", "protected", "reserved"];
-		var DEFAULTS_GROUP_KEYS = ["kind", "key", "address", "tools"];
-		var DEFAULTS_UNIVERSE_KEYS = ["layerReady", "skillsAvailable", "groups"];
+		var DEFAULTS_ENTRY_KEYS = [
+		  "address",
+		  "shortName",
+		  "description",
+		  "protected",
+		  "reserved",
+		  "modelInvocable",
+		  "userInvocable",
+		  "source"
+		];
+		var DEFAULTS_GROUP_KEYS = ["kind", "key", "address", "tools", "source", "countsTokens"];
+		var DEFAULTS_UNIVERSE_KEYS = [
+		  "layerReady",
+		  "skillsAvailable",
+		  "groups",
+		  "ungroupedMcp",
+		  "skillsComplete",
+		  "foreignProjectMcp"
+		];
 		var SKILL_VIEW_KEYS = ["name", "description", "disabled", "shadowed"];
 		var PANEL_SNAPSHOT_KEYS = [
 		  "sessionId",
@@ -449,6 +478,23 @@ window.__ModuleLoader__.load({
 		  if (!isProtected.ok) return isProtected;
 		  const reserved = readBooleanField(record, "reserved", subject);
 		  if (!reserved.ok) return reserved;
+		  const modelInvocable = readOptionalBooleanField(record, "modelInvocable", subject);
+		  if (!modelInvocable.ok) return modelInvocable;
+		  const userInvocable = readOptionalBooleanField(record, "userInvocable", subject);
+		  if (!userInvocable.ok) return userInvocable;
+		  const source = readOptionalStringField(record, "source", subject, { minLength: 1 });
+		  if (!source.ok) return source;
+		  const hasPair = modelInvocable.value !== void 0 && userInvocable.value !== void 0;
+		  const hasAnyInvocation = modelInvocable.value !== void 0 || userInvocable.value !== void 0;
+		  if (hasAnyInvocation && !hasPair) {
+		    return fail(`${subject} \u7684 modelInvocable \u4E0E userInvocable \u5FC5\u987B\u6210\u5BF9\u51FA\u73B0`);
+		  }
+		  if (hasAnyInvocation && !address.value.startsWith("skill:")) {
+		    return fail(`${subject} \u53EA\u6709 skill: \u5730\u5740\u5141\u8BB8\u643A\u5E26\u6280\u80FD\u5B57\u6BB5`);
+		  }
+		  if (source.value !== void 0 && !hasPair) {
+		    return fail(`${subject} \u51FA\u73B0 source \u65F6 modelInvocable \u4E0E userInvocable \u5FC5\u987B\u540C\u65F6\u5728\u573A`);
+		  }
 		  return {
 		    ok: true,
 		    value: {
@@ -456,7 +502,9 @@ window.__ModuleLoader__.load({
 		      shortName: shortName.value,
 		      ...description.value === void 0 ? {} : { description: description.value },
 		      protected: isProtected.value,
-		      reserved: reserved.value
+		      reserved: reserved.value,
+		      ...hasPair ? { modelInvocable: modelInvocable.value, userInvocable: userInvocable.value } : {},
+		      ...source.value === void 0 ? {} : { source: source.value }
 		    }
 		  };
 		}
@@ -472,9 +520,24 @@ window.__ModuleLoader__.load({
 		  if (!address.ok) return address;
 		  const tools = readArrayField(record, "tools", subject, readDefaultsEntry);
 		  if (!tools.ok) return tools;
+		  const source = readOptionalEnumField(record, "source", subject, GROUP_SOURCES);
+		  if (!source.ok) return source;
+		  const countsTokens = readOptionalBooleanField(record, "countsTokens", subject);
+		  if (!countsTokens.ok) return countsTokens;
+		  const hasGroupMeta = source.value !== void 0 || countsTokens.value !== void 0;
+		  if (hasGroupMeta && kind.value !== "mcp") {
+		    return fail(`${subject} \u7684 source/countsTokens \u53EA\u5141\u8BB8\u51FA\u73B0\u5728 mcp \u5206\u7EC4\u4E0A`);
+		  }
 		  return {
 		    ok: true,
-		    value: { kind: kind.value, key: key.value, address: address.value, tools: tools.value }
+		    value: {
+		      kind: kind.value,
+		      key: key.value,
+		      address: address.value,
+		      tools: tools.value,
+		      ...source.value === void 0 ? {} : { source: source.value },
+		      ...countsTokens.value === void 0 ? {} : { countsTokens: countsTokens.value }
+		    }
 		  };
 		}
 		function readNullableDefaultsUniverse(value, subject) {
@@ -488,12 +551,24 @@ window.__ModuleLoader__.load({
 		  if (!skillsAvailable.ok) return skillsAvailable;
 		  const groups = readArrayField(record, "groups", subject, readDefaultsGroup);
 		  if (!groups.ok) return groups;
+		  const ungroupedMcp = readOptionalCountField(record, "ungroupedMcp", subject);
+		  if (!ungroupedMcp.ok) return ungroupedMcp;
+		  const skillsComplete = readOptionalBooleanField(record, "skillsComplete", subject);
+		  if (!skillsComplete.ok) return skillsComplete;
+		  const foreignProjectMcp = readOptionalCountField(record, "foreignProjectMcp", subject);
+		  if (!foreignProjectMcp.ok) return foreignProjectMcp;
 		  return {
 		    ok: true,
 		    value: {
 		      layerReady: layerReady.value,
 		      skillsAvailable: skillsAvailable.value,
-		      groups: groups.value
+		      groups: groups.value,
+		      // 工作区宇宙专属字段缺省不补键：缺省语义由类型注释约定（`ungroupedMcp` = 0、
+		      // `skillsComplete` = 未观测 / 旧响应、`foreignProjectMcp` = 0），伪造 `undefined`
+		      // 键会让 JSON 多一项。
+		      ...ungroupedMcp.value === void 0 ? {} : { ungroupedMcp: ungroupedMcp.value },
+		      ...skillsComplete.value === void 0 ? {} : { skillsComplete: skillsComplete.value },
+		      ...foreignProjectMcp.value === void 0 ? {} : { foreignProjectMcp: foreignProjectMcp.value }
 		    }
 		  };
 		}
@@ -1207,6 +1282,35 @@ window.__ModuleLoader__.load({
 		  }
 		  return Array.from(residual).sort();
 		}
+		function filterDefaultsView(universe, disabled, query) {
+		  const needle = (query ?? "").trim().toLowerCase();
+		  if (needle === "") {
+		    return { universe, residual: residualOf(universe, disabled), filtering: false };
+		  }
+		  const residual = residualOf(universe, disabled).filter(
+		    (address) => address.toLowerCase().includes(needle)
+		  );
+		  if (universe === null) {
+		    return { universe, residual, filtering: true };
+		  }
+		  const groups = [];
+		  for (const group of universe.groups) {
+		    const filtered = filteredGroupOf(group, needle);
+		    if (filtered !== null) groups.push(filtered);
+		  }
+		  return { universe: { ...universe, groups }, residual, filtering: true };
+		}
+		function filteredGroupOf(group, needle) {
+		  if (group.key.toLowerCase().includes(needle)) return group;
+		  const hasRowHit = group.tools.some((entry) => entryMatchesQuery(entry, needle));
+		  return hasRowHit ? group : null;
+		}
+		function entryMatchesQuery(entry, needle) {
+		  if (entry.shortName.toLowerCase().includes(needle)) return true;
+		  if (entry.address.toLowerCase().includes(needle)) return true;
+		  const description = entry.description;
+		  return description !== void 0 && description.toLowerCase().includes(needle);
+		}
 		function universeOfSnapshot(snapshot) {
 		  const groups = snapshot.groups.map(
 		    (group) => group.kind === "skill" ? skillGroupOf(group, snapshot.skills) : projectedGroupOf(group)
@@ -1268,7 +1372,7 @@ window.__ModuleLoader__.load({
 		var import_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 
 		// src/client/panel.module.css
-		var cssText = "/*\n * \u4F1A\u8BDD\u5DE5\u5177\u9762\u9762\u677F\u7684\u5C42\u7EA7\u6837\u5F0F\uFF08\u8BBE\u8BA1\u9644\u5F55 \xA71.1 \u7684 `panel.stt_module_41d0f6.stt_css_41d0f6` \u884C\uFF09\u3002\n *\n * \u9AA8\u67B6\uFF08\u906E\u7F69\u3001\u5361\u7247\u3001\u6807\u9898\u3001\u5173\u95ED\u6309\u94AE\u3001\u6309\u94AE\u3001\u5F00\u5173\u3001\u8F93\u5165\u6846\uFF09\u5168\u90E8\u7531\u5B98\u65B9 primitives \u63D0\u4F9B\uFF0C\u672C\u6587\u4EF6\n * \u53EA\u8865 Modal \u9AA8\u67B6\u4E4B\u5916\u7684\u5C42\u7EA7\uFF1A\u5206\u533A\u6807\u9898\u3001\u884C\u9AD8\u3001\u5FBD\u6807\u3001\u7981\u7528\u6001\u3001\u6298\u53E0\u7BAD\u5934\u3001chip\u3002\u989C\u8272\u4E00\u5F8B\u53D6\u5B98\u65B9\n * `--dsw-alias-*` \u8BBE\u8BA1\u4EE4\u724C\u5E76\u5E26\u9759\u6001\u515C\u5E95\u2014\u2014\u4EE4\u724C\u6539\u540D\u65F6\u6700\u574F\u9000\u5316\u6210\u53EF\u8BFB\u7684\u9ED1\u767D\u800C\u4E0D\u662F\u900F\u660E\u3002\n *\n * \u4E24\u5904\u4E0E\u5B98\u65B9\u7EC4\u4EF6\u540C\u540D\u7684\u8986\u76D6\uFF08`.stt_trigger_41d0f6` \u538B Button \u7684\u5C3A\u5BF8\u4E0E\u914D\u8272\uFF09\u6CBF\u7528\u4ED3\u5185\u5148\u4F8B\n * \uFF08`plugins/web-ux/src/client/delete.stt_module_41d0f6.stt_css_41d0f6` \u7684 `.stt_danger_41d0f6`\uFF09\uFF1Aprimitives \u7684\u6837\u5F0F\u540C\u6837\u662F\n * \u5355\u7C7B\u9009\u62E9\u5668\uFF0C\u63D2\u4EF6\u6837\u5F0F\u5728\u5176\u540E\u6CE8\u5165\u5373\u751F\u6548\u3002\n */\n\n/* \u2014\u2014 \u4F1A\u8BDD\u5934\u90E8\u7684\u5165\u53E3\u6309\u94AE\uFF1A28px \u5706\u5F62\uFF0C\u89C6\u89C9\u4E0E\u540C\u5EA7\u4F4D\u7684\u5B98\u65B9\u89E6\u53D1\u5668\u4E00\u81F4\uFF08\u8BBE\u8BA1 \xA73.1\uFF09 \u2014\u2014 */\n.stt_trigger_41d0f6 {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  width: 28px;\n  min-width: 28px;\n  height: 28px;\n  padding: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  border-radius: 28px;\n}\n\n.stt_trigger_41d0f6:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary, #000);\n  background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 6%));\n}\n\n/* \u2014\u2014 \u9762\u677F\u5361\u7247\u4E0E\u6EDA\u52A8\u533A\uFF1A\u5BBD min(760px, 100vw - 32px)\uFF0C\u6B63\u6587\u533A\u81EA\u5DF1\u6EDA\uFF08\u8BBE\u8BA1 \xA73.2\uFF09 \u2014\u2014 */\n.stt_dialog_41d0f6 {\n  box-sizing: border-box;\n  display: flex;\n  flex-direction: column;\n  width: min(760px, calc(100vw - 32px));\n  max-width: min(760px, calc(100vw - 32px));\n  max-height: calc(100vh - 96px);\n}\n\n.stt_content_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 18px;\n  min-height: 0;\n  overflow-y: auto;\n}\n\n/* \u2014\u2014 \u5206\u533A\u4E0E\u5206\u533A\u6807\u9898\uFF08\u56DB\u6BB5\u81EA\u4E0A\u800C\u4E0B\uFF09 \u2014\u2014 */\n.stt_section_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n}\n\n.stt_sectionTitle_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 13px;\n  font-weight: 600;\n  line-height: 20px;\n  letter-spacing: 0.01em;\n}\n\n/* \u2014\u2014 \u72B6\u6001\u6458\u8981\uFF1A\u4E24\u8BA1\u6570\u4E00\u884C + \u4E09\u6761\u4E8B\u5B9E\u884C \u2014\u2014 */\n.stt_counters_41d0f6 {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 2px 18px;\n  margin: 0;\n  padding: 0;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 13px;\n  line-height: 20px;\n  list-style: none;\n}\n\n.stt_meta_41d0f6 {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 2px 12px;\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n.stt_muted_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n/* \u53D8\u66F4\u4EE3\u4EF7\u5F62\u72B6\uFF08`mutation.stt_kv_41d0f6`\uFF09\uFF1A\u4FE1\u606F\u6027\u63D0\u793A\uFF0C\u7528\u4E1A\u52A1\u84DD\u800C\u4E0D\u662F\u8B66\u544A\u8272\u3002 */\n.stt_notice_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-state-business-primary, #1a67e0);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u964D\u7EA7\u63D0\u793A\uFF08`persistence-degraded`\uFF09\u4E0E\u9ED8\u8BA4\u6863\u635F\u574F\uFF1A\u5FC5\u987B\u8BFB\u5230\u7684\u574F\u6D88\u606F\u3002 */\n.stt_warning_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-state-warn-primary, #dd8629);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u2014\u2014 \u5931\u8D25\u884C\uFF1A\u4E3B\u6587\u6848\u672C\u5730\u5316\uFF0C\u5BBF\u4E3B\u539F\u6587\u53EA\u4F5C\u4E8C\u7EA7\u7070\u5B57\uFF08\u8BBE\u8BA1 \xA73.5\uFF09 \u2014\u2014 */\n.stt_error_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-state-error-primary, #ec1313);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n.stt_detail_41d0f6 {\n  margin: 4px 0 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n  word-break: break-word;\n}\n\n/* \u4E0D\u53EF\u7528\u964D\u7EA7\uFF1A\u6CA1\u6709\u5FEB\u7167\u65F6\u72EC\u5360\u6B63\u6587\u533A\uFF0C\u7ED9\u8FD9\u5757\u5360\u4F4D\u4E00\u70B9\u5185\u8FB9\u8DDD\u3002 */\n.stt_failureBlock_41d0f6 {\n  padding: 10px 0;\n}\n\n.stt_loading_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n/* \u2014\u2014 \u5206\u7EC4\u6E05\u5355 \u2014\u2014 */\n.stt_groups_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.stt_group_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n  border-top: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n}\n\n.stt_group_41d0f6:first-child {\n  border-top: none;\n}\n\n.stt_groupHeader_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  min-height: 32px;\n}\n\n/* \u6807\u9898\u533A\u662F\u6298\u53E0\u76EE\u6807\uFF1A\u94FA\u6EE1\u5269\u4F59\u5BBD\u5EA6\uFF0C\u5F00\u5173\u5728\u53F3\u4FA7\u72EC\u7ACB\u6210\u547D\u4E2D\u533A\uFF08\u70B9\u5F00\u5173\u4E0D\u6298\u53E0\uFF09\u3002 */\n.stt_groupToggle_41d0f6 {\n  display: flex;\n  flex: 1 1 auto;\n  align-items: center;\n  gap: 8px;\n  min-width: 0;\n  padding: 4px 6px;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 8px;\n}\n\n.stt_groupToggle_41d0f6:hover {\n  background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 6%));\n}\n\n.stt_groupTitle_41d0f6 {\n  color: var(--dsw-alias-label-primary, #000);\n  font-size: 13px;\n  font-weight: 600;\n  white-space: nowrap;\n}\n\n.stt_groupName_41d0f6 {\n  overflow: hidden;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n}\n\n.stt_groupCounts_41d0f6 {\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  white-space: nowrap;\n}\n\n/* \u5185\u7F6E\u5DE5\u5177\u5206\u533A\u7684\u672C\u5730\u8FC7\u6EE4\u8F93\u5165\uFF08\u53EA\u5F71\u54CD\u5C55\u793A\uFF09\u3002 */\n.stt_filterRow_41d0f6 {\n  padding: 0 6px 6px;\n}\n\n.stt_filter_41d0f6 {\n  display: inline-flex;\n  width: 100%;\n}\n\n.stt_filter_41d0f6 input {\n  width: 100%;\n}\n\n/* \u7EC4\u5185\u5DE5\u5177\u884C\uFF1A\u4E00\u884C\u4E00\u4E2A\u5F00\u5173\uFF0C\u884C\u9AD8\u5BF9\u9F50 Switch \u7684 28px \u547D\u4E2D\u533A\u3002 */\n.stt_rows_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  margin: 0 0 6px;\n  padding: 0 6px 0 26px;\n  list-style: none;\n}\n\n/* \u2014\u2014 \u6280\u80FD\u884C\uFF08C11 / \u4EFB\u52A1 7.7\uFF09\uFF1A`SkillPanel` \u590D\u7528\u540C\u4E00\u5957 `.stt_rows_41d0f6` / `.stt_row_41d0f6` / `.stt_tag_41d0f6` / `.stt_pending_41d0f6`\uFF0C\n *    \u4F46\u5B83\u7684\u5217\u8868**\u76F4\u63A5\u6302\u5728\u5206\u533A\u4E0B**\uFF08\u6CA1\u6709\u5206\u7EC4\u6807\u9898\u884C\uFF09\uFF0C26px \u7684\u5C42\u7EA7\u7F29\u8FDB\u5728\u8FD9\u91CC\u4F1A\u4E0E\u5206\u533A\u6807\u9898\u9519\u4F4D\uFF0C\n *    \u6240\u4EE5\u53EA\u53D6\u6D88\u7F29\u8FDB\u3001\u5176\u4F59\u4E0E\u5DE5\u5177\u884C\u5B8C\u5168\u4E00\u81F4\uFF08\u4E00\u884C\u4E00\u4E2A\u5F00\u5173\u3001\u7B49\u5BBD\u540D\u5B57\u3001\u72B6\u6001\u6807\u7B7E\uFF09\u3002\n *    \u5DE5\u5177\u884C\u7684 `.stt_rows_41d0f6` \u5D4C\u5728 `.stt_group_41d0f6` \u91CC\uFF0C\u4E0D\u53D7\u8FD9\u6761\u76F4\u63A5\u5B50\u9009\u62E9\u5668\u5F71\u54CD\u3002 \u2014\u2014 */\n.stt_section_41d0f6 > .stt_rows_41d0f6 {\n  padding-left: 0;\n}\n\n.stt_row_41d0f6 {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n  min-height: 30px;\n}\n\n.stt_rowName_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n}\n\n.stt_name_41d0f6 {\n  overflow: hidden;\n  color: var(--dsw-alias-label-primary, #000);\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n}\n\n/* \u884C\u7EA7\u9501\u5B9A\u77ED\u6807\u7B7E\uFF08`entry.stt_protected_41d0f6` / `entry.stt_reserved_41d0f6`\uFF09\u3002 */\n.stt_tag_41d0f6 {\n  flex: none;\n  padding: 0 6px;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 11px;\n  line-height: 16px;\n  border: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 12%));\n  border-radius: 999px;\n}\n\n/* \u300C\u6B63\u5728\u5E94\u7528\u2026\u300D\uFF1A\u4E0E\u884C\u6807\u7B7E\u540C\u7EA7\uFF0C\u4E0D\u62A2\u6CE8\u610F\u529B\u3002 */\n.stt_pending_41d0f6 {\n  flex: none;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 11px;\n  line-height: 16px;\n}\n\n.stt_empty_41d0f6 {\n  padding: 2px 0 6px;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u2014\u2014 \u5173\u95ED\u96C6 / \u9ED8\u8BA4\u6863\u5171\u7528\u7684 chip \u5217\u8868 \u2014\u2014 */\n.stt_chips_41d0f6 {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.stt_chip_41d0f6 {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  max-width: 100%;\n  padding: 2px 4px 2px 8px;\n  background: var(--dsw-alias-bg-layer-2, #f7f7f8);\n  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n  border-radius: 999px;\n}\n\n.stt_address_41d0f6 {\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  color: var(--dsw-alias-label-secondary, #545557);\n  word-break: break-all;\n}\n\n/* `intent` \u5FBD\u6807\uFF1A\u8BE5\u5730\u5740\u5F53\u524D 0 \u5339\u914D\uFF0C\u610F\u56FE\u5DF2\u8BB0\u5F55\uFF08\u8BBE\u8BA1 \xA73.2 \u7B2C 4 \u6BB5\uFF09\u3002 */\n.stt_badge_41d0f6 {\n  flex: none;\n  padding: 0 6px;\n  color: var(--dsw-alias-label-primary-inverted, #fff);\n  font-size: 11px;\n  line-height: 16px;\n  background: var(--dsw-alias-state-business-primary, #1a67e0);\n  border-radius: 999px;\n}\n\n/* \u2014\u2014 \u9ED8\u8BA4\u6863\u7F16\u8F91\u533A \u2014\u2014 */\n.stt_path_41d0f6 {\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  word-break: break-all;\n}\n\n.stt_addRow_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n}\n\n/* \u2014\u2014 \u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u4E0B\u62C9\uFF08\u5BF9\u8BDD\u6846\u5F62\u6001\uFF09\uFF1A\u539F\u751F select\uFF0C\u4E0E\u8F93\u5165\u6846\u540C\u9AD8\uFF08C2\uFF09 \u2014\u2014 */\n.stt_select_41d0f6 {\n  flex: 1 1 auto;\n  min-width: 0;\n  height: 32px;\n  padding: 0 8px;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 13px;\n  background: var(--dsw-alias-bg-layer-2, #f7f7f8);\n  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n  border-radius: 6px;\n}\n\n/* \u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u5206\u8282\u7684\u6B63\u6587\u58F3\uFF08\u7EDF\u4E00\u300C\u5DE5\u4F5C\u533A\u914D\u7F6E\u300D\u5F39\u7A97\u7684\u4E00\u4E2A\u5206\u8282\uFF09\uFF1A\u53EA\u505A\u7EB5\u5411\u6392\u5E03\u3002\n * \u5BBD\u5EA6 / \u9AD8\u5EA6 / \u6EDA\u52A8\u7EA6\u675F\u5F52 holder \u5F39\u7A97\u7684\u5185\u5BB9\u5217\uFF08`workspace-config` \u7684 dialog.stt_module_41d0f6.stt_css_41d0f6\uFF09\uFF0C\n * \u672C\u8282**\u4E0D**\u81EA\u5E26\u5361\u7247\u5BBD\u5EA6\uFF0C\u4E5F\u4E0D\u81EA\u5E26 Modal\u3002 */\n.stt_workspaceBody_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n}\n\n.stt_actions_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 10px;\n  margin-top: 4px;\n}\n\n/* \u300C\u5DF2\u4FDD\u5B58\uFF08\u672C\u4F1A\u8BDD\u4E0D\u53D8\uFF09\u300D\uFF1A\u4FDD\u5B58\u6210\u529F\u7684\u77AC\u65F6\u786E\u8BA4\uFF0C\u7528\u6210\u529F\u8272\u3002 */\n.stt_saved_41d0f6 {\n  color: var(--dsw-alias-state-success-primary, #16955f);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u2014\u2014 B \u7684\u9ED8\u8BA4\u6863\u5206\u7EC4\u5F00\u5173\u754C\u9762 \u2014\u2014 */\n\n/* \u9762\u677F\u4E24\u5206\u533A\u7684\u53EF\u6298\u53E0\u58F3\uFF08`DefaultsSectionFrame`\uFF09\uFF1A\u58F3\u672C\u8EAB\u65E0\u80CC\u666F\u65E0\u8FB9\u6846\uFF0C\u89C6\u89C9\u9760\u6807\u9898\u884C\uFF1B\n * \u9876\u90E8\u7559\u767D\u53D6\u5206\u533A\u8282\u594F\uFF0C\u4E0E\u76F8\u90BB\u5206\u533A\u62C9\u5F00\u4E00\u6863\uFF08\u5185\u5BB9\u5217\u53E6\u6709 18px \u7684\u5206\u533A\u95F4\u8DDD\uFF09\u3002 */\n.stt_sectionFrame_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 6px;\n  background: none;\n  border: 0;\n}\n\n/* \u6B8B\u7559 chips \u533A\u7684\u6807\u9898\uFF08\u53EA\u53EF\u79FB\u9664\uFF09\uFF1A\u5C0F\u5B57\u53F7\u3001\u6B21\u8981\u8272\uFF0C\u4E0E\u4E0A\u65B9\u7684\u7EC4\u5217\u8868\u62C9\u5F00\u3002 */\n.stt_residual_41d0f6 {\n  margin: 8px 0 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n";
+		var cssText = "/*\n * \u4F1A\u8BDD\u5DE5\u5177\u9762\u9762\u677F\u7684\u5C42\u7EA7\u6837\u5F0F\uFF08\u8BBE\u8BA1\u9644\u5F55 \xA71.1 \u7684 `panel.stt_module_41d0f6.stt_css_41d0f6` \u884C\uFF09\u3002\n *\n * \u9AA8\u67B6\uFF08\u906E\u7F69\u3001\u5361\u7247\u3001\u6807\u9898\u3001\u5173\u95ED\u6309\u94AE\u3001\u6309\u94AE\u3001\u5F00\u5173\u3001\u8F93\u5165\u6846\uFF09\u5168\u90E8\u7531\u5B98\u65B9 primitives \u63D0\u4F9B\uFF0C\u672C\u6587\u4EF6\n * \u53EA\u8865 Modal \u9AA8\u67B6\u4E4B\u5916\u7684\u5C42\u7EA7\uFF1A\u5206\u533A\u6807\u9898\u3001\u884C\u9AD8\u3001\u5FBD\u6807\u3001\u7981\u7528\u6001\u3001\u6298\u53E0\u7BAD\u5934\u3001chip\u3002\u989C\u8272\u4E00\u5F8B\u53D6\u5B98\u65B9\n * `--dsw-alias-*` \u8BBE\u8BA1\u4EE4\u724C\u5E76\u5E26\u9759\u6001\u515C\u5E95\u2014\u2014\u4EE4\u724C\u6539\u540D\u65F6\u6700\u574F\u9000\u5316\u6210\u53EF\u8BFB\u7684\u9ED1\u767D\u800C\u4E0D\u662F\u900F\u660E\u3002\n *\n * \u4E24\u5904\u4E0E\u5B98\u65B9\u7EC4\u4EF6\u540C\u540D\u7684\u8986\u76D6\uFF08`.stt_trigger_41d0f6` \u538B Button \u7684\u5C3A\u5BF8\u4E0E\u914D\u8272\uFF09\u6CBF\u7528\u4ED3\u5185\u5148\u4F8B\n * \uFF08`plugins/web-ux/src/client/delete.stt_module_41d0f6.stt_css_41d0f6` \u7684 `.stt_danger_41d0f6`\uFF09\uFF1Aprimitives \u7684\u6837\u5F0F\u540C\u6837\u662F\n * \u5355\u7C7B\u9009\u62E9\u5668\uFF0C\u63D2\u4EF6\u6837\u5F0F\u5728\u5176\u540E\u6CE8\u5165\u5373\u751F\u6548\u3002\n */\n\n/* \u2014\u2014 \u4F1A\u8BDD\u5934\u90E8\u7684\u5165\u53E3\u6309\u94AE\uFF1A28px \u5706\u5F62\uFF0C\u89C6\u89C9\u4E0E\u540C\u5EA7\u4F4D\u7684\u5B98\u65B9\u89E6\u53D1\u5668\u4E00\u81F4\uFF08\u8BBE\u8BA1 \xA73.1\uFF09 \u2014\u2014 */\n.stt_trigger_41d0f6 {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  width: 28px;\n  min-width: 28px;\n  height: 28px;\n  padding: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  border-radius: 28px;\n}\n\n.stt_trigger_41d0f6:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary, #000);\n  background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 6%));\n}\n\n/* \u2014\u2014 \u9762\u677F\u5361\u7247\u4E0E\u6EDA\u52A8\u533A\uFF1A\u5BBD min(760px, 100vw - 32px)\uFF0C\u6B63\u6587\u533A\u81EA\u5DF1\u6EDA\uFF08\u8BBE\u8BA1 \xA73.2\uFF09 \u2014\u2014 */\n.stt_dialog_41d0f6 {\n  box-sizing: border-box;\n  display: flex;\n  flex-direction: column;\n  width: min(760px, calc(100vw - 32px));\n  max-width: min(760px, calc(100vw - 32px));\n  max-height: calc(100vh - 96px);\n}\n\n.stt_content_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 18px;\n  min-height: 0;\n  overflow-y: auto;\n}\n\n/* \u2014\u2014 \u5206\u533A\u4E0E\u5206\u533A\u6807\u9898\uFF08\u56DB\u6BB5\u81EA\u4E0A\u800C\u4E0B\uFF09 \u2014\u2014 */\n.stt_section_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n}\n\n.stt_sectionTitle_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 13px;\n  font-weight: 600;\n  line-height: 20px;\n  letter-spacing: 0.01em;\n}\n\n/* \u2014\u2014 \u72B6\u6001\u6458\u8981\uFF1A\u4E24\u8BA1\u6570\u4E00\u884C + \u4E09\u6761\u4E8B\u5B9E\u884C \u2014\u2014 */\n.stt_counters_41d0f6 {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 2px 18px;\n  margin: 0;\n  padding: 0;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 13px;\n  line-height: 20px;\n  list-style: none;\n}\n\n.stt_meta_41d0f6 {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 2px 12px;\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n.stt_muted_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n/* \u53D8\u66F4\u4EE3\u4EF7\u5F62\u72B6\uFF08`mutation.stt_kv_41d0f6`\uFF09\uFF1A\u4FE1\u606F\u6027\u63D0\u793A\uFF0C\u7528\u4E1A\u52A1\u84DD\u800C\u4E0D\u662F\u8B66\u544A\u8272\u3002 */\n.stt_notice_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-state-business-primary, #1a67e0);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u964D\u7EA7\u63D0\u793A\uFF08`persistence-degraded`\uFF09\u4E0E\u9ED8\u8BA4\u6863\u635F\u574F\uFF1A\u5FC5\u987B\u8BFB\u5230\u7684\u574F\u6D88\u606F\u3002 */\n.stt_warning_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-state-warn-primary, #dd8629);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u2014\u2014 \u5931\u8D25\u884C\uFF1A\u4E3B\u6587\u6848\u672C\u5730\u5316\uFF0C\u5BBF\u4E3B\u539F\u6587\u53EA\u4F5C\u4E8C\u7EA7\u7070\u5B57\uFF08\u8BBE\u8BA1 \xA73.5\uFF09 \u2014\u2014 */\n.stt_error_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-state-error-primary, #ec1313);\n  font-size: 13px;\n  line-height: 20px;\n}\n\n.stt_detail_41d0f6 {\n  margin: 4px 0 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n  word-break: break-word;\n}\n\n/* \u4E0D\u53EF\u7528\u964D\u7EA7\uFF1A\u6CA1\u6709\u5FEB\u7167\u65F6\u72EC\u5360\u6B63\u6587\u533A\uFF0C\u7ED9\u8FD9\u5757\u5360\u4F4D\u4E00\u70B9\u5185\u8FB9\u8DDD\u3002 */\n.stt_failureBlock_41d0f6 {\n  padding: 10px 0;\n}\n\n.stt_loading_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 14px;\n  line-height: 22px;\n}\n\n/* \u2014\u2014 \u5206\u7EC4\u6E05\u5355 \u2014\u2014 */\n.stt_groups_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.stt_group_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n  border-top: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n}\n\n.stt_group_41d0f6:first-child {\n  border-top: none;\n}\n\n.stt_groupHeader_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  min-height: 32px;\n}\n\n/* \u6807\u9898\u533A\u662F\u6298\u53E0\u76EE\u6807\uFF1A\u94FA\u6EE1\u5269\u4F59\u5BBD\u5EA6\uFF0C\u5F00\u5173\u5728\u53F3\u4FA7\u72EC\u7ACB\u6210\u547D\u4E2D\u533A\uFF08\u70B9\u5F00\u5173\u4E0D\u6298\u53E0\uFF09\u3002 */\n.stt_groupToggle_41d0f6 {\n  display: flex;\n  flex: 1 1 auto;\n  align-items: center;\n  gap: 8px;\n  min-width: 0;\n  padding: 4px 6px;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 8px;\n}\n\n.stt_groupToggle_41d0f6:hover {\n  background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 6%));\n}\n\n.stt_groupTitle_41d0f6 {\n  color: var(--dsw-alias-label-primary, #000);\n  font-size: 13px;\n  font-weight: 600;\n  white-space: nowrap;\n}\n\n.stt_groupName_41d0f6 {\n  overflow: hidden;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n}\n\n.stt_groupCounts_41d0f6 {\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  white-space: nowrap;\n}\n\n/* \u5185\u7F6E\u5DE5\u5177\u5206\u533A\u7684\u672C\u5730\u8FC7\u6EE4\u8F93\u5165\uFF08\u53EA\u5F71\u54CD\u5C55\u793A\uFF09\u3002 */\n.stt_filterRow_41d0f6 {\n  padding: 0 6px 6px;\n}\n\n.stt_filter_41d0f6 {\n  display: inline-flex;\n  width: 100%;\n}\n\n.stt_filter_41d0f6 input {\n  width: 100%;\n}\n\n/* \u7EC4\u5185\u5DE5\u5177\u884C\uFF1A\u4E00\u884C\u4E00\u4E2A\u5F00\u5173\uFF0C\u884C\u9AD8\u5BF9\u9F50 Switch \u7684 28px \u547D\u4E2D\u533A\u3002 */\n.stt_rows_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  margin: 0 0 6px;\n  padding: 0 6px 0 26px;\n  list-style: none;\n}\n\n/* \u2014\u2014 \u6280\u80FD\u884C\uFF08C11 / \u4EFB\u52A1 7.7\uFF09\uFF1A`SkillPanel` \u590D\u7528\u540C\u4E00\u5957 `.stt_rows_41d0f6` / `.stt_row_41d0f6` / `.stt_tag_41d0f6` / `.stt_pending_41d0f6`\uFF0C\n *    \u4F46\u5B83\u7684\u5217\u8868**\u76F4\u63A5\u6302\u5728\u5206\u533A\u4E0B**\uFF08\u6CA1\u6709\u5206\u7EC4\u6807\u9898\u884C\uFF09\uFF0C26px \u7684\u5C42\u7EA7\u7F29\u8FDB\u5728\u8FD9\u91CC\u4F1A\u4E0E\u5206\u533A\u6807\u9898\u9519\u4F4D\uFF0C\n *    \u6240\u4EE5\u53EA\u53D6\u6D88\u7F29\u8FDB\u3001\u5176\u4F59\u4E0E\u5DE5\u5177\u884C\u5B8C\u5168\u4E00\u81F4\uFF08\u4E00\u884C\u4E00\u4E2A\u5F00\u5173\u3001\u7B49\u5BBD\u540D\u5B57\u3001\u72B6\u6001\u6807\u7B7E\uFF09\u3002\n *    \u5DE5\u5177\u884C\u7684 `.stt_rows_41d0f6` \u5D4C\u5728 `.stt_group_41d0f6` \u91CC\uFF0C\u4E0D\u53D7\u8FD9\u6761\u76F4\u63A5\u5B50\u9009\u62E9\u5668\u5F71\u54CD\u3002 \u2014\u2014 */\n.stt_section_41d0f6 > .stt_rows_41d0f6 {\n  padding-left: 0;\n}\n\n.stt_row_41d0f6 {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n  min-height: 30px;\n}\n\n.stt_rowName_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n}\n\n.stt_name_41d0f6 {\n  overflow: hidden;\n  color: var(--dsw-alias-label-primary, #000);\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n}\n\n/* \u884C\u7EA7\u9501\u5B9A\u77ED\u6807\u7B7E\uFF08`entry.stt_protected_41d0f6` / `entry.stt_reserved_41d0f6`\uFF09\u3002 */\n.stt_tag_41d0f6 {\n  flex: none;\n  padding: 0 6px;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 11px;\n  line-height: 16px;\n  border: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 12%));\n  border-radius: 999px;\n}\n\n/* \u300C\u6B63\u5728\u5E94\u7528\u2026\u300D\uFF1A\u4E0E\u884C\u6807\u7B7E\u540C\u7EA7\uFF0C\u4E0D\u62A2\u6CE8\u610F\u529B\u3002 */\n.stt_pending_41d0f6 {\n  flex: none;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 11px;\n  line-height: 16px;\n}\n\n.stt_empty_41d0f6 {\n  padding: 2px 0 6px;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u2014\u2014 \u5173\u95ED\u96C6 / \u9ED8\u8BA4\u6863\u5171\u7528\u7684 chip \u5217\u8868 \u2014\u2014 */\n.stt_chips_41d0f6 {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.stt_chip_41d0f6 {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  max-width: 100%;\n  padding: 2px 4px 2px 8px;\n  background: var(--dsw-alias-bg-layer-2, #f7f7f8);\n  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n  border-radius: 999px;\n}\n\n.stt_address_41d0f6 {\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  color: var(--dsw-alias-label-secondary, #545557);\n  word-break: break-all;\n}\n\n/* `intent` \u5FBD\u6807\uFF1A\u8BE5\u5730\u5740\u5F53\u524D 0 \u5339\u914D\uFF0C\u610F\u56FE\u5DF2\u8BB0\u5F55\uFF08\u8BBE\u8BA1 \xA73.2 \u7B2C 4 \u6BB5\uFF09\u3002 */\n.stt_badge_41d0f6 {\n  flex: none;\n  padding: 0 6px;\n  color: var(--dsw-alias-label-primary-inverted, #fff);\n  font-size: 11px;\n  line-height: 16px;\n  background: var(--dsw-alias-state-business-primary, #1a67e0);\n  border-radius: 999px;\n}\n\n/* \u2014\u2014 \u9ED8\u8BA4\u6863\u7F16\u8F91\u533A \u2014\u2014 */\n.stt_path_41d0f6 {\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  word-break: break-all;\n}\n\n.stt_addRow_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n}\n\n/* \u2014\u2014 \u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u4E0B\u62C9\uFF08\u5BF9\u8BDD\u6846\u5F62\u6001\uFF09\uFF1A\u539F\u751F select\uFF0C\u4E0E\u8F93\u5165\u6846\u540C\u9AD8\uFF08C2\uFF09 \u2014\u2014 */\n.stt_select_41d0f6 {\n  flex: 1 1 auto;\n  min-width: 0;\n  height: 32px;\n  padding: 0 8px;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 13px;\n  background: var(--dsw-alias-bg-layer-2, #f7f7f8);\n  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n  border-radius: 6px;\n}\n\n/* \u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u5206\u8282\u7684\u6B63\u6587\u58F3\uFF08\u7EDF\u4E00\u300C\u5DE5\u4F5C\u533A\u914D\u7F6E\u300D\u5F39\u7A97\u7684\u4E00\u4E2A\u5206\u8282\uFF09\uFF1A\u53EA\u505A\u7EB5\u5411\u6392\u5E03\u3002\n * \u5BBD\u5EA6 / \u9AD8\u5EA6 / \u6EDA\u52A8\u7EA6\u675F\u5F52 holder \u5F39\u7A97\u7684\u5185\u5BB9\u5217\uFF08`workspace-config` \u7684 dialog.stt_module_41d0f6.stt_css_41d0f6\uFF09\uFF0C\n * \u672C\u8282**\u4E0D**\u81EA\u5E26\u5361\u7247\u5BBD\u5EA6\uFF0C\u4E5F\u4E0D\u81EA\u5E26 Modal\u3002 */\n.stt_workspaceBody_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n}\n\n.stt_actions_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 10px;\n  margin-top: 4px;\n}\n\n/* \u300C\u5DF2\u4FDD\u5B58\uFF08\u672C\u4F1A\u8BDD\u4E0D\u53D8\uFF09\u300D\uFF1A\u4FDD\u5B58\u6210\u529F\u7684\u77AC\u65F6\u786E\u8BA4\uFF0C\u7528\u6210\u529F\u8272\u3002 */\n.stt_saved_41d0f6 {\n  color: var(--dsw-alias-state-success-primary, #16955f);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u2014\u2014 B \u7684\u9ED8\u8BA4\u6863\u5206\u7EC4\u5F00\u5173\u754C\u9762 \u2014\u2014 */\n\n/* \u9762\u677F\u4E24\u5206\u533A\u7684\u53EF\u6298\u53E0\u58F3\uFF08`DefaultsSectionFrame`\uFF09\uFF1A\u58F3\u672C\u8EAB\u65E0\u80CC\u666F\u65E0\u8FB9\u6846\uFF0C\u89C6\u89C9\u9760\u6807\u9898\u884C\uFF1B\n * \u9876\u90E8\u7559\u767D\u53D6\u5206\u533A\u8282\u594F\uFF0C\u4E0E\u76F8\u90BB\u5206\u533A\u62C9\u5F00\u4E00\u6863\uFF08\u5185\u5BB9\u5217\u53E6\u6709 18px \u7684\u5206\u533A\u95F4\u8DDD\uFF09\u3002 */\n.stt_sectionFrame_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 6px;\n  background: none;\n  border: 0;\n}\n\n/* \u6B8B\u7559 chips \u533A\u7684\u6807\u9898\uFF08\u53EA\u53EF\u79FB\u9664\uFF09\uFF1A\u5C0F\u5B57\u53F7\u3001\u6B21\u8981\u8272\uFF0C\u4E0E\u4E0A\u65B9\u7684\u7EC4\u5217\u8868\u62C9\u5F00\u3002 */\n.stt_residual_41d0f6 {\n  margin: 8px 0 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u2014\u2014 \u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u9875\u9762\uFF08`WorkspaceDefaultsPage`\uFF0CB1 \u4E09\u5361 + \u811A\u6CE8 + \u9875\u811A\uFF1B\u8BBE\u8BA1 \u24623.7\uFF09\u2014\u2014\n * \u9875\u9762\u6B63\u6587\u4ECE\u300C\u516D\u6BB5\u5E73\u94FA\u300D\u91CD\u6392\u4E3A\u5361\u7247\u5E03\u5C40\uFF1A\u6D45\u5E95\u5361\uFF08bg-layer-2\uFF09+ 12px \u5706\u89D2 + \u7EC6\u8FB9\uFF08border-l1\uFF09\uFF0C\n * \u4E0E\u7EDF\u4E00\u300C\u5DE5\u4F5C\u533A\u914D\u7F6E\u300D\u9875\u7684\u5176\u4ED6\u5206\u8282\u540C\u4E00\u89C6\u89C9\u8BED\u8A00\u3002\u4EE4\u724C\u7EAA\u5F8B\u4E0E\u4E0A\u6587\u4E00\u81F4\uFF1A\u6BCF\u5904\n * `var(--dsw-alias-*, <\u9759\u6001\u515C\u5E95>)`\uFF0C\u4EE4\u724C\u6539\u540D\u65F6\u6700\u574F\u9000\u5316\u6210\u53EF\u8BFB\u7684\u9ED1\u767D\u800C\u4E0D\u662F\u900F\u660E\u3002 */\n\n/* \u9875\u9762\u6B63\u6587\u58F3\uFF1A\u4E09\u5361\u3001\u811A\u6CE8\u3001\u9875\u811A\u52A8\u4F5C\u533A\u7EB5\u5411\u6392\u5E03\uFF0C\u5361\u95F4\u4E00\u6863\u95F4\u8DDD\u3002 */\n.stt_workspacePage_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 16px;\n}\n\n/* \u9875\u9762\u5361\u7247\uFF08\u6982\u8981\u5361 / \u6E05\u5355\u5361 / \u547D\u4EE4\u5361\u5171\u7528\uFF09\uFF1A\u6D45\u5E95\u7EC6\u8FB9\u5706\u89D2\uFF0C\u5361\u5185\u5143\u7D20\u7EB5\u5411\u95F4\u8DDD 10px\u3002 */\n.stt_card_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 10px;\n  padding: 14px 16px;\n  background: var(--dsw-alias-bg-layer-2, #f7f7f8);\n  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n  border-radius: 12px;\n}\n\n/* \u5361\u5934\uFF1A\u6807\u9898 + \u5FBD\u7AE0 + \u53F3\u63A8\u52A8\u4F5C\u540C\u884C\u6392\u5E03\uFF0C\u7A84\u5904\u5141\u8BB8\u6362\u884C\u3002 */\n.stt_cardHeader_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  flex-wrap: wrap;\n}\n\n/* \u5361\u6807\u9898\uFF08<p>\uFF0C\u975E heading\u2014\u2014\u53EF\u8BBF\u95EE\u540D\u7531 holder \u7684 tab \u63D0\u4F9B\uFF09\uFF1A\u4E0E\u5206\u533A\u6807\u9898\u540C\u5B57\u53F7\u52A0\u91CD\u3002 */\n.stt_cardTitle_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-primary, #000);\n  font-size: 13px;\n  font-weight: 600;\n  line-height: 20px;\n}\n\n/* \u767B\u8BB0\u6001\u5FBD\u7AE0\uFF1A`.stt_badge_41d0f6` \u5728\u9762\u677F\u91CC\u5DF2\u662F intent \u5FBD\u6807\uFF08\u84DD\u5E95\u767D\u5B57\uFF0C`.stt_chip_41d0f6` \u5185\uFF09\uFF0CCSS module \u540C\u540D\n * \u5BFC\u51FA\u53EA\u6709\u4E00\u4E2A\u7C7B\u540D\uFF0C\u9875\u9762\u5FBD\u7AE0\u501F\u5B83\u6E32\u67D3\u2014\u2014\u5728 `.stt_cardHeader_41d0f6` \u4F5C\u7528\u57DF\u5185\u5168\u91CF\u6362\u6210\u300C\u7EC6\u8FB9 + \u7070\u5B57 +\n * \u900F\u660E\u5E95\u300D\u7684\u767B\u8BB0\u6001\u89C6\u89C9\uFF1B\u9762\u677F intent \u5FBD\u6807\u4E0D\u5728\u6B64\u4F5C\u7528\u57DF\uFF0C\u96F6\u5F71\u54CD\u3002 */\n.stt_cardHeader_41d0f6 .stt_badge_41d0f6 {\n  padding: 0 6px;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 11px;\n  line-height: 16px;\n  background: none;\n  border: 1px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 12%));\n  border-radius: 999px;\n}\n\n/* \u5361\u5934\u53F3\u63A8\u5360\u4F4D / \u63A8\u94AE\uFF1A\u628A\u5237\u65B0\u6309\u94AE\u63A8\u5230\u884C\u5C3E\u3002 */\n.stt_push_41d0f6 {\n  margin-left: auto;\n}\n\n/* \u6982\u8981\u4E8B\u5B9E\u884C\uFF08dl\uFF09\uFF1A\u5DE5\u4F5C\u533A key / \u6863\u6587\u4EF6\u8DEF\u5F84\u4E24\u884C\u952E\u503C\u5BF9\u3002 */\n.stt_facts_41d0f6 {\n  display: grid;\n  gap: 4px;\n  margin: 0;\n}\n\n.stt_fact_41d0f6 {\n  display: flex;\n  align-items: baseline;\n  gap: 8px;\n  font-size: 12px;\n  line-height: 18px;\n}\n\n.stt_factTerm_41d0f6 {\n  flex: none;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n}\n\n/* \u4E8B\u5B9E\u503C\uFF08key / \u8DEF\u5F84\uFF09\uFF1A\u7B49\u5BBD\u3001\u53EF\u65AD\u884C\u2014\u2014\u89C4\u8303\u8DEF\u5F84\u53EF\u80FD\u5F88\u957F\u3002 */\n.stt_factValue_41d0f6 {\n  min-width: 0;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-family: var(--ds-font-family-code, monospace);\n  word-break: break-all;\n}\n\n/* \u4E09\u8BA1\u6570\u6458\u8981\u884C\uFF08\u6E05\u5355 N \xB7 \u9ED8\u8BA4\u5173 M \xB7 \u6B8B\u7559 K\uFF09\uFF1A\u7B49\u5BBD\u6570\u5B57\u907F\u514D\u5237\u65B0\u65F6\u8DF3\u52A8\u3002 */\n.stt_counts_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-secondary, #545557);\n  font-size: 12px;\n  line-height: 18px;\n  font-variant-numeric: tabular-nums;\n}\n\n/* \u6E05\u5355\u5361\u5934\uFF08\u24623.7 \u51BB\u7ED3\u540D\uFF09\uFF1A\u4E0E `.stt_cardHeader_41d0f6` \u540C\u6B3E\u6392\u5E03\uFF0C\u4F9B\u7ED3\u6784\u56FE\u7684\u6E05\u5355\u5361\u5934\u4F4D\u53D6\u7528\u3002 */\n.stt_listHeader_41d0f6 {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  flex-wrap: wrap;\n}\n\n/* \u9875\u9762\u7EA7\u5168\u5C40\u8FC7\u6EE4\u6846\uFF1A\u53F3\u63A8\u5230\u5361\u5934\u884C\u5C3E\uFF0C\u5BBD\u4E0A\u9650 280px\u3001\u7A84\u5904\u6536\u7F29\u5230\u6EE1\u5BBD\u3002 */\n.stt_pageFilter_41d0f6 {\n  margin-left: auto;\n  width: min(280px, 100%);\n}\n\n/* \u7A7A\u6001\u5757\uFF08\u7A7A\u6863 / \u7A7A\u5B87\u5B99\uFF09\uFF1A\u865A\u7EBF\u8FB9\u6846 + \u5361\u5185\u6D45\u5E95\uFF0C\u4E0E\u53EF\u4EA4\u4E92\u7684\u6E05\u5355\u4F53\u62C9\u5F00\u3002 */\n.stt_emptyBlock_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 4px;\n  padding: 12px;\n  background: var(--dsw-alias-bg-layer-1, #fff);\n  border: 1px dashed var(--dsw-alias-border-l2, rgb(0 0 0 / 12%));\n  border-radius: 8px;\n}\n\n/* \u7A7A\u6001\u6807\u9898\uFF1A\u4E3B\u5B57\u8272\u52A0\u91CD\uFF0C\u4E0E\u4E0B\u65B9\u63D0\u793A\u62C9\u5F00\u4E00\u7EA7\u3002 */\n.stt_emptyTitle_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-primary, #000);\n  font-size: 13px;\n  font-weight: 600;\n  line-height: 20px;\n}\n\n/* \u7A7A\u6001\u63D0\u793A\uFF1A\u4E09\u7EA7\u7070\uFF0C\u8BB2\u6E05\u4E0B\u4E00\u6B65\u53BB\u54EA\u5173\u7B2C\u4E00\u9879 / \u4E3A\u4EC0\u4E48\u6E05\u5355\u662F\u7A7A\u7684\u3002 */\n.stt_emptyHint_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u547D\u4EE4\u5361\u547D\u4EE4\u884C\uFF1A\u4EE3\u7801\u5757\u5360\u4E3B\u5217\u3001\u590D\u5236\u6309\u94AE\u53F3\u5217\uFF0C\u9876\u5BF9\u9F50\uFF08\u6309\u94AE\u77EE\u4E8E\u591A\u884C\u4EE3\u7801\u5757\uFF09\u3002 */\n.stt_commandRow_41d0f6 {\n  display: flex;\n  align-items: flex-start;\n  gap: 8px;\n}\n\n/* \u547D\u4EE4\u4EE3\u7801\u5757\uFF1A\u6587\u672C\u5373\u590D\u5236\u6587\u672C\uFF08D8\uFF09\u2014\u2014\u6D45\u5E95\u7EC6\u8FB9\u3001\u7B49\u5BBD\u3001\u53EF\u6362\u884C\u4E0D\u65AD\u8BED\u4E49\u3002 */\n.stt_command_41d0f6 {\n  flex: 1;\n  margin: 0;\n  padding: 8px 10px;\n  background: var(--dsw-alias-bg-layer-1, #fff);\n  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n  border-radius: 8px;\n  font-family: var(--ds-font-family-code, monospace);\n  font-size: 12px;\n  line-height: 18px;\n  white-space: pre-wrap;\n  word-break: break-all;\n}\n\n/* \u811A\u6CE8\u5BB9\u5668\uFF1A\u5F71\u54CD\u8303\u56F4 / \u5E76\u96C6\u8BED\u4E49\u4E24\u53E5\u7EB5\u5411\u7D27\u51D1\u6392\u5217\u3002 */\n.stt_footnotes_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n}\n\n/* \u6B21\u7EA7\u6CE8\u8BB0\uFF1A\u6E05\u5355\u8BED\u4E49\u53E5\u3001\u4E09\u6761\u6761\u4EF6\u6CE8\u8BB0\u3001\u547D\u4EE4\u8FB9\u754C\u8BF4\u660E\u4E0E\u811A\u6CE8\u6BB5\u5171\u7528\u540C\u6B3E\u3002 */\n.stt_note_41d0f6 {\n  margin: 0;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 18px;\n}\n\n/* \u884C\u8BE6\u60C5\u4E3B\u5217\uFF08`DefaultsGroupList` \u7684 `showDetails` \u8DEF\u5F84\uFF09\uFF1A\u540D\u79F0 + \u63CF\u8FF0 + \u6807\u7B7E\u7EB5\u6392\uFF0C\n * \u5F00\u5173\u4ECD\u5728\u53F3\u5217\uFF1B`min-width: 0` \u8BA9\u7701\u7565\u53F7\u5728 flex \u884C\u5185\u751F\u6548\u3002 */\n.stt_rowMain_41d0f6 {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n  min-width: 0;\n}\n\n/* \u884C\u63CF\u8FF0\u6B21\u884C\uFF1A\u5355\u884C\u7701\u7565\uFF0C\u5168\u6587\u7ECF `title` \u60AC\u505C\u53EF\u89C1\u3002 */\n.stt_rowDescription_41d0f6 {\n  overflow: hidden;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 12px;\n  line-height: 16px;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n}\n\n/* \u6280\u80FD\u6807\u7B7E\u884C\uFF1A\u6765\u6E90 / \u8C03\u7528\u65B9\u5F0F\u7B49\u5C0F\u6807\u7B7E\u7684\u6362\u884C\u96C6\u5408\u3002 */\n.stt_rowTags_41d0f6 {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 4px;\n}\n\n/* \u6280\u80FD\u6765\u6E90\u6807\u7B7E\uFF1A\u5706\u89D2\u7EC6\u8FB9\u5C0F\u6807\u7B7E\uFF0C\u4E0D\u6362\u884C\uFF08\u6574\u4E2A\u6807\u7B7E\u79FB\u5230\u4E0B\u4E00\u884C\u800C\u4E0D\u662F\u65AD\u5F00\uFF09\u3002 */\n.stt_metaTag_41d0f6 {\n  padding: 0 6px;\n  color: var(--dsw-alias-label-tertiary, #7f8287);\n  font-size: 11px;\n  line-height: 16px;\n  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 6%));\n  border-radius: 999px;\n  white-space: nowrap;\n}\n\n/* \u2014\u2014 R15 \u6807\u7B7E\u7740\u8272\u53D8\u4F53\uFF1A\u7EC4\u5408\u7C7B\uFF08\u53E0\u5728 `.stt_tag_41d0f6` / `.stt_metaTag_41d0f6` \u4E0A\uFF09\uFF0C\u53EA\u8986\u76D6\u524D\u666F\u4E0E\u63CF\u8FB9\uFF0C\n   \u5E95\u8272\u4FDD\u6301\u900F\u660E\uFF1B\u8272\u503C\u5168\u90E8\u8D70 alias \u72B6\u6001\u53D8\u91CF\u5E26\u5B57\u9762\u91CF\u56DE\u9000\uFF08\u6697\u8272\u4E3B\u9898\u5B89\u5168\uFF0C\u4E0E\u4ED3\u5185\n   `state-business/warn/error/success` \u5148\u4F8B\u540C\u6E90\uFF09\u3002 \u2014\u2014 */\n.stt_toneInfo_41d0f6 {\n  color: var(--dsw-alias-state-business-primary, #1a67e0);\n  border-color: var(--dsw-alias-state-business-primary, #1a67e0);\n}\n\n.stt_toneSuccess_41d0f6 {\n  color: var(--dsw-alias-state-success-primary, #16955f);\n  border-color: var(--dsw-alias-state-success-primary, #16955f);\n}\n\n.stt_toneWarn_41d0f6 {\n  color: var(--dsw-alias-state-warn-primary, #dd8629);\n  border-color: var(--dsw-alias-state-warn-primary, #dd8629);\n}\n\n.stt_toneDanger_41d0f6 {\n  color: var(--dsw-alias-state-error-primary, #ec1313);\n  border-color: var(--dsw-alias-state-error-primary, #ec1313);\n}\n\n";
 		if (typeof document !== "undefined" && document.querySelector('style[data-dsh-plugin="dsh-plugin-session-tool-toggle"][data-dsh-css="41d0f6"]') === null) {
 		  const style = document.createElement("style");
 		  style.setAttribute("data-dsh-plugin", "dsh-plugin-session-tool-toggle");
@@ -1276,7 +1380,7 @@ window.__ModuleLoader__.load({
 		  style.textContent = cssText;
 		  document.head.appendChild(style);
 		}
-		var panel_default = { "module": "stt_module_41d0f6", "css": "stt_css_41d0f6", "trigger": "stt_trigger_41d0f6", "danger": "stt_danger_41d0f6", "dialog": "stt_dialog_41d0f6", "content": "stt_content_41d0f6", "section": "stt_section_41d0f6", "sectionTitle": "stt_sectionTitle_41d0f6", "counters": "stt_counters_41d0f6", "meta": "stt_meta_41d0f6", "muted": "stt_muted_41d0f6", "kv": "stt_kv_41d0f6", "notice": "stt_notice_41d0f6", "warning": "stt_warning_41d0f6", "error": "stt_error_41d0f6", "detail": "stt_detail_41d0f6", "failureBlock": "stt_failureBlock_41d0f6", "loading": "stt_loading_41d0f6", "groups": "stt_groups_41d0f6", "group": "stt_group_41d0f6", "groupHeader": "stt_groupHeader_41d0f6", "groupToggle": "stt_groupToggle_41d0f6", "groupTitle": "stt_groupTitle_41d0f6", "groupName": "stt_groupName_41d0f6", "groupCounts": "stt_groupCounts_41d0f6", "filterRow": "stt_filterRow_41d0f6", "filter": "stt_filter_41d0f6", "rows": "stt_rows_41d0f6", "row": "stt_row_41d0f6", "tag": "stt_tag_41d0f6", "pending": "stt_pending_41d0f6", "rowName": "stt_rowName_41d0f6", "name": "stt_name_41d0f6", "protected": "stt_protected_41d0f6", "reserved": "stt_reserved_41d0f6", "empty": "stt_empty_41d0f6", "chips": "stt_chips_41d0f6", "chip": "stt_chip_41d0f6", "address": "stt_address_41d0f6", "badge": "stt_badge_41d0f6", "path": "stt_path_41d0f6", "addRow": "stt_addRow_41d0f6", "select": "stt_select_41d0f6", "workspaceBody": "stt_workspaceBody_41d0f6", "actions": "stt_actions_41d0f6", "saved": "stt_saved_41d0f6", "sectionFrame": "stt_sectionFrame_41d0f6", "residual": "stt_residual_41d0f6" };
+		var panel_default = { "module": "stt_module_41d0f6", "css": "stt_css_41d0f6", "trigger": "stt_trigger_41d0f6", "danger": "stt_danger_41d0f6", "dialog": "stt_dialog_41d0f6", "content": "stt_content_41d0f6", "section": "stt_section_41d0f6", "sectionTitle": "stt_sectionTitle_41d0f6", "counters": "stt_counters_41d0f6", "meta": "stt_meta_41d0f6", "muted": "stt_muted_41d0f6", "kv": "stt_kv_41d0f6", "notice": "stt_notice_41d0f6", "warning": "stt_warning_41d0f6", "error": "stt_error_41d0f6", "detail": "stt_detail_41d0f6", "failureBlock": "stt_failureBlock_41d0f6", "loading": "stt_loading_41d0f6", "groups": "stt_groups_41d0f6", "group": "stt_group_41d0f6", "groupHeader": "stt_groupHeader_41d0f6", "groupToggle": "stt_groupToggle_41d0f6", "groupTitle": "stt_groupTitle_41d0f6", "groupName": "stt_groupName_41d0f6", "groupCounts": "stt_groupCounts_41d0f6", "filterRow": "stt_filterRow_41d0f6", "filter": "stt_filter_41d0f6", "rows": "stt_rows_41d0f6", "row": "stt_row_41d0f6", "tag": "stt_tag_41d0f6", "pending": "stt_pending_41d0f6", "rowName": "stt_rowName_41d0f6", "name": "stt_name_41d0f6", "protected": "stt_protected_41d0f6", "reserved": "stt_reserved_41d0f6", "empty": "stt_empty_41d0f6", "chips": "stt_chips_41d0f6", "chip": "stt_chip_41d0f6", "address": "stt_address_41d0f6", "badge": "stt_badge_41d0f6", "path": "stt_path_41d0f6", "addRow": "stt_addRow_41d0f6", "select": "stt_select_41d0f6", "workspaceBody": "stt_workspaceBody_41d0f6", "actions": "stt_actions_41d0f6", "saved": "stt_saved_41d0f6", "sectionFrame": "stt_sectionFrame_41d0f6", "residual": "stt_residual_41d0f6", "workspacePage": "stt_workspacePage_41d0f6", "card": "stt_card_41d0f6", "cardHeader": "stt_cardHeader_41d0f6", "cardTitle": "stt_cardTitle_41d0f6", "push": "stt_push_41d0f6", "facts": "stt_facts_41d0f6", "fact": "stt_fact_41d0f6", "factTerm": "stt_factTerm_41d0f6", "factValue": "stt_factValue_41d0f6", "counts": "stt_counts_41d0f6", "listHeader": "stt_listHeader_41d0f6", "pageFilter": "stt_pageFilter_41d0f6", "emptyBlock": "stt_emptyBlock_41d0f6", "emptyTitle": "stt_emptyTitle_41d0f6", "emptyHint": "stt_emptyHint_41d0f6", "commandRow": "stt_commandRow_41d0f6", "command": "stt_command_41d0f6", "footnotes": "stt_footnotes_41d0f6", "note": "stt_note_41d0f6", "rowMain": "stt_rowMain_41d0f6", "rowDescription": "stt_rowDescription_41d0f6", "rowTags": "stt_rowTags_41d0f6", "metaTag": "stt_metaTag_41d0f6", "toneInfo": "stt_toneInfo_41d0f6", "toneSuccess": "stt_toneSuccess_41d0f6", "toneWarn": "stt_toneWarn_41d0f6", "toneDanger": "stt_toneDanger_41d0f6" };
 
 		// src/client/ToolPanelGroups.tsx
 		var import_jsx_runtime = require("react/jsx-runtime");
@@ -1415,35 +1519,100 @@ window.__ModuleLoader__.load({
 
 		// src/client/DefaultsGroupList.tsx
 		var import_jsx_runtime2 = require("react/jsx-runtime");
+		function tagToneClass(tone) {
+		  switch (tone) {
+		    case "info":
+		      return panel_default.toneInfo;
+		    case "success":
+		      return panel_default.toneSuccess;
+		    case "warn":
+		      return panel_default.toneWarn;
+		    case "danger":
+		      return panel_default.toneDanger;
+		    case "neutral":
+		      return "";
+		  }
+		}
+		var SOURCE_TAG_KEYS = {
+		  "project-dsh": "skill.source.project-dsh",
+		  "project-agents": "skill.source.project-agents",
+		  "custom": "skill.source.custom",
+		  "user-dsh": "skill.source.user-dsh",
+		  "user-agents": "skill.source.user-agents",
+		  "bundled": "skill.source.bundled",
+		  "runtime": "skill.source.runtime"
+		};
 		function lockOf2(entry, t) {
-		  if (entry.protected) return { tag: t("entry.protected"), reason: t("badge.protected") };
-		  if (entry.reserved) return { tag: t("entry.reserved"), reason: t("badge.reserved") };
+		  if (entry.protected) return { tag: t("entry.protected"), reason: t("badge.protected"), tone: "danger" };
+		  if (entry.reserved) return { tag: t("entry.reserved"), reason: t("badge.reserved"), tone: "warn" };
 		  return void 0;
 		}
-		function DefaultsRow({ entry, disabledSet, blocked, busy, onToggle, t }) {
+		function sourceTagKeyOf(source) {
+		  return SOURCE_TAG_KEYS[source];
+		}
+		function skillTagsOf(entry, disabledSet, t) {
+		  const tags = [];
+		  const isSkill = entry.address.startsWith("skill:") || entry.modelInvocable !== void 0 && entry.userInvocable !== void 0;
+		  if (!isSkill) return tags;
+		  if (entry.modelInvocable !== void 0 && entry.userInvocable !== void 0) {
+		    tags.push(entry.modelInvocable ? { text: t("entry.skillTokens"), tone: "warn" } : { text: t("entry.skillNoTokens"), tone: "neutral" });
+		    tags.push({
+		      text: entry.userInvocable ? t("entry.skillUserInvocable", { name: entry.shortName }) : t("entry.skillUserBlocked"),
+		      tone: "neutral"
+		    });
+		  }
+		  if (entry.source !== void 0) {
+		    const key = sourceTagKeyOf(entry.source);
+		    tags.push({ text: key === void 0 ? entry.source : t(key), tone: "info" });
+		  }
+		  if (disabledSet.has(entry.address)) tags.push({ text: t("entry.skillHidden"), tone: "neutral" });
+		  return tags;
+		}
+		function DefaultsRow({ entry, disabledSet, blocked, busy, onToggle, t, showDetails }) {
 		  const lock = lockOf2(entry, t);
 		  const groupOff = blocked ? t("defaults.groupOff") : void 0;
 		  const reason = lock?.reason ?? groupOff;
 		  const disabled = busy || lock !== void 0 || blocked;
-		  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("li", { className: panel_default.row, children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: panel_default.rowName, children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { className: panel_default.name, title: entry.description ?? entry.shortName, children: entry.shortName }),
-		      lock !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: panel_default.tag, title: lock.reason, children: lock.tag }),
-		      groupOff !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: panel_default.tag, title: groupOff, children: groupOff })
-		    ] }),
-		    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-		      import_dsh_client_ui_primitives2.Switch,
-		      {
-		        checked: !disabledSet.has(entry.address),
-		        disabled,
-		        title: reason,
-		        label: t("defaults.switchLabel", { name: entry.shortName }),
-		        onChange: (next) => {
-		          if (disabled) return;
-		          onToggle(entry.address, next);
-		        }
+		  const tags = showDetails ? skillTagsOf(entry, disabledSet, t) : [];
+		  const nameLine = /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: panel_default.rowName, children: [
+		    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("code", { className: panel_default.name, title: entry.description ?? entry.shortName, children: entry.shortName }),
+		    lock !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: `${panel_default.tag} ${tagToneClass(lock.tone)}`, title: lock.reason, children: lock.tag }),
+		    groupOff !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: `${panel_default.tag} ${tagToneClass("warn")}`, title: groupOff, children: groupOff })
+		  ] });
+		  const control = /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+		    import_dsh_client_ui_primitives2.Switch,
+		    {
+		      checked: !disabledSet.has(entry.address),
+		      disabled,
+		      title: reason,
+		      label: t("defaults.switchLabel", { name: entry.shortName }),
+		      onChange: (next) => {
+		        if (disabled) return;
+		        onToggle(entry.address, next);
 		      }
-		    )
+		    }
+		  );
+		  if (!showDetails) {
+		    return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("li", { className: panel_default.row, children: [
+		      nameLine,
+		      control
+		    ] });
+		  }
+		  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("li", { className: panel_default.row, children: [
+		    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: panel_default.rowMain, children: [
+		      nameLine,
+		      entry.description !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: panel_default.rowDescription, title: entry.description, children: entry.description }),
+		      tags.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: panel_default.rowTags, children: tags.map((tag) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+		        "span",
+		        {
+		          className: `${panel_default.metaTag} ${tagToneClass(tag.tone)}`,
+		          title: tag.title ?? tag.text,
+		          children: tag.text
+		        },
+		        tag.text
+		      )) })
+		    ] }),
+		    control
 		  ] });
 		}
 		function DefaultsGroupRow({
@@ -1452,15 +1621,19 @@ window.__ModuleLoader__.load({
 		  skillsAvailable,
 		  busy,
 		  onToggle,
-		  t
+		  t,
+		  filtering,
+		  query,
+		  showDetails
 		}) {
 		  const [expanded, setExpanded] = (0, import_react2.useState)(() => defaultExpanded(group.kind));
 		  const [filter, setFilter] = (0, import_react2.useState)("");
 		  const tools = (0, import_react2.useMemo)(() => {
+		    if (filtering) return group.tools;
 		    const needle = filter.trim().toLowerCase();
 		    if (group.kind !== "builtin" || needle === "") return group.tools;
 		    return group.tools.filter((entry) => entry.shortName.toLowerCase().includes(needle));
-		  }, [filter, group.kind, group.tools]);
+		  }, [filter, filtering, group.kind, group.tools]);
 		  const address = group.address;
 		  const blocked = address !== null && disabledSet.has(address);
 		  const count = group.tools.length;
@@ -1470,9 +1643,32 @@ window.__ModuleLoader__.load({
 		  );
 		  const title = groupTitle(group.kind, t);
 		  const degraded = group.kind === "skill" && !skillsAvailable;
+		  const open = filtering || expanded;
+		  const headerContent = /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
+		    open ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(import_dsh_client_ui_primitives2.IconChevronDownOutlineRegular, {}) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(import_dsh_client_ui_primitives2.IconChevronRightOutlineRegular, {}),
+		    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: panel_default.groupTitle, children: title }),
+		    group.kind === "mcp" && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: panel_default.groupName, children: group.key }),
+		    group.kind === "mcp" && group.source !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+		      "span",
+		      {
+		        className: `${panel_default.tag} ${tagToneClass(group.source === "project" ? "success" : "info")}`,
+		        title: group.source === "project" ? t("mcp.sourceProjectHint") : t("mcp.sourceUserHint"),
+		        children: group.source === "project" ? t("mcp.sourceProject") : t("mcp.sourceUser")
+		      }
+		    ),
+		    group.kind === "mcp" && group.countsTokens === true && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: `${panel_default.tag} ${tagToneClass("warn")}`, title: t("mcp.tokensHint"), children: t("mcp.tokens") }),
+		    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: panel_default.groupCounts, children: [
+		      t("defaults.groupCount", { count }),
+		      inDefaults > 0 && ` \xB7 ${t("defaults.groupInDefaults", { count: inDefaults })}`
+		    ] })
+		  ] });
 		  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("li", { className: panel_default.group, children: [
 		    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: panel_default.groupHeader, children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+		      filtering ? (
+		        // 过滤态组头：非交互 span——强制展开的清单不再提供折叠手势，`aria-expanded` 与
+		        // `onClick` 一并撤掉；读数摘要（`title`）保留，span 复用 `.groupToggle` 的排布样式。
+		        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: panel_default.groupToggle, title: t("defaults.groupSummary", { count, inDefaults }), children: headerContent })
+		      ) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
 		        "button",
 		        {
 		          type: "button",
@@ -1482,15 +1678,7 @@ window.__ModuleLoader__.load({
 		          onClick: () => {
 		            setExpanded((value) => !value);
 		          },
-		          children: [
-		            expanded ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(import_dsh_client_ui_primitives2.IconChevronDownOutlineRegular, {}) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(import_dsh_client_ui_primitives2.IconChevronRightOutlineRegular, {}),
-		            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: panel_default.groupTitle, children: title }),
-		            group.kind === "mcp" && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: panel_default.groupName, children: group.key }),
-		            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: panel_default.groupCounts, children: [
-		              t("defaults.groupCount", { count }),
-		              inDefaults > 0 && ` \xB7 ${t("defaults.groupInDefaults", { count: inDefaults })}`
-		            ] })
-		          ]
+		          children: headerContent
 		        }
 		      ),
 		      address !== null && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
@@ -1508,7 +1696,7 @@ window.__ModuleLoader__.load({
 		        }
 		      )
 		    ] }),
-		    expanded && group.kind === "builtin" && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: panel_default.filterRow, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+		    query === void 0 && open && group.kind === "builtin" && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: panel_default.filterRow, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
 		      import_dsh_client_ui_primitives2.Input,
 		      {
 		        className: panel_default.filter,
@@ -1520,8 +1708,8 @@ window.__ModuleLoader__.load({
 		        }
 		      }
 		    ) }),
-		    expanded && degraded && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: panel_default.muted, children: t("skill.unavailable") }),
-		    expanded && !degraded && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("ul", { className: panel_default.rows, "aria-label": title, children: tools.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("li", { className: panel_default.empty, children: t("panel.empty") }) : tools.map((entry) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+		    open && degraded && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: panel_default.muted, children: t("skill.unavailable") }),
+		    open && !degraded && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("ul", { className: panel_default.rows, "aria-label": title, children: tools.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("li", { className: panel_default.empty, children: t("panel.empty") }) : tools.map((entry) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
 		      DefaultsRow,
 		      {
 		        entry,
@@ -1529,7 +1717,8 @@ window.__ModuleLoader__.load({
 		        blocked,
 		        busy,
 		        onToggle,
-		        t
+		        t,
+		        showDetails
 		      },
 		      entry.address
 		    )) })
@@ -1563,32 +1752,46 @@ window.__ModuleLoader__.load({
 		  busy,
 		  onToggle,
 		  copy,
-		  t
+		  t,
+		  query,
+		  showDetails
 		}) {
 		  const disabledSet = (0, import_react2.useMemo)(() => new Set(disabled), [disabled]);
-		  const residual = (0, import_react2.useMemo)(() => residualOf(universe, disabled), [universe, disabled]);
+		  const view = (0, import_react2.useMemo)(
+		    () => filterDefaultsView(universe, disabled, query),
+		    [universe, disabled, query]
+		  );
+		  const filtering = view.filtering;
+		  const needle = query?.trim() ?? "";
 		  if (universe === null || !universe.layerReady) {
 		    return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: panel_default.warning, children: t("defaults.universeUnavailable") }),
-		      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ResidualChips, { addresses: residual, busy, copy, onToggle }),
-		      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: panel_default.muted, children: copy.cliHint })
+		      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: panel_default.warning, children: copy.universeUnavailable ?? t("defaults.universeUnavailable") }),
+		      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ResidualChips, { addresses: view.residual, busy, copy, onToggle }),
+		      copy.cliHint !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: panel_default.muted, children: copy.cliHint })
 		    ] });
 		  }
+		  const shownUniverse = view.universe ?? universe;
+		  const groups = shownUniverse.groups;
 		  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
-		    universe.groups.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("ul", { className: panel_default.groups, children: universe.groups.map((group) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+		    groups.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("ul", { className: panel_default.groups, children: groups.map((group) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
 		      DefaultsGroupRow,
 		      {
 		        group,
 		        disabledSet,
-		        skillsAvailable: universe.skillsAvailable,
+		        skillsAvailable: shownUniverse.skillsAvailable,
 		        busy,
 		        onToggle,
-		        t
+		        t,
+		        filtering,
+		        query,
+		        showDetails: showDetails === true
 		      },
 		      `${group.kind}:${group.key}`
-		    )) }),
-		    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ResidualChips, { addresses: residual, busy, copy, onToggle }),
-		    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: panel_default.muted, children: copy.cliHint })
+		    )) }) : filtering && // 过滤把组清空：一句无匹配交代，不落 `panel.empty`（那是「宇宙本来就没有条目」
+		    // 的面板空态，两者语义不同）；残留 chip 若有命中仍照常展示。
+		    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: panel_default.muted, children: t("defaults.filterEmpty", { query: needle }) }),
+		    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ResidualChips, { addresses: view.residual, busy, copy, onToggle }),
+		    copy.cliHint !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: panel_default.muted, children: copy.cliHint })
 		  ] });
 		}
 
@@ -1769,10 +1972,198 @@ window.__ModuleLoader__.load({
 		}
 
 		// src/client/WorkspaceDefaultsEditor.tsx
+		var import_react6 = require("react");
+		var import_dsh_client_ui_primitives7 = require("@deepseek-ai/dsh-client-ui-primitives");
+
+		// src/client/WorkspaceDefaultsPage.tsx
 		var import_react5 = require("react");
 		var import_dsh_client_ui_primitives6 = require("@deepseek-ai/dsh-client-ui-primitives");
 		var import_jsx_runtime6 = require("react/jsx-runtime");
+		var COPY_RESET_MS = 2e3;
+		var COMMAND_PLACEHOLDER = "<address>";
 		var EMPTY_DISABLED = [];
+		function WorkspaceDefaultsPage({
+		  workspace,
+		  universe,
+		  counts,
+		  saving,
+		  saved,
+		  failure,
+		  armed,
+		  onToggle,
+		  onClear,
+		  onRefresh,
+		  t
+		}) {
+		  const [query, setQuery] = (0, import_react5.useState)("");
+		  const [copyState, setCopyState] = (0, import_react5.useState)("idle");
+		  const copyTimer = (0, import_react5.useRef)(void 0);
+		  (0, import_react5.useEffect)(() => () => window.clearTimeout(copyTimer.current), []);
+		  const liveUniverse = universe !== null && universe.layerReady ? universe : null;
+		  const universeReady = liveUniverse !== null;
+		  const disabled = workspace?.disabled ?? EMPTY_DISABLED;
+		  const commandText = workspace === null ? "" : `# ${t("workspace.commandComment", { key: workspace.key })}
+		/tools workspace off ${COMMAND_PLACEHOLDER}`;
+		  const copyFeedback = copyState === "copied" ? t("workspace.copied") : copyState === "failed" ? t("workspace.copyFailed") : "";
+		  const scheduleCopyReset = () => {
+		    window.clearTimeout(copyTimer.current);
+		    copyTimer.current = window.setTimeout(() => {
+		      setCopyState("idle");
+		    }, COPY_RESET_MS);
+		  };
+		  const copyCommand = async () => {
+		    try {
+		      if (navigator.clipboard === void 0) throw new Error("clipboard unavailable");
+		      await navigator.clipboard.writeText(commandText);
+		      setCopyState("copied");
+		    } catch {
+		      setCopyState("failed");
+		    }
+		    scheduleCopyReset();
+		  };
+		  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.workspacePage, children: [
+		    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: panel_default.card, children: workspace === null ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.note, children: t("workspace.unresolved") }),
+		      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.cardHeader, children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: panel_default.push }),
+		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+		          import_dsh_client_ui_primitives6.Button,
+		          {
+		            variant: "ghost",
+		            size: "sm",
+		            disabled: saving,
+		            onClick: onRefresh,
+		            children: t("workspace.refresh")
+		          }
+		        )
+		      ] })
+		    ] }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.cardHeader, children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.cardTitle, children: workspace.title ?? workspace.key }),
+		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: panel_default.badge, children: workspace.registered ? t("workspace.registered") : t("workspace.unregistered") }),
+		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: panel_default.push }),
+		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+		          import_dsh_client_ui_primitives6.Button,
+		          {
+		            variant: "ghost",
+		            size: "sm",
+		            disabled: saving,
+		            onClick: onRefresh,
+		            children: t("workspace.refresh")
+		          }
+		        )
+		      ] }),
+		      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("dl", { className: panel_default.facts, children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.fact, children: [
+		          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("dt", { className: panel_default.factTerm, children: t("workspace.key") }),
+		          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("dd", { className: panel_default.factValue, children: workspace.key })
+		        ] }),
+		        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.fact, children: [
+		          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("dt", { className: panel_default.factTerm, children: t("workspace.path") }),
+		          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("dd", { className: panel_default.factValue, children: workspace.path })
+		        ] })
+		      ] }),
+		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.counts, children: t("defaults.counts", {
+		        listed: counts.listed,
+		        inDefaults: counts.inDefaults,
+		        residual: counts.residual
+		      }) }),
+		      workspace.corrupt && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.warning, children: t("workspace.corrupt") })
+		    ] }) }),
+		    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.card, children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.cardHeader, children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.cardTitle, children: t("workspace.listTitle") }),
+		        universeReady && counts.listed > 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+		          import_dsh_client_ui_primitives6.Input,
+		          {
+		            className: panel_default.pageFilter,
+		            value: query,
+		            placeholder: t("workspace.filter"),
+		            "aria-label": t("workspace.filter"),
+		            onChange: (event) => {
+		              setQuery(event.target.value);
+		            }
+		          }
+		        )
+		      ] }),
+		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.note, children: t("workspace.listHint") }),
+		      workspace !== null && universeReady && disabled.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.emptyBlock, children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.emptyTitle, children: t("workspace.emptyDefaults") }),
+		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.emptyHint, children: t("workspace.emptyDefaultsHint") })
+		      ] }),
+		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+		        DefaultsGroupList,
+		        {
+		          universe,
+		          disabled,
+		          busy: saving,
+		          onToggle,
+		          copy: {
+		            residualTitle: t("defaults.residualTitle"),
+		            removeLabel: t("workspace.remove"),
+		            removeAria: (address) => t("workspace.removeAria", { address }),
+		            universeUnavailable: t("workspace.universeUnavailable")
+		          },
+		          t,
+		          query,
+		          showDetails: true
+		        }
+		      ),
+		      counts.listed === 0 && counts.residual === 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: panel_default.emptyBlock, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.emptyTitle, children: universeReady ? t("workspace.emptyUniverse") : t("workspace.universeUnavailable") }) }),
+		      liveUniverse !== null && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.note, children: t("workspace.globalUnion") }),
+		        liveUniverse.ungroupedMcp !== void 0 && liveUniverse.ungroupedMcp > 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.note, children: t("workspace.ungrouped", { count: liveUniverse.ungroupedMcp }) }),
+		        liveUniverse.foreignProjectMcp !== void 0 && liveUniverse.foreignProjectMcp > 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.note, children: t("workspace.foreignProjectMcp", { count: liveUniverse.foreignProjectMcp }) }),
+		        liveUniverse.skillsComplete === false && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.note, children: t("workspace.skillsIncomplete") })
+		      ] })
+		    ] }),
+		    workspace !== null && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.card, children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.cardTitle, children: t("workspace.commandTitle") }),
+		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.note, children: t("workspace.commandNote") }),
+		      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.commandRow, children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("pre", { className: panel_default.command, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("code", { children: commandText }) }),
+		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+		          import_dsh_client_ui_primitives6.Button,
+		          {
+		            variant: "outline",
+		            size: "sm",
+		            disabled: copyState === "copied",
+		            onClick: () => {
+		              void copyCommand();
+		            },
+		            children: t("workspace.copyCommand")
+		          }
+		        )
+		      ] }),
+		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.note, "aria-live": "polite", children: copyFeedback })
+		    ] }),
+		    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.footnotes, children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.note, children: t("workspace.scope") }),
+		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.note, children: t("workspace.union") })
+		    ] }),
+		    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.actions, children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+		        import_dsh_client_ui_primitives6.Button,
+		        {
+		          variant: "outline",
+		          size: "sm",
+		          disabled: workspace === null || saving || disabled.length === 0,
+		          onClick: onClear,
+		          children: armed ? t("workspace.clearConfirm") : t("workspace.clear")
+		        }
+		      ),
+		      saved && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: panel_default.saved, children: t("workspace.saved") })
+		    ] }),
+		    failure !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { role: "alert", children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.error, children: failure.text }),
+		      failure.detail !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.detail, children: failure.detail })
+		    ] })
+		  ] });
+		}
+
+		// src/client/WorkspaceDefaultsEditor.tsx
+		var import_jsx_runtime7 = require("react/jsx-runtime");
+		var EMPTY_DISABLED2 = [];
 		function WorkspaceDefaultsEditor({
 		  workspace,
 		  universe,
@@ -1784,11 +2175,11 @@ window.__ModuleLoader__.load({
 		  onRefresh,
 		  t
 		}) {
-		  const [armed, setArmed] = (0, import_react5.useState)(false);
+		  const [armed, setArmed] = (0, import_react6.useState)(false);
 		  const dialog = variant === "dialog";
 		  const writable = workspace !== null;
-		  const disabled = workspace?.disabled ?? EMPTY_DISABLED;
-		  const counts = (0, import_react5.useMemo)(() => defaultsCountsOf(universe, disabled), [universe, disabled]);
+		  const disabled = workspace?.disabled ?? EMPTY_DISABLED2;
+		  const counts = (0, import_react6.useMemo)(() => defaultsCountsOf(universe, disabled), [universe, disabled]);
 		  const clear = () => {
 		    if (!armed) {
 		      setArmed(true);
@@ -1797,24 +2188,24 @@ window.__ModuleLoader__.load({
 		    setArmed(false);
 		    onUpdate("reset");
 		  };
-		  const body = /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
-		    workspace === null ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.muted, children: t("workspace.unresolved") }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { className: panel_default.meta, children: [
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: t("workspace.key") }),
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("code", { className: panel_default.path, children: workspace.key }),
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: workspace.registered ? t("workspace.registered") : t("workspace.unregistered") })
+		  const body = /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(import_jsx_runtime7.Fragment, { children: [
+		    workspace === null ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.muted, children: t("workspace.unresolved") }) : /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(import_jsx_runtime7.Fragment, { children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("p", { className: panel_default.meta, children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { children: t("workspace.key") }),
+		        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("code", { className: panel_default.path, children: workspace.key }),
+		        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { children: workspace.registered ? t("workspace.registered") : t("workspace.unregistered") })
 		      ] }),
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("p", { className: panel_default.meta, children: [
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: t("workspace.path") }),
-		        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("code", { className: panel_default.path, children: workspace.path })
+		      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("p", { className: panel_default.meta, children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { children: t("workspace.path") }),
+		        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("code", { className: panel_default.path, children: workspace.path })
 		      ] }),
-		      workspace.corrupt && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.warning, children: t("workspace.corrupt") }),
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.meta, children: t("defaults.counts", {
+		      workspace.corrupt && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.warning, children: t("workspace.corrupt") }),
+		      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.meta, children: t("defaults.counts", {
 		        listed: counts.listed,
 		        inDefaults: counts.inDefaults,
 		        residual: counts.residual
 		      }) }),
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+		      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
 		        DefaultsGroupList,
 		        {
 		          universe,
@@ -1834,11 +2225,11 @@ window.__ModuleLoader__.load({
 		        }
 		      )
 		    ] }),
-		    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.muted, children: t("workspace.scope") }),
-		    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.muted, children: t("workspace.union") }),
-		    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.actions, children: [
-		      !dialog && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		        import_dsh_client_ui_primitives6.Button,
+		    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.muted, children: t("workspace.scope") }),
+		    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.muted, children: t("workspace.union") }),
+		    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: panel_default.actions, children: [
+		      !dialog && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+		        import_dsh_client_ui_primitives7.Button,
 		        {
 		          variant: "ghost",
 		          size: "sm",
@@ -1849,8 +2240,8 @@ window.__ModuleLoader__.load({
 		          children: t("workspace.refresh")
 		        }
 		      ),
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-		        import_dsh_client_ui_primitives6.Button,
+		      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+		        import_dsh_client_ui_primitives7.Button,
 		        {
 		          variant: "outline",
 		          size: "sm",
@@ -1859,17 +2250,32 @@ window.__ModuleLoader__.load({
 		          children: armed ? t("workspace.clearConfirm") : t("workspace.clear")
 		        }
 		      ),
-		      saved && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: panel_default.saved, children: t("workspace.saved") })
+		      saved && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: panel_default.saved, children: t("workspace.saved") })
 		    ] }),
-		    failure !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { role: "alert", children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.error, children: failure.text }),
-		      failure.detail !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: panel_default.detail, children: failure.detail })
+		    failure !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { role: "alert", children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.error, children: failure.text }),
+		      failure.detail !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.detail, children: failure.detail })
 		    ] })
 		  ] });
-		  return dialog ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: panel_default.workspaceBody, children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h3", { className: panel_default.sectionTitle, children: t("workspace.title") }),
-		    body
-		  ] }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+		  return dialog ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+		    WorkspaceDefaultsPage,
+		    {
+		      workspace,
+		      universe,
+		      counts,
+		      saving,
+		      saved,
+		      failure,
+		      armed,
+		      onToggle: (address, on) => {
+		        setArmed(false);
+		        onUpdate(on ? "on" : "off", [address]);
+		      },
+		      onClear: clear,
+		      onRefresh,
+		      t
+		    }
+		  ) : /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
 		    DefaultsSectionFrame,
 		    {
 		      title: t("workspace.title"),
@@ -1924,11 +2330,25 @@ window.__ModuleLoader__.load({
 		  // （技能未安装或影子注册未胜出）。`/name` 手动调用不受模型可见性开关影响（设计 D15 语义）。
 		  "skill.effective": "\u6A21\u578B\u4E0D\u53EF\u89C1\uFF08`/name` \u4ECD\u53EF\u7528\uFF09",
 		  "skill.intentOnly": "\u5DF2\u8BB0\u5F55\uFF0C\u6682\u672A\u751F\u6548",
+		  // —— 技能来源短标签（code-design ③3.5）：映射表在 WorkspaceDefaultsPage.tsx，未知 source 原样显示 ——
+		  "skill.source.project-dsh": "\u9879\u76EE",
+		  "skill.source.project-agents": "\u9879\u76EE(agents)",
+		  "skill.source.custom": "\u81EA\u5B9A\u4E49",
+		  "skill.source.user-dsh": "\u7528\u6237",
+		  "skill.source.user-agents": "\u7528\u6237(agents)",
+		  "skill.source.bundled": "\u5185\u7F6E",
+		  "skill.source.runtime": "\u8FD0\u884C\u65F6",
 		  // —— 行级标记：组内条目上的短标签（设计 §3.3 的 `[保护]` / `[不可关闭]`） ——
 		  "entry.disabled": "\u5DF2\u5173\u95ED",
 		  "entry.protected": "\u4FDD\u62A4",
 		  "entry.reserved": "\u4E0D\u53EF\u5173\u95ED",
 		  "entry.intentOnly": "\u6682\u65E0\u5339\u914D",
+		  // 工作区页面的技能行标签（code-design ③3.5）：模型调用代价 / 手动调用方式 / 新会话初始态。
+		  "entry.skillTokens": "\u5360\u5BF9\u8BDD token",
+		  "entry.skillNoTokens": "\u4E0D\u5360\u5BF9\u8BDD token",
+		  "entry.skillUserInvocable": "`/{name}` \u53EF\u7528",
+		  "entry.skillUserBlocked": "\u4E0D\u53EF\u624B\u52A8\u8C03\u7528",
+		  "entry.skillHidden": "\u65B0\u4F1A\u8BDD\u9ED8\u8BA4\u9690\u85CF",
 		  // —— 徽标与禁用理由：禁用开关的 `title` 必须给同一句解释（设计 §3.3） ——
 		  "badge.protected": "\u5728\u4FDD\u62A4\u540D\u5355\u5185\uFF0C\u4E0D\u80FD\u5173\u95ED\u3002",
 		  "badge.reserved": "\u4FDD\u7559\u5DE5\u5177\uFF0C\u4E0D\u80FD\u5173\u95ED\u3002",
@@ -1958,6 +2378,8 @@ window.__ModuleLoader__.load({
 		  "defaults.summary": "\u9ED8\u8BA4\u5173 {inDefaults} \xB7 \u6B8B\u7559 {residual}",
 		  "defaults.residualTitle": "\u6B8B\u7559\u5730\u5740\uFF08\u4E0D\u5728\u672C\u4F1A\u8BDD\u6E05\u5355\u91CC\uFF0C\u53EA\u80FD\u79FB\u9664\uFF09",
 		  "defaults.universeUnavailable": "\u672C\u4F1A\u8BDD\u7684\u5DE5\u5177\u6E05\u5355\u6682\u4E0D\u53EF\u7528\uFF1A\u53EA\u80FD\u67E5\u770B\u4E0E\u79FB\u9664\u6863\u5185\u5DF2\u6709\u6761\u76EE\u3002",
+		  // 全局过滤无结果的空态（code-design ③3.5；工作区页面清单卡的 DefaultsGroupList 用）。
+		  "defaults.filterEmpty": "\u6CA1\u6709\u5339\u914D\u300C{query}\u300D\u7684\u6761\u76EE\u3002",
 		  // 分组标题行：条目数 / 档内计数 / 合成 title（读屏与悬浮共用 groupSummary）。
 		  "defaults.groupCount": "{count} \u9879",
 		  "defaults.groupInDefaults": "\u9ED8\u8BA4\u5173 {count} \u9879",
@@ -1994,6 +2416,31 @@ window.__ModuleLoader__.load({
 		  "workspace.clear": "\u6E05\u7A7A\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863",
 		  "workspace.clearConfirm": "\u518D\u70B9\u4E00\u6B21\u786E\u8BA4\u6E05\u7A7A",
 		  "workspace.refresh": "\u5237\u65B0\u5DE5\u4F5C\u533A\u6863",
+		  // —— 工作区页面（WorkspaceDefaultsPage，code-design ③3.5）：清单卡 ——
+		  "workspace.listTitle": "\u9ED8\u8BA4\u5173\u95ED\u9879",
+		  "workspace.listHint": "\u5F00\u5173\u53EA\u5199\u672C\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\uFF1A\u5173\u95ED = \u4E4B\u540E\u5728\u6B64\u5DE5\u4F5C\u533A\u65B0\u5EFA\u7684\u4F1A\u8BDD\u521D\u59CB\u4E0D\u53EF\u7528\u3002",
+		  "workspace.filter": "\u8FC7\u6EE4\u5DE5\u5177\u3001\u6280\u80FD\u6216\u5730\u5740\u2026",
+		  "workspace.emptyDefaults": "\u672C\u5DE5\u4F5C\u533A\u8FD8\u6CA1\u6709\u9ED8\u8BA4\u5173\u95ED\u9879\u3002",
+		  "workspace.emptyDefaultsHint": "\u5728\u4E0B\u65B9\u6E05\u5355\u91CC\u5173\u95ED\u4EFB\u610F\u6761\u76EE\u5373\u5199\u5165\uFF1B\u53EA\u5F71\u54CD\u4E4B\u540E\u5728\u6B64\u5DE5\u4F5C\u533A\u65B0\u5EFA\u7684\u4F1A\u8BDD\u3002",
+		  "workspace.emptyUniverse": "\u5BBF\u4E3B\u6CA1\u6709\u63D0\u4F9B\u53EF\u5217\u51FA\u7684\u5DE5\u5177\u6E05\u5355\uFF0C\u6682\u65F6\u53EA\u80FD\u67E5\u770B\u4E0E\u79FB\u9664\u6863\u5185\u5DF2\u6709\u6761\u76EE\u3002",
+		  "workspace.universeUnavailable": "\u5BBF\u4E3B\u5168\u5C40\u5DE5\u5177\u6CE8\u518C\u8868\u6682\u4E0D\u53EF\u7528\uFF1A\u53EA\u80FD\u67E5\u770B\u4E0E\u79FB\u9664\u6863\u5185\u5DF2\u6709\u6761\u76EE\u3002",
+		  "workspace.ungrouped": "\u53E6\u6709 {count} \u4E2A MCP \u5DE5\u5177\u540D\u65E0\u6CD5\u5F52\u7EC4\uFF08\u516C\u5F00\u540D\u5F52\u4E00\u5316/\u622A\u65AD\u540E\u65E0\u6CD5\u8FD8\u539F\u670D\u52A1\u5668\u540D\uFF09\uFF0C\u672C\u9875\u4E0D\u63D0\u4F9B\u5F00\u5173\u3002",
+		  "workspace.skillsIncomplete": "\u6280\u80FD\u76EE\u5F55\u89C2\u6D4B\u4E0D\u5B8C\u6574\uFF0C\u6E05\u5355\u53EF\u80FD\u7F3A\u9879\u3002",
+		  "workspace.foreignProjectMcp": "\u53E6\u6709 {count} \u4E2A\u5176\u4ED6\u5DE5\u4F5C\u533A\u7684\u9879\u76EE\u7EA7 MCP \u670D\u52A1\u5668\u672A\u5217\u5165\uFF08\u4EC5\u5176\u6240\u5C5E\u5DE5\u4F5C\u533A\u53EF\u89C1\uFF09\u3002",
+		  "mcp.sourceUser": "\u7528\u6237\u7EA7",
+		  "mcp.sourceUserHint": "profile \u7EA7\u914D\u7F6E\uFF1A\u6240\u6709\u5DE5\u4F5C\u533A\u7684\u4F1A\u8BDD\u90FD\u53EF\u89C1\u3002",
+		  "mcp.sourceProject": "\u9879\u76EE\u7EA7",
+		  "mcp.sourceProjectHint": "\u672C\u5DE5\u4F5C\u533A .dsh/mcp/ \u7684\u9879\u76EE\u7EA7\u914D\u7F6E\uFF1A\u4EC5\u672C\u5DE5\u4F5C\u533A\u7684\u4F1A\u8BDD\u53EF\u89C1\u3002",
+		  "mcp.tokens": "\u8BA1\u5165\u5BF9\u8BDD\u4E0A\u4E0B\u6587",
+		  "mcp.tokensHint": "\u6BCF\u4E2A\u53EF\u89C1\u5DE5\u5177\u7684\u53C2\u6570 schema \u4E0E\u670D\u52A1\u5668\u6307\u4EE4\u4F1A\u8BA1\u5165\u6BCF\u6B21\u5BF9\u8BDD\u8BF7\u6C42\u3002",
+		  "workspace.globalUnion": "\u5DE5\u5177\u6E05\u5355\u6765\u81EA\u5BBF\u4E3B\u8FDB\u7A0B\u7684\u5168\u5C40\u6CE8\u518C\u8868\uFF08\u6240\u6709\u5DF2\u52A0\u8F7D\u5DE5\u4F5C\u533A\u7684\u5E76\u96C6\uFF09\uFF1A\u53EF\u80FD\u5217\u51FA\u672C\u5DE5\u4F5C\u533A\u770B\u4E0D\u5230\u7684 MCP \u5DE5\u5177\uFF1B\u5199\u5165\u53EA\u4FDD\u7559\u610F\u56FE\uFF0C\u65B0\u4F1A\u8BDD\u4E0D\u5B58\u5728\u8BE5\u5DE5\u5177\u65F6\u4E0D\u751F\u6548\u3002\u6280\u80FD\u6E05\u5355\u6309\u672C\u5DE5\u4F5C\u533A\u76EE\u5F55\u8BFB\u53D6\u3002",
+		  // —— 命令卡：跨清单地址的复制兜底（同 ③3.5） ——
+		  "workspace.commandTitle": "\u8DE8\u6E05\u5355\u5730\u5740",
+		  "workspace.commandNote": "\u8BE5\u547D\u4EE4\u53EA\u5199\u300C\u672C\u4F1A\u8BDD\u6240\u5C5E\u5DE5\u4F5C\u533A\u300D\u7684\u6863\uFF1B\u8981\u7ED9\u5176\u4ED6\u5DE5\u4F5C\u533A\u8865\u6761\u76EE\uFF0C\u8BF7\u76F4\u63A5\u7F16\u8F91\u4E0A\u9762\u7684\u5DE5\u4F5C\u533A\u6863\u6587\u4EF6\u3002",
+		  "workspace.commandComment": "\u76EE\u6807\u5DE5\u4F5C\u533A\uFF1A{key}",
+		  "workspace.copyCommand": "\u590D\u5236\u547D\u4EE4",
+		  "workspace.copied": "\u5DF2\u590D\u5236",
+		  "workspace.copyFailed": "\u590D\u5236\u5931\u8D25\uFF0C\u8BF7\u624B\u52A8\u9009\u62E9\u6587\u672C\u3002",
 		  // 侧栏 footer 入口与自绘对话框（7.3）：标题/范围说明复用上面的 workspace.title / workspace.scope，
 		  // 这里只补两处只属于「入口壳」的状态文案。
 		  "workspace.loading": "\u6B63\u5728\u8BFB\u53D6\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u2026",
@@ -2068,11 +2515,27 @@ window.__ModuleLoader__.load({
 		  // the intent is recorded but not effective yet (skill missing or shadow registration lost).
 		  "skill.effective": "Hidden from the model (`/name` still works)",
 		  "skill.intentOnly": "Recorded; no effect yet",
+		  // Skill source short tags (code-design ③3.5); the mapping table lives in
+		  // WorkspaceDefaultsPage.tsx and unknown sources render as-is.
+		  "skill.source.project-dsh": "Project",
+		  "skill.source.project-agents": "Project (agents)",
+		  "skill.source.custom": "Custom",
+		  "skill.source.user-dsh": "User",
+		  "skill.source.user-agents": "User (agents)",
+		  "skill.source.bundled": "Bundled",
+		  "skill.source.runtime": "Runtime",
 		  // —— 行级标记 ——
 		  "entry.disabled": "Off",
 		  "entry.protected": "Protected",
 		  "entry.reserved": "Locked",
 		  "entry.intentOnly": "No match yet",
+		  // Skill row tags of the workspace page (code-design ③3.5): model invocation cost / manual
+		  // invocation / initial state in new sessions.
+		  "entry.skillTokens": "Uses dialog tokens",
+		  "entry.skillNoTokens": "No dialog tokens",
+		  "entry.skillUserInvocable": "`/{name}` available",
+		  "entry.skillUserBlocked": "No manual invocation",
+		  "entry.skillHidden": "Off in new sessions",
 		  // —— 徽标与禁用理由 ——
 		  "badge.protected": "On the protected list; cannot be turned off.",
 		  "badge.reserved": "A reserved tool; cannot be turned off.",
@@ -2102,6 +2565,9 @@ window.__ModuleLoader__.load({
 		  "defaults.summary": "{inDefaults} off by default \xB7 {residual} residual",
 		  "defaults.residualTitle": "Residual addresses (not in this session's list; removal only)",
 		  "defaults.universeUnavailable": "This session's tool list is unavailable right now: you can only view and remove entries already in the tier.",
+		  // Empty state when the global filter matches nothing (code-design ③3.5; used by the
+		  // DefaultsGroupList of the workspace page's list card).
+		  "defaults.filterEmpty": "No entry matches \u201C{query}\u201D.",
 		  // Group header row: entry count / in-tier count / combined title (screen readers and hover).
 		  "defaults.groupCount": "{count} items",
 		  "defaults.groupInDefaults": "{count} off by default",
@@ -2140,6 +2606,31 @@ window.__ModuleLoader__.load({
 		  "workspace.clear": "Clear workspace defaults",
 		  "workspace.clearConfirm": "Click again to clear",
 		  "workspace.refresh": "Refresh workspace defaults",
+		  // —— Workspace page (WorkspaceDefaultsPage, code-design ③3.5): list card ——
+		  "workspace.listTitle": "Off-by-default entries",
+		  "workspace.listHint": "Switches write this workspace's defaults: off means sessions created here later start with the tool unavailable.",
+		  "workspace.filter": "Filter tools, skills, or addresses\u2026",
+		  "workspace.emptyDefaults": "No off-by-default entries in this workspace yet.",
+		  "workspace.emptyDefaultsHint": "Turn any entry off below to write it to this workspace's defaults; only sessions created here afterwards are affected.",
+		  "workspace.emptyUniverse": "The host exposes no tool catalog right now, so only existing entries can be viewed or removed.",
+		  "workspace.universeUnavailable": "The host's global tool registry is unavailable: only existing entries can be viewed or removed.",
+		  "workspace.ungrouped": "{count} more MCP tool names cannot be grouped (their public names lost the server boundary after normalization/truncation); they are not switchable here.",
+		  "workspace.skillsIncomplete": "The skill catalog observation is incomplete; the list may miss entries.",
+		  "workspace.foreignProjectMcp": "{count} more project-level MCP server(s) from other workspaces are not listed (visible only to their own workspace).",
+		  "mcp.sourceUser": "User-level",
+		  "mcp.sourceUserHint": "Profile-level configuration: visible to every workspace's sessions.",
+		  "mcp.sourceProject": "Project-level",
+		  "mcp.sourceProjectHint": "Project-level configuration in this workspace's .dsh/mcp/: visible only to this workspace's sessions.",
+		  "mcp.tokens": "Counts into context",
+		  "mcp.tokensHint": "Each visible tool's parameter schema and the server instructions count into every dialog request.",
+		  "workspace.globalUnion": "The tool list comes from the host process's global registry (the union of all loaded workspaces): it may include MCP tools this workspace cannot see; a write only records intent and has no effect where the tool does not exist. The skill list is read for this workspace's directory.",
+		  // —— Command card: the copy fallback for addresses outside the list (same ③3.5) ——
+		  "workspace.commandTitle": "Addresses outside the list",
+		  "workspace.commandNote": "The command writes only the workspace this session belongs to; to add entries for another workspace, edit the defaults file shown above.",
+		  "workspace.commandComment": "Target workspace: {key}",
+		  "workspace.copyCommand": "Copy command",
+		  "workspace.copied": "Copied",
+		  "workspace.copyFailed": "Copy failed; select the text manually.",
 		  // The sidebar footer entry and its own dialog (7.3): the title/scope reuse workspace.title /
 		  // workspace.scope above; only these two state lines belong to the entry shell.
 		  "workspace.loading": "Reading the workspace defaults\u2026",
@@ -2175,7 +2666,7 @@ window.__ModuleLoader__.load({
 		};
 
 		// src/client/ToolPanelAction.tsx
-		var import_jsx_runtime7 = require("react/jsx-runtime");
+		var import_jsx_runtime8 = require("react/jsx-runtime");
 		var EMPTY_UNIVERSE = { layerReady: false, skillsAvailable: false, groups: [] };
 		function errorKeyOf(code) {
 		  const candidate = `error.${code}`;
@@ -2213,26 +2704,26 @@ window.__ModuleLoader__.load({
 		  }
 		}
 		function FailureRow({ failure, className }) {
-		  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className, role: "alert", children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.error, children: failure.text }),
-		    failure.detail !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.detail, children: failure.detail })
+		  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className, role: "alert", children: [
+		    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { className: panel_default.error, children: failure.text }),
+		    failure.detail !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { className: panel_default.detail, children: failure.detail })
 		  ] });
 		}
 		function StateSection({ snapshot, kvDelta, t }) {
 		  const { stats, state } = snapshot;
-		  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("section", { className: panel_default.section, children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("h3", { className: panel_default.sectionTitle, children: t("section.state") }),
-		    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("ul", { className: panel_default.counters, children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("li", { children: t("state.visible", { visible: stats.visible }) }),
-		      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("li", { children: t("state.denied", { denied: stats.denied }) })
+		  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("section", { className: panel_default.section, children: [
+		    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("h3", { className: panel_default.sectionTitle, children: t("section.state") }),
+		    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("ul", { className: panel_default.counters, children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("li", { children: t("state.visible", { visible: stats.visible }) }),
+		      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("li", { children: t("state.denied", { denied: stats.denied }) })
 		    ] }),
-		    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("p", { className: panel_default.meta, children: [
-		      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { children: t("state.createdAt", { time: formatTime2(snapshot.createdAt) }) }),
-		      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { children: t("state.snapshot", { count: state.snapshot.length }) }),
-		      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { children: state.storeKind === "record" ? t("state.storeKind.record") : t("state.storeKind.memory") })
+		    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("p", { className: panel_default.meta, children: [
+		      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { children: t("state.createdAt", { time: formatTime2(snapshot.createdAt) }) }),
+		      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { children: t("state.snapshot", { count: state.snapshot.length }) }),
+		      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { children: state.storeKind === "record" ? t("state.storeKind.record") : t("state.storeKind.memory") })
 		    ] }),
-		    kvDelta !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.notice, children: t("mutation.kv", { hidden: kvDelta }) }),
-		    snapshot.notices.map((code) => /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+		    kvDelta !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { className: panel_default.notice, children: t("mutation.kv", { hidden: kvDelta }) }),
+		    snapshot.notices.map((code) => /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
 		      "p",
 		      {
 		        className: code === "persistence-degraded" ? panel_default.warning : panel_default.notice,
@@ -2252,18 +2743,18 @@ window.__ModuleLoader__.load({
 		  onEnable,
 		  t
 		}) {
-		  const intentOnly = (0, import_react6.useMemo)(() => new Set(snapshot.intentOnly), [snapshot.intentOnly]);
+		  const intentOnly = (0, import_react7.useMemo)(() => new Set(snapshot.intentOnly), [snapshot.intentOnly]);
 		  const addresses = snapshot.state.disabled;
-		  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("section", { className: panel_default.section, children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("h3", { className: panel_default.sectionTitle, children: t("section.disabled") }),
-		    addresses.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.muted, children: t("disabled.empty") }) : /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("ul", { className: panel_default.chips, "aria-label": t("disabled.listTitle"), children: addresses.map((address) => {
+		  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("section", { className: panel_default.section, children: [
+		    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("h3", { className: panel_default.sectionTitle, children: t("section.disabled") }),
+		    addresses.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { className: panel_default.muted, children: t("disabled.empty") }) : /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("ul", { className: panel_default.chips, "aria-label": t("disabled.listTitle"), children: addresses.map((address) => {
 		      const pendingRow = pending.has(address);
-		      return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("li", { className: panel_default.chip, children: [
-		        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("code", { className: panel_default.address, title: address, children: address }),
-		        intentOnly.has(address) && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: panel_default.badge, title: t("entry.intentOnly"), children: t("badge.intent") }),
-		        pendingRow && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: panel_default.pending, children: t("toggle.pending") }),
-		        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
-		          import_dsh_client_ui_primitives7.Button,
+		      return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("li", { className: panel_default.chip, children: [
+		        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("code", { className: panel_default.address, title: address, children: address }),
+		        intentOnly.has(address) && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: panel_default.badge, title: t("entry.intentOnly"), children: t("badge.intent") }),
+		        pendingRow && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: panel_default.pending, children: t("toggle.pending") }),
+		        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+		          import_dsh_client_ui_primitives8.Button,
 		          {
 		            variant: "ghost",
 		            size: "sm",
@@ -2277,9 +2768,9 @@ window.__ModuleLoader__.load({
 		        )
 		      ] }, address);
 		    }) }),
-		    snapshot.intentOnly.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.muted, children: t("disabled.intentOnly") }),
-		    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: panel_default.actions, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
-		      import_dsh_client_ui_primitives7.Button,
+		    snapshot.intentOnly.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { className: panel_default.muted, children: t("disabled.intentOnly") }),
+		    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: panel_default.actions, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+		      import_dsh_client_ui_primitives8.Button,
 		      {
 		        variant: "outline",
 		        size: "sm",
@@ -2300,13 +2791,13 @@ window.__ModuleLoader__.load({
 		  attachFocusListener: attachFocusListener2,
 		  t
 		}) {
-		  const resolve = (0, import_react6.useRef)(resolveClient);
+		  const resolve = (0, import_react7.useRef)(resolveClient);
 		  resolve.current = resolveClient;
-		  const subscribeCommands = (0, import_react6.useRef)(subscribeCommandExecuted);
+		  const subscribeCommands = (0, import_react7.useRef)(subscribeCommandExecuted);
 		  subscribeCommands.current = subscribeCommandExecuted;
-		  const attachFocus = (0, import_react6.useRef)(attachFocusListener2);
+		  const attachFocus = (0, import_react7.useRef)(attachFocusListener2);
 		  attachFocus.current = attachFocusListener2;
-		  const controller = (0, import_react6.useMemo)(
+		  const controller = (0, import_react7.useMemo)(
 		    () => new PanelController({
 		      sessionId,
 		      resolveClient: () => resolve.current(),
@@ -2317,20 +2808,20 @@ window.__ModuleLoader__.load({
 		    }),
 		    [sessionId]
 		  );
-		  (0, import_react6.useEffect)(() => () => controller.dispose(), [controller]);
-		  const state = (0, import_react6.useSyncExternalStore)(controller.subscribe, controller.getSnapshot);
+		  (0, import_react7.useEffect)(() => () => controller.dispose(), [controller]);
+		  const state = (0, import_react7.useSyncExternalStore)(controller.subscribe, controller.getSnapshot);
 		  const opened = state.phase !== "idle";
 		  const snapshot = state.snapshot;
-		  const universe = (0, import_react6.useMemo)(
+		  const universe = (0, import_react7.useMemo)(
 		    () => snapshot === void 0 ? EMPTY_UNIVERSE : universeOfSnapshot(snapshot),
 		    [snapshot]
 		  );
-		  const failure = (0, import_react6.useMemo)(() => failureOf2(state.error, t), [state.error, t]);
-		  const defaultsFailure = (0, import_react6.useMemo)(() => failureOf2(state.defaultsError, t), [state.defaultsError, t]);
-		  const workspaceFailure = (0, import_react6.useMemo)(() => failureOf2(state.workspaceError, t), [state.workspaceError, t]);
-		  const [kvDelta, setKvDelta] = (0, import_react6.useState)(void 0);
-		  const previous = (0, import_react6.useRef)(void 0);
-		  (0, import_react6.useEffect)(() => {
+		  const failure = (0, import_react7.useMemo)(() => failureOf2(state.error, t), [state.error, t]);
+		  const defaultsFailure = (0, import_react7.useMemo)(() => failureOf2(state.defaultsError, t), [state.defaultsError, t]);
+		  const workspaceFailure = (0, import_react7.useMemo)(() => failureOf2(state.workspaceError, t), [state.workspaceError, t]);
+		  const [kvDelta, setKvDelta] = (0, import_react7.useState)(void 0);
+		  const previous = (0, import_react7.useRef)(void 0);
+		  (0, import_react7.useEffect)(() => {
 		    if (snapshot === void 0) return;
 		    const before = previous.current;
 		    previous.current = snapshot;
@@ -2338,8 +2829,8 @@ window.__ModuleLoader__.load({
 		    const hidden = snapshot.stats.denied - before.stats.denied;
 		    setKvDelta(hidden > 0 ? hidden : void 0);
 		  }, [snapshot]);
-		  const [resetArmed, setResetArmed] = (0, import_react6.useState)(false);
-		  const [defaultsSaved, setDefaultsSaved] = (0, import_react6.useState)(false);
+		  const [resetArmed, setResetArmed] = (0, import_react7.useState)(false);
+		  const [defaultsSaved, setDefaultsSaved] = (0, import_react7.useState)(false);
 		  const writeDefaults = (action, addresses) => {
 		    setDefaultsSaved(false);
 		    void controller.updateDefaults(action, addresses).then(() => {
@@ -2347,13 +2838,13 @@ window.__ModuleLoader__.load({
 		      setDefaultsSaved(!next.savingDefaults && next.defaultsError === void 0);
 		    });
 		  };
-		  const footer = /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(import_jsx_runtime7.Fragment, { children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
-		      import_dsh_client_ui_primitives7.Button,
+		  const footer = /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(import_jsx_runtime8.Fragment, { children: [
+		    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+		      import_dsh_client_ui_primitives8.Button,
 		      {
 		        variant: "ghost",
 		        size: "sm",
-		        icon: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(import_dsh_client_ui_primitives7.IconRefreshOutlineRegular, {}),
+		        icon: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(import_dsh_client_ui_primitives8.IconRefreshOutlineRegular, {}),
 		        "aria-label": t("panel.refresh"),
 		        disabled: state.phase === "loading",
 		        onClick: () => {
@@ -2362,8 +2853,8 @@ window.__ModuleLoader__.load({
 		        children: t("panel.refresh")
 		      }
 		    ),
-		    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
-		      import_dsh_client_ui_primitives7.Button,
+		    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+		      import_dsh_client_ui_primitives8.Button,
 		      {
 		        variant: "outline",
 		        size: "sm",
@@ -2374,14 +2865,14 @@ window.__ModuleLoader__.load({
 		      }
 		    )
 		  ] });
-		  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(import_jsx_runtime7.Fragment, { children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
-		      import_dsh_client_ui_primitives7.Button,
+		  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(import_jsx_runtime8.Fragment, { children: [
+		    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+		      import_dsh_client_ui_primitives8.Button,
 		      {
 		        variant: "ghost",
 		        size: "sm",
 		        className: panel_default.trigger,
-		        icon: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(import_dsh_client_ui_primitives7.IconSlidersTwoOutlineRegular, {}),
+		        icon: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(import_dsh_client_ui_primitives8.IconSlidersTwoOutlineRegular, {}),
 		        "aria-label": t("action.label"),
 		        "aria-description": t("action.aria"),
 		        "aria-haspopup": "dialog",
@@ -2393,8 +2884,8 @@ window.__ModuleLoader__.load({
 		        }
 		      }
 		    ),
-		    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
-		      import_dsh_client_ui_primitives7.Modal,
+		    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+		      import_dsh_client_ui_primitives8.Modal,
 		      {
 		        open: opened,
 		        onClose: () => {
@@ -2406,12 +2897,12 @@ window.__ModuleLoader__.load({
 		        className: panel_default.dialog,
 		        contentClassName: panel_default.content,
 		        footer,
-		        children: snapshot === void 0 ? failure === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: panel_default.loading, children: t("panel.loading") }) : /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(FailureRow, { failure, className: panel_default.failureBlock }) : /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(import_jsx_runtime7.Fragment, { children: [
-		          failure !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(FailureRow, { failure }),
-		          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(StateSection, { snapshot, kvDelta, t }),
-		          /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("section", { className: panel_default.section, children: [
-		            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("h3", { className: panel_default.sectionTitle, children: t("section.groups") }),
-		            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+		        children: snapshot === void 0 ? failure === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { className: panel_default.loading, children: t("panel.loading") }) : /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(FailureRow, { failure, className: panel_default.failureBlock }) : /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(import_jsx_runtime8.Fragment, { children: [
+		          failure !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(FailureRow, { failure }),
+		          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(StateSection, { snapshot, kvDelta, t }),
+		          /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("section", { className: panel_default.section, children: [
+		            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("h3", { className: panel_default.sectionTitle, children: t("section.groups") }),
+		            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
 		              ToolPanelGroups,
 		              {
 		                groups: snapshot.groups,
@@ -2424,9 +2915,9 @@ window.__ModuleLoader__.load({
 		              }
 		            )
 		          ] }),
-		          /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("section", { className: panel_default.section, "aria-label": t("section.skills"), children: [
-		            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("h3", { className: panel_default.sectionTitle, children: t("section.skills") }),
-		            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+		          /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("section", { className: panel_default.section, "aria-label": t("section.skills"), children: [
+		            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("h3", { className: panel_default.sectionTitle, children: t("section.skills") }),
+		            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
 		              SkillPanel,
 		              {
 		                skills: snapshot.skills,
@@ -2441,7 +2932,7 @@ window.__ModuleLoader__.load({
 		              }
 		            )
 		          ] }),
-		          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+		          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
 		            WorkspaceDefaultsEditor,
 		            {
 		              workspace: state.workspace ?? null,
@@ -2459,7 +2950,7 @@ window.__ModuleLoader__.load({
 		              t
 		            }
 		          ),
-		          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+		          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
 		            DefaultsEditor,
 		            {
 		              defaults: state.defaults ?? snapshot.defaults,
@@ -2473,7 +2964,7 @@ window.__ModuleLoader__.load({
 		              t
 		            }
 		          ),
-		          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
+		          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
 		            DisabledSection,
 		            {
 		              snapshot,
@@ -2500,8 +2991,8 @@ window.__ModuleLoader__.load({
 		}
 
 		// src/client/WorkspaceEntry.tsx
-		var import_react7 = require("react");
-		var import_jsx_runtime8 = require("react/jsx-runtime");
+		var import_react8 = require("react");
+		var import_jsx_runtime9 = require("react/jsx-runtime");
 		var CLIENT_MISSING_MESSAGE2 = "\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u5BA2\u6237\u7AEF\u5C1A\u672A\u5C31\u7EEA\uFF1Aconnection \u53EF\u80FD\u665A\u4E8E\u63D2\u4EF6 apply \u6302\u8F7D";
 		var NO_TARGET_MESSAGE = "\u5F53\u524D\u6CA1\u6709\u53EF\u5BFB\u5740\u7684\u76EE\u6807\u5DE5\u4F5C\u533A\uFF1A\u76EE\u6807\u7531\u9875\u9762\u9009\u62E9\u6846\u7ED9\u51FA\uFF0C\u7A7A\u76EE\u6807\u65F6\u672C\u8282\u5448\u73B0\u7A7A\u6001";
 		var NO_ADDRESS_MESSAGE = "\u5199\u5165\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u7F3A\u5C11\u5730\u5740\uFF1A\u7A7A\u5355\u4E0D\u53D1\u8BF7\u6C42\uFF08\u5951\u7EA6\u8981\u6C42 set / off / on \u81F3\u5C11\u5E26\u4E00\u6761\u5730\u5740\uFF09";
@@ -2521,32 +3012,32 @@ window.__ModuleLoader__.load({
 		  return previous.saving ? { ...previous, saving: false } : previous;
 		}
 		function useWorkspaceDefaults(options) {
-		  const resolveRef = (0, import_react7.useRef)(options.resolveClient);
+		  const resolveRef = (0, import_react8.useRef)(options.resolveClient);
 		  resolveRef.current = options.resolveClient;
-		  const initialTargetRef = (0, import_react7.useRef)(options.initialTarget);
+		  const initialTargetRef = (0, import_react8.useRef)(options.initialTarget);
 		  initialTargetRef.current = options.initialTarget;
-		  const [state, setState] = (0, import_react7.useState)({
+		  const [state, setState] = (0, import_react8.useState)({
 		    phase: "idle",
 		    saving: false,
 		    saved: false
 		  });
-		  const seqRef = (0, import_react7.useRef)(0);
-		  const mountedRef = (0, import_react7.useRef)(true);
-		  (0, import_react7.useEffect)(() => {
+		  const seqRef = (0, import_react8.useRef)(0);
+		  const mountedRef = (0, import_react8.useRef)(true);
+		  (0, import_react8.useEffect)(() => {
 		    mountedRef.current = true;
 		    return () => {
 		      mountedRef.current = false;
 		      seqRef.current += 1;
 		    };
 		  }, []);
-		  const clientOf = (0, import_react7.useCallback)(() => {
+		  const clientOf = (0, import_react8.useCallback)(() => {
 		    try {
 		      return resolveRef.current();
 		    } catch {
 		      return void 0;
 		    }
 		  }, []);
-		  const failLocally = (0, import_react7.useCallback)((message) => {
+		  const failLocally = (0, import_react8.useCallback)((message) => {
 		    if (!mountedRef.current) return;
 		    seqRef.current += 1;
 		    setState((previous) => ({
@@ -2558,7 +3049,7 @@ window.__ModuleLoader__.load({
 		      saved: false
 		    }));
 		  }, []);
-		  const read = (0, import_react7.useCallback)(async () => {
+		  const read = (0, import_react8.useCallback)(async () => {
 		    const client = clientOf();
 		    if (client === void 0) {
 		      failLocally(CLIENT_MISSING_MESSAGE2);
@@ -2581,7 +3072,7 @@ window.__ModuleLoader__.load({
 		      setState((previous) => ({ ...previous, phase: "failed", error: asPanelError2(error), saved: false }));
 		    }
 		  }, [clientOf, failLocally]);
-		  const update = (0, import_react7.useCallback)(async (action, addresses) => {
+		  const update = (0, import_react8.useCallback)(async (action, addresses) => {
 		    if (action === "read") {
 		      await read();
 		      return;
@@ -2624,25 +3115,25 @@ window.__ModuleLoader__.load({
 		}
 		function WorkspaceDefaultsTarget(props) {
 		  const { workspacePath, resolveClient, t } = props;
-		  const initialTarget = (0, import_react7.useCallback)(() => ({ workspacePath }), [workspacePath]);
+		  const initialTarget = (0, import_react8.useCallback)(() => ({ workspacePath }), [workspacePath]);
 		  const { value, error, saving, saved, read, update } = useWorkspaceDefaults({
 		    resolveClient,
 		    initialTarget
 		  });
-		  (0, import_react7.useEffect)(() => {
+		  (0, import_react8.useEffect)(() => {
 		    void read();
 		  }, [read]);
-		  const failure = (0, import_react7.useMemo)(() => {
+		  const failure = (0, import_react8.useMemo)(() => {
 		    if (error === void 0) return void 0;
 		    if (error.code === "unavailable") {
 		      return error.message === "" ? { text: t("workspace.unavailable") } : { text: t("workspace.unavailable"), detail: error.message };
 		    }
 		    return failureOf2(error, t);
 		  }, [error, t]);
-		  return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: panel_default.workspaceBody, children: value === void 0 ? failure === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { className: panel_default.loading, children: t("workspace.loading") }) : /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: panel_default.failureBlock, role: "alert", children: [
-		    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { className: panel_default.error, children: failure.text }),
-		    failure.detail !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { className: panel_default.detail, children: failure.detail })
-		  ] }) : /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+		  return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: panel_default.workspaceBody, children: value === void 0 ? failure === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { className: panel_default.loading, children: t("workspace.loading") }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: panel_default.failureBlock, role: "alert", children: [
+		    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { className: panel_default.error, children: failure.text }),
+		    failure.detail !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { className: panel_default.detail, children: failure.detail })
+		  ] }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
 		    WorkspaceDefaultsEditor,
 		    {
 		      workspace: value.workspace,
@@ -2664,9 +3155,9 @@ window.__ModuleLoader__.load({
 		function WorkspaceDefaultsSection(props) {
 		  const { workspace, resolveClient, t } = props;
 		  if (workspace.kind !== "workspace") {
-		    return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: panel_default.workspaceBody, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { className: panel_default.empty, children: t("workspace.noTarget") }) });
+		    return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: panel_default.workspaceBody, children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { className: panel_default.empty, children: t("workspace.noTarget") }) });
 		  }
-		  return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+		  return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
 		    WorkspaceDefaultsTarget,
 		    {
 		      workspacePath: workspace.path,

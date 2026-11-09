@@ -4,10 +4,11 @@
  * 字段面与用户级 `DefaultsEditor` 同构（同一个 `DefaultsGroupList`、同一套三计数口径），但有三处
  * 差异，全部来自「目标是一份工作区档」这个事实：
  *
- * 1. **两形态**：
+ * 1. **两形态**（D11）：
  *    - `variant='dialog'` 是统一「工作区配置」页里本分节的正文（`workspace-config.section` 座位）：
- *      组件自己渲染 `<h3>` 标题与正文——holder 的页面壳提供分节容器（不渲染 `role="dialog"`，
- *      本组件只交付正文壳，再包一层会成嵌套 dialog/landmark）；
+ *      正文壳委托给 `<WorkspaceDefaultsPage/>`——三卡布局、全局过滤、复制反馈与命令卡都在页面
+ *      组件里，本组件只下传状态与动作。holder 的页面壳提供分节容器（不渲染 `role="dialog"`，
+ *      两侧都只交付正文，再包一层会成嵌套 dialog/landmark）；
  *    - `variant='section'` 是会话工具面板里的一个分区：外壳交给 `DefaultsSectionFrame`（D13，
  *      **默认收起**、标题行带计数摘要）。
  *    **两形态都不带工作区选择控件**（需求 3：三个分节 SHALL NOT 各自携带工作区选择控件）：
@@ -34,8 +35,9 @@
  * `off` = 加入本工作区档、`on` = 移出、`reset` = 清空本工作区条目。写入成功的确认走 `saved`
  * （「已保存（本会话不变）」）——工作区档与默认档一样不追溯（D18）。
  *
- * 渲染归属（G8 handoff）：残留区与命令兜底说明都在 `DefaultsGroupList` 内部渲染，本组件
- * **不**再单独渲染，否则同一句会出现两次。
+ * 渲染归属（G8 handoff）：`section` 正文的残留区与命令兜底说明都在 `DefaultsGroupList` 内部
+ * 渲染，本组件**不**再单独渲染，否则同一句会出现两次；`dialog` 形态的命令兜底改走页面组件的
+ * 命令卡（清单侧的兜底说明在页面形态缺省不渲染）。
  *
  * @module dsh-plugin-session-tool-toggle/client/WorkspaceDefaultsEditor
  */
@@ -52,6 +54,7 @@ import type { PanelFailure } from './DefaultsEditor.tsx'
 import { defaultsCountsOf } from './defaults-view.ts'
 import { DefaultsGroupList } from './DefaultsGroupList.tsx'
 import { DefaultsSectionFrame } from './DefaultsSectionFrame.tsx'
+import { WorkspaceDefaultsPage } from './WorkspaceDefaultsPage.tsx'
 import { NS } from './locales.ts'
 import css from './panel.module.css'
 
@@ -79,12 +82,12 @@ export interface WorkspaceDefaultsEditorProps {
    */
   readonly workspace: WorkspaceView | null
   /**
-   * 目标无关的工具宇宙。
+   * 目标工具宇宙。
    *
-   * `dialog` 形态来自 `WorkspaceValue.universe`（页面形态以 `{workspacePath}` 寻址，
-   * 响应里的 `universe` 为 `null`——宿主契约 D-24：宇宙只对会话视角有意义），
-   * `section` 形态来自面板快照的投影（`universeOfSnapshot`）。`null` / `layerReady:false`
-   * 时清单组件只留残留区。
+   * `dialog` 形态来自 `WorkspaceValue.universe`（页面形态以 `{workspacePath}` 寻址：宇宙 =
+   * 宿主全局工具注册表 ∪ 该工作区目录技能，新宿主恒返回对象），`section` 形态来自面板快照的
+   * 投影（`universeOfSnapshot`）。响应可能为 null 的降级：`null` 只是旧宿主混合版本的兼容形
+   * （新宿主不产生），此时清单组件只留残留区。
    */
   readonly universe: DefaultsUniverse | null
   /** 渲染形态（见文件头注释）。 */
@@ -113,7 +116,7 @@ export interface WorkspaceDefaultsEditorProps {
 /**
  * 工作区默认档编辑器。
  * @param props - 见 {@link WorkspaceDefaultsEditorProps}。
- * @returns 面板分区（折叠壳）或页面分节正文（`<h3>` + 正文）。
+ * @returns 面板分区（折叠壳），或委托页面组件渲染的统一页分节正文。
  */
 export function WorkspaceDefaultsEditor({
   workspace,
@@ -234,16 +237,28 @@ export function WorkspaceDefaultsEditor({
     </>
   )
 
-  // 分节正文形态只交付 `<h3>` + 正文：页面壳（标题栏 / 选择框 / 布局）归 holder，
-  // 本组件再带一层容器会构成嵌套 landmark（A11y 双根）。
-  // 正文壳**不**复用 `.dialog`（760px 卡片宽度）：右栏内容列的宽度由 holder 约束，
-  // 嵌套固定宽度会溢出，宽度约束归持有页面壳的 holder。
+  // dialog 形态委托页面正文组件（D11）：三卡布局 / 全局过滤 / 复制反馈 / 命令卡都在
+  // `WorkspaceDefaultsPage`；清空的两段式确认态（armed）状态机留在本组件，页面只展示。
+  // 页面壳（标题栏 / 选择框 / 布局）归 holder，两侧都只交付正文——再包一层会成嵌套 landmark。
   return dialog
     ? (
-      <div className={css.workspaceBody}>
-        <h3 className={css.sectionTitle}>{t('workspace.title')}</h3>
-        {body}
-      </div>
+      <WorkspaceDefaultsPage
+        workspace={workspace}
+        universe={universe}
+        counts={counts}
+        saving={saving}
+        saved={saved}
+        failure={failure}
+        armed={armed}
+        onToggle={(address: string, on: boolean) => {
+          // 任何一次开关都撤掉「清空」的待确认态：它描述的上一次意图已经过期。
+          setArmed(false)
+          onUpdate(on ? 'on' : 'off', [address])
+        }}
+        onClear={clear}
+        onRefresh={onRefresh}
+        t={t}
+      />
     )
     // 分区形态：折叠壳（标题 + 计数摘要 + `aria-expanded`）自带 `<section>` 与间距，
     // 这里**不**再包一层——否则网格/外边距会叠两次（G8 handoff）。

@@ -71,7 +71,7 @@ export type WorkspacePhase = 'idle' | 'loading' | 'ready' | 'failed'
 export interface WorkspaceDefaultsState {
   /** 可见阶段。 */
   readonly phase: WorkspacePhase
-  /** 最近一次成功取得的 `WorkspaceValue`（目标工作区视图 + 实际写入项 + 会话视角宇宙）。 */
+  /** 最近一次成功取得的 `WorkspaceValue`（目标工作区视图 + 实际写入项 + universe：页面形态（`{workspacePath}`）= 工作区宇宙；面板形态（`{sessionId}`）= 会话视角宇宙）。 */
   readonly value?: WorkspaceValue
   /** 最近一次失败（读或写）；成功一次后清空。 */
   readonly error?: PanelError

@@ -17284,6 +17284,7 @@ var ADDRESS_MAX_LENGTH = 200;
 var MAX_WORKSPACE_PATH_LENGTH = 4096;
 var MAX_ADDRESSES = 64;
 var TOOL_GROUP_KINDS = ["mcp", "skill", "builtin"];
+var GROUP_SOURCES = ["user", "project"];
 var NOTICE_CODES = [
   /** 记录通道不可用，已降级内存态。 */
   "persistence-degraded",
@@ -17335,12 +17336,24 @@ function readBooleanField(record2, key, subject) {
   if (typeof value !== "boolean") return fail(`${subject}.${key} \u4E0D\u662F\u5E03\u5C14\u503C`);
   return { ok: true, value };
 }
+function readOptionalBooleanField(record2, key, subject) {
+  if (record2[key] === void 0) return { ok: true, value: void 0 };
+  return readBooleanField(record2, key, subject);
+}
+function readOptionalEnumField(record2, key, subject, allowed) {
+  if (record2[key] === void 0) return { ok: true, value: void 0 };
+  return readEnumField(record2, key, subject, allowed);
+}
 function readCountField(record2, key, subject) {
   const value = record2[key];
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
     return fail(`${subject}.${key} \u4E0D\u662F\u975E\u8D1F\u5B89\u5168\u6574\u6570`);
   }
   return { ok: true, value };
+}
+function readOptionalCountField(record2, key, subject) {
+  if (record2[key] === void 0) return { ok: true, value: void 0 };
+  return readCountField(record2, key, subject);
 }
 function readIntField(record2, key, subject) {
   const value = record2[key];
@@ -17555,9 +17568,25 @@ var DEFAULTS_VIEW_KEYS = ["version", "disabled", "path", "readable", "corrupt"];
 var STATS_VIEW_KEYS = ["visible", "denied"];
 var WORKSPACE_CHOICE_KEYS = ["key", "title"];
 var WORKSPACE_VIEW_KEYS = ["key", "title", "registered", "disabled", "path", "readable", "corrupt"];
-var DEFAULTS_ENTRY_KEYS = ["address", "shortName", "description", "protected", "reserved"];
-var DEFAULTS_GROUP_KEYS = ["kind", "key", "address", "tools"];
-var DEFAULTS_UNIVERSE_KEYS = ["layerReady", "skillsAvailable", "groups"];
+var DEFAULTS_ENTRY_KEYS = [
+  "address",
+  "shortName",
+  "description",
+  "protected",
+  "reserved",
+  "modelInvocable",
+  "userInvocable",
+  "source"
+];
+var DEFAULTS_GROUP_KEYS = ["kind", "key", "address", "tools", "source", "countsTokens"];
+var DEFAULTS_UNIVERSE_KEYS = [
+  "layerReady",
+  "skillsAvailable",
+  "groups",
+  "ungroupedMcp",
+  "skillsComplete",
+  "foreignProjectMcp"
+];
 var SKILL_VIEW_KEYS = ["name", "description", "disabled", "shadowed"];
 var PANEL_SNAPSHOT_KEYS = [
   "sessionId",
@@ -17800,6 +17829,23 @@ function readDefaultsEntry(value, subject) {
   if (!isProtected.ok) return isProtected;
   const reserved = readBooleanField(record2, "reserved", subject);
   if (!reserved.ok) return reserved;
+  const modelInvocable = readOptionalBooleanField(record2, "modelInvocable", subject);
+  if (!modelInvocable.ok) return modelInvocable;
+  const userInvocable = readOptionalBooleanField(record2, "userInvocable", subject);
+  if (!userInvocable.ok) return userInvocable;
+  const source = readOptionalStringField(record2, "source", subject, { minLength: 1 });
+  if (!source.ok) return source;
+  const hasPair = modelInvocable.value !== void 0 && userInvocable.value !== void 0;
+  const hasAnyInvocation = modelInvocable.value !== void 0 || userInvocable.value !== void 0;
+  if (hasAnyInvocation && !hasPair) {
+    return fail(`${subject} \u7684 modelInvocable \u4E0E userInvocable \u5FC5\u987B\u6210\u5BF9\u51FA\u73B0`);
+  }
+  if (hasAnyInvocation && !address.value.startsWith("skill:")) {
+    return fail(`${subject} \u53EA\u6709 skill: \u5730\u5740\u5141\u8BB8\u643A\u5E26\u6280\u80FD\u5B57\u6BB5`);
+  }
+  if (source.value !== void 0 && !hasPair) {
+    return fail(`${subject} \u51FA\u73B0 source \u65F6 modelInvocable \u4E0E userInvocable \u5FC5\u987B\u540C\u65F6\u5728\u573A`);
+  }
   return {
     ok: true,
     value: {
@@ -17807,7 +17853,9 @@ function readDefaultsEntry(value, subject) {
       shortName: shortName.value,
       ...description.value === void 0 ? {} : { description: description.value },
       protected: isProtected.value,
-      reserved: reserved.value
+      reserved: reserved.value,
+      ...hasPair ? { modelInvocable: modelInvocable.value, userInvocable: userInvocable.value } : {},
+      ...source.value === void 0 ? {} : { source: source.value }
     }
   };
 }
@@ -17823,9 +17871,24 @@ function readDefaultsGroup(value, subject) {
   if (!address.ok) return address;
   const tools = readArrayField(record2, "tools", subject, readDefaultsEntry);
   if (!tools.ok) return tools;
+  const source = readOptionalEnumField(record2, "source", subject, GROUP_SOURCES);
+  if (!source.ok) return source;
+  const countsTokens = readOptionalBooleanField(record2, "countsTokens", subject);
+  if (!countsTokens.ok) return countsTokens;
+  const hasGroupMeta = source.value !== void 0 || countsTokens.value !== void 0;
+  if (hasGroupMeta && kind.value !== "mcp") {
+    return fail(`${subject} \u7684 source/countsTokens \u53EA\u5141\u8BB8\u51FA\u73B0\u5728 mcp \u5206\u7EC4\u4E0A`);
+  }
   return {
     ok: true,
-    value: { kind: kind.value, key: key.value, address: address.value, tools: tools.value }
+    value: {
+      kind: kind.value,
+      key: key.value,
+      address: address.value,
+      tools: tools.value,
+      ...source.value === void 0 ? {} : { source: source.value },
+      ...countsTokens.value === void 0 ? {} : { countsTokens: countsTokens.value }
+    }
   };
 }
 function readNullableDefaultsUniverse(value, subject) {
@@ -17839,12 +17902,24 @@ function readNullableDefaultsUniverse(value, subject) {
   if (!skillsAvailable.ok) return skillsAvailable;
   const groups = readArrayField(record2, "groups", subject, readDefaultsGroup);
   if (!groups.ok) return groups;
+  const ungroupedMcp = readOptionalCountField(record2, "ungroupedMcp", subject);
+  if (!ungroupedMcp.ok) return ungroupedMcp;
+  const skillsComplete = readOptionalBooleanField(record2, "skillsComplete", subject);
+  if (!skillsComplete.ok) return skillsComplete;
+  const foreignProjectMcp = readOptionalCountField(record2, "foreignProjectMcp", subject);
+  if (!foreignProjectMcp.ok) return foreignProjectMcp;
   return {
     ok: true,
     value: {
       layerReady: layerReady.value,
       skillsAvailable: skillsAvailable.value,
-      groups: groups.value
+      groups: groups.value,
+      // 工作区宇宙专属字段缺省不补键：缺省语义由类型注释约定（`ungroupedMcp` = 0、
+      // `skillsComplete` = 未观测 / 旧响应、`foreignProjectMcp` = 0），伪造 `undefined`
+      // 键会让 JSON 多一项。
+      ...ungroupedMcp.value === void 0 ? {} : { ungroupedMcp: ungroupedMcp.value },
+      ...skillsComplete.value === void 0 ? {} : { skillsComplete: skillsComplete.value },
+      ...foreignProjectMcp.value === void 0 ? {} : { foreignProjectMcp: foreignProjectMcp.value }
     }
   };
 }
@@ -20351,7 +20426,7 @@ async function handleWorkspace(deps, request) {
     if (!precheck.ok) return precheck.failure;
   }
   const choices = choicesOf(deps);
-  const universe = resolved.target.kind === "session" ? universeOf(deps, resolved.target.session) : null;
+  const universeOfTarget = async () => resolved.target.kind === "session" ? universeOf(deps, resolved.target.session) : readWorkspaceUniverseOf(deps, resolved.key);
   if (action === "read") {
     const reading = await workspaceFileOf(deps);
     const value2 = {
@@ -20359,7 +20434,7 @@ async function handleWorkspace(deps, request) {
       choices,
       // read 不写任何东西（契约字段语义）。
       changed: [],
-      universe
+      universe: await universeOfTarget()
     };
     return checked(parseWorkspaceValue(value2), deps, "workspace \u54CD\u5E94");
   }
@@ -20375,7 +20450,7 @@ async function handleWorkspace(deps, request) {
     }),
     choices,
     changed: [...disabled],
-    universe
+    universe: await universeOfTarget()
   };
   return checked(parseWorkspaceValue(value), deps, "workspace \u54CD\u5E94");
 }
@@ -20481,6 +20556,14 @@ async function writeWorkspaceOf(deps, resolved, action, texts, subject) {
 }
 function workspaceSubjectOf(request) {
   return request.sessionId ?? request.workspacePath ?? "";
+}
+async function readWorkspaceUniverseOf(deps, key) {
+  try {
+    return await deps.readWorkspaceUniverse(key);
+  } catch (error51) {
+    deps.log.warn(`\u8BFB\u53D6\u5DE5\u4F5C\u533A\u300C${key}\u300D\u7684\u5B87\u5B99\u5931\u8D25\uFF08\u9875\u9762\u5C06\u53EA\u663E\u793A\u6B8B\u7559\u533A\uFF09\uFF1A${messageOf5(error51)}`);
+    return EMPTY_UNIVERSE2;
+  }
 }
 async function settledSkills(deps, session) {
   const layer = deps.layerFor(session.id);
@@ -21699,6 +21782,205 @@ function sample(names) {
   return names.length > REPORTED_NAMES ? `${head}, +${names.length - REPORTED_NAMES}` : head;
 }
 
+// src/host/workspace-universe.ts
+var MCP_SERVER_PATTERN = /^mcp__([A-Za-z0-9_-]+?)__(.+)$/;
+var MCP_PUBLIC_PREFIX4 = "mcp__";
+var SKILL_NAME3 = "skill";
+var BUILTIN_GROUP_KEY2 = "builtin";
+var NO_GROUPS2 = Object.freeze([]);
+var EMPTY_WORKSPACE_UNIVERSE = Object.freeze({
+  layerReady: false,
+  skillsAvailable: false,
+  groups: NO_GROUPS2
+});
+function buildWorkspaceUniverse(facts) {
+  const descriptions = /* @__PURE__ */ new Map();
+  for (const schema of facts.schemas) descriptions.set(schema.name, schema.description ?? "");
+  const servers = /* @__PURE__ */ new Map();
+  const builtin = [];
+  let ungroupedMcp = 0;
+  let hasSkillTool = false;
+  for (const name2 of sortedUniqueTexts(facts.schemas.map((schema) => schema.name))) {
+    if (name2.startsWith(MCP_PUBLIC_PREFIX4)) {
+      const match = MCP_SERVER_PATTERN.exec(name2);
+      if (match === null) {
+        ungroupedMcp += 1;
+        continue;
+      }
+      const server = match[1];
+      const suffix = match[2];
+      const entry = defaultsEntryOf(
+        name2,
+        suffix,
+        formatAddress({ kind: "mcp-tool", server, pattern: suffix }),
+        descriptions,
+        facts.protectedNames
+      );
+      const bucket = servers.get(server);
+      if (bucket === void 0) servers.set(server, [entry]);
+      else bucket.push(entry);
+      continue;
+    }
+    if (name2 === SKILL_NAME3) {
+      hasSkillTool = true;
+      continue;
+    }
+    builtin.push(
+      defaultsEntryOf(name2, name2, formatAddress({ kind: "tool", name: name2 }), descriptions, facts.protectedNames)
+    );
+  }
+  const projectServers = facts.projectServers;
+  const projectServersHere = facts.projectServersHere;
+  let foreignProjectMcp = 0;
+  const groups = [];
+  for (const server of Array.from(servers.keys()).sort(compareText6)) {
+    const tools = servers.get(server);
+    if (tools === void 0) continue;
+    const isProject = projectServers !== void 0 && projectServers.has(server);
+    if (isProject && (projectServersHere === null || projectServersHere === void 0 || !projectServersHere.has(server))) {
+      foreignProjectMcp += 1;
+      continue;
+    }
+    groups.push({
+      kind: "mcp",
+      key: server,
+      address: formatAddress({ kind: "mcp-group", server }),
+      tools,
+      // R15 组级标注：来源（项目级只在归属命中时可达此处）+ token 计入（MCP 恒真）。
+      source: isProject ? "project" : "user",
+      countsTokens: true
+    });
+  }
+  const skills = facts.skills;
+  if (hasSkillTool || skills !== void 0 && skills.length > 0) {
+    groups.push({
+      kind: "skill",
+      key: SKILL_NAME3,
+      address: formatAddress({ kind: "tool", name: SKILL_NAME3 }),
+      tools: workspaceSkillEntriesOf(skills, facts.protectedNames)
+    });
+  }
+  if (builtin.length > 0) {
+    groups.push({ kind: "builtin", key: BUILTIN_GROUP_KEY2, address: null, tools: builtin });
+  }
+  return {
+    layerReady: true,
+    skillsAvailable: skills !== void 0,
+    groups,
+    ...ungroupedMcp > 0 ? { ungroupedMcp } : {},
+    ...foreignProjectMcp > 0 ? { foreignProjectMcp } : {},
+    ...skills !== void 0 && facts.skillsComplete !== void 0 ? { skillsComplete: facts.skillsComplete } : {}
+  };
+}
+function workspaceSkillEntriesOf(skills, protectedNames) {
+  if (skills === void 0) return [];
+  const descriptions = /* @__PURE__ */ new Map();
+  for (const skill of skills) descriptions.set(skill.name, skill.description);
+  return skills.filter((skill) => skill.invocation.modelInvocable || skill.invocation.userInvocable).map((skill) => ({
+    ...defaultsEntryOf(
+      skill.name,
+      skill.name,
+      formatAddress({ kind: "skill", name: skill.name }),
+      descriptions,
+      protectedNames
+    ),
+    modelInvocable: skill.invocation.modelInvocable,
+    userInvocable: skill.invocation.userInvocable,
+    // `source` 原值上网（④ D5 / D14：locale 短标签是 client 的事）；快照缺来源时不带该键。
+    ...skill.source === void 0 ? {} : { source: skill.source }
+  })).sort((left, right) => compareText6(left.shortName, right.shortName));
+}
+function createWorkspaceUniverseReader(access) {
+  let toolsAbsentWarned = false;
+  let attributionFailedWarned = false;
+  return async (workspacePath) => {
+    const tools = access.get("tools");
+    if (tools === void 0) {
+      if (!toolsAbsentWarned) {
+        toolsAbsentWarned = true;
+        access.log.warn("\u5DE5\u5177\u6CE8\u518C\u8868\u670D\u52A1\u7F3A\u5E2D\uFF0C\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u9875\u9762\u65E0\u6E05\u5355\u53EF\u5217\uFF08\u754C\u9762\u5C06\u53EA\u5C55\u793A\u6B8B\u7559\u533A\uFF09");
+      }
+      return EMPTY_WORKSPACE_UNIVERSE;
+    }
+    let schemas;
+    try {
+      schemas = tools.schemas();
+    } catch (error51) {
+      access.log.warn(`\u8BFB\u53D6\u5168\u5C40\u5DE5\u5177\u6CE8\u518C\u8868\u5931\u8D25\uFF0C\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u9875\u9762\u65E0\u6E05\u5355\u53EF\u5217\uFF1A${messageOf6(error51)}`);
+      return EMPTY_WORKSPACE_UNIVERSE;
+    }
+    let projectServers;
+    let projectServersHere;
+    const projectMcp = access.get("projectMcp");
+    if (projectMcp !== void 0) {
+      try {
+        projectServers = projectMcp.managedServerNames();
+      } catch (error51) {
+        access.log.warn(`\u8BFB\u53D6\u9879\u76EE\u7EA7 MCP \u58F0\u660E\u6E05\u5355\u5931\u8D25\uFF0C\u5DE5\u4F5C\u533A\u9ED8\u8BA4\u6863\u9875\u9762\u65E0\u6E05\u5355\u53EF\u5217\uFF1A${messageOf6(error51)}`);
+        return EMPTY_WORKSPACE_UNIVERSE;
+      }
+      try {
+        projectServersHere = await projectMcp.serverNamesForWorkspace(workspacePath);
+      } catch (error51) {
+        projectServersHere = null;
+        if (!attributionFailedWarned) {
+          attributionFailedWarned = true;
+          access.log.warn(
+            `\u8BFB\u53D6\u5DE5\u4F5C\u533A ${workspacePath} \u7684\u9879\u76EE\u7EA7 MCP \u5F52\u5C5E\u5931\u8D25\uFF0C\u9879\u76EE\u7EA7\u670D\u52A1\u5668\u6682\u4E0D\u5217\u5165\uFF08fail-closed\uFF09\uFF1A${messageOf6(error51)}`
+          );
+        }
+      }
+    }
+    const skills = access.get("skills");
+    if (skills === void 0) {
+      return buildWorkspaceUniverse({
+        schemas,
+        protectedNames: access.protectedNames,
+        ...projectServers === void 0 ? {} : { projectServers },
+        ...projectServersHere === void 0 ? {} : { projectServersHere }
+      });
+    }
+    let snapshot2;
+    try {
+      snapshot2 = await skills.snapshot({ cwd: workspacePath });
+    } catch (error51) {
+      access.log.warn(`\u8BFB\u53D6\u5DE5\u4F5C\u533A ${workspacePath} \u7684\u6280\u80FD\u6E05\u5355\u5931\u8D25\uFF0C\u6280\u80FD\u884C\u964D\u7EA7\u4E3A\u7A7A\uFF1A${messageOf6(error51)}`);
+      return buildWorkspaceUniverse({
+        schemas,
+        protectedNames: access.protectedNames,
+        ...projectServers === void 0 ? {} : { projectServers },
+        ...projectServersHere === void 0 ? {} : { projectServersHere }
+      });
+    }
+    return buildWorkspaceUniverse({
+      schemas,
+      skills: snapshot2.skills,
+      skillsComplete: snapshot2.complete,
+      protectedNames: access.protectedNames,
+      ...projectServers === void 0 ? {} : { projectServers },
+      ...projectServersHere === void 0 ? {} : { projectServersHere }
+    });
+  };
+}
+function messageOf6(error51) {
+  if (error51 instanceof Error) return error51.message;
+  try {
+    return String(error51);
+  } catch {
+    return "\u4E0D\u53EF\u6E32\u67D3\u7684\u9519\u8BEF";
+  }
+}
+function sortedUniqueTexts(texts) {
+  const unique = Array.from(new Set(texts));
+  unique.sort(compareText6);
+  return unique;
+}
+function compareText6(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
 // src/host/index.ts
 var name = "session-tool-toggle";
 var inject = ["agents", "tools"];
@@ -21858,7 +22140,7 @@ function apply(ctx, config2) {
   }
   function workspaceChoices() {
     const registered = workspaceRegistry?.list() ?? [];
-    return registered.map((workspace) => ({ key: workspace.path, title: workspace.title })).sort((left, right) => compareText6(left.title, right.title) || compareText6(left.key, right.key));
+    return registered.map((workspace) => ({ key: workspace.path, title: workspace.title })).sort((left, right) => compareText7(left.title, right.title) || compareText7(left.key, right.key));
   }
   async function readOrSeed(session) {
     const current = store.read(session);
@@ -21995,7 +22277,9 @@ function apply(ctx, config2) {
   };
   const rpcDeps = {
     ...controlDeps,
-    agents: agentsPort
+    agents: agentsPort,
+    // 按工作区路径读宇宙：reader **永不抛错**（空宇宙是读数不是错误），rpc.ts 的兜底只是防线。
+    readWorkspaceUniverse: createWorkspaceUniverseReader({ get: (name2) => ctx.get(name2), protectedNames, log })
   };
   ctx.inject(["connection", "webServer"], (scope) => {
     const connection = scope.root.get("connection");
@@ -22125,7 +22409,7 @@ function readPathOption(value, key, log) {
 function isAbsolutePath(value) {
   return value.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(value);
 }
-function compareText6(left, right) {
+function compareText7(left, right) {
   if (left < right) return -1;
   if (left > right) return 1;
   return 0;

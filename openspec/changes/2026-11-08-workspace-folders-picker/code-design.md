@@ -850,9 +850,9 @@ pnpm --filter dsh-plugin-multi-root-workspace test        # 全量
    （`plugins/multi-root-workspace/scripts/check-docs.mjs:15-38`，`absolute-paths: true` 且 `exemptions.absolutePaths: []`），`/usr/local/...`、`/home/...`
    一律判红。上游证据改写为「包名 + 文件 + 符号」（如「`@deepseek-ai/dsh-client-ui-workspace` 的
    `pickDirectory` 只抛 message」）；确需贴原始安装路径时落 `plugins/multi-root-workspace/artifacts/`
-   （仓级扫描的 `noScanPaths` 覆盖该目录），README 侧按「验证证据：[…](artifacts/…)——结论：…」行引用。
+   （仓级扫描的 `noScanPaths` 覆盖该目录），README 侧按「验证证据：方括号标题 + 圆括号 `artifacts/` 相对路径的 markdown 链接——结论：…」行引用。
 4. 文档不复制 11 条不变量，只链接 `AGENTS.md` / ADR 索引（Single Source of Truth）；
-   引用 ADR 一律带相对路径（如 `[ADR-0006](./decisions/ADR-0006-client-ui-host-tokens.md)`），不裸写编号。
+   引用 ADR 一律带相对路径（如 `[ADR-0006](../../../plugins/multi-root-workspace/docs/decisions/ADR-0006-client-ui-host-tokens.md)`），不裸写编号。
 5. 所有文档链接用相对路径（`docs:check` 的 `markdown-links` 会校验目标存在）。
 
 **验收**

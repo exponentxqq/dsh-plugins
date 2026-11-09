@@ -2,8 +2,8 @@
  * Connection RPC 通道的宿主半 dispatcher：端点派发 → 契约 parser → 控制内核 → 信封映射。
  *
  * 本模块是**纯逻辑**：不认识 Cordis、不注册通道、不写任何宿主状态；所有宿主面（状态端口、
- * 层句柄、默认档 IO、全局层读数、agent 表、诊断出口、工作区档端口与会话归属）都由
- * {@link RpcDeps} 注入，因此九条失败码与五条成功路径都能用假端口在单测里驱动
+ * 层句柄、默认档 IO、全局层读数、agent 表、诊断出口、工作区档端口、工作区宇宙端口与会话归属）
+ * 都由 {@link RpcDeps} 注入，因此九条失败码与五条成功路径都能用假端口在单测里驱动
  * （`test/rpc.test.ts`）。通道挂载属任务 9.5
  * （`src/host/index.ts` 的 `connection.rpc.handle(CHANNEL, dispatcher)`；挂载经
  * `callerConnectionOf` 适配 cordis 4.1.0 traceable shadow——直接在定义点切片读数上挂载
@@ -169,12 +169,21 @@ const DEFAULT_KERNEL: RpcKernel = Object.freeze({
  *
  * `ControlDeps` 的全部字段（状态端口、层句柄、默认档路径与 IO、保护名单、日志、
  * 工作区档四件套）与命令面**共用同一份对象**——这正是 D14「不存在两份状态」在类型上的表达；
- * 这里只补两件命令面不需要的东西：agent 表（判 `session-not-live`）与可选的单测内核。
+ * 这里补三件命令面不需要的东西：agent 表（判 `session-not-live`）、工作区宇宙端口
+ * （路径形态的 `workspace` 响应清单）与可选的单测内核。
  * 工具描述不另设注入面：它只从本会话层（`layer.visibleSchemas()`）读（H6）。
  */
 export interface RpcDeps extends ControlDeps {
   /** 会话寻址端口（`session-not-live` 判定与拿 `SessionLike` 都靠它）。 */
   readonly agents: AgentLookup
+  /**
+   * 按工作区规范路径读该工作区的宇宙（`{workspacePath}` 寻址的 `workspace` 响应用它）。
+   *
+   * 真实实现（装配点，任务 3.2）是 `createWorkspaceUniverseReader` 的一行映射：
+   * 工具读**未受限全局**注册表、技能按该路径现取，归组口径照搬 `/inventory`。
+   * 实现必须永不抛错（抛错也由 rpc.ts 兜底为空宇宙，见 {@link readWorkspaceUniverseOf}）。
+   */
+  readonly readWorkspaceUniverse: (workspacePath: string) => Promise<DefaultsUniverse>
   /** 内核注入面（缺省 {@link DEFAULT_KERNEL}；单测用来注入坏形状 / 抛错）。 */
   readonly kernel?: RpcKernel
 }
@@ -412,10 +421,17 @@ async function handleWorkspace(deps: RpcDeps, request: WorkspaceRequest): Promis
   }
 
   const choices = choicesOf(deps)
-  // 宇宙只对 `{sessionId}` 寻址有意义（U1：目标无关，读的是本会话两读）；路径形态没有
-  // 会话视角，按契约给 `null`（D-24：写响应同样带宇宙，否则客户端写后替换会丢清单）。
-  const universe =
-    resolved.target.kind === 'session' ? universeOf(deps, resolved.target.session) : null
+  // 宇宙按目标形态分派（U1 / D-24）：`{sessionId}` 仍读本会话两读的宇宙（原样，面板零回归）；
+  // `{workspacePath}` 读**该工作区**的宇宙（`resolved.key` 是登记表里的规范路径，不是请求原文），
+  // 两种寻址都给完整清单，不再按契约给 `null`。闭包在**档动作完成之后**才求值（读路径读完
+  // 档、写路径写盘成功后），「技能目录发现」因此不拖慢一次开关写入；写响应同样带宇宙
+  // （G7：客户端写后用响应整份替换，缺了清单会消失），两条路径共用这一份口径。
+  const universeOfTarget = async (): Promise<DefaultsUniverse> =>
+    resolved.target.kind === 'session'
+      ? universeOf(deps, resolved.target.session)
+      : readWorkspaceUniverseOf(deps, resolved.key)
+
+  // 读路径：先读档，再算宇宙。
   if (action === 'read') {
     const reading = await workspaceFileOf(deps)
     const value: WorkspaceValue = {
@@ -423,11 +439,12 @@ async function handleWorkspace(deps: RpcDeps, request: WorkspaceRequest): Promis
       choices,
       // read 不写任何东西（契约字段语义）。
       changed: [],
-      universe,
+      universe: await universeOfTarget(),
     }
     return checked(parseWorkspaceValue(value), deps, 'workspace 响应')
   }
 
+  // 写路径：先写盘，成功后再算宇宙。
   const attempt = await writeWorkspaceOf(deps, resolved, action, request.addresses ?? [], workspaceSubjectOf(request))
   if (!attempt.ok) return attempt.failure
 
@@ -443,7 +460,7 @@ async function handleWorkspace(deps: RpcDeps, request: WorkspaceRequest): Promis
     }),
     choices,
     changed: [...disabled],
-    universe,
+    universe: await universeOfTarget(),
   }
   return checked(parseWorkspaceValue(value), deps, 'workspace 响应')
 }
@@ -651,6 +668,25 @@ async function writeWorkspaceOf(
  */
 function workspaceSubjectOf(request: WorkspaceRequest): string {
   return request.sessionId ?? request.workspacePath ?? ''
+}
+
+/**
+ * 读工作区宇宙：端口抛错不让整次 workspace 读失败。
+ *
+ * 档本身仍可读（关闭集 / 两态不受影响），只是清单退化为 {@link EMPTY_UNIVERSE}
+ * （`layerReady:false`，页面只留残留区）；与 `attributionOf` / `choicesOf` 同一条纪律——
+ * 软读数的失败只降级 + warn，不放大成端点失败。
+ * @param deps - 依赖注入面。
+ * @param key - 工作区规范路径（`resolved.key`，不是请求原文）。
+ * @returns 该工作区的宇宙（永不抛错）。
+ */
+async function readWorkspaceUniverseOf(deps: RpcDeps, key: string): Promise<DefaultsUniverse> {
+  try {
+    return await deps.readWorkspaceUniverse(key)
+  } catch (error) {
+    deps.log.warn(`读取工作区「${key}」的宇宙失败（页面将只显示残留区）：${messageOf(error)}`)
+    return EMPTY_UNIVERSE
+  }
 }
 
 /**

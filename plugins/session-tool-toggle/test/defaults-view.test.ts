@@ -9,7 +9,9 @@
  * 3. `residualOf`：排序差集、去重、全在档时为空；
  * 4. `universeOfSnapshot`：`mcp`/`builtin` 投影丢 `disabled`、技能组行换 `skill:<name>`、
  *    `notices` 的 `skills-unavailable` → `skillsAvailable:false`、空 `groups`；
- * 5. 纯函数性：同输入两次调用深相等、入参不被改写。
+ * 5. 纯函数性：同输入两次调用深相等、入参不被改写；
+ * 6. `filterDefaultsView`（`code-design.md` ③3.4，G4.3）：空查询 identity、组键 / 行 /
+ *    描述 / 残留命中、大小写与空白归一、无命中、残差不污染（差集按未过滤宇宙求差再筛词）。
  *
  * 全部用最小 `DefaultsUniverse` / `PanelSnapshot` 字面量夹具，不碰任何真实 IO。
  */
@@ -24,6 +26,7 @@ import type {
 } from '../src/contract.ts'
 import {
   defaultsCountsOf,
+  filterDefaultsView,
   residualOf,
   switchAddressesOf,
   universeOfSnapshot,
@@ -444,5 +447,107 @@ describe('纯函数性', () => {
 
     expect(first).toEqual(second)
     expect(input).toEqual(before)
+  })
+})
+
+describe('filterDefaultsView', () => {
+  it('空查询（undefined / 空串 / 全空白）返回入参 identity，残差与 residualOf 一致', () => {
+    const universe = fixtureUniverse()
+    const disabled = ['zzz', 'mcp:a', 'aaa']
+    // 基准锚点：`mcp:a` 在宇宙内被差集剔除，只剩宇宙外的两项（升序）。
+    expect(residualOf(universe, disabled)).toEqual(['aaa', 'zzz'])
+
+    for (const query of [undefined, '', '   ']) {
+      const view = filterDefaultsView(universe, disabled, query)
+      // 未过滤：宇宙原样返回入参（identity 稳定），不是深相等的新对象。
+      expect(view.universe).toBe(universe)
+      expect(view.filtering).toBe(false)
+      // 残差口径与现行 residualOf 完全一致（code-design.md ③3.4）。
+      expect(view.residual).toEqual(residualOf(universe, disabled))
+    }
+
+    // null 宇宙 + 空查询：identity 语义同样成立（null 原样透传）。
+    expect(filterDefaultsView(null, disabled, undefined)).toEqual({
+      universe: null,
+      residual: ['aaa', 'mcp:a', 'zzz'],
+      filtering: false,
+    })
+  })
+
+  it('组键命中：整组保留（组开关 + 全部行），其余组滤掉', () => {
+    const base = fixtureUniverse()
+    // 查询词 'skill' 命中技能组键：组级命中保留整组（组开关行 + alpha/beta），
+    // mcp / 内置组的键与行都不含 'skill'，被滤掉。
+    expect(filterDefaultsView(base, [], 'skill').universe).toEqual(
+      fixtureUniverse({ groups: [base.groups[1]] }),
+    )
+    // 'builtin' 键同理：内置组整组保留。
+    expect(filterDefaultsView(base, [], 'builtin').universe).toEqual(
+      fixtureUniverse({ groups: [base.groups[2]] }),
+    )
+  })
+
+  it('行命中（shortName / address）保留整组', () => {
+    const base = fixtureUniverse()
+    // shortName 命中：alpha 行命中 → 技能组整组保留（beta 行仍在）。
+    expect(filterDefaultsView(base, [], 'alpha').universe).toEqual(
+      fixtureUniverse({ groups: [base.groups[1]] }),
+    )
+    // address 命中：y 行地址命中 → mcp 组整组保留（x 行仍在）。
+    expect(filterDefaultsView(base, [], 'mcp:a::y').universe).toEqual(
+      fixtureUniverse({ groups: [base.groups[0]] }),
+    )
+  })
+
+  it('描述命中：命中行的整组保留', () => {
+    const base = fixtureUniverse()
+    // 夹具里只有 mcp 组 y 行带 description 'Y 工具'：描述命中 → 整组保留。
+    expect(filterDefaultsView(base, [], '工具').universe).toEqual(
+      fixtureUniverse({ groups: [base.groups[0]] }),
+    )
+  })
+
+  it('残留 chip 按 address 包含命中，查询词大小写归一', () => {
+    const disabled = ['tool:zzz', 'aaa', 'mcp:a']
+    const view = filterDefaultsView(fixtureUniverse(), disabled, 'zzz')
+    // 'zzz' 不命中任何组（展示面清空）；'tool:zzz'（宇宙外）address 含查询词保留，
+    // 'aaa' 不含被筛掉，'mcp:a' 本就不是残留。
+    expect(view.universe).toEqual({ layerReady: true, skillsAvailable: true, groups: [] })
+    expect(view.residual).toEqual(['tool:zzz'])
+    // 查询词大写：归一化后等价命中。
+    expect(filterDefaultsView(fixtureUniverse(), disabled, 'ZZZ').residual).toEqual(['tool:zzz'])
+  })
+
+  it('查询词大小写与前后空白归一后匹配', () => {
+    const base = fixtureUniverse()
+    const expected = fixtureUniverse({ groups: [base.groups[1]] })
+    // 'ALPHA'（大写）与 '  Alpha  '（前后空白）trim + 小写后都与 'alpha' 等价命中。
+    expect(filterDefaultsView(base, [], 'ALPHA').universe).toEqual(expected)
+    expect(filterDefaultsView(base, [], '  Alpha  ').universe).toEqual(expected)
+  })
+
+  it('无命中：组清空、残留清空，查询词仍视为生效', () => {
+    const view = filterDefaultsView(fixtureUniverse(), ['zzz'], '不存在的词')
+    // 过滤启用时宇宙是新对象：groups 清空但 layerReady / skillsAvailable 保留。
+    expect(view.universe).toEqual({ layerReady: true, skillsAvailable: true, groups: [] })
+    expect(view.residual).toEqual([])
+    expect(view.filtering).toBe(true)
+  })
+
+  it('残差不污染：差集按未过滤宇宙求差，再筛查询词', () => {
+    const disabled = ['tool:bash', 'tool:zzz']
+    // builtin 组被 'zzz' 滤出展示面，但 'tool:bash' 在未过滤宇宙内——
+    // 若差集错误地在过滤后宇宙上求，它会与 'tool:zzz' 一起被误判为残留。
+    expect(filterDefaultsView(fixtureUniverse(), disabled, 'zzz').residual).toEqual(['tool:zzz'])
+    // 残差再按查询词筛：'bash' 命中 builtin 组展示，'tool:zzz' 不含查询词而被隐藏。
+    expect(filterDefaultsView(fixtureUniverse(), disabled, 'bash').residual).toEqual([])
+  })
+
+  it('null 宇宙 + 查询词：universe 原样 null，残差为全集再筛查询词', () => {
+    const view = filterDefaultsView(null, ['zzz', 'aaa', 'mcp:a'], 'zzz')
+    expect(view.universe).toBeNull()
+    expect(view.filtering).toBe(true)
+    // null 宇宙求差 = 整份关闭集（排序去重），再按 address 包含筛掉 'aaa' / 'mcp:a'。
+    expect(view.residual).toEqual(['zzz'])
   })
 })

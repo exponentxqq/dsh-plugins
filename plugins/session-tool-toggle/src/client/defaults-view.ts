@@ -4,7 +4,8 @@
  * 三个集合运算把「目标无关的工具宇宙」与「目标档的关闭集」合成界面要的三计数与残留区，
  * 第四个把 `PanelSnapshot` 投影成**用户级默认档的宇宙**：面板快照的 wire 形状不含宇宙
  * （D-19 零新增字段），客户端用快照里的 `groups` + `skills` 现投影一份，与统一弹窗形态
- * 直接拿到的 `WorkspaceValue.universe` 同构。
+ * 直接拿到的 `WorkspaceValue.universe` 同构；第五个按全局过滤词剪枝宇宙与残差（页面形态，
+ * `code-design.md` ③ 3.4）。
  *
  * **纯函数纪律**：不读时钟、不做 IO、不改入参；同一输入两次调用深相等。本模块只
  * `import type` `contract.ts`，不 import 任何宿主模块或 React，因此可同时被浏览器
@@ -126,6 +127,91 @@ export function residualOf(
     if (!addresses.has(address)) residual.add(address)
   }
   return Array.from(residual).sort()
+}
+
+/** 全局过滤后的默认档视图（页面形态的三件套读数；`code-design.md` ③ 3.4）。 */
+export interface DefaultsFilterResult {
+  /** 过滤后的宇宙；未过滤 / 宇宙为 null 时**原样返回入参**（identity 稳定）。 */
+  readonly universe: DefaultsUniverse | null
+  /** 过滤后仍展示的残留地址（差集始终相对**未过滤**宇宙计算，再筛查询词）。 */
+  readonly residual: readonly string[]
+  /** 查询词是否生效（trim 后非空）。 */
+  readonly filtering: boolean
+}
+
+/**
+ * 页面形态的全局过滤：宇宙按查询词剪枝，残差按地址再筛。
+ *
+ * 匹配规则（查询词 trim + `toLowerCase()` 后做「包含」判定，大小写不敏感）：
+ * - 组级命中 = 组键（MCP server 名 / `builtin`）命中，或该组任一行命中 → **整组保留**；
+ * - 行级命中 = `shortName` / `address` / `description` 包含查询词；
+ * - 残留 chip = 地址包含查询词。
+ *
+ * 关键口径（防线：过滤污染残差）：`residual` 的差集始终相对**未过滤**宇宙计算——
+ * 先 `residualOf(universe, disabled)` 再按地址筛查询词。过滤只剪枝展示清单，不改变
+ * 「哪些档内地址不在宇宙里」的事实；若先剪枝再算差集，收窄的清单会让本该展示的
+ * 残留 chip 误判成「宇宙里有」而消失。
+ *
+ * 未过滤（`query` 缺省 / trim 后为空）时**原样返回入参**（`universe` 保持 identity），
+ * `residual` 与 {@link residualOf} 完全一致。宇宙为 `null` 时没有可剪枝的清单，
+ * `universe` 照返 `null`、只有残差参与筛选。过滤后的宇宙按引用展开保留宇宙级字段
+ * （`skillsAvailable` / `ungroupedMcp` / `skillsComplete`），只替换 `groups`。
+ *
+ * 纯函数：不改入参；同一输入两次调用深相等（未过滤分支连 identity 都相同）。
+ *
+ * @param universe - 目标无关的工具宇宙（允许 `null` / 未就绪）。
+ * @param disabled - 目标档的关闭集（允许乱序；重复项按地址去重）。
+ * @param query - 全局过滤词；`undefined` = 不启用。
+ * @returns 过滤后的视图三件套。
+ */
+export function filterDefaultsView(
+  universe: DefaultsUniverse | null,
+  disabled: readonly string[],
+  query: string | undefined,
+): DefaultsFilterResult {
+  const needle = (query ?? '').trim().toLowerCase()
+  if (needle === '') {
+    // 未过滤：宇宙原样返回（identity 稳定），残差走既有口径。
+    return { universe, residual: residualOf(universe, disabled), filtering: false }
+  }
+  // 残差相对未过滤宇宙计算，再按地址筛查询词（差集事实不被过滤改变）。
+  const residual = residualOf(universe, disabled).filter((address) =>
+    address.toLowerCase().includes(needle),
+  )
+  if (universe === null) {
+    return { universe, residual, filtering: true }
+  }
+  const groups: DefaultsGroup[] = []
+  for (const group of universe.groups) {
+    const filtered = filteredGroupOf(group, needle)
+    if (filtered !== null) groups.push(filtered)
+  }
+  return { universe: { ...universe, groups }, residual, filtering: true }
+}
+
+/**
+ * 按查询词过滤一个组：组级命中 = 组键命中或任一行命中，命中即保留整组（不筛行）。
+ * @param group - 待过滤的组。
+ * @param needle - 已 trim + 小写的查询词。
+ * @returns 过滤后的组；组键与全部行都不命中时 `null`（空组丢弃）。
+ */
+function filteredGroupOf(group: DefaultsGroup, needle: string): DefaultsGroup | null {
+  if (group.key.toLowerCase().includes(needle)) return group
+  const hasRowHit = group.tools.some((entry) => entryMatchesQuery(entry, needle))
+  return hasRowHit ? group : null
+}
+
+/**
+ * 行级匹配：`shortName` / `address` / `description` 任一包含查询词即命中。
+ * @param entry - 待匹配的条目。
+ * @param needle - 已 trim + 小写的查询词。
+ * @returns 是否命中。
+ */
+function entryMatchesQuery(entry: DefaultsEntry, needle: string): boolean {
+  if (entry.shortName.toLowerCase().includes(needle)) return true
+  if (entry.address.toLowerCase().includes(needle)) return true
+  const description = entry.description
+  return description !== undefined && description.toLowerCase().includes(needle)
 }
 
 /**

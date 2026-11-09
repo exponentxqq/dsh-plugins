@@ -492,6 +492,7 @@ export function buildDefaultsUniverse(inputs: DefaultsUniverseInputs): DefaultsU
 
 /**
  * 造一条宇宙条目：两个标记各查一个集合，描述按需截断（与 `toolEntryOf` 同一套判据）。
+ * 工作区宇宙复用同一叶子：会话宇宙与工作区宇宙共用本函数造条目，判据不各写一份。
  *
  * 与 `ToolEntry` 的差别只有「没有 `disabled`」：默认档界面把条目的开关状态与目标档的关闭集
  * 求交，宇宙本身不带任何档的口径。
@@ -502,7 +503,7 @@ export function buildDefaultsUniverse(inputs: DefaultsUniverseInputs): DefaultsU
  * @param protectedNames - 生效保护名单。
  * @returns 宇宙条目（无描述时不带 `description` 键）。
  */
-function defaultsEntryOf(
+export function defaultsEntryOf(
   name: string,
   shortName: string,
   address: string,
