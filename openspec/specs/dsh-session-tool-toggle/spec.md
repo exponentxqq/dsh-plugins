@@ -100,14 +100,23 @@
 - **WHEN** 会话日志插件记录通道写入失败（身份断言失败或写入抛错）
 - **THEN** 开关在本会话内继续生效（内存态），命令回执或日志明示「本会话状态不会跨 resume 保持」
 
-### Requirement: Web 配置界面（入口与构成）
+### Requirement: Web 配置界面（入口注册）
 
-插件 SHALL 在 Web 组合下提供会话级工具面的图形化配置界面：会话面板入口 SHALL 注册在会话主视图头部工具区插槽 `conversation.session.header.utilities`（list、scope session、无专属 owner props），工作区默认档分节入口 SHALL 注册在统一工作区配置弹窗的分节座位 `workspace-config.section`（list、scope root，见「工作区默认档分节」要求；该座位由 workspace-config 插件声明，本插件对它零运行时依赖）。会话面板正文 SHALL 以三卡构成：**概要卡**（会话状态事实行——会话标识 / 创建时间 / 创建时快照条数 / 持久化通道——与计数摘要）、**清单卡**（全局过滤 + 分组开关清单：MCP 服务器组 / 技能组 / 内置工具组，行含描述次行）、**命令卡**（会话级命令模板）；Modal footer SHALL 提供「恢复创建时快照」动作区（两段式确认）。面板 SHALL NOT 提供用户级默认档编辑面，SHALL NOT 提供工作区默认档编辑面。全部 UI 文案 SHALL 来自插件自有 locale 命名空间；宿主响应 SHALL 只携带稳定失败码与结构化事实，SHALL NOT 作为唯一文案来源。
+插件 SHALL 在 Web 组合下提供会话级工具面的图形化配置界面入口：会话面板入口 SHALL 注册在会话主视图头部工具区插槽 `conversation.session.header.utilities`（list、scope session、无专属 owner props）；工作区默认档分节入口 SHALL 注册在统一工作区配置弹窗的分节座位 `workspace-config.section`（list、scope root，见「工作区默认档分节」要求；该座位由 workspace-config 插件声明，本插件对它零运行时依赖）。全部 UI 文案 SHALL 来自插件自有 locale 命名空间。
 
 #### Scenario: 入口在会话头部渲染
 
 - **WHEN** Web 组合加载了本插件的浏览器半，且会话主视图头部已挂载
 - **THEN** 头部工具区出现本插件的图标按钮（`order` 位于官方三项之后），带可读的 `aria-label` 与 `aria-expanded`；点击后打开面板，面板标题与三卡文案来自本插件 locale
+
+#### Scenario: 持有者缺席时旧路径保留
+
+- **WHEN** profile 未安装 workspace-config 插件（分节座位不存在）
+- **THEN** 本插件在 footer 无任何入口注册；会话头部面板与 `/tools` 命令面仍完整可用，GUI 无报错
+
+### Requirement: Web 配置界面（面板构成）
+
+会话面板正文 SHALL 以三卡构成：**概要卡**（会话状态事实行——会话标识 / 创建时间 / 创建时快照条数 / 持久化通道——与计数摘要）、**清单卡**（全局过滤 + 分组开关清单：MCP 服务器组 / 技能组 / 内置工具组，行含描述次行）、**命令卡**（会话级命令模板）；Modal footer SHALL 提供「恢复创建时快照」动作区（两段式确认）。面板 SHALL NOT 提供用户级默认档编辑面，SHALL NOT 提供工作区默认档编辑面；宿主响应 SHALL 只携带稳定失败码与结构化事实，SHALL NOT 作为唯一文案来源。
 
 #### Scenario: 保护名单在面板上不可切换
 
@@ -118,11 +127,6 @@
 
 - **WHEN** 用户打开会话工具面面板
 - **THEN** 界面不含用户级默认档与工作区默认档的编辑区（无默认档路径行、默认档开关清单或默认档清空入口）；关闭集地址只能通过清单开关、残留区或 `/tools off` 命令改变
-
-#### Scenario: 持有者缺席时旧路径保留
-
-- **WHEN** profile 未安装 workspace-config 插件（分节座位不存在）
-- **THEN** 本插件在 footer 无任何入口注册；会话头部面板与 `/tools` 命令面仍完整可用，GUI 无报错
 
 ### Requirement: 面板读写通道与会话状态同源
 
