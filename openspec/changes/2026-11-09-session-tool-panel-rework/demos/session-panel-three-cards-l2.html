@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2026-11-09-session-tool-panel-rework · L2 · 界面演示</title>
+<style>
+  :root{
+    --brand:#2563eb; --accent:#0d9488; --danger:#dc2626; --ink:#111827; --ink2:#4b5563; --line:#e5e7eb; --bg:#f1f5f9; --card:#fff;
+    --fs1:20px; --fs2:14px; --fs3:12px; --sp:8px; --sp2:16px; --sp3:24px; --r:10px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:var(--fs2)/1.6 system-ui,"PingFang SC","Microsoft YaHei",sans-serif}
+  .bar{position:sticky;top:0;z-index:9;padding:10px var(--sp3);background:#0f172a;color:#fff;font-size:var(--fs3)}
+  .bar p{margin:2px 0}
+  .wrap{max-width:920px;margin:0 auto;padding:var(--sp3) var(--sp2)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:var(--sp2)}
+  h1,h2,h3{margin:0 0 var(--sp);line-height:1.3} h1{font-size:var(--fs1)} h2{font-size:16px}
+  .muted{color:var(--ink2)} .note{color:var(--ink2);font-size:var(--fs3);margin:4px 0}
+  .row{display:flex;flex-wrap:wrap;gap:var(--sp);align-items:center}
+  .btn{padding:6px 12px;border:1px solid var(--brand);border-radius:8px;background:var(--brand);color:#fff;font:inherit;font-size:var(--fs3);cursor:pointer}
+  .btn:hover{filter:brightness(1.08)} .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn.ghost{background:transparent;color:var(--brand)}
+  .btn.outline{background:transparent;color:var(--ink)}
+  input[type=text]{width:100%;min-width:120px;margin:0;padding:6px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:var(--fs3)}
+  .err{color:var(--danger);font-size:var(--fs3);margin:4px 0 0}
+  .tabs{display:flex;gap:var(--sp);border-bottom:1px solid var(--line);margin-bottom:var(--sp2);flex-wrap:wrap}
+  .tabs a{padding:8px 12px;color:var(--ink2);text-decoration:none;border-bottom:2px solid transparent;font-size:var(--fs3)}
+  .tabs a:target{color:var(--accent);border-color:var(--accent)}
+  /* ── Modal 模拟壳 ── */
+  .modal{max-width:760px;margin:0 auto;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:0 12px 32px rgba(15,23,42,.14);overflow:hidden}
+  .modal-head{padding:14px var(--sp2) 6px}
+  .modal-head h2{margin:0}
+  .modal-body{padding:var(--sp2);max-height:none}
+  .cardStack{display:flex;flex-direction:column;gap:var(--sp2)}
+  .cardHeader{display:flex;align-items:center;gap:var(--sp)}
+  .cardTitle{margin:0;font-size:15px;font-weight:600}
+  .push{margin-left:auto}
+  dl.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px 16px;margin:10px 0}
+  .fact{display:flex;gap:6px;font-size:var(--fs3)}
+  .fact dt{color:var(--ink2);flex:none}
+  .counters{list-style:none;display:flex;flex-wrap:wrap;gap:6px 16px;margin:8px 0;padding:0;font-size:var(--fs3)}
+  .warning{color:#b45309;font-size:var(--fs3);margin:6px 0}
+  .noticeLine{color:var(--ink2);font-size:var(--fs3);margin:6px 0}
+  /* ── 开关 ── */
+  .sw{position:relative;display:inline-block;width:34px;height:20px;flex:none}
+  .sw input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer}
+  .sw i{position:absolute;inset:0;background:#cbd5e1;border-radius:999px;transition:.15s;pointer-events:none}
+  .sw i::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;background:#fff;border-radius:50%;transition:.15s}
+  .sw input:checked + i{background:var(--brand)}
+  .sw input:checked + i::after{left:16px}
+  .sw input:disabled{cursor:not-allowed}
+  .sw.off i{background:#cbd5e1}
+  /* ── 分组清单 ── */
+  ul.groups{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:10px}
+  li.group>summary{display:flex;align-items:center;gap:8px;cursor:pointer;list-style:none;font-size:var(--fs3);padding:4px 0}
+  li.group>summary::-webkit-details-marker{display:none}
+  .chev{display:inline-block;transition:.15s;color:var(--ink2)}
+  details[open] .chev{transform:rotate(90deg)}
+  .gTitle{font-weight:600;font-size:var(--fs2)}
+  .gName{font-family:ui-monospace,monospace;color:var(--ink2);font-size:var(--fs3)}
+  .gCounts{color:var(--ink2);font-size:var(--fs3)}
+  .tag{display:inline-block;padding:0 6px;border:1px solid var(--line);border-radius:6px;font-size:11px;color:var(--ink2);background:#f8fafc}
+  .tag.warn{border-color:#fde68a;background:#fffbeb;color:#b45309}
+  .tag.ok{border-color:#99f6e4;background:#f0fdfa;color:#0f766e}
+  ul.rows{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column}
+  .row-line{display:flex;align-items:flex-start;gap:10px;padding:6px 0;border-top:1px solid #f1f5f9}
+  .rowMain{flex:1;min-width:0}
+  .rowName{font-family:ui-monospace,monospace;font-size:var(--fs3)}
+  .rowDesc{color:var(--ink2);font-size:11px;margin-top:2px}
+  .rowTags{margin-top:4px;display:flex;flex-wrap:wrap;gap:4px}
+  .pendingTag{color:var(--brand);font-size:11px}
+  /* ── 残留区 ── */
+  .residual{border-top:1px dashed var(--line);margin-top:10px;padding-top:8px}
+  .chips{list-style:none;display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 0;padding:0}
+  .chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:2px 6px 2px 10px;font-size:var(--fs3)}
+  .chip code{font-family:ui-monospace,monospace}
+  /* ── 命令卡 ── */
+  .commandRow{display:flex;gap:10px;align-items:flex-start;margin-top:8px}
+  pre.command{flex:1;margin:0;background:#0f172a;color:#e2e8f0;border-radius:8px;padding:10px 12px;font:12px/1.6 ui-monospace,monospace;overflow:auto}
+  .cmdSub{color:var(--ink2);font-size:var(--fs3);margin-top:6px}
+  .emptyBlock{border:1px dashed var(--line);border-radius:8px;padding:12px;margin-top:8px}
+  .emptyTitle{margin:0;font-size:var(--fs3);color:var(--ink2)}
+  .failureBlock{border:1px solid #fecaca;background:#fef2f2;border-radius:8px;padding:10px 12px;margin-bottom:var(--sp2)}
+  .failureBlock p{margin:2px 0;font-size:var(--fs3)}
+  .failureBlock .err{color:var(--danger)}
+  .detail{color:var(--ink2)}
+  /* ── footer 动作区 ── */
+  .modal-foot{display:flex;align-items:center;gap:var(--sp);border-top:1px solid var(--line);padding:10px var(--sp2)}
+  /* ── 改版前对照 ── */
+  .oldStack{display:flex;flex-direction:column;gap:10px}
+  .oldSec{border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:var(--fs3)}
+  .oldSec b{font-size:var(--fs2)}
+  .oldSec.fold{border-style:dashed;color:var(--ink2)}
+  .del{position:relative}
+  .keep{position:relative}
+  .del::after{content:"已移除";position:absolute;top:-8px;right:0;background:var(--danger);color:#fff;font-size:10px;border-radius:6px;padding:0 5px}
+  .keep::after{content:"保留/重排";position:absolute;top:-8px;right:0;background:var(--accent);color:#fff;font-size:10px;border-radius:6px;padding:0 5px}
+  .map{margin-top:var(--sp2)}
+  @media (max-width:480px){
+    .wrap{padding:16px 8px}
+    .bar{font-size:12px;padding:8px 12px}
+    .tabs{overflow-x:auto}
+    .commandRow{flex-direction:column}
+    dl.facts{grid-template-columns:1fr 1fr}
+  }
+</style>
+</head>
+<body>
+<header class="bar">
+  <p>变更名 <b>2026-11-09-session-tool-panel-rework</b> · 分档 <b>L2</b> · 生成 <b>2026-11-09 15:05</b> · <b>界面演示，非最终实现</b></p>
+  <p class="bar-note">示意数据：本页会话、工具、技能、计数均为虚构，仅用于确认布局与视觉。</p>
+</header>
+<main class="wrap">
+  <nav class="tabs">
+    <a href="#s-before">⓪ 改版前对照</a>
+    <a href="#s-ready">① 就绪态</a>
+    <a href="#s-empty">② 空态</a>
+    <a href="#s-busy">③ 在途与确认</a>
+    <a href="#s-degraded">④ 降级与失败</a>
+  </nav>
+
+  <!-- ════ ⓪ 改版前对照（现状六段，仅示意） ════ -->
+  <section id="s-before">
+    <h1>改版前 · 现状六段布局（对照）</h1>
+    <p class="note">现状面板自上而下六段平铺：两个默认档分区（默认收起的折叠壳）把会话开关推到屏外。角标标注去向。</p>
+    <div class="modal">
+      <div class="modal-head"><h2>工具面</h2><p class="note">本会话内可用的工具与开关；改动只影响本会话之后的模型步骤。</p></div>
+      <div class="modal-body">
+        <div class="oldStack">
+          <div class="oldSec keep"><b>① 状态摘要</b> — 可见 62 · 已关 8；创建时间 / 快照 3 项 / 会话记录</div>
+          <div class="oldSec keep"><b>② 本会话开关</b> — MCP 服务器 / 内置工具（短名行 + 开关，描述仅悬停可见）</div>
+          <div class="oldSec keep"><b>③ 技能</b> — 逐 skill 行（已生效标签）</div>
+          <div class="oldSec fold del"><b>④ 工作区默认档</b>（默认收起） — 编辑 workspaces.json · 默认关 2 · 残留 0</div>
+          <div class="oldSec fold del"><b>⑤ 用户级默认档</b>（默认收起） — 编辑 defaults.json · 默认关 1 · 残留 1</div>
+          <div class="oldSec keep"><b>⑥ 关闭集</b> — 地址 chip 列表 + 开启按钮 + 恢复创建时快照</div>
+        </div>
+      </div>
+      <div class="modal-foot"><span class="muted" style="font-size:12px">footer：刷新 · 关闭</span></div>
+    </div>
+    <div class="card map">
+      <h2>改版映射</h2>
+      <p class="note">①→概要卡；②③→清单卡（技能并入分组清单，描述次行常驻）；④⑤→移除（工作区级只在统一「工作区配置」页分节，用户级仅 <code>/tools default</code> 命令）；⑥→拆并三处（计数进概要卡、离清单地址进残留区、恢复快照进 footer）。</p>
+    </div>
+  </section>
+
+  <!-- ════ ① 就绪态（主形态） ════ -->
+  <section id="s-ready">
+    <h1>① 就绪态 · 三卡整编（主形态）</h1>
+    <div class="modal">
+      <div class="modal-head"><h2>工具面</h2><p class="note">本会话内可用的工具与开关；改动只影响本会话之后的模型步骤。</p></div>
+      <div class="modal-body">
+        <div class="cardStack">
+          <!-- 卡1 概要 -->
+          <div class="card">
+            <div class="cardHeader"><p class="cardTitle">本会话</p><span class="push"></span><button class="btn ghost">刷新</button></div>
+            <dl class="facts">
+              <div class="fact"><dt>会话</dt><dd class="muted" style="margin:0">a3f9c2e1</dd></div>
+              <div class="fact"><dt>创建时间</dt><dd class="muted" style="margin:0">14:02</dd></div>
+              <div class="fact"><dt>创建时快照</dt><dd class="muted" style="margin:0">3 项</dd></div>
+              <div class="fact"><dt>持久化通道</dt><dd class="muted" style="margin:0">会话记录</dd></div>
+            </dl>
+            <ul class="counters"><li>可见工具 62</li><li>已关 8</li><li>关闭项 3</li></ul>
+            <p class="warning">本会话状态不会跨 resume 保持（已降级为内存态）。</p>
+          </div>
+          <!-- 卡2 清单 -->
+          <div class="card">
+            <div class="cardHeader"><p class="cardTitle">工具与技能</p><span class="push"></span><input type="text" placeholder="过滤工具、技能或地址…" aria-label="过滤工具、技能或地址" style="max-width:220px"></div>
+            <p class="note">开关只作用于本会话之后的模型步骤；不影响其他会话，也不改默认档。</p>
+            <ul class="groups">
+              <li class="group">
+                <details open>
+                  <summary><span class="chev">▸</span><span class="gTitle">MCP 服务器</span><span class="gName">yunxiao</span><span class="gCounts">工具 38 · 已关 4</span><span class="push"></span><span class="sw"><input type="checkbox" checked aria-label="yunxiao 整组"><i></i></span></summary>
+                  <ul class="rows">
+                    <li class="row-line"><div class="rowMain"><span class="rowName">mcp:yunxiao::list_projects</span><div class="rowDesc">列出云上项目的名称、状态与成员</div></div><span class="sw"><input type="checkbox" checked aria-label="list_projects"><i></i></span></li>
+                    <li class="row-line"><div class="rowMain"><span class="rowName">mcp:yunxiao::list_*（通配 3 项）</span><div class="rowDesc">按前缀匹配的单工具关闭</div></div><span class="sw"><input type="checkbox" aria-label="list_*"><i></i></span></li>
+                  </ul>
+                </details>
+              </li>
+              <li class="group">
+                <details open>
+                  <summary><span class="chev">▸</span><span class="gTitle">MCP 服务器</span><span class="gName">figma</span><span class="gCounts">工具 12 · 已关 12</span><span class="tag warn">暂无匹配 1</span><span class="push"></span><span class="sw"><input type="checkbox" aria-label="figma 整组"><i></i></span></summary>
+                  <ul class="rows">
+                    <li class="row-line"><div class="rowMain"><span class="rowName">mcp:figma::get_file</span><span class="tag">整组已关</span><div class="rowDesc">读取 Figma 文件结构</div></div><span class="sw"><input type="checkbox" disabled aria-label="get_file"><i></i></span></li>
+                  </ul>
+                </details>
+              </li>
+              <li class="group">
+                <details open>
+                  <summary><span class="chev">▸</span><span class="gTitle">技能</span><span class="gCounts">24 项 · 已关 1</span><span class="push"></span><span class="sw"><input type="checkbox" checked aria-label="技能整档 tool:skill"><i></i></span></summary>
+                  <ul class="rows">
+                    <li class="row-line"><div class="rowMain"><span class="rowName">openspec-propose</span><span class="tag ok">已生效</span><div class="rowDesc">一步生成提案、规格与任务</div><div class="rowTags"><span class="tag">模型可调</span><span class="tag">项目</span></div></div><span class="sw"><input type="checkbox" aria-label="openspec-propose"><i></i></span></li>
+                    <li class="row-line"><div class="rowMain"><span class="rowName">ui-demo</span><div class="rowDesc">无设计稿时先产演示页确认</div><div class="rowTags"><span class="tag">模型可调</span><span class="tag">用户</span></div></div><span class="sw"><input type="checkbox" checked aria-label="ui-demo"><i></i></span></li>
+                    <li class="row-line"><div class="rowMain"><span class="rowName">smoke-testing-local-env</span><div class="rowDesc">本机 docker 环境端到端冒烟</div><div class="rowTags"><span class="tag">仅用户调用 /smoke-testing-local-env</span><span class="tag">内置</span></div></div><span class="sw"><input type="checkbox" checked aria-label="smoke-testing-local-env"><i></i></span></li>
+                  </ul>
+                </details>
+              </li>
+              <li class="group">
+                <details open>
+                  <summary><span class="chev">▸</span><span class="gTitle">内置工具</span><span class="gCounts">26 项 · 已关 3</span></summary>
+                  <ul class="rows">
+                    <li class="row-line"><div class="rowMain"><span class="rowName">bash</span><span class="tag">受保护</span><div class="rowDesc">执行 shell 命令（保护名单，不可关闭）</div></div><span class="sw"><input type="checkbox" checked disabled aria-label="bash"><i></i></span></li>
+                    <li class="row-line"><div class="rowMain"><span class="rowName">task_board_create</span><div class="rowDesc">在任务板创建卡片</div></div><span class="sw"><input type="checkbox" aria-label="task_board_create"><i></i></span></li>
+                  </ul>
+                </details>
+              </li>
+            </ul>
+            <div class="residual">
+              <p class="note">不在本会话清单里的关闭项（可开启）</p>
+              <ul class="chips">
+                <li class="chip"><code>mcp:zzz</code><button class="btn ghost" style="padding:1px 8px">开启</button></li>
+                <li class="chip"><code>skill:old-thing</code><span class="tag">暂无匹配</span><button class="btn ghost" style="padding:1px 8px">开启</button></li>
+              </ul>
+            </div>
+          </div>
+          <!-- 卡3 命令 -->
+          <div class="card">
+            <p class="cardTitle">跨清单地址</p>
+            <p class="note">跨清单的新关用 /tools off &lt;地址&gt;；用户级默认档没有图形面，改用 /tools default off &lt;地址&gt;（只影响之后新建的会话）。</p>
+            <div class="commandRow">
+              <pre class="command"><code># 本会话（立即生效）
+/tools off &lt;address&gt;</code></pre>
+              <button class="btn outline">复制命令</button>
+            </div>
+            <p class="cmdSub">用户级默认档：/tools default off &lt;地址&gt; — 只影响之后新建的会话</p>
+            <p class="note" aria-live="polite"></p>
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot"><button class="btn outline">恢复创建时快照</button><span class="push"></span><button class="btn ghost">关闭</button></div>
+    </div>
+  </section>
+
+  <!-- ════ ② 空态 ════ -->
+  <section id="s-empty">
+    <h1>② 空态 · 新会话初开（关闭项 0）</h1>
+    <p class="note">关闭集为空是常态：不设「当前没有关闭项」空态文案，概要计数与全开的清单行已表达。</p>
+    <div class="modal">
+      <div class="modal-head"><h2>工具面</h2><p class="note">本会话内可用的工具与开关；改动只影响本会话之后的模型步骤。</p></div>
+      <div class="modal-body">
+        <div class="cardStack">
+          <div class="card">
+            <div class="cardHeader"><p class="cardTitle">本会话</p><span class="push"></span><button class="btn ghost">刷新</button></div>
+            <dl class="facts">
+              <div class="fact"><dt>会话</dt><dd class="muted" style="margin:0">b7d1f4a8</dd></div>
+              <div class="fact"><dt>创建时间</dt><dd class="muted" style="margin:0">15:11</dd></div>
+              <div class="fact"><dt>创建时快照</dt><dd class="muted" style="margin:0">3 项</dd></div>
+              <div class="fact"><dt>持久化通道</dt><dd class="muted" style="margin:0">会话记录</dd></div>
+            </dl>
+            <ul class="counters"><li>可见工具 70</li><li>已关 0</li><li>关闭项 0</li></ul>
+          </div>
+          <div class="card">
+            <div class="cardHeader"><p class="cardTitle">工具与技能</p><span class="push"></span><input type="text" placeholder="过滤工具、技能或地址…" aria-label="过滤工具、技能或地址" style="max-width:220px"></div>
+            <p class="note">开关只作用于本会话之后的模型步骤；不影响其他会话，也不改默认档。</p>
+            <ul class="groups">
+              <li class="group">
+                <details>
+                  <summary><span class="chev">▸</span><span class="gTitle">MCP 服务器</span><span class="gName">yunxiao</span><span class="gCounts">工具 38 · 已关 0</span><span class="push"></span><span class="sw"><input type="checkbox" checked aria-label="yunxiao 整组"><i></i></span></summary>
+                  <ul class="rows"><li class="row-line"><div class="rowMain"><span class="rowName">mcp:yunxiao::list_projects</span><div class="rowDesc">列出云上项目的名称、状态与成员</div></div><span class="sw"><input type="checkbox" checked aria-label="list_projects"><i></i></span></li></ul>
+                </details>
+              </li>
+              <li class="group">
+                <details>
+                  <summary><span class="chev">▸</span><span class="gTitle">技能</span><span class="gCounts">25 项 · 已关 0</span><span class="push"></span><span class="sw"><input type="checkbox" checked aria-label="技能整档"><i></i></span></summary>
+                </details>
+              </li>
+              <li class="group">
+                <details>
+                  <summary><span class="chev">▸</span><span class="gTitle">内置工具</span><span class="gCounts">26 项 · 已关 0</span></summary>
+                </details>
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <p class="cardTitle">跨清单地址</p>
+            <div class="commandRow">
+              <pre class="command"><code># 本会话（立即生效）
+/tools off &lt;address&gt;</code></pre>
+              <button class="btn outline">复制命令</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot"><button class="btn outline" disabled>恢复创建时快照</button><span class="push"></span><button class="btn ghost">关闭</button></div>
+    </div>
+  </section>
+
+  <!-- ════ ③ 在途与确认 ════ -->
+  <section id="s-busy">
+    <h1>③ 在途与两段式确认</h1>
+    <p class="note">开关不做乐观更新：在途行显示「正在应用…」并禁用；恢复创建时快照第一次点击只武装、第二次才执行；复制成功由 aria-live 播报且按钮短暂禁用。</p>
+    <div class="modal">
+      <div class="modal-head"><h2>工具面</h2><p class="note">本会话内可用的工具与开关；改动只影响本会话之后的模型步骤。</p></div>
+      <div class="modal-body">
+        <div class="cardStack">
+          <div class="card">
+            <div class="cardHeader"><p class="cardTitle">本会话</p><span class="push"></span><button class="btn ghost" disabled>刷新</button></div>
+            <dl class="facts">
+              <div class="fact"><dt>会话</dt><dd class="muted" style="margin:0">a3f9c2e1</dd></div>
+              <div class="fact"><dt>创建时间</dt><dd class="muted" style="margin:0">14:02</dd></div>
+              <div class="fact"><dt>创建时快照</dt><dd class="muted" style="margin:0">3 项</dd></div>
+              <div class="fact"><dt>持久化通道</dt><dd class="muted" style="margin:0">会话记录</dd></div>
+            </dl>
+            <ul class="counters"><li>可见工具 62</li><li>已关 8</li><li>关闭项 3</li></ul>
+            <p class="noticeLine">本次关闭 4 个工具（下一步请求的上下文已变小）。</p>
+          </div>
+          <div class="card">
+            <div class="cardHeader"><p class="cardTitle">工具与技能</p></div>
+            <ul class="groups">
+              <li class="group">
+                <details open>
+                  <summary><span class="chev">▸</span><span class="gTitle">MCP 服务器</span><span class="gName">yunxiao</span><span class="gCounts">工具 38 · 已关 4</span><span class="push"></span><span class="sw"><input type="checkbox" aria-label="yunxiao 整组"><i></i></span></summary>
+                  <ul class="rows">
+                    <li class="row-line"><div class="rowMain"><span class="rowName">mcp:yunxiao::list_projects</span><span class="pendingTag">正在应用…</span></div><span class="sw"><input type="checkbox" disabled aria-label="list_projects"><i></i></span></li>
+                    <li class="row-line"><div class="rowMain"><span class="rowName">mcp:yunxiao::create_task</span></div><span class="sw"><input type="checkbox" checked aria-label="create_task"><i></i></span></li>
+                  </ul>
+                </details>
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <p class="cardTitle">跨清单地址</p>
+            <div class="commandRow">
+              <pre class="command"><code># 本会话（立即生效）
+/tools off &lt;address&gt;</code></pre>
+              <button class="btn outline" disabled>复制命令</button>
+            </div>
+            <p class="note" aria-live="polite">已复制</p>
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot"><button class="btn outline">再点一次确认恢复</button><span class="push"></span><button class="btn ghost">关闭</button></div>
+    </div>
+  </section>
+
+  <!-- ════ ④ 降级与失败 ════ -->
+  <section id="s-degraded">
+    <h1>④ 降级与失败态</h1>
+    <p class="note">四类：连接不可用（不渲染任何开关）；旧快照 + 错误行（stale-while-revalidate）；技能服务缺席（技能组只留整档开关 + 降级提示）；保护名单行禁用。</p>
+    <div class="card" style="margin-bottom:16px">
+      <h2>a · 连接不可用（入口按钮恒渲染，点开降级）</h2>
+      <div class="failureBlock"><p class="err">无法连接到 dsh 主进程</p><p class="detail">面板客户端尚未就绪：connection 可能晚于插件 apply 挂载</p></div>
+    </div>
+    <div class="modal">
+      <div class="modal-head"><h2>工具面</h2><p class="note">本会话内可用的工具与开关；改动只影响本会话之后的模型步骤。</p></div>
+      <div class="modal-body">
+        <div class="cardStack">
+          <div class="failureBlock"><p class="err">本次操作失败：地址文法不受支持</p><p class="detail">bad-address: mcp:yunxiao::（空工具名）</p></div>
+          <div class="card">
+            <div class="cardHeader"><p class="cardTitle">本会话</p><span class="push"></span><button class="btn ghost">刷新</button></div>
+            <dl class="facts">
+              <div class="fact"><dt>会话</dt><dd class="muted" style="margin:0">a3f9c2e1</dd></div>
+              <div class="fact"><dt>创建时间</dt><dd class="muted" style="margin:0">14:02</dd></div>
+              <div class="fact"><dt>创建时快照</dt><dd class="muted" style="margin:0">3 项</dd></div>
+              <div class="fact"><dt>持久化通道</dt><dd class="muted" style="margin:0">会话记录</dd></div>
+            </dl>
+            <ul class="counters"><li>可见工具 62</li><li>已关 8</li><li>关闭项 3</li></ul>
+            <p class="warning">技能目录观测不完整，逐技能开关可能缺行。</p>
+          </div>
+          <div class="card">
+            <div class="cardHeader"><p class="cardTitle">工具与技能</p></div>
+            <ul class="groups">
+              <li class="group">
+                <details>
+                  <summary><span class="chev">▸</span><span class="gTitle">MCP 服务器</span><span class="gName">yunxiao</span><span class="gCounts">工具 38 · 已关 4</span><span class="push"></span><span class="sw"><input type="checkbox" checked aria-label="yunxiao 整组"><i></i></span></summary>
+                </details>
+              </li>
+              <li class="group">
+                <details>
+                  <summary><span class="chev">▸</span><span class="gTitle">技能</span><span class="tag">清单暂不可用</span><span class="push"></span><span class="sw"><input type="checkbox" checked aria-label="技能整档"><i></i></span></summary>
+                  <ul class="rows"><li class="row-line"><p class="note" style="margin:0">技能清单暂不可用（宿主未挂载技能服务）；整档开关仍可用，逐技能开关暂不列示。</p></li></ul>
+                </details>
+              </li>
+              <li class="group">
+                <details>
+                  <summary><span class="chev">▸</span><span class="gTitle">内置工具</span><span class="gCounts">26 项 · 已关 3</span></summary>
+                  <ul class="rows"><li class="row-line"><div class="rowMain"><span class="rowName">bash</span><span class="tag">受保护</span></div><span class="sw"><input type="checkbox" checked disabled aria-label="bash"><i></i></span></li></ul>
+                </details>
+              </li>
+            </ul>
+            <div class="residual">
+              <p class="note">不在本会话清单里的关闭项（可开启）</p>
+              <ul class="chips"><li class="chip"><code>mcp:zzz</code><button class="btn ghost" style="padding:1px 8px">开启</button></li></ul>
+            </div>
+          </div>
+          <div class="card">
+            <p class="cardTitle">跨清单地址</p>
+            <div class="commandRow">
+              <pre class="command"><code># 本会话（立即生效）
+/tools off &lt;address&gt;</code></pre>
+              <button class="btn outline">复制命令</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot"><button class="btn outline">恢复创建时快照</button><span class="push"></span><button class="btn ghost">关闭</button></div>
+    </div>
+  </section>
+</main>
+</body>
+</html>
