@@ -69,7 +69,9 @@ docker exec dsh dsh --profile web --dump-config | grep -B2 -A8 'id: zcode-plan'
   /zcode-plan login http://127.0.0.1:<port>/oauth/callback/bigmodel?authCode=<一次性授权码>&state=<32hex>
   ```
 
-**核对**：`/zcode-plan status` 输出七行——登录（已登录）、Key（`zcode-plan-bridge` · scene=1 · id 前 8 位）、PAT（有效 · 到期时刻 · 下次续期 ≤）、路由（已注册（glm-5.3, glm-5.3-flash））、签名（已启用 · 私钥缓存命中）、用量（5h 窗口 + 周 两档）、备注（无）。任何一行为「未…」按[排障](#排障)处理。
+**核对**：`/zcode-plan status` 输出七行——登录（已登录）、Key（`zcode-plan-bridge` · scene=1 · id 前 8 位）、PAT（有效 · 到期时刻 · 下次续期 ≤）、路由（已注册（glm-5.4, glm-5.3, glm-5.3-flash））、签名（已启用 · 私钥缓存命中）、用量（5h 窗口 + 周 两档）、备注（无）。任何一行为「未…」按[排障](#排障)处理。
+
+**路由里的三个模型**（单一真源 `ZCODE_PLAN_ROUTE`，2026-11-23 实测）：`glm-5.4`（Coding Plan 新旗舰：1M 上下文、131072 输出、**支持图片输入**、thinking 档位 off/low/high/max，置首）→ `glm-5.3`（纯文本，2026-11-23 起服务端返回 `1305 访问量过大`，留作回退）→ `glm-5.3-flash`（图片输入 + 套餐内最低成本）。
 
 **切换默认模型需你自行决定**：本插件只注册 `zcode-plan` 路由，不动 `agent-default-model`。要让会话默认走折扣路由，请自行把 profile 里 `agent-default-model` 条目的 `provider` 改为 `zcode-plan`（想回退时同理，见[回退](#回退)）。
 
@@ -200,6 +202,26 @@ dsh 官方对短期 token 的立场是**仅内存**（short-lived token 不落�
             - TRANSPORT
             - INVALID_CREDENTIAL
         models:
+          - id: glm-5.4
+            name: GLM-5.4
+            contextWindow: 1000000
+            maxTokens: 131072
+            input:
+              - text
+              - image
+            reasoningEfforts:
+              off: null
+              low: low
+              medium: high
+              high: high
+              max: max
+            compat:
+              thinkingFormat: zai
+              supportsReasoningEffort: true
+              supportsStore: false
+              supportsDeveloperRole: false
+              supportsStrictMode: true
+              maxTokensField: max_tokens
           - id: glm-5.3
             name: GLM-5.3
             contextWindow: 1000000

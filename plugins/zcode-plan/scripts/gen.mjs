@@ -43,7 +43,9 @@ function makeContent(seed, chars) {
 const CHARS = Number(process.argv[2] ?? 26000)
 const ONLY = process.argv[3] ?? ''
 const RUN = Date.now() & 0xffff // 换个种子，每次实测的内容也不同
-const MODEL = 'glm-5.3'
+// glm-5.3 自 2026-11-23 起服务端返回 1305（访问量过大），对拍改用 glm-5.4；
+// 需要旧刻度时手工改回（两臂同比，比值判定免疫绝对刻度）。
+const MODEL = 'glm-5.4'
 // o 臂 = OpenAI coding 端点（折扣对拍只用 o1）；a 臂 = Anthropic 端点形状（历史
 // 五臂实验遗留，保留兼容）。o 臂关思考 + max_tokens=16：输出成本压到可忽略，
 // 扣费几乎全由输入构成，刻度归一才干净。

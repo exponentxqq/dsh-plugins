@@ -17,7 +17,7 @@
  * - **E3 用户层注入完整路由**：把 `ZCODE_PLAN_ROUTE`（单一真源，经
  *   `node --experimental-strip-types` 直接 import `src/host/route-config.ts`）
  *   序列化成用户层 → dump 里 `providers.zcode-plan` 与常量深等
- *   （api / baseURL / models 两条 / retryPolicy.retryableCodes 六项）→ 再
+ *   （api / baseURL / models 三条 / retryPolicy.retryableCodes 六项）→ 再
  *   `--dump-config-schema` 可加载：该命令会 import 插件模块（故脚本前置要求
  *   `pnpm --filter dsh-plugin-zcode-plan build` 的产物存在）；判定口径为
  *   **无指向本插件的 error**——dsh 0.2.2-rc.1 的遍历器不认官方 dsh-agent-preset
@@ -308,7 +308,7 @@ async function main() {
       const details = []
       if (dumped.api !== route.api) details.push(`api=${dumped.api}`)
       if (dumped.baseURL !== route.baseURL) details.push(`baseURL=${dumped.baseURL}`)
-      if (!Array.isArray(dumped.models) || dumped.models.length !== 2) {
+      if (!Array.isArray(dumped.models) || dumped.models.length !== 3) {
         details.push(`models=${JSON.stringify(dumped.models)}`)
       }
       if (!deepEqual(dumped.retryPolicy && dumped.retryPolicy.retryableCodes, route.retryPolicy.retryableCodes)) {

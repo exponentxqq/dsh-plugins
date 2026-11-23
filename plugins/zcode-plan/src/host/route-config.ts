@@ -31,9 +31,12 @@ export const ROUTE_ENTRY_ID = 'llm-pi-ai'
  * ZCode 计划路由的单一真源（§3.8，D-1）。
  *
  * - **必须带 `models`**：非 catalog 路由（route id 不在 pi-ai catalog，无继承链）
- *   需要 `api` + `baseURL` + 非空 `models`；两条 glm-5.3 / glm-5.3-flash 条目逐字
- *   搬本机实测可用的 `zai-coding-zcode` 条目（`~/.dsh/profiles/web/cordis.patch.yml`
- *   的 models 段），**去掉 `headers` 段**（零指纹头，C3）；
+ *   需要 `api` + `baseURL` + 非空 `models`；glm-5.3 / glm-5.3-flash 两条逐字搬本机
+ *   实测可用的 `zai-coding-zcode` 条目（`~/.dsh/profiles/web/cordis.patch.yml` 的
+ *   models 段），**去掉 `headers` 段**（零指纹头，C3）；
+ * - **glm-5.4 置首且带图片输入**：2026-11-23 官方上线 Coding Plan（1M 上下文、新增视觉；
+ *   实测 1M/131072 上限、`input: ['text','image']` 可发图、`reasoning_effort`
+ *   low/high/max 均被受理；同日 glm-5.3 返回 1305「访问量过大」，故 5.3 只留作回退）；
  * - **`retryableCodes` 是整集覆盖**（上游 `dsh-llm` 的 resolved retry policy 对该
  *   字段取整集替换语义，不是增量合并）→ 必须把五个默认码一并重述、只追加
  *   `INVALID_CREDENTIAL`（D-8；`AUTH` 码在本版本码表中不存在）。
@@ -49,6 +52,22 @@ export const ZCODE_PLAN_ROUTE = {
     retryableCodes: ['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT', 'INVALID_CREDENTIAL'],
   },
   models: [
+    {
+      id: 'glm-5.4',
+      name: 'GLM-5.4',
+      contextWindow: 1_000_000,
+      maxTokens: 131_072,
+      input: ['text', 'image'],
+      reasoningEfforts: { off: null, low: 'low', medium: 'high', high: 'high', max: 'max' },
+      compat: {
+        thinkingFormat: 'zai',
+        supportsReasoningEffort: true,
+        supportsStore: false,
+        supportsDeveloperRole: false,
+        supportsStrictMode: true,
+        maxTokensField: 'max_tokens',
+      },
+    },
     {
       id: 'glm-5.3',
       name: 'GLM-5.3',

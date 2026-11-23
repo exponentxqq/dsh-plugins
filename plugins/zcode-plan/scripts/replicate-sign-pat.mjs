@@ -13,7 +13,7 @@ import fs from 'node:fs'
 
 const PAT = process.env.PAT || ''
 const BASE = process.argv[2] || 'https://open.bigmodel.cn/api/coding/paas/v4'
-const MODEL = process.env.MODEL || process.argv[3] || 'glm-5.3'
+const MODEL = process.env.MODEL || process.argv[3] || 'glm-5.4' // glm-5.3 于 2026-11-23 起 1305，默认改 5.4
 const KDF_SALT = 'WD_CLIENT_SIGN_KDF_SALT' // SIGNING_KDF_SALT
 const APP_ID = 'zcode' // SIGNING_APP_ID
 const HS_PATH = '/api/paas/c1f3a7e2/v2/client' // SIGNING_HANDSHAKE_PATH
