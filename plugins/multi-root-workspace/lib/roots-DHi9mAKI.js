@@ -53,9 +53,9 @@ var RootValidationError = class extends Error {
 	*/
 	constructor(code, message, detail) {
 		super(message);
+		this.name = "RootValidationError";
 		this.code = code;
 		this.detail = detail;
-		this.name = "RootValidationError";
 	}
 };
 /**

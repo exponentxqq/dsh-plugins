@@ -34,8 +34,8 @@ export declare class RegistryLeaseContendedError extends Error {
  * handle, which is what releases the lock.
  */
 export declare class RegistryAuthorityLease {
-    private readonly held;
     private released;
+    private readonly held;
     private constructor();
     /**
      * Acquire the exclusive kernel lock for one registry store.

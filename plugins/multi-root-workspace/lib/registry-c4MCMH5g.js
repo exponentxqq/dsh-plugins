@@ -1,4 +1,4 @@
-import { a as classifyStoredRoots, d as resolveRootIndex, i as canonicalRoot, m as validateRootCandidate, n as additionalRootId, p as sameCanonicalPath, r as availableRoots, s as expandRootInput, t as RootValidationError, u as removeStatusAt } from "./roots-DejK8QSE.js";
+import { a as classifyStoredRoots, d as resolveRootIndex, i as canonicalRoot, m as validateRootCandidate, n as additionalRootId, p as sameCanonicalPath, r as availableRoots, s as expandRootInput, t as RootValidationError, u as removeStatusAt } from "./roots-DHi9mAKI.js";
 import { Service } from "@deepseek-ai/cordis";
 import { randomUUID } from "node:crypto";
 import { dirname, isAbsolute } from "node:path";
@@ -52,8 +52,8 @@ function isLockContention(error) {
 * handle, which is what releases the lock.
 */
 var RegistryAuthorityLease = class RegistryAuthorityLease {
-	held;
 	released = false;
+	held;
 	constructor(held) {
 		this.held = held;
 	}

@@ -40,7 +40,7 @@ const NUMERIC_IDENTIFIER = /^\d+$/u
  * 升级脚本（`scripts/upgrade-dsh.mjs` 的 `repointRuntimeBaselines`）按首个文本
  * 出现位置做重写，任何更早的同形状文本（例如注释里的示例）都会让它改错对象。
  */
-export const DSH_BASELINE = '0.2.2-rc.1'
+export const DSH_BASELINE = '0.2.2-rc.5'
 
 /** 由基线派生的支持范围：`>=<基线> <<主>.<次+1>.0`（下界含、上界不含）。 */
 export const SUPPORTED_DSH_RANGE = softDshRange(DSH_BASELINE)

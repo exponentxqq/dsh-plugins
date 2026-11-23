@@ -46,8 +46,8 @@ DSH（DeepSeek Harness）自定义插件仓库：pnpm workspace 单仓多包，�
 
 ## DSH 基线
 
-- 唯一版本常量在 `scripts/dsh-baseline.mjs`（当前 `0.2.2-rc.1`，Node 工具链 `24.21.0`）。
-- 全部七个插件（含 multi-root）的 `engines.dsh` 与 DSH peer 统一由基线派生为 `>=0.2.2-rc.1 <0.3.0`，无例外。
+- 唯一版本常量在 `scripts/dsh-baseline.mjs`（当前 `0.2.2-rc.5`，Node 工具链 `24.21.0`）。
+- 全部七个插件（含 multi-root）的 `engines.dsh` 与 DSH peer 统一由基线派生为 `>=0.2.2-rc.5 <0.3.0`，无例外。
 - multi-root 运行时门持有的基线副本（`plugins/multi-root-workspace/src/compat/dsh-version.ts` 的 `DSH_BASELINE`）与派生范围同源，由升级脚本同批重指；基线提升 = 改 `scripts/dsh-baseline.mjs` 后跑 `pnpm dsh:upgrade`，绿灯是回归证据。
 - `pnpm dsh:upgrade <version> [--probe]` 统一重指 devDeps / cordis / 全部插件的 engines 与 DSH peer 范围 / 运行时基线副本 / 豁免；`pnpm dsh:check` 在发布前守住这些事实，`release` 已自动调用。
 
@@ -87,7 +87,7 @@ docker exec dsh dsh plugin --profile web add \
 # 本地调试可 link: 安装（改源码重启 profile 即生效）：docker exec dsh dsh plugin --profile web add <本仓>/plugins/<name>
 docker exec dsh dsh --profile web --dump-config          # 校验配置可加载（合成完整配置树；安装冒烟以此为准）
 docker exec dsh dsh --profile web --dump-config-schema   # 查看 schema/逐条目装配形态（会 import 插件模块）
-# 注：dsh 0.2.2-rc.1 的 --dump-config-schema 全局 exit 1 为既有豁免——官方 dsh-agent-preset 的
+# 注：dsh 0.2.2-rc.5 的 --dump-config-schema 全局 exit 1 仍为既有豁免（自 rc.1 起）——官方 dsh-agent-preset 的
 # 自定义载体（EntryGroup.key 标记类）触发 4 条 unrecognized Loader tree carrier；装载门禁只认 --dump-config exit 0
 ```
 

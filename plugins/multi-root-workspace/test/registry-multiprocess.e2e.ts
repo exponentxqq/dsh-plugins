@@ -55,12 +55,19 @@ async function waitExit(child: ChildProcess): Promise<void> {
 
 /**
  * Spawn the authority child with Node's TypeScript transform so the same `.ts`
- * sources the suite imports run in a second OS process (CI is Node 22.19).
+ * sources the suite imports run in a second OS process (CI is Node 24.21.0).
+ * Type stripping is on by default since Node 22.18 / 23.6, and Node 26 rejects
+ * the flag outright, so only pre-22.18 runners still need it passed explicitly.
  */
+const TRANSFORM_TYPES_ARGS: readonly string[] = (() => {
+  const [major, minor] = process.versions.node.split('.').map(Number)
+  return major === 22 && minor < 18 ? ['--experimental-transform-types'] : []
+})()
+
 async function spawnAuthority(input: { extra?: string }): Promise<{ child: ChildProcess; ready: ChildReady }> {
   const child = spawn(
     process.execPath,
-    ['--experimental-transform-types', CHILD, JSON.stringify({
+    [...TRANSFORM_TYPES_ARGS, CHILD, JSON.stringify({
       storeRoot,
       primary,
       ...(input.extra === undefined ? {} : { extra: input.extra }),

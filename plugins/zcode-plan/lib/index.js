@@ -1255,12 +1255,12 @@ function createBigmodelClient(deps) {
 // src/host/bigmodel/signer.ts
 import { createHash as createHash2, createPrivateKey as createPrivateKey2 } from "node:crypto";
 
-// ../../node_modules/.pnpm/@deepseek-ai+dsh-brand@0.2.2-rc.1_@deepseek-ai+cordis@4.1.0/node_modules/@deepseek-ai/dsh-brand/lib/index.js
+// ../../node_modules/.pnpm/@deepseek-ai+dsh-brand@0.2.2-rc.5_@deepseek-ai+cordis@4.1.0/node_modules/@deepseek-ai/dsh-brand/lib/index.js
 function brandString(value) {
   return value;
 }
 
-// ../../node_modules/.pnpm/@deepseek-ai+dsh-credentials@0.2.2-rc.1_@deepseek-ai+cordis@4.1.0/node_modules/@deepseek-ai/dsh-credentials/lib/index.js
+// ../../node_modules/.pnpm/@deepseek-ai+dsh-credentials@0.2.2-rc.5_@deepseek-ai+cordis@4.1.0/node_modules/@deepseek-ai/dsh-credentials/lib/index.js
 var REF_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 var KEY_SEGMENT_PATTERN = /^[a-z][a-z0-9-]*$/;
 function credentialRef(value) {

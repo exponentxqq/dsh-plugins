@@ -293,6 +293,21 @@ PR #1（head `507c954`）的 P2-3 / P2-4 / P2-5 收紧了两条规则（内容�
 - 代价：`0.2.1-rc.2` / `0.2.1-rc.5` 失去 peer 声明，支持面随基线滚动收敛到当前 minor 线。
 - 已知差异（不修）：运行时范围谓词在**上界**比安装期 peer 门禁更严——安装期 `semver.satisfies(..., { includePrerelease: true })` 认为 `0.3.0-alpha.1 < 0.3.0`，运行时按「同 `major.minor`」直接拒绝；这是运行期 fail-closed 的刻意选择。
 
+## 基线提升（2026-11-23）：`0.2.2-rc.1` → `0.2.2-rc.5`
+
+按人工提升流程，基线常量与运行时副本由 `pnpm dsh:upgrade` 同批重指到 `0.2.2-rc.5`，派生范围变为 `>=0.2.2-rc.5 <0.3.0`；`src/compat/` 无新适配分支。
+
+升级指南在 rc.1 之后只有两条面变更：rc.3 把 DeepSeek 流式拒答错误码从 `MALFORMED_RESPONSE` 改为 `CONTENT_REFUSED`；rc.4 让 DeepSeek 模型上的网页搜索默认走旧版 Messages 搜索（基础组合不再固定 `web.searchProvider`，改为按模型提供方路由）。两者在插件源码（host 与 client）grep 均为零命中，不构成适配面。
+
+依赖面的实际变化是 `zod`：`@deepseek-ai/dsh-storage-domain` 在 rc.5 精确 pin `4.6.6`（rc.1 时代为 `4.4.3`）。本插件的生产依赖 zod 必须与宿主安装树同值对齐，否则 `domainTable` 的 `ZodType` 在 `exactOptionalPropertyTypes` 下分叉——症状是新旧 zod schema 的 nominal 成员不一致（`validate` / `validateAsync` 缺失），typecheck 在 `src/registry.ts` 的 `multiRootDomainSpec` 处红灯。`session-tool-toggle` 的 zod 同步对齐，全树保持单一 `4.6.6`。cordis 仍为 `4.1.0`，schemastery 仍为 `3.19.0`，`SESSION_FORMAT_VERSION = 4` 未变，`engines.node >=24.9.0` 的声明未变。
+
+测试纪律面新增两条 Node 版本事实（非生产 API，但决定多进程 e2e 的可移植性）：
+
+1. `--experimental-transform-types` 在 Node 26 被移除，且 24 / 22.18+ 默认 strip-only、strip-only 不支持 TypeScript parameter property。`RootValidationError` 与 `RegistryAuthorityLease` 改为 erasable 语法（显式字段赋值），e2e 子进程的 spawn 参数仅在 <22.18 时传 flag。
+2. `volta` 按最近的 package.json 解析版本：子包目录没有 `volta` 字段时回落全局 default（本机已升至 `26.13.0`）。erasable 化后 24.21.0 与 26.13.0 双环境都全绿。
+
+实测（Linux 容器，Node 24.21.0 / 26.13.0）：typecheck / build / lint / docs:check / spec:check 全过，`pnpm dsh:check` 三组门禁全绿；multi-root 单测 482 passed / 4 skipped（34 文件）；`verify:all` 的 kernel:probe 通过、journey 60/60。发布 `v1.6.1`。
+
 ## Related Documents
 
 - [ADR-0002：上游耦合策略](./ADR-0002-upstream-coupling-policy.md)（本 ADR 收紧了其中第 4 条关于 `peerDependencies` 范围的部分）

@@ -11,7 +11,7 @@
  */
 
 /** 当前开发与发布验证所针对的 DSH 精确版本。 */
-export const DSH_BASELINE = '0.2.2-rc.1'
+export const DSH_BASELINE = '0.2.2-rc.5'
 
 /**
  * 由基线派生软插件的可安装范围：`>=<基线> <<主>.<次+1>.0`。

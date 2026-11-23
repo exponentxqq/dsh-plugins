@@ -1,11 +1,11 @@
-import { c as OPTIONAL_CORE_PACKAGES, d as classifyInstallation, f as isSupportedDshRelease, i as assertSupportedInstallation, l as REQUIRED_CORE_PACKAGES, n as MultiRootCompatService, o as CORE_PACKAGES, p as readInstalledVersion, s as DSH_BASELINE, t as DshCompatUnsupportedError, u as SUPPORTED_DSH_RANGE } from "./compat-BzeLS253.js";
-import { a as composeInstructionMessage, c as createInstructionMessage, l as instructionsApi, r as PLUGIN_SOURCE, t as DEFAULT_MAX_BYTES, u as renderInstructions } from "./instructions-DH4AhIuZ.js";
+import { c as OPTIONAL_CORE_PACKAGES, d as classifyInstallation, f as isSupportedDshRelease, i as assertSupportedInstallation, l as REQUIRED_CORE_PACKAGES, n as MultiRootCompatService, o as CORE_PACKAGES, p as readInstalledVersion, s as DSH_BASELINE, t as DshCompatUnsupportedError, u as SUPPORTED_DSH_RANGE } from "./compat-C0YK_ZcF.js";
+import { a as composeInstructionMessage, c as createInstructionMessage, l as instructionsApi, r as PLUGIN_SOURCE, t as DEFAULT_MAX_BYTES, u as renderInstructions } from "./instructions-BqEQaR_9.js";
 import { n as widenConfined, t as MultiRootSandboxProvider } from "./sandbox-SDtqJ4nT.js";
-import { a as classifyStoredRoots, c as indexedStatuses, f as resolveRootRef, i as canonicalRoot, l as isCanonicallyUnder, m as validateRootCandidate, n as additionalRootId, p as sameCanonicalPath, r as availableRoots, s as expandRootInput, t as RootValidationError, u as removeStatusAt } from "./roots-DejK8QSE.js";
+import { a as classifyStoredRoots, c as indexedStatuses, f as resolveRootRef, i as canonicalRoot, l as isCanonicallyUnder, m as validateRootCandidate, n as additionalRootId, p as sameCanonicalPath, r as availableRoots, s as expandRootInput, t as RootValidationError, u as removeStatusAt } from "./roots-DHi9mAKI.js";
 import { t as MultiRootFileSystem } from "./fs-D_Sw3o5z.js";
 import { MultiRootScopeService, renderWorkspaceRootsContext, sanitizeAdditionalRoots } from "./scope.js";
-import { a as REGISTRY_CONTENDED_MESSAGE, c as RegistryAuthorityLease, i as MultiRootRegistry, l as RegistryLeaseContendedError, n as DOMAIN_NAME, r as MAX_ALIAS_LENGTH, s as multiRootDomainSpec, t as COMMON_ROOT_ID_PREFIX } from "./registry-Br93ZNJk.js";
-import { a as parseFoldersCommand, c as revealArgv, d as parseFilePreview, f as parseFilesView, h as parseRootsView, l as PANEL_CHANNEL, m as parseRevealedView, n as COMMON_MARKER, o as renderRootsReport, p as parsePanelCall, s as resolvePanelPrimaryRoot, t as COMMAND_NAME, u as PANEL_ENDPOINTS } from "./command-xY2RrFLs.js";
+import { a as REGISTRY_CONTENDED_MESSAGE, c as RegistryAuthorityLease, i as MultiRootRegistry, l as RegistryLeaseContendedError, n as DOMAIN_NAME, r as MAX_ALIAS_LENGTH, s as multiRootDomainSpec, t as COMMON_ROOT_ID_PREFIX } from "./registry-c4MCMH5g.js";
+import { a as parseFoldersCommand, c as revealArgv, d as parseFilePreview, f as parseFilesView, h as parseRootsView, l as PANEL_CHANNEL, m as parseRevealedView, n as COMMON_MARKER, o as renderRootsReport, p as parsePanelCall, s as resolvePanelPrimaryRoot, t as COMMAND_NAME, u as PANEL_ENDPOINTS } from "./command-Oz7B6uyE.js";
 //#region src/index.ts
 /**
 * Carrier plugin face for the bare-package-name loader row (see the module

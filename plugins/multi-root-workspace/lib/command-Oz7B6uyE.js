@@ -1,4 +1,4 @@
-import { f as resolveRootRef, i as canonicalRoot, l as isCanonicallyUnder, o as entryRootRef, r as availableRoots, t as RootValidationError } from "./roots-DejK8QSE.js";
+import { f as resolveRootRef, i as canonicalRoot, l as isCanonicallyUnder, o as entryRootRef, r as availableRoots, t as RootValidationError } from "./roots-DHi9mAKI.js";
 import { symbols } from "@deepseek-ai/cordis";
 import { isAbsolute, resolve } from "node:path";
 import { canonicalPath } from "@deepseek-ai/dsh-sandbox";

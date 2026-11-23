@@ -77,13 +77,13 @@ describe('the supported-release range', () => {
     expect(SUPPORTED_DSH_RANGE).toBe(`>=${DSH_BASELINE} <${baseline.major}.${baseline.minor + 1}.0`)
   })
 
-  it('is pinned to 0.2.2-rc.1, which is what makes the boundary table below concrete', () => {
+  it('is pinned to 0.2.2-rc.5, which is what makes the boundary table below concrete', () => {
     // The eight rows below are literal versions: they only mean what they say
     // against this baseline. When the baseline moves, re-derive the table
     // (code-design §3.1) and update this pin with it — this failure is the
     // reminder, never drift to be papered over.
-    expect(DSH_BASELINE).toBe('0.2.2-rc.1')
-    expect(SUPPORTED_DSH_RANGE).toBe('>=0.2.2-rc.1 <0.3.0')
+    expect(DSH_BASELINE).toBe('0.2.2-rc.5')
+    expect(SUPPORTED_DSH_RANGE).toBe('>=0.2.2-rc.5 <0.3.0')
   })
 })
 
@@ -95,13 +95,13 @@ describe("the contract's package inventory", () => {
 })
 
 /**
- * The boundary table from `code-design.md` §3.1, baseline `0.2.2-rc.1`, one
+ * The boundary table from `code-design.md` §3.1, baseline `0.2.2-rc.5`, one
  * case per row:
  *
  * | # | input(s)                          | expected | why                                        |
  * |---|-----------------------------------|----------|--------------------------------------------|
- * | 1 | `0.2.2-rc.1`                      | true     | the lower bound is inclusive               |
- * | 2 | `0.2.2-rc.2`, `0.2.2-rc.10`       | true     | same minor, ≥ baseline; `rc.10 > rc.2`     |
+ * | 1 | `0.2.2-rc.5`                      | true     | the lower bound is inclusive               |
+ * | 2 | `0.2.2-rc.6`, `0.2.2-rc.10`       | true     | same minor, ≥ baseline; `rc.10 > rc.6`     |
  * | 3 | `0.2.2`                           | true     | a final release outranks its prerelease    |
  * | 4 | `0.2.3-alpha.1`                   | true     | same minor, later patch: prereleases pass  |
  * | 5 | `0.2.1-rc.5`                      | false    | same minor but below the baseline          |
@@ -111,15 +111,15 @@ describe("the contract's package inventory", () => {
  */
 describe('the supported-range boundary table', () => {
   it('accepts the baseline itself: the lower bound is inclusive', () => {
-    expect(isSupportedDshRelease('0.2.2-rc.1')).toBe(true)
+    expect(isSupportedDshRelease('0.2.2-rc.5')).toBe(true)
     expect(isSupportedDshRelease(DSH_BASELINE)).toBe(true)
   })
 
-  it('accepts later prereleases on the same minor, ranking rc.10 above rc.2 by value', () => {
-    for (const release of ['0.2.2-rc.2', '0.2.2-rc.10']) {
+  it('accepts later prereleases on the same minor, ranking rc.10 above rc.6 by value', () => {
+    for (const release of ['0.2.2-rc.6', '0.2.2-rc.10']) {
       expect(isSupportedDshRelease(release), release).toBe(true)
     }
-    expect(rank('0.2.2-rc.10', '0.2.2-rc.2')).toBe(1)
+    expect(rank('0.2.2-rc.10', '0.2.2-rc.6')).toBe(1)
   })
 
   it('accepts the final release above its own prerelease', () => {

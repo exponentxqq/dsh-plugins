@@ -58,7 +58,14 @@ function isLockContention(error: unknown): boolean {
 export class RegistryAuthorityLease {
   private released = false
 
-  private constructor(private readonly held: HeldLease) {}
+  // Erasable-syntax only: parameter properties would need Node's transform
+  // mode, which the multiprocess e2e child cannot rely on (Node 26 drops it,
+  // older defaults are strip-only).
+  private readonly held: HeldLease
+
+  private constructor(held: HeldLease) {
+    this.held = held
+  }
 
   /**
    * Acquire the exclusive kernel lock for one registry store.

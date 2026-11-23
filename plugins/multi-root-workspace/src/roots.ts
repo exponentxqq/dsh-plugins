@@ -145,18 +145,25 @@ export type RootValidationCode =
 
 /** A rejected root operation; `code` is the stable contract, `message` the fallback prose. */
 export class RootValidationError extends Error {
+  // Erasable-syntax only (parameter properties would need Node's transform
+  // mode, which the multiprocess e2e child cannot rely on).
+  readonly code: RootValidationCode
+  readonly detail?: { readonly conflict?: string; readonly reference?: string } | undefined
+
   /**
    * @param code - stable failure code.
    * @param message - human-readable fallback text (English; the panel localizes by code).
    * @param detail - structured context, e.g. the conflicting root.
    */
   constructor(
-    readonly code: RootValidationCode,
+    code: RootValidationCode,
     message: string,
-    readonly detail?: { readonly conflict?: string; readonly reference?: string },
+    detail?: { readonly conflict?: string; readonly reference?: string },
   ) {
     super(message)
     this.name = 'RootValidationError'
+    this.code = code
+    this.detail = detail
   }
 }
 

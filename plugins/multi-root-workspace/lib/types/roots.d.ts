@@ -134,7 +134,7 @@ export declare class RootValidationError extends Error {
     constructor(code: RootValidationCode, message: string, detail?: {
         readonly conflict?: string;
         readonly reference?: string;
-    } | undefined);
+    });
 }
 /**
  * Expand the one shell shorthand an operator may reasonably type, and nothing
