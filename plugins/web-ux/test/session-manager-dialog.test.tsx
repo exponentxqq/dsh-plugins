@@ -532,6 +532,10 @@ describe('选择与单批上限', () => {
     expect(screen.getByText(translate('manager.selected', { count: 0 }))).toBeDefined()
   })
 
+  // CI 的 2 核 runner 上 jsdom 渲染 501 行贴着 vitest 默认 5s 超时的边缘
+  // （09c4e0f 绿、web-ux 代码零改动的 02a6fbc 红 = 边缘 flake，加重后稳定红）；
+  // 本地 30/30 全绿约 4s。显式放宽到 30s 只为慢机兜底，正常运行远到不了，
+  // 不会掩盖回归——真炸时依旧红。
   it('超过单批上限时只选前 500 个并给出截断提示', async () => {
     const bulk = makeBulkFixture(MAX_BATCH_TARGETS + 1)
     renderManager({
@@ -553,7 +557,7 @@ describe('选择与单批上限', () => {
 
     fireEvent.click(screen.getByRole('button', { name: zh['manager.clear'] }))
     expect(screen.getByText(translate('manager.selected', { count: 0 }))).toBeDefined()
-  })
+  }, 30_000)
 })
 
 describe('阶段机：处置（已归档删除）', () => {

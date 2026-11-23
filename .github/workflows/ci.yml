@@ -91,11 +91,16 @@ jobs:
       - name: 基线安装依赖（锁定件，证明 lockfile 完整）
         run: pnpm install --frozen-lockfile
 
+      # pnpm 11 的 verify-deps-before-run 默认 install：gen 写出新 importer 后，
+      # 下一个 pnpm run 前的隐式 pnpm install 在 CI（frozen 默认开）下必撞
+      # ERR_PNPM_OUTDATED_LOCKFILE（CI 引入首日起 gen dual 步骤 100% 红的根因）。
+      # 生成器本就只写文件（gen:plugin = node scripts/gen-plugin.mjs，不跑 git/pnpm），
+      # 直调 node 完全等价且不经 pnpm run 的依赖状态检查；no-frozen 补装仍是下面的显式步骤。
       - name: 生成脚手架（host-only）
-        run: pnpm gen:plugin ci-smoke-host --kind host-only
+        run: node scripts/gen-plugin.mjs ci-smoke-host --kind host-only
 
       - name: 生成脚手架（dual）
-        run: pnpm gen:plugin ci-smoke-dual --kind dual
+        run: node scripts/gen-plugin.mjs ci-smoke-dual --kind dual
 
       - name: 补装两个新 importer（lockfile 写盘即弃）
         run: pnpm install --no-frozen-lockfile
