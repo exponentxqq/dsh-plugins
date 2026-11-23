@@ -16,6 +16,10 @@
 # 口径为「仓级共享内核 + dual 入口」：仓级 `scripts/check-docs.mjs` 先扫仓级面，再 `pnpm -r run docs:check`
 # 递归兜底（当前只有 multi-root 实现 dual 入口）；不需要 dsh，是唯一能自动守住该门的位置。
 # spec:check 是 OpenSpec strict 校验（`openspec validate --all --strict`），与 docs:check 同属文档/规范面。
+#
+# Node 版本派生纪律：两个作业的 setup-node 一律 `node-version-file: package.json`，由根
+# `package.json#volta.node`（唯一声明点）取精确版本——此处 MUST NOT 出现 `node-version:` 字面量，
+# `pnpm dsh:check` 的基线门禁（check-dsh-baseline 第 9 项）按此断言，防止 CI 与工具链 pin 漂移。
 name: CI
 
 on: [push, pull_request]
@@ -36,10 +40,10 @@ jobs:
         with:
           version: 11.25.0
 
-      - name: 安装 Node.js（对齐 dsh 基线工具链）
+      - name: 安装 Node.js（版本取自根 package.json#volta.node）
         uses: actions/setup-node@v4
         with:
-          node-version: 24.21.0
+          node-version-file: package.json
           cache: pnpm
 
       - name: 安装依赖（锁定件）
@@ -78,10 +82,10 @@ jobs:
         with:
           version: 11.25.0
 
-      - name: 安装 Node.js（对齐 dsh 基线工具链）
+      - name: 安装 Node.js（版本取自根 package.json#volta.node）
         uses: actions/setup-node@v4
         with:
-          node-version: 24.21.0
+          node-version-file: package.json
           cache: pnpm
 
       - name: 基线安装依赖（锁定件，证明 lockfile 完整）

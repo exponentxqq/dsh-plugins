@@ -46,7 +46,9 @@ DSH（DeepSeek Harness）自定义插件仓库：pnpm workspace 单仓多包，�
 
 ## DSH 基线
 
-- 唯一版本常量在 `scripts/dsh-baseline.mjs`（当前 `0.2.2-rc.5`，Node 工具链 `24.21.0`）。
+- DSH 版本常量唯一来源在 `scripts/dsh-baseline.mjs`（当前 `0.2.2-rc.5`）。
+- Node 工具链唯一声明点在根 `package.json#volta.node`（当前 `26.13.1`，与 dsh 运行时同版本）：CI 用 `actions/setup-node` 的 `node-version-file: package.json` 从它派生（workflow 里 MUST NOT 出现 `node-version:` 字面量），`pnpm dsh:check` 第 9 项守这条单源纪律。
+- `engines.node`（根 + 七个插件 `^22.19.0 || >=24.0.0`）声明的是**支持面**而非工具链：dsh 自身要求 `>=24.9.0`，抬工具链不收紧它；`@types/node` 停在 22 线同理（类型层不放行仅新 node 才有的 API），留待抬支持下界时随升。
 - 全部七个插件（含 multi-root）的 `engines.dsh` 与 DSH peer 统一由基线派生为 `>=0.2.2-rc.5 <0.3.0`，无例外。
 - multi-root 运行时门持有的基线副本（`plugins/multi-root-workspace/src/compat/dsh-version.ts` 的 `DSH_BASELINE`）与派生范围同源，由升级脚本同批重指；基线提升 = 改 `scripts/dsh-baseline.mjs` 后跑 `pnpm dsh:upgrade`，绿灯是回归证据。
 - `pnpm dsh:upgrade <version> [--probe]` 统一重指 devDeps / cordis / 全部插件的 engines 与 DSH peer 范围 / 运行时基线副本 / 豁免；`pnpm dsh:check` 在发布前守住这些事实，`release` 已自动调用。

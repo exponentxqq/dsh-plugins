@@ -14,7 +14,10 @@
  * 5. 全部插件的 `dsh.engines.dsh` 与全部 DSH peer 都等于派生范围；
  * 6. 每个插件实际解析到的 DSH 版本都等于基线（不允许混装）；
  * 7. `pnpm-workspace.yaml` 的发布年龄豁免与 lockfile 实际解析集合精确相等；
- * 8. 仓库里没有残留的 git-graph 活引用。
+ * 8. 仓库里没有残留的 git-graph 活引用；
+ * 9. Node 工具链在根 `package.json#volta.node` 单点声明（精确 x.y.z），且
+ *    `.github/workflows/` 里 setup-node 从它派生（`node-version-file`），
+ *    不存在 `node-version:` 字面量（防止 CI 与工具链 pin 漂移）。
  *
  * 全部失败会一次列出，而不是遇到第一个就退出；这样一次运行就能修完。
  *
@@ -408,6 +411,35 @@ for (const file of suspect) {
   }
 }
 
+// 9. The Node toolchain is declared at exactly one point and CI derives from it.
+//
+// 根 `package.json#volta.node` 是 Node 工具链的唯一声明点：本地 volta 与
+// `actions/setup-node` 的 `node-version-file: package.json` 都从这里取值。工作流
+// 里出现 `node-version:` 字面量即构成第二份声明——上次工具链抬升（24.21.0 →
+// 26.13.1）就是靠这条门禁防「pin 改了、CI 没跟」的漂移。fail-closed：没有
+// workflow 文件、或没有任何作业声明 `node-version-file: package.json`，同样失败。
+const rootManifest = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8'))
+const declaredNode = rootManifest.volta?.node
+if (typeof declaredNode !== 'string' || !/^\d+\.\d+\.\d+$/u.test(declaredNode)) {
+  fail(`package.json#volta.node is "${String(declaredNode)}", expected an exact "x.y.z"`)
+} else {
+  const workflowsDir = join(REPO_ROOT, '.github', 'workflows')
+  const workflowFiles = existsSync(workflowsDir)
+    ? readdirSync(workflowsDir, { withFileTypes: true }).filter(entry => entry.isFile() && /\.ya?ml$/u.test(entry.name)).map(entry => entry.name)
+    : []
+  if (workflowFiles.length === 0) fail('.github/workflows contains no workflow files')
+  let derivesFromPin = 0
+  for (const name of workflowFiles) {
+    const lines = readFileSync(join(workflowsDir, name), 'utf8').split('\n')
+    for (const line of lines) {
+      if (/^\s*node-version:/u.test(line)) fail(`.github/workflows/${name} pins a literal "${line.trim()}" (use node-version-file: package.json)`)
+      if (/^\s*node-version-file:\s*package\.json\s*$/u.test(line)) derivesFromPin += 1
+    }
+  }
+  if (derivesFromPin === 0) fail('no workflow derives Node from package.json (expected `node-version-file: package.json` under actions/setup-node)')
+  note(`node toolchain: ${declaredNode} (package.json#volta.node), CI derives from it`)
+}
+
 for (const message of notes) console.log(`[dsh:check] ${message}`)
 
 if (failures.length > 0) {
@@ -417,4 +449,4 @@ if (failures.length > 0) {
   process.exit(1)
 }
 
-console.log('[dsh:check] baseline, pins, soft ranges, allowlist, lockfile and installed tree agree')
+console.log('[dsh:check] baseline, pins, soft ranges, allowlist, lockfile, installed tree and node toolchain agree')

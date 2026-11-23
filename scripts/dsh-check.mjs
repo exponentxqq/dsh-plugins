@@ -4,7 +4,7 @@
  *
  * 顺序 spawn 三个检查脚本，任一非 0 即整体非 0：
  *
- * 1. `check-dsh-baseline.mjs` —— DSH 基线 / catalog / 安装树 / 发布年龄豁免；
+ * 1. `check-dsh-baseline.mjs` —— DSH 基线 / catalog / 安装树 / 发布年龄豁免 / Node 工具链单源；
  * 2. `check-architecture.mjs` —— 结构不变式（AR1–AR8，G7 8.1 全量开启）；
  * 3. `check-artifacts.mjs`    —— 产物契约（B1–B5，`--baseline` 模式下可比对模块词）。
  *
