@@ -17,7 +17,7 @@ import {
  * - 幂等短路（override 深等单一真源即跳过写盘，X7-4；remove 无键对称短路，X7-6）；
  * - remove 只删本键、providers 删空仍是空对象（X7-5）；
  * - 无 llm-pi-ai 行 → no-row 且不写盘（X7-7）；
- * - 单一真源常量断言（X7-8：六码整集顺序、models 三条、零 headers）；
+ * - 单一真源常量断言（X7-8：六码整集顺序、models 两条、零 headers）；
  * - routeState 的 registered 判定（X7-9）。
  */
 
@@ -162,9 +162,9 @@ describe('ZCODE_PLAN_ROUTE 单一真源（X7-8）', () => {
     ])
   })
 
-  it('X7-8b models 恰三条：glm-5.4 / glm-5.3 / glm-5.3-flash，条目形状照实测 profile', () => {
-    expect(ZCODE_PLAN_ROUTE.models).toHaveLength(3)
-    expect(ZCODE_PLAN_ROUTE.models.map((model) => model.id)).toEqual(['glm-5.4', 'glm-5.3', 'glm-5.3-flash'])
+  it('X7-8b models 恰两条：最新旗舰 + flash，条目形状照实测 profile', () => {
+    expect(ZCODE_PLAN_ROUTE.models).toHaveLength(2)
+    expect(ZCODE_PLAN_ROUTE.models.map((model) => model.id)).toEqual(['glm-5.4', 'glm-5.3-flash'])
     for (const model of ZCODE_PLAN_ROUTE.models) {
       expect(model.contextWindow).toBe(1_000_000)
       expect(model.maxTokens).toBe(131_072)
@@ -172,10 +172,9 @@ describe('ZCODE_PLAN_ROUTE 单一真源（X7-8）', () => {
       expect(model.compat.thinkingFormat).toBe('zai')
       expect(model.compat.maxTokensField).toBe('max_tokens')
     }
-    // glm-5.4 官方新增视觉能力（2026-11-23 实测可发 image_url）；glm-5.3 仍纯文本。
+    // 旗舰与 flash 都支持图片输入（2026-11-23 实测可发 image_url）。
     expect(ZCODE_PLAN_ROUTE.models[0].input).toEqual(['text', 'image'])
-    expect(ZCODE_PLAN_ROUTE.models[1].input).toEqual(['text'])
-    expect(ZCODE_PLAN_ROUTE.models[2].input).toEqual(['text', 'image'])
+    expect(ZCODE_PLAN_ROUTE.models[1].input).toEqual(['text', 'image'])
   })
 
   it('X7-8c 全树零 headers：指纹头不进单一真源（C3）', () => {

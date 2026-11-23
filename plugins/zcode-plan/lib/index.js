@@ -1801,22 +1801,6 @@ var ZCODE_PLAN_ROUTE = {
       }
     },
     {
-      id: "glm-5.3",
-      name: "GLM-5.3",
-      contextWindow: 1e6,
-      maxTokens: 131072,
-      input: ["text"],
-      reasoningEfforts: { off: null, low: "low", medium: "high", high: "high", max: "max" },
-      compat: {
-        thinkingFormat: "zai",
-        supportsReasoningEffort: true,
-        supportsStore: false,
-        supportsDeveloperRole: false,
-        supportsStrictMode: true,
-        maxTokensField: "max_tokens"
-      }
-    },
-    {
       id: "glm-5.3-flash",
       name: "GLM-5.3 Flash",
       contextWindow: 1e6,
