@@ -1,10 +1,11 @@
 /**
  * ZCode 计划路由的注册 / 摘除 / 状态（H12 + code-design §3.8）。
  *
- * 单一真源 {@link ZCODE_PLAN_ROUTE}：bundle patch（`cordis.patch.yml`）不重复
+ * 默认目录 {@link ZCODE_PLAN_ROUTE}：bundle patch（`cordis.patch.yml`）不重复
  * 声明该路由（D-1），全部装配由本模块经 config-editor 写进 profile patch 的
- * `providers['zcode-plan']` 键。install / remove 只动这一个键，永不触碰
- * `agent-default-model`（切默认路由是用户决策，C8/E7）。
+ * `providers['zcode-plan']` 键。**profile 的 cordis.patch.yml 是路由事实的最终
+ * 真源**：install 只补缺失键、绝不覆盖 profile 已声明键（含手改 `models`），
+ * remove 只删本键；两者都不触碰 `agent-default-model`（切默认路由是用户决策，C8/E7）。
  *
  * 上游 API 位点（0.2.1-rc.2 实测）：
  * - `@deepseek-ai/dsh-config-editor`：`entries()` / `configuration()` /
@@ -31,13 +32,13 @@ export const ROUTE_ENTRY_ID = 'llm-pi-ai'
  * ZCode 计划路由的单一真源（§3.8，D-1）。
  *
  * - **必须带 `models`**：非 catalog 路由（route id 不在 pi-ai catalog，无继承链）
- *   需要 `api` + `baseURL` + 非空 `models`；模型目录逐字搬本机实测可用的
- *   `zai-coding-zcode` 条目（`~/.dsh/profiles/web/cordis.patch.yml` 的 models 段），
- *   **去掉 `headers` 段**（零指纹头，C3）；
- * - **最新旗舰置首且带图片输入**：2026-11-23 官方上线 Coding Plan（1M 上下文、新增视觉；
+ *   需要 `api` + `baseURL` + 非空 `models`；glm-5.3 / glm-5.3-flash 两条逐字搬本机
+ *   实测可用的 `zai-coding-zcode` 条目（`~/.dsh/profiles/web/cordis.patch.yml` 的
+ *   models 段），**去掉 `headers` 段**（零指纹头，C3）；
+ * - **glm-5.4 置首且带图片输入**：2026-11-23 官方上线 Coding Plan（1M 上下文、新增视觉；
  *   实测 1M/131072 上限、`input: ['text','image']` 可发图、`reasoning_effort`
- *   low/high/max 均被受理；旧旗舰同日返回 1305「访问量过大」，故模型目录只保留
- *   最新旗舰与最低成本 flash 两条）；
+ *   low/high/max 均被受理；同日 glm-5.3 曾返回 1305「访问量过大」，其后恢复可用，
+ *   保留为纯文本回退档）；
  * - **`retryableCodes` 是整集覆盖**（上游 `dsh-llm` 的 resolved retry policy 对该
  *   字段取整集替换语义，不是增量合并）→ 必须把五个默认码一并重述、只追加
  *   `INVALID_CREDENTIAL`（D-8；`AUTH` 码在本版本码表中不存在）。
@@ -59,6 +60,22 @@ export const ZCODE_PLAN_ROUTE = {
       contextWindow: 1_000_000,
       maxTokens: 131_072,
       input: ['text', 'image'],
+      reasoningEfforts: { off: null, low: 'low', medium: 'high', high: 'high', max: 'max' },
+      compat: {
+        thinkingFormat: 'zai',
+        supportsReasoningEffort: true,
+        supportsStore: false,
+        supportsDeveloperRole: false,
+        supportsStrictMode: true,
+        maxTokensField: 'max_tokens',
+      },
+    },
+    {
+      id: 'glm-5.3',
+      name: 'GLM-5.3',
+      contextWindow: 1_000_000,
+      maxTokens: 131_072,
+      input: ['text'],
       reasoningEfforts: { off: null, low: 'low', medium: 'high', high: 'high', max: 'max' },
       compat: {
         thinkingFormat: 'zai',
@@ -171,13 +188,64 @@ function findLlmPiAiEntry(configEditor: ConfigEditorPort): RouteEntry | undefine
 }
 
 /**
- * 注册 ZCode 计划路由（H12 / §3.8 `installRoute()`）：定位 `llm-pi-ai` 条目 → 读
- * `configuration()` 的 override / inherited → **并集合并**（inherited 保 bundle 层
- * 路由、current 保 profile 层已有键，逐键 profile 胜）→ `edit()` → 读
- * `llm.listProviders()` 验证。
+ * 合并出**生效路由**（profile 优先语义的核心纯函数）：合并顺序
+ * `插件默认（{@link ZCODE_PLAN_ROUTE}） < bundle(inherited) < profile(override)`，
+ * 逐键后者胜——profile 已声明的键（含 `models`、`baseURL` 等手改值）一律保留，
+ * 缺失的键由 defaults / inherited 补齐。两参都是 `providers[ROUTE_ID]` 的原始值
+ * （非对象按空表处理），缺席即该层无声明。
  *
- * **幂等**：override 层的 `providers['zcode-plan']` 已深等 {@link ZCODE_PLAN_ROUTE}
- * 即跳过写盘（`{ok:true, changed:false}`），不扰动注释与无关键。只覆盖本键，
+ * @param inheritedRoute - bundle（inherited）层的本键值。
+ * @param overrideRoute - profile（override）层的本键值。
+ * @returns 合并后的路由对象（新对象，不改任何入参）。
+ */
+export function effectiveRoute(inheritedRoute: unknown, overrideRoute: unknown): Record<string, unknown> {
+  return { ...ZCODE_PLAN_ROUTE, ...asProviders(inheritedRoute), ...asProviders(overrideRoute) }
+}
+
+/**
+ * 读取 profile patch 里**当前声明的生效路由**（纯只读）：定位 llm-pi-ai 条目 →
+ * `configuration()` 的 override / inherited 两层并集里找本键（任一层声明即算）→
+ * {@link effectiveRoute} 合并（profile 胜）。无条目、无快照或两层都未声明返回
+ * `undefined`（调用方回落插件默认目录展示）。
+ *
+ * @param configEditor - config-editor 端口（可缺席：缺席返回 `undefined`）。
+ * @returns 生效路由对象，或 `undefined`。
+ */
+export function declaredRouteOf(configEditor: ConfigEditorPort | undefined): Record<string, unknown> | undefined {
+  if (configEditor === undefined) return undefined
+  const entry = findLlmPiAiEntry(configEditor)
+  if (entry === undefined) return undefined
+  const snap = configEditor.configuration().find((layer) => layer.entry === entry)
+  if (snap === undefined) return undefined
+  const overrideProviders = asProviders(snap.override.providers)
+  const inheritedProviders = asProviders(snap.inherited.providers)
+  if (!(ROUTE_ID in overrideProviders) && !(ROUTE_ID in inheritedProviders)) return undefined
+  return effectiveRoute(inheritedProviders[ROUTE_ID], overrideProviders[ROUTE_ID])
+}
+
+/**
+ * 从路由对象提取模型 id 清单（status / route status 展示用）：`models` 非数组、
+ * 条目非对象或缺 `id` 的条目忽略；提取结果为空时返回 `undefined`（调用方按
+ * 「无清单」处理）。
+ */
+export function routeModelIds(route: Record<string, unknown> | undefined): readonly string[] | undefined {
+  const models = route?.models
+  if (!Array.isArray(models)) return undefined
+  const ids = models
+    .map((model) => (model !== null && typeof model === 'object' ? (model as { id?: unknown }).id : undefined))
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  return ids.length > 0 ? ids : undefined
+}
+
+/**
+ * 注册 ZCode 计划路由（H12 / §3.8 `installRoute()`）：定位 `llm-pi-ai` 条目 → 读
+ * `configuration()` 的 override / inherited → **以 profile 声明为准的补缺合并**
+ * （{@link effectiveRoute}：插件默认 < bundle(inherited) < profile(override)，
+ * 逐键后者胜、已声明键一律不覆盖——用户手改的 `models` / `baseURL` 等原样保留，
+ * 只补 profile 缺失的键）→ `edit()` → 读 `llm.listProviders()` 验证。
+ *
+ * **幂等**：override 层已声明本键且合并结果与其深等（无缺失键可补）即跳过写盘
+ * （`{ok:true, changed:false}`），不扰动注释与无关键。只覆盖本键，
  * 不碰 `agent-default-model`（C8/E7）。
  *
  * @param deps - config-editor / llm 目录端口与诊断出口。
@@ -190,18 +258,32 @@ export async function installRoute(deps: RouteDeps): Promise<RouteMutationResult
     return { ok: false, changed: false, reason: 'no-llm-pi-ai-row' }
   }
   const snap = deps.configEditor.configuration().find((layer) => layer.entry === entry)
-  if (snap !== undefined && deepEqual(asProviders(snap.override.providers)[ROUTE_ID], ZCODE_PLAN_ROUTE)) {
-    deps.log.info(`${ROUTE_ID} 路由已存在且与单一真源一致：跳过写盘（幂等短路）`)
-    return { ok: true, changed: false }
+  if (snap !== undefined) {
+    const overrideProviders = asProviders(snap.override.providers)
+    if (ROUTE_ID in overrideProviders) {
+      const effective = effectiveRoute(asProviders(snap.inherited.providers)[ROUTE_ID], overrideProviders[ROUTE_ID])
+      if (deepEqual(effective, overrideProviders[ROUTE_ID])) {
+        deps.log.info(`${ROUTE_ID} 路由已按 profile 声明装配齐全：跳过写盘（幂等短路）`)
+        return { ok: true, changed: false }
+      }
+    }
   }
+  const profileDeclared = snap !== undefined && ROUTE_ID in asProviders(snap.override.providers)
   await deps.configEditor.edit(entry, (current, inherited) => ({
     ...current,
     providers: {
       ...asProviders(inherited.providers), // 保留 bundle 层路由
       ...asProviders(current.providers), // profile 层已有键优先（逐键 profile 胜）
-      [ROUTE_ID]: ZCODE_PLAN_ROUTE, // 只覆盖本键
+      // 只补缺失键，已声明键（含手改 models / baseURL）不覆盖
+      [ROUTE_ID]: effectiveRoute(asProviders(inherited.providers)[ROUTE_ID], asProviders(current.providers)[ROUTE_ID]),
     },
   }))
+  const modelsDesc = routeModelIds(effectiveRoute(asProviders(snap?.inherited.providers)[ROUTE_ID], asProviders(snap?.override.providers)[ROUTE_ID]))
+  deps.log.info(
+    profileDeclared
+      ? `${ROUTE_ID} 路由沿用 profile 声明（${modelsDesc ?? '清单照声明'}），仅补齐缺失键后写盘`
+      : `${ROUTE_ID} 路由按插件默认目录（${modelsDesc ?? 'models 段'}）写入 profile patch`,
+  )
   const registered = deps.llm?.listProviders().some((provider) => provider.id === ROUTE_ID) ?? false
   if (registered) {
     deps.log.info(`${ROUTE_ID} 路由已写入 profile patch 并在 llm 目录注册`)

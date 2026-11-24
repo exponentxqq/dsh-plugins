@@ -49,7 +49,7 @@ pnpm release <version>  # 发布：dsh:check → 同步版本 → 重建产物 �
 
 新增插件 = `pnpm gen:plugin <name> --kind host-only|dual [--template <name>]` 从 `templates/default/` 生成骨架（默认模板 `default`，多模板约定见 [`templates/README.md`](templates/README.md)；薄 `build.mjs`、extends 根基准的 tsconfig、`catalog:` 依赖、冒烟测试与 bundle patch），再按生成器打印的 5 步命令安装与验证；生成物开箱通过 lint / typecheck / build / test 与 `pnpm dsh:check`，模板素材本身不是包（件套表见 [`templates/default/README.md`](templates/default/README.md)）。
 
-当前 DSH 开发基线是 **`0.2.2-rc.5`**，由 `scripts/dsh-baseline.mjs` 单点声明：全部七个插件（含 multi-root）的 `engines.dsh` / DSH peer 统一按基线派生为 `>=0.2.2-rc.5 <0.3.0`；multi-root 运行时门持有的基线副本（`plugins/multi-root-workspace/src/compat/dsh-version.ts` 的 `DSH_BASELINE`）由 `pnpm dsh:upgrade` 同批重指，提升基线 = 改该常量后跑 `pnpm dsh:upgrade`。Node 工具链由根 `package.json#volta.node` 固定在 `26.13.1`（与 dsh 运行时同版本；CI 用 `node-version-file` 从它派生、`pnpm dsh:check` 守单源），`engines` 仍兼容 22.19+。升级流程见 [multi-root 开发工作流](plugins/multi-root-workspace/docs/development/plugin-development-workflow.md)。
+当前 DSH 开发基线由 `scripts/dsh-baseline.mjs` 单点声明（当前值看 `pnpm dsh:check` 首行）：全部七个插件（含 multi-root）的 `engines.dsh` / DSH peer 统一按基线派生软范围（`>=<基线> <<主>.<次+1>.0`）；multi-root 运行时门（`plugins/multi-root-workspace/src/compat/dsh-version.ts` 的 `DSH_BASELINE`）直接 import 该单源（构建期内联，仓内无第二份字面量，`pnpm dsh:check` 第 10 项守），提升基线 = 改该常量后跑 `pnpm dsh:upgrade`。Node 工具链由根 `package.json#volta.node` 固定（与 dsh 运行时同版本；CI 用 `node-version-file` 从它派生、`pnpm dsh:check` 守单源），`engines` 声明更宽的支持面。升级流程见 [multi-root 开发工作流](plugins/multi-root-workspace/docs/development/plugin-development-workflow.md)。升级流程见 [multi-root 开发工作流](plugins/multi-root-workspace/docs/development/plugin-development-workflow.md)。
 
 只跑单个插件：`pnpm --filter <包名> <脚本>`，例如 `pnpm --filter dsh-plugin-multi-root-workspace verify:all`（含 lint / 兼容门 / typecheck / build / 内核探测 / 单测 / 冒烟）。冒烟不依赖已启动的 dsh 服务（零容器、零真实凭证）：只需 `pnpm install` 后的 devDependency dsh CLI——journey 用本机 OpenAI 兼容假端点 + 隔离 scratch `$DSH_HOME`。
 
@@ -70,10 +70,10 @@ docker exec dsh dsh --profile web --dump-config          # 校验组合可加载
 
 两件必知的事：
 
-- **构建授权**：v1.1.1 起各插件的构建产物 `lib/` 随仓库提交且不再带 `prepare` 脚本，git 来源安装**不触发** pnpm 的构建脚本授权（pnpm 10/11 行为一致，改 tag 也无需任何表态）。唯一例外是 multi-root 插件的注册表依赖 `koffi`（原生模块，install 脚本要预编译）：pnpm ≥11 会把 `allowBuilds: koffi:` 占位写进 profile 的 `pnpm-workspace.yaml`，改成 `true` 重跑即可；pnpm 10 会以 `ERR_PNPM_IGNORED_BUILDS` 退出，把 `koffi`（用包名）加进 `onlyBuiltDependencies`——按包名匹配、不随 tag 变化，只需表态一次。背景与机制（为何 git 来源曾是硬失败、为何键里带 commit）见 [安装停在构建授权](plugins/multi-root-workspace/docs/troubleshooting/install-stops-at-build-approval.md)。
+- **构建授权**：自 [CHANGELOG](CHANGELOG.md) 所载「lib 入库」起各插件的构建产物 `lib/` 随仓库提交且不再带 `prepare` 脚本，git 来源安装**不触发** pnpm 的构建脚本授权（pnpm 10/11 行为一致，改 tag 也无需任何表态）。唯一例外是 multi-root 插件的注册表依赖 `koffi`（原生模块，install 脚本要预编译）：pnpm ≥11 会把 `allowBuilds: koffi:` 占位写进 profile 的 `pnpm-workspace.yaml`，改成 `true` 重跑即可；pnpm 10 会以 `ERR_PNPM_IGNORED_BUILDS` 退出，把 `koffi`（用包名）加进 `onlyBuiltDependencies`——按包名匹配、不随 tag 变化，只需表态一次。背景与机制（为何 git 来源曾是硬失败、为何键里带 commit）见 [安装停在构建授权](plugins/multi-root-workspace/docs/troubleshooting/install-stops-at-build-approval.md)。
 - **`insteadOf` 改写**：若宿主 `~/.gitconfig` 写了 `url.git@github.com:.insteadOf = https://github.com/`（该文件被只读挂载进 dsh 容器），容器内 `git ls-remote` 会被改写成 ssh——dsh 容器现已挂载宿主 `~/.ssh`，钥匙对 GitHub 可用时 ssh 直连照常工作，不再是坑；仅当宿主没有可用的 GitHub 钥匙时才会失败，届时把该段拆到宿主专属的 include 文件（见 dotfiles `dsh/README.md`），或给这条命令加 `-e GIT_CONFIG_GLOBAL=/dev/null`：`docker exec -e GIT_CONFIG_GLOBAL=/dev/null dsh dsh plugin …`。
 
-升级 = 改 profile `package.json` 里的 tag 后重装（`pnpm install` + 重启 profile）；想自动跟进同主版本也可用范围写法 `#semver:^<major>.0.0&path:plugins/<目录>`。multi-root-workspace 是个例外：自 v1.3.0 起其目录改名为 `plugins/multi-root-workspace`（包名不变），而 pnpm 的 git 依赖锚点含 `&path:`、不随 tag 自动切换，已装旧版的 profile 需按新 path 重新 `add`（旧 tag 配旧 path 仍可装回旧版本，详见[插件 README](plugins/multi-root-workspace/README.md)）。
+升级 = 改 profile `package.json` 里的 tag 后重装（`pnpm install` + 重启 profile）；想自动跟进同主版本也可用范围写法 `#semver:^<major>.0.0&path:plugins/<目录>`。multi-root-workspace 是个例外：其目录曾改名（见 [CHANGELOG](CHANGELOG.md)「multi-root 目录改名」条目，包名不变），而 pnpm 的 git 依赖锚点含 `&path:`、不随 tag 自动切换，已装旧版的 profile 需按新 path 重新 `add`（旧 tag 配旧 path 仍可装回旧版本，详见[插件 README](plugins/multi-root-workspace/README.md)）。
 
 本地开发调试仍可 `link:` 安装（改源码重启即生效，无需发布）：`dsh plugin --profile web add <本仓>/plugins/<name>`（`<本仓>` 指本仓库检出的绝对路径）。
 

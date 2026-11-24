@@ -56,7 +56,7 @@ import { createKeyManager } from './key-manager.ts'
 import { createLoginDriver, createLoginFlow, type AuthorizationFlow, type AuthorizationRequest, type LoginDriver } from './login-flow.ts'
 import { createPatOwner, type PatOwner } from './pat-owner.ts'
 import { createLogPort, nodeClock, nodeFetch, type CredentialsPort, type LogPort } from './ports.ts'
-import type { ConfigEditorPort } from './route-config.ts'
+import { ZCODE_PLAN_ROUTE, declaredRouteOf, routeModelIds, type ConfigEditorPort } from './route-config.ts'
 import { readRouteState, readUsage, type StatusLlmPort, type StatusSnapshot } from './status.ts'
 
 /** loader 诊断用的插件名（也是 bundle 行的 id）。 */
@@ -359,6 +359,14 @@ export function apply(ctx: Context, config: ZcodePlanConfig): void {
     return owner
   }
 
+  /**
+   * status 路由段展示的模型清单（profile 优先）：profile patch 已声明本路由 →
+   * 用声明的 `models`（含手改值）；未声明 → 回落插件默认目录。config-editor
+   * 缺席（可选能力未装配）→ `undefined`（路由行只出「已注册」不带清单）。
+   */
+  const statusRouteModels = (): readonly string[] | undefined =>
+    routeModelIds(declaredRouteOf(configEditorPort(ctx))) ?? ZCODE_PLAN_ROUTE.models.map((model) => model.id)
+
   /** status 快照采集器（H13 的 `collectStatus` 面）：读 grant → 读用量（只读一次）→ 两读路由。 */
   const collectStatus = async (signal?: AbortSignal): Promise<StatusSnapshot> => {
     const now = nodeClock.now()
@@ -375,7 +383,7 @@ export function apply(ctx: Context, config: ZcodePlanConfig): void {
       patRenewalLeadMs: config.refreshLeadMs,
       ...(haltReason !== undefined && { haltReason }),
       ...(refConflictSource !== undefined && { refConflict: { source: refConflictSource } }),
-      route: readRouteState(llmPort(ctx)),
+      route: readRouteState(llmPort(ctx), statusRouteModels()),
       ...(signer !== undefined && { signing: signer.status() }),
       usage,
     }

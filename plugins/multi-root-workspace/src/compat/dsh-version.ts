@@ -1,11 +1,11 @@
 /**
  * DSH 兼容性契约：本插件支持哪一段上游版本，以及一次安装如何被判定。
  *
- * 本模块是支持矩阵在运行时的唯一副本：`DSH_BASELINE` 是仓库基线
- * `scripts/dsh-baseline.mjs` 的同值字面量（由 `pnpm dsh:upgrade` 同批重写），
- * `SUPPORTED_DSH_RANGE` 由它派生。模块刻意保持纯净——不引 cordis、不打日志、不退出
- * 进程——所以运行时门（`src/compat.ts`）、静态门（`scripts/check-dsh-compat.mjs`）与
- * 测试判定一次安装时走的是同一份代码，而不是三份会各自漂移的清单。
+ * `DSH_BASELINE` 直接 import 自仓库单源 `scripts/dsh-baseline.mjs`（构建期内联进
+ * `lib/`，运行时零文件依赖），`SUPPORTED_DSH_RANGE` 由它派生。模块刻意保持纯净——
+ * 不引 cordis、不打日志、不退出进程——所以运行时门（`src/compat.ts`）、静态门
+ * （`scripts/check-dsh-compat.mjs`）与测试判定一次安装时走的是同一份代码，而不是
+ * 三份会各自漂移的清单。
  *
  * 为什么需要契约：本插件用上游 provider 的子类替换 `ctx.fs` 与 `ctx.sandbox`，并且
  * `src/dialects.ts` 靠观测 `super.confine` 产出的 argv 形状来识别内核沙箱 profile
@@ -25,6 +25,10 @@
 
 import { createRequire } from 'node:module'
 
+import { DSH_BASELINE } from '../../../../scripts/dsh-baseline.mjs'
+
+export { DSH_BASELINE }
+
 /** 版本文法：`<主>.<次>.<补丁>[-<预发布>]`；预发布段是以 `.` 分隔的 `[0-9A-Za-z-]+`。 */
 const VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/u
 
@@ -32,15 +36,10 @@ const VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]
 const NUMERIC_IDENTIFIER = /^\d+$/u
 
 /**
- * 仓库基线的运行时副本（唯一字面量）。与 `scripts/dsh-baseline.mjs` 的
- * `DSH_BASELINE` 同值，由 `pnpm dsh:upgrade` 同批重写，并由「manifest engines/peers
- * == 本文件派生范围」与「engines == 根基线派生范围」两条断言传递性地钉住相等。
- *
- * 本条必须是单引号字符串常量（`DSH_BASELINE` 后紧跟一次赋值、值两侧为单引号）：
- * 升级脚本（`scripts/upgrade-dsh.mjs` 的 `repointRuntimeBaselines`）按首个文本
- * 出现位置做重写，任何更早的同形状文本（例如注释里的示例）都会让它改错对象。
+ * 仓库基线（单源消费，不再持有字面量副本）：值来自 `scripts/dsh-baseline.mjs`，
+ * 上面 import 后原样 re-export，导出面不变。相等性由两条断言传递性地钉住：
+ * 「manifest engines/peers == 本文件派生范围」与「engines == 根基线派生范围」。
  */
-export const DSH_BASELINE = '0.2.2-rc.5'
 
 /** 由基线派生的支持范围：`>=<基线> <<主>.<次+1>.0`（下界含、上界不含）。 */
 export const SUPPORTED_DSH_RANGE = softDshRange(DSH_BASELINE)

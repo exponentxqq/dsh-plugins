@@ -1,14 +1,44 @@
 import { createRequire } from "node:module";
 import { Service } from "@deepseek-ai/cordis";
+//#region ../../scripts/dsh-baseline.mjs
+/**
+* DSH 基线的唯一来源。
+*
+* 仓库里所有「当前验证的是哪个 DSH」的声明都从这里的 `DSH_BASELINE` 派生：
+* 七个插件经 `catalog:dsh` 的 devDependencies、七个插件（含 multi-root）统一
+* 派生的 `engines.dsh` 与 DSH peer 范围、`dsh:check` 的断言、根级升级脚本的
+* 重写目标，以及 multi-root 运行时门（`src/compat/dsh-version.ts` 直接 import
+* 本常量，构建期内联进 `lib/`）。改基线时只改这里，再跑
+* `pnpm dsh:upgrade`（带版本参数时脚本也会同步重写本文件）。
+*
+* @module scripts/dsh-baseline
+*/
+/** 当前开发与发布验证所针对的 DSH 精确版本。 */
+const DSH_BASELINE = "0.2.2-rc.5";
+/**
+* 由基线派生软插件的可安装范围：`>=<基线> <<主>.<次+1>.0`。
+*
+* 钉住当前次版本线（0.2.x），而不是放开整个 0.x：零主版本之间同样有破坏性
+* 变更，软插件不维护精确 allowlist，但也不应该在没有验证的情况下跨次版本安装。
+* @param baseline - 精确基线版本。
+* @returns 软插件的 `engines.dsh` 与 DSH peer 范围。
+*/
+function softDshRange$1(baseline = DSH_BASELINE) {
+	const match = /^(\d+)\.(\d+)\.\d+(?:-[\w.]+)?$/u.exec(baseline);
+	if (match === null) throw new Error(`[baseline] "${baseline}" is not an exact version`);
+	return `>=${baseline} <${Number(match[1])}.${Number(match[2]) + 1}.0`;
+}
+softDshRange$1();
+//#endregion
 //#region src/compat/dsh-version.ts
 /**
 * DSH 兼容性契约：本插件支持哪一段上游版本，以及一次安装如何被判定。
 *
-* 本模块是支持矩阵在运行时的唯一副本：`DSH_BASELINE` 是仓库基线
-* `scripts/dsh-baseline.mjs` 的同值字面量（由 `pnpm dsh:upgrade` 同批重写），
-* `SUPPORTED_DSH_RANGE` 由它派生。模块刻意保持纯净——不引 cordis、不打日志、不退出
-* 进程——所以运行时门（`src/compat.ts`）、静态门（`scripts/check-dsh-compat.mjs`）与
-* 测试判定一次安装时走的是同一份代码，而不是三份会各自漂移的清单。
+* `DSH_BASELINE` 直接 import 自仓库单源 `scripts/dsh-baseline.mjs`（构建期内联进
+* `lib/`，运行时零文件依赖），`SUPPORTED_DSH_RANGE` 由它派生。模块刻意保持纯净——
+* 不引 cordis、不打日志、不退出进程——所以运行时门（`src/compat.ts`）、静态门
+* （`scripts/check-dsh-compat.mjs`）与测试判定一次安装时走的是同一份代码，而不是
+* 三份会各自漂移的清单。
 *
 * 为什么需要契约：本插件用上游 provider 的子类替换 `ctx.fs` 与 `ctx.sandbox`，并且
 * `src/dialects.ts` 靠观测 `super.confine` 产出的 argv 形状来识别内核沙箱 profile
@@ -30,15 +60,10 @@ const VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]
 /** 全数字的 prerelease 标识符按数值比较（见 {@link compareVersions} 规则 3）。 */
 const NUMERIC_IDENTIFIER = /^\d+$/u;
 /**
-* 仓库基线的运行时副本（唯一字面量）。与 `scripts/dsh-baseline.mjs` 的
-* `DSH_BASELINE` 同值，由 `pnpm dsh:upgrade` 同批重写，并由「manifest engines/peers
-* == 本文件派生范围」与「engines == 根基线派生范围」两条断言传递性地钉住相等。
-*
-* 本条必须是单引号字符串常量（`DSH_BASELINE` 后紧跟一次赋值、值两侧为单引号）：
-* 升级脚本（`scripts/upgrade-dsh.mjs` 的 `repointRuntimeBaselines`）按首个文本
-* 出现位置做重写，任何更早的同形状文本（例如注释里的示例）都会让它改错对象。
+* 仓库基线（单源消费，不再持有字面量副本）：值来自 `scripts/dsh-baseline.mjs`，
+* 上面 import 后原样 re-export，导出面不变。相等性由两条断言传递性地钉住：
+* 「manifest engines/peers == 本文件派生范围」与「engines == 根基线派生范围」。
 */
-const DSH_BASELINE = "0.2.2-rc.5";
 /** 由基线派生的支持范围：`>=<基线> <<主>.<次+1>.0`（下界含、上界不含）。 */
 const SUPPORTED_DSH_RANGE = softDshRange(DSH_BASELINE);
 /**
@@ -359,4 +384,4 @@ function apply(ctx) {
 	ctx.plugin(MultiRootCompatService, report);
 }
 //#endregion
-export { inject as a, OPTIONAL_CORE_PACKAGES as c, classifyInstallation as d, isSupportedDshRelease as f, assertSupportedInstallation as i, REQUIRED_CORE_PACKAGES as l, MultiRootCompatService as n, CORE_PACKAGES as o, readInstalledVersion as p, apply as r, DSH_BASELINE as s, DshCompatUnsupportedError as t, SUPPORTED_DSH_RANGE as u };
+export { inject as a, REQUIRED_CORE_PACKAGES as c, isSupportedDshRelease as d, readInstalledVersion as f, assertSupportedInstallation as i, SUPPORTED_DSH_RANGE as l, MultiRootCompatService as n, CORE_PACKAGES as o, DSH_BASELINE as p, apply as r, OPTIONAL_CORE_PACKAGES as s, DshCompatUnsupportedError as t, classifyInstallation as u };

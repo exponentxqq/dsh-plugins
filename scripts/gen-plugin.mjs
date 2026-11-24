@@ -418,7 +418,7 @@ function buildTokens(name, kind, rootManifest) {
     KIND: kind,
     ENDNESS: kindLabel,
     DESCRIPTION: `DSH 插件（${kindLabel}）：${name} —— 请替换为定位与能力的一句话说明。`,
-    VERSION: rootManifest.version,
+    VERSION: '0.0.0', // 发布版本单点：插件清单恒 0.0.0，版本只在根清单与 git tag（dsh:check 第 11 项）
     NODE_RANGE: rootManifest.engines.node,
     DSH_RANGE: softDshRange(),
     CSS_CLASS_PREFIX_OPTION: dual ? `, cssClassPrefix: '${cssClassPrefix(name)}'` : '',

@@ -93,7 +93,7 @@ await buildPlugin({ root: import.meta.dirname, cjsRequireShim: true })
 ## CSS modules 的两条硬规则
 
 1. **防重护栏固定按「包 + 模块」双维度**：`data-dsh-plugin` + `data-dsh-css`。
-   只按包名查询会让同包第二个 module 的样式永不注入（v1.4.0 的 delete 样式即因此
+   只按包名查询会让同包第二个 module 的样式永不注入（web-ux 早期版本的 delete 样式即因此
    从未生效）；`session-tool-toggle` 目前只有 1 个 css module，所以历史 bug 不可见，
    单测把修复钉住。
 2. **类名只在选择器前奏重写**：`url("./x.svg")` 与 at-rule 前奏

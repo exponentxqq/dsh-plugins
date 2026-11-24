@@ -2,11 +2,11 @@
  * 文档检查共享内核——**唯一实现**（D-6 / D-B1）。
  *
  * 本模块从 multi-root 旧脚本 `plugins/multi-root-workspace/scripts/check-docs.mjs`
- * 承接 10 项检查（逻辑零改写，注释里保留原文件行号锚），并新增 4 项仓级检查。
- * 双薄入口（包内 `docs:check` 与仓级 `scripts/check-docs.mjs`）只构造
- * `DocCheckConfig` 并转 exit code；检查逻辑、打印与计数只在这里。
+ * 承接 10 项检查（逻辑零改写，注释里保留原文件行号锚），新增 4 项仓级检查与
+ * 1 项版本字面量检查。双薄入口（包内 `docs:check` 与仓级 `scripts/check-docs.mjs`）
+ * 只构造 `DocCheckConfig` 并转 exit code；检查逻辑、打印与计数只在这里。
  *
- * 14 项检查按 `CHECK_IDS` 顺序执行，逐项产出 `CheckResult`：
+ * 15 项检查按 `CHECK_IDS` 顺序执行，逐项产出 `CheckResult`：
  *
  * - `readme-pairs` / `agent-note-pairs` / `readme-navigation`：双语成对与导航，
  *   单语化（G4）后由入口配置关闭——**实现保留**，关闭即退役；
@@ -15,7 +15,8 @@
  *   旧脚本 7 项；
  * - `readme-skeleton` / `adr-skeleton` / `evidence-location` / `bare-adr-ref`：
  *   新增 4 项，判定语义逐字对齐 `docs/decisions/ADR-0003-doc-system-layers-and-gates.md`
- *   与 code-design ③.1 / ③.5，multi-root 入口不启用、仓级入口（G7）启用。
+ *   与 code-design ③.1 / ③.5，multi-root 入口不启用、仓级入口（G7）启用；
+ * - `version-literals`：活文档零版本字面量（ADR-0004），双入口按各自记录域豁免启用。
  *
  * 配置是唯一旋钮（`DocCheckConfig`，形状见 `doc-checks.d.mts`）：
  *
@@ -42,7 +43,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 
-/** 全部检查 id，顺序即打印顺序（③.1 表）。 */
+/** 全部检查 id，顺序即打印顺序（③.1 表；`version-literals` 为 ADR-0004 新增）。 */
 export const CHECK_IDS = [
   'readme-pairs',
   'agent-note-pairs',
@@ -58,6 +59,7 @@ export const CHECK_IDS = [
   'adr-skeleton',
   'evidence-location',
   'bare-adr-ref',
+  'version-literals',
 ]
 
 /**
@@ -79,6 +81,7 @@ const CHECK_NAMES = {
   'adr-skeleton': 'ADR section skeleton',
   'evidence-location': 'Verification evidence location',
   'bare-adr-ref': 'Bare ADR references',
+  'version-literals': 'Version literals',
 }
 
 /**
@@ -98,6 +101,7 @@ const CHECK_CONFIG_REQUIREMENTS = {
   'evidence-location': {
     rules: ['pluginPackages', 'evidenceSectionPattern', 'evidenceLinePattern', 'evidenceDirName'],
   },
+  'version-literals': { rules: ['versionLiteralPattern'] },
 }
 
 /** 规则项的类型（供配置校验）。 */
@@ -113,6 +117,7 @@ const RULE_KINDS = {
   evidenceLinePattern: 'regexp',
   evidenceDirName: 'string',
   pluginPackages: 'plugin-packages',
+  versionLiteralPattern: 'regexp',
 }
 
 /** 必需节/ADR 节清单不许为空（空表等于关闭检查，属配置错误）。 */
@@ -146,7 +151,7 @@ const DIR_KEYS = new Set(['agentNote', 'plansActive', 'plansCompleted', 'decisio
 const RULE_KEYS = new Set(Object.keys(RULE_KINDS))
 
 /** `exemptions` 允许的键。 */
-const EXEMPTION_KEYS = new Set(['absolutePaths', 'bareAdrRefs'])
+const EXEMPTION_KEYS = new Set(['absolutePaths', 'bareAdrRefs', 'versionLiterals'])
 
 /**
  * 节标题归一表（ADR-0003 §2 判据：「构建」「构建与类型」→「构建与测试」，
@@ -470,6 +475,7 @@ function normalizeConfig(config) {
   const exemptions = {
     absolutePaths: readExemptionArray('absolutePaths'),
     bareAdrRefs: readExemptionArray('bareAdrRefs'),
+    versionLiterals: readExemptionArray('versionLiterals'),
   }
 
   if (config.selfTest !== undefined && typeof config.selfTest !== 'boolean') {
@@ -1199,6 +1205,59 @@ function checkBareAdrRefs(config, files) {
   return result
 }
 
+/**
+ * 版本字面量的共享 pattern（ADR-0004）：两个薄入口引用同一常量，防双写漂移。
+ *
+ * 语义：
+ * - 抓 `v?x.y.z`（含 `-pre.release` 后缀）——覆盖 `0.2.2-rc.1`、`>=0.2.2-rc.5 <0.3.0`、
+ *   `^22.19.0`、`pnpm@11.25.0`、`v1.6.2` 等一切完整 semver 形态；
+ * - `(?!0\.0\.0(?![\w.]))` 排除占位常量 `0.0.0`（插件清单的发布契约值，在活文档里
+ *   讲「恒为 0.0.0」是契约本身不是版本事实）；
+ * - `(?<![\w.])` / `(?![\w-]|\.\d)` 两侧断言排除 IP 地址（`127.0.0.1`）、版本号的
+ *   尾段（`1.2.3.4` 的 `2.3.4`）与非版本号粘连（`1.2.3abc`）；
+ * - 围栏代码块**不豁免**（版本号写进示例同样会漂移——`stripCodeFences` 不用）。
+ *
+ * 带 `g` 标志：内核按行 `matchAll` 逐行收集（`matchAll` 迭代使用克隆，不残留
+ * `lastIndex`，全局复用安全）。
+ */
+export const VERSION_LITERAL_PATTERN = /(?<![\w.])v?(?!0\.0\.0(?![\w.]))\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?![\w-]|\.\d)/gu
+
+/**
+ * 新增 CHECK：活文档零版本字面量（ADR-0004）。
+ *
+ * 语义：版本事实只活在代码单点（根 `package.json#version`、
+ * `scripts/dsh-baseline.mjs`、`pnpm-workspace.yaml` 的 catalog）与 git tag；活文档
+ * 出现具体版本号即第二份会漂移的事实，一律改指向单源（「当前值看 `pnpm dsh:check`
+ * 首行」）或 git tag。记录域（ADR 取证正文、评估档案、CHANGELOG、`.agent/note`、
+ * 研究参考）由 `exemptions.versionLiterals` 路径子串豁免；`noScanPaths` 域照旧不扫。
+ * 链接目标里的版本（如指向旧版文档锚点）同样受检——活文档不该引用带版本的旧位置。
+ * @param {ReturnType<typeof normalizeConfig>} config 归一化配置。
+ * @param {Array<{ rel: string, abs: string }>} files 全部文件。
+ * @returns {import('./doc-checks.d.mts').CheckResult} 检查结果。
+ */
+function checkVersionLiterals(config, files) {
+  const result = newResult('version-literals')
+  const pattern = config.rules.versionLiteralPattern
+  for (const file of scannableFiles(config, files)) {
+    if (config.exemptions.versionLiterals.some((allowed) => file.rel.includes(allowed))) continue
+    const lines = readFileSync(file.abs, 'utf8').split('\n')
+    for (const [index, line] of lines.entries()) {
+      for (const match of line.matchAll(pattern)) {
+        result.issues.push(
+          issue(
+            'error',
+            result.name,
+            `Version literal "${match[0]}" (cite the single source or a git tag instead)`,
+            file.rel,
+            index + 1
+          )
+        )
+      }
+    }
+  }
+  return result
+}
+
 /** 检查 id → 实现（顺序无关，`CHECK_IDS` 决定打印顺序）。 */
 const CHECK_IMPLEMENTATIONS = {
   'readme-pairs': checkReadmePairs,
@@ -1215,6 +1274,7 @@ const CHECK_IMPLEMENTATIONS = {
   'adr-skeleton': checkAdrSkeleton,
   'evidence-location': checkEvidenceLocation,
   'bare-adr-ref': checkBareAdrRefs,
+  'version-literals': checkVersionLiterals,
 }
 
 /**

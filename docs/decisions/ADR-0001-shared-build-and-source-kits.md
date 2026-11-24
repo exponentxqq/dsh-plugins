@@ -2,6 +2,8 @@
 
 ## Status
 
+> 注（2026-11-24）：tooling 包恒 `0.0.0` 的约定已由 [ADR-0004](./ADR-0004-single-source-version-facts.md) 扩展为全仓发布契约——插件清单同样恒 `0.0.0`，发布版本只存在于根清单与 git tag。
+
 Accepted（2026-11-06）。
 
 本文同时承载两项与旧结论的关系：

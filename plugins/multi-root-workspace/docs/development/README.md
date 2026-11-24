@@ -24,7 +24,7 @@
 
 ## 已确定的工具链事实
 
-- 包管理器：pnpm（`11.25.0`）。
+- 包管理器：pnpm（`packageManager` 字段钉版本）。
 - 语言与构建：TypeScript（strict，独立 host face）+ tsdown（逐入口 ESM bundle）。
 - 门禁：oxlint、`tsc --noEmit`、vitest、两个冒烟脚本、文档检查。
 

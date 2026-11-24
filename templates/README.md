@@ -143,8 +143,9 @@ pnpm gen:plugin --check <name>       # 不接受 <name>（同理不接受 --kind
 
 - 模板内**不得出现 DSH 族 / 工具链的版本字面量**：不写精确 pin、不写版本断言（也不把版本号
   写进注释 / 文案里的断言句）。依赖一律引用 `catalog:`（工具链）或 `catalog:dsh`（DSH 族）。
-- 版本事实由仓库单点派生，模板里现取现算：`version` 取仓库根 `package.json#version`，
-  `engines.node` 取根 `engines.node`，`dsh.engines.dsh` 与 DSH peer 由
+- 版本事实由仓库单点派生，模板里现取现算：清单 `version` 恒为 `0.0.0`（发布版本只存在于
+  根 `package.json#version` 与 git tag，`dsh:check` 第 11 项守住），`engines.node` 取根
+  `engines.node`，`dsh.engines.dsh` 与 DSH peer 由
   `scripts/dsh-baseline.mjs` 的 `softDshRange()` 派生；工具链版本只活在根 `pnpm-workspace.yaml`
   的 catalog 里。
 - 这条禁令由门禁守着：`openspec/changes/optimize-architecture/tasks.md` 9.1 的 grep 验证句

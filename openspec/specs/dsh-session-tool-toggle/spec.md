@@ -298,7 +298,7 @@
 
 ### Requirement: 工作区默认档分节
 
-Web 组合下插件 SHALL 在统一工作区配置弹窗（分节座位 `workspace-config.section`，由 workspace-config 插件声明）提供「工作区默认档」分节：分节 SHALL 提供工作区选择（默认选中当前会话所属工作区，SHALL 允许切换到其他已登记工作区后编辑，即保留不改当前会话也能预先设置任一工作区默认档的能力）。全部入口 SHALL 只读写本插件的配置文件，SHALL NOT 接受任意路径写入。上游工作区行 `...` 菜单入口不在本变更范围：当前基线 0.2.1-rc.5 未提供该座位（0.2.1-rc.2 至 0.2.2-alpha.2 实测同）；0.2.2-rc.1 已引入 `ctx.contextMenus` 的 workspace 目标贡献面，由后续变更在基线升至 0.2.2 后接入。
+Web 组合下插件 SHALL 在统一工作区配置弹窗（分节座位 `workspace-config.section`，由 workspace-config 插件声明）提供「工作区默认档」分节：分节 SHALL 提供工作区选择（默认选中当前会话所属工作区，SHALL 允许切换到其他已登记工作区后编辑，即保留不改当前会话也能预先设置任一工作区默认档的能力）。全部入口 SHALL 只读写本插件的配置文件，SHALL NOT 接受任意路径写入。上游工作区行 `...` 菜单入口不在本变更范围：立变更时的基线未提供该座位（相邻几个预发布实测同，时点事实见该变更的 artifacts 取证）；其后基线已引入 `ctx.contextMenus` 的 workspace 目标贡献面，由后续变更接入。
 
 #### Scenario: 统一弹窗分节入口可用
 

@@ -1801,6 +1801,22 @@ var ZCODE_PLAN_ROUTE = {
       }
     },
     {
+      id: "glm-5.3",
+      name: "GLM-5.3",
+      contextWindow: 1e6,
+      maxTokens: 131072,
+      input: ["text"],
+      reasoningEfforts: { off: null, low: "low", medium: "high", high: "high", max: "max" },
+      compat: {
+        thinkingFormat: "zai",
+        supportsReasoningEffort: true,
+        supportsStore: false,
+        supportsDeveloperRole: false,
+        supportsStrictMode: true,
+        maxTokensField: "max_tokens"
+      }
+    },
+    {
       id: "glm-5.3-flash",
       name: "GLM-5.3 Flash",
       contextWindow: 1e6,
@@ -1835,6 +1851,26 @@ function asProviders(value) {
 function findLlmPiAiEntry(configEditor) {
   return configEditor.entries().find((entry) => entry.options?.id === ROUTE_ENTRY_ID);
 }
+function effectiveRoute(inheritedRoute, overrideRoute) {
+  return { ...ZCODE_PLAN_ROUTE, ...asProviders(inheritedRoute), ...asProviders(overrideRoute) };
+}
+function declaredRouteOf(configEditor) {
+  if (configEditor === void 0) return void 0;
+  const entry = findLlmPiAiEntry(configEditor);
+  if (entry === void 0) return void 0;
+  const snap = configEditor.configuration().find((layer) => layer.entry === entry);
+  if (snap === void 0) return void 0;
+  const overrideProviders = asProviders(snap.override.providers);
+  const inheritedProviders = asProviders(snap.inherited.providers);
+  if (!(ROUTE_ID in overrideProviders) && !(ROUTE_ID in inheritedProviders)) return void 0;
+  return effectiveRoute(inheritedProviders[ROUTE_ID], overrideProviders[ROUTE_ID]);
+}
+function routeModelIds(route) {
+  const models = route?.models;
+  if (!Array.isArray(models)) return void 0;
+  const ids = models.map((model) => model !== null && typeof model === "object" ? model.id : void 0).filter((id) => typeof id === "string" && id.length > 0);
+  return ids.length > 0 ? ids : void 0;
+}
 async function installRoute(deps) {
   const entry = findLlmPiAiEntry(deps.configEditor);
   if (entry === void 0) {
@@ -1842,10 +1878,17 @@ async function installRoute(deps) {
     return { ok: false, changed: false, reason: "no-llm-pi-ai-row" };
   }
   const snap = deps.configEditor.configuration().find((layer) => layer.entry === entry);
-  if (snap !== void 0 && deepEqual2(asProviders(snap.override.providers)[ROUTE_ID], ZCODE_PLAN_ROUTE)) {
-    deps.log.info(`${ROUTE_ID} \u8DEF\u7531\u5DF2\u5B58\u5728\u4E14\u4E0E\u5355\u4E00\u771F\u6E90\u4E00\u81F4\uFF1A\u8DF3\u8FC7\u5199\u76D8\uFF08\u5E42\u7B49\u77ED\u8DEF\uFF09`);
-    return { ok: true, changed: false };
+  if (snap !== void 0) {
+    const overrideProviders = asProviders(snap.override.providers);
+    if (ROUTE_ID in overrideProviders) {
+      const effective = effectiveRoute(asProviders(snap.inherited.providers)[ROUTE_ID], overrideProviders[ROUTE_ID]);
+      if (deepEqual2(effective, overrideProviders[ROUTE_ID])) {
+        deps.log.info(`${ROUTE_ID} \u8DEF\u7531\u5DF2\u6309 profile \u58F0\u660E\u88C5\u914D\u9F50\u5168\uFF1A\u8DF3\u8FC7\u5199\u76D8\uFF08\u5E42\u7B49\u77ED\u8DEF\uFF09`);
+        return { ok: true, changed: false };
+      }
+    }
   }
+  const profileDeclared = snap !== void 0 && ROUTE_ID in asProviders(snap.override.providers);
   await deps.configEditor.edit(entry, (current, inherited) => ({
     ...current,
     providers: {
@@ -1853,10 +1896,14 @@ async function installRoute(deps) {
       // 保留 bundle 层路由
       ...asProviders(current.providers),
       // profile 层已有键优先（逐键 profile 胜）
-      [ROUTE_ID]: ZCODE_PLAN_ROUTE
-      // 只覆盖本键
+      // 只补缺失键，已声明键（含手改 models / baseURL）不覆盖
+      [ROUTE_ID]: effectiveRoute(asProviders(inherited.providers)[ROUTE_ID], asProviders(current.providers)[ROUTE_ID])
     }
   }));
+  const modelsDesc = routeModelIds(effectiveRoute(asProviders(snap?.inherited.providers)[ROUTE_ID], asProviders(snap?.override.providers)[ROUTE_ID]));
+  deps.log.info(
+    profileDeclared ? `${ROUTE_ID} \u8DEF\u7531\u6CBF\u7528 profile \u58F0\u660E\uFF08${modelsDesc ?? "\u6E05\u5355\u7167\u58F0\u660E"}\uFF09\uFF0C\u4EC5\u8865\u9F50\u7F3A\u5931\u952E\u540E\u5199\u76D8` : `${ROUTE_ID} \u8DEF\u7531\u6309\u63D2\u4EF6\u9ED8\u8BA4\u76EE\u5F55\uFF08${modelsDesc ?? "models \u6BB5"}\uFF09\u5199\u5165 profile patch`
+  );
   const registered = deps.llm?.listProviders().some((provider) => provider.id === ROUTE_ID) ?? false;
   if (registered) {
     deps.log.info(`${ROUTE_ID} \u8DEF\u7531\u5DF2\u5199\u5165 profile patch \u5E76\u5728 llm \u76EE\u5F55\u6CE8\u518C`);
@@ -1931,7 +1978,6 @@ function createKeyManager(deps) {
 }
 
 // src/host/status.ts
-var ROUTE_MODEL_LIST = ZCODE_PLAN_ROUTE.models.map((model) => model.id).join(", ");
 function pad2(value) {
   return String(value).padStart(2, "0");
 }
@@ -2007,8 +2053,8 @@ async function readUsage(client, grant, clock, signal) {
     return { kind: "error", code: error instanceof BridgeError ? error.code : "unknown" };
   }
 }
-function readRouteState(llm) {
-  if (llm === void 0) return { registered: false, declared: false };
+function readRouteState(llm, models) {
+  if (llm === void 0) return { registered: false, declared: false, ...models !== void 0 && { models } };
   let registered = false;
   let declared = false;
   try {
@@ -2023,7 +2069,7 @@ function readRouteState(llm) {
       declared = false;
     }
   }
-  return { registered, declared };
+  return { registered, declared, ...models !== void 0 && { models } };
 }
 function renderLoginLine(grant, now) {
   if (grant === void 0) return "  \u767B\u5F55\uFF1A\u672A\u767B\u5F55\uFF08\u8FD0\u884C /zcode-plan login\uFF09";
@@ -2050,7 +2096,9 @@ function renderPatLine(pat, now, leadMs) {
   return `${base} \xB7 \u4E0B\u6B21\u7EED\u671F \u2264 ${formatClockTime(renewalAt)}`;
 }
 function renderRouteLine(route) {
-  if (route.registered) return `\u8DEF\u7531\uFF1A\u5DF2\u6CE8\u518C\uFF08${ROUTE_MODEL_LIST}\uFF09`;
+  if (route.registered) {
+    return route.models !== void 0 && route.models.length > 0 ? `\u8DEF\u7531\uFF1A\u5DF2\u6CE8\u518C\uFF08${route.models.join(", ")}\uFF09` : "\u8DEF\u7531\uFF1A\u5DF2\u6CE8\u518C";
+  }
   if (route.declared) return "\u8DEF\u7531\uFF1A\u5DF2\u58F0\u660E\u672A\u6CE8\u518C";
   return "\u8DEF\u7531\uFF1A\u672A\u5B89\u88C5\uFF08\u8FD0\u884C /zcode-plan route install\uFF09";
 }
@@ -2207,7 +2255,8 @@ async function handleLogout(deps) {
 }
 async function handleRoute(action, deps) {
   if (action === "status") {
-    return { kind: "success", text: renderRouteLine(readRouteState(deps.llm())) };
+    const models = routeModelIds(declaredRouteOf(deps.configEditor())) ?? ZCODE_PLAN_ROUTE.models.map((model) => model.id);
+    return { kind: "success", text: renderRouteLine({ ...readRouteState(deps.llm()), models }) };
   }
   const configEditor = deps.configEditor();
   if (configEditor === void 0) {
@@ -2914,6 +2963,7 @@ function apply(ctx, config) {
     });
     return owner;
   };
+  const statusRouteModels = () => routeModelIds(declaredRouteOf(configEditorPort(ctx))) ?? ZCODE_PLAN_ROUTE.models.map((model) => model.id);
   const collectStatus = async (signal) => {
     const now = nodeClock.now();
     const credentials = credentialsRef;
@@ -2928,7 +2978,7 @@ function apply(ctx, config) {
       patRenewalLeadMs: config.refreshLeadMs,
       ...haltReason !== void 0 && { haltReason },
       ...refConflictSource !== void 0 && { refConflict: { source: refConflictSource } },
-      route: readRouteState(llmPort(ctx)),
+      route: readRouteState(llmPort(ctx), statusRouteModels()),
       ...signer !== void 0 && { signing: signer.status() },
       usage
     };

@@ -36,13 +36,13 @@ dsh --profile web
 
 ## 环境要求
 
-- **使用本源码构建的插件**：需要一个受支持的 DSH 运行时 —— 当前基线是 **`0.2.2-rc.1`**，支持范围是 **`>=0.2.2-rc.1 <0.3.0`**（与基线同 major.minor 且不低于基线），范围外的版本装不上也不会跑（见下）。`dsh plugin` 会把包装进对应 profile，无需本地 Node 工具链
-- **从源码构建 / 参与**：**Node.js** `^22.19.0 || >=24`（仓库 `engines` 钉住）、**Git**、**pnpm 11**（`packageManager` 钉 `pnpm@11.25.0`，建议经 corepack 启用）
-- **DSH 运行时**：开发依赖精确 pin 在 `0.2.2-rc.1`（支持范围的下界）；自该版本起 DSH 自身要求 **Node `>=24.9.0`**（上游 `engines.node` 收紧，运行 DSH 的宿主需满足）。升级流程见[开发工作流](./docs/development/plugin-development-workflow.md)
+- **使用本源码构建的插件**：需要一个受支持的 DSH 运行时 —— 基线由仓根 `scripts/dsh-baseline.mjs` 单点声明（当前值看仓根 `pnpm dsh:check` 首行），支持范围是 **`>=<基线> <<主>.<次+1>.0`**（与基线同 major.minor 且不低于基线），范围外的版本装不上也不会跑（见下）。`dsh plugin` 会把包装进对应 profile，无需本地 Node 工具链
+- **从源码构建 / 参与**：**Node.js**（仓库 `engines` 声明的支持面，当前值以根清单为准）、**Git**、**pnpm**（`packageManager` 字段钉版本，建议经 corepack 启用）
+- **DSH 运行时**：开发依赖经 `catalog:dsh` 精确 pin 在基线（支持范围的下界）；DSH 自身要求较新的 Node（上游 `engines.node` 收紧，运行 DSH 的宿主需满足）。升级流程见[开发工作流](./docs/development/plugin-development-workflow.md)
 - **平台支持**：macOS Seatbelt / Linux bwrap、Landlock；另实现 Windows root-set ACL runner（覆盖 fs 写路径与 ACL 授予，受限 bash/PTY 的多根不在其范围）。
 - 运行冒烟测试**不需要模型凭据**：e2e 的模型轮次由内联的脚本化模型端点提供
 
-**受支持的 DSH 版本是一条基线派生的范围，不是逐版本清单。** 因为本插件替换的是 `ctx.fs` 与 `ctx.sandbox`——安全边界本身——而它识别内核沙箱方言靠的是对上游版本实测出来的 argv 形状。所以支持范围由基线派生：`DSH_BASELINE`（当前 `0.2.2-rc.1`）是范围下界，语义为「与基线同 major.minor 且 ≥ 基线」（当前即 `>=0.2.2-rc.1 <0.3.0`），`peerDependencies` 与 `dsh.engines.dsh` 都声明这条范围；启动时还会再查一遍：宿主的版本落在派生范围之外（低于基线，或换了 minor，例如 `0.3.0`），或者若干个 `@deepseek-ai/dsh-*` 混装了不同版本，`multi-root-compat` 门禁就直接抛错拒绝启动（错误里带完整诊断）——fs / sandbox / registry / instructions / lsp / workspace-files / file-references 七行**根本不启动**，没有警告档，也没有降级路径。诊断办法见[故障排查：DSH 版本在支持范围外](./docs/troubleshooting/unsupported-dsh-release.md)，理由见 [ADR-0009](./docs/decisions/ADR-0009-dsh-compat-contract.md)。
+**受支持的 DSH 版本是一条基线派生的范围，不是逐版本清单。** 因为本插件替换的是 `ctx.fs` 与 `ctx.sandbox`——安全边界本身——而它识别内核沙箱方言靠的是对上游版本实测出来的 argv 形状。所以支持范围由基线派生：`DSH_BASELINE`（直接 import 仓根 `scripts/dsh-baseline.mjs`，当前值看 `pnpm dsh:check` 首行）是范围下界，语义为「与基线同 major.minor 且 ≥ 基线」（即 `>=<基线> <<主>.<次+1>.0`），`peerDependencies` 与 `dsh.engines.dsh` 都声明这条范围；启动时还会再查一遍：宿主的版本落在派生范围之外（低于基线，或换了 minor），或者若干个 `@deepseek-ai/dsh-*` 混装了不同版本，`multi-root-compat` 门禁就直接抛错拒绝启动（错误里带完整诊断）——fs / sandbox / registry / instructions / lsp / workspace-files / file-references 七行**根本不启动**，没有警告档，也没有降级路径。诊断办法见[故障排查：DSH 版本在支持范围外](./docs/troubleshooting/unsupported-dsh-release.md)，理由见 [ADR-0009](./docs/decisions/ADR-0009-dsh-compat-contract.md)。
 
 ## 安装到 profile
 
@@ -83,17 +83,11 @@ TAG=$(git describe --tags --abbrev=0)   # 当前 tag（也可填任意历史 tag
 dsh plugin --profile web add "github:exponentxqq/dsh-plugins#${TAG}&path:plugins/multi-root-workspace"
 ```
 
-自本仓 `v1.1.1` 起，git 安装**不再需要插件自身的构建授权**：产物 `lib/` 随 tag 提交、包内没有 `prepare` 脚本，pnpm 10/11 一致放行（改 tag 也无需任何表态）。剩下唯一一次表态就是上面 `koffi` 的 `allowBuilds` 回答——按包名匹配、不随 tag 变化。早于此版本（或想沿用 `prepare` 现场构建的包）为何会被 pnpm 10 以 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` 硬拒绝、键里为何带 commit，见[故障排查：安装停在构建授权](./docs/troubleshooting/install-stops-at-build-approval.md)。
+自仓根 [CHANGELOG](../../CHANGELOG.md) 所载「lib 入库」tag 起，git 安装**不再需要插件自身的构建授权**：产物 `lib/` 随 tag 提交、包内没有 `prepare` 脚本，pnpm 10/11 一致放行（改 tag 也无需任何表态）。剩下唯一一次表态就是上面 `koffi` 的 `allowBuilds` 回答——按包名匹配、不随 tag 变化。早于此版本（或想沿用 `prepare` 现场构建的包）为何会被 pnpm 10 以 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` 硬拒绝、键里为何带 commit，见[故障排查：安装停在构建授权](./docs/troubleshooting/install-stops-at-build-approval.md)。
 
 然后重新执行 `add` 即可。`#<tag>` 是 tag 锁：推送无法悄悄改变实际运行的内容；想自动跟进同主版本可写成 `#semver:^<major>.0.0&path:plugins/multi-root-workspace`。
 
-**从 v1.2.x 升级（目录改名迁移）**：本插件自 v1.3.0 起目录名从 `plugins/dsh-plugin-multi-root-workspace` 改为 `plugins/multi-root-workspace`（包名不变）。pnpm 的 git 依赖锚点把 `&path:` 一并写进 profile 的 `package.json`，改 tag 不会让 path 自动切换——已按旧 tag 安装的 profile 升级到 v1.3.0+ 时，需按新 path 重新执行一次 `add`：
-
-```sh
-dsh plugin --profile web add "github:exponentxqq/dsh-plugins#v1.3.0&path:plugins/multi-root-workspace"
-```
-
-旧 tag 配旧 path（`#v1.2.1&path:plugins/dsh-plugin-multi-root-workspace`）仍可安装旧版本，两套锚点互不影响。
+**从目录改名前升级（迁移）**：本插件的目录名曾从 `plugins/dsh-plugin-multi-root-workspace` 改为 `plugins/multi-root-workspace`（包名不变；时点见仓根 [CHANGELOG](../../CHANGELOG.md)「multi-root 目录改名」条目）。pnpm 的 git 依赖锚点把 `&path:` 一并写进 profile 的 `package.json`，改 tag 不会让 path 自动切换——已按旧 tag + 旧 path 安装的 profile 升级时，需按新 path 重新执行一次 `add`（`dsh plugin --profile web add "github:exponentxqq/dsh-plugins#<新tag>&path:plugins/multi-root-workspace"`）。旧 tag 配旧 path 仍可安装旧版本，两套锚点互不影响。
 
 > 若宿主 `~/.gitconfig` 把 `https://github.com/` 改写成了 ssh（`insteadOf`）——dsh 容器现已挂载宿主 `~/.ssh`，钥匙对 GitHub 可用时 ssh 直连正常；仅当认证不可用时 `git ls-remote` 才会失败，届时给命令加 `-e GIT_CONFIG_GLOBAL=/dev/null`（`docker exec -e GIT_CONFIG_GLOBAL=/dev/null dsh …`），或按 dotfiles 说明把该段拆到宿主专属的 include 文件。
 
@@ -209,7 +203,7 @@ docs/             需求、架构、决策记录（ADR）、计划、开发工�
 
 - 附加根的指令文件按需到达模型：根目录顶层的那一份在会话第一步之前注入，子目录里的那一份在本会话**成功**触碰过该目录之后注入；nested 文件只会在其目录被考察到时重新检查（根层每一步，子目录依赖已投递或有新触碰），投递状态是进程内的（resume 后可能再告知一次），也只识别 `read` / `write` / `edit` 三个工具名。主根与 user-global 的指令链仍由上游负责，本插件不重复注入（[ADR-0010](./docs/decisions/ADR-0010-additional-root-instruction-scope.md)）。
 - 跨进程单写者：同一 `$DSH_HOME` 上同时只允许一个 DSH 进程持有根登记表；另一个进程显示登记表不可用（`registry-contended`），持锁者退出或崩溃后刷新即接管——这是刻意的 fail-closed，不是待修的竞态（[ADR-0007](./docs/decisions/ADR-0007-registry-authority-lease.md)）。
-- 支持矩阵是基线派生的范围（当前 `>=0.2.2-rc.1 <0.3.0`，语义为「与基线同 major.minor 且 ≥ 基线」）：宿主版本在范围外、或核心包混装了不同版本时，启动门禁直接拒绝启动，`fs` / `sandbox` / `registry` / `instructions` / `lsp` / `workspace-files` / `file-references` 七行**不启动**，没有警告档或降级路径（[ADR-0009](./docs/decisions/ADR-0009-dsh-compat-contract.md)）。
+- 支持矩阵是基线派生的范围（`>=<基线> <<主>.<次+1>.0`，语义为「与基线同 major.minor 且 ≥ 基线」）：宿主版本在范围外、或核心包混装了不同版本时，启动门禁直接拒绝启动，`fs` / `sandbox` / `registry` / `instructions` / `lsp` / `workspace-files` / `file-references` 七行**不启动**，没有警告档或降级路径（[ADR-0009](./docs/decisions/ADR-0009-dsh-compat-contract.md)）。
 - Windows 多根 runner 继承上游 partial enforcement、caller-owned 目录及 private temp 分离条件；已启动进程保留启动时根集合，后续进程使用更新后的集合（[ADR-0011](./docs/decisions/ADR-0011-multi-root-workspace-consumers.md)）。
 - 附加根与主根同权（无 per-root read-only）；附加根不能作为 bash/PTY 的默认工作目录（session cwd 语义不变）。
 - 附加根文件树位于「工作区文件夹」分节（统一「工作区配置」页面内），采用手动刷新；可展开目录和预览前 200 行文本。主根原生 Files tab 保留，存在 `sidebar.right.tab.files.actions` 时提供就地展开同一分节的紧凑入口。LSP 按附加文件所在根初始化独立 workspace；需要宿主配置对应语言服务器（[ADR-0011](./docs/decisions/ADR-0011-multi-root-workspace-consumers.md)）。

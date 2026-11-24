@@ -2,7 +2,7 @@
 
 DSH 插件（**双端**，`exports "."` 宿主 + `exports "./client"` 浏览器）：**会话级工具面开关**——在单个会话内关掉不需要的模型可见工具（`mcp:<server>` 整组、`mcp:<server>::<tool>` 或尾部 `*` 单工具、`tool:<name>` 内置工具，以及 `skill:<name>` 技能级开关），**下一次模型步骤生效**：工具侧由 `tools.restrict` 掩码与 dispatch guard 双层强制；技能侧由每 agent 层的影子注册让该技能对**模型**隐身（目录行消失、`skill` 工具拒调），`/<技能名>` 手动调用完整保留。全部入口共用**同一份状态**：`/tools` 命令面、会话头部工具区的 **Web 面板**（Connection RPC 通道 `/session-tool-toggle`）与统一「工作区配置」页面里的**工作区默认档分节**（页面壳与页面级统一工作区选择框由 holder `dsh-plugin-workspace-config` 提供）。用户级默认档在 `$DSH_HOME/session-tool-toggle/defaults.json`，工作区级默认档在 `$DSH_HOME/session-tool-toggle/workspaces.json`（键 = 工作区规范绝对路径）：新会话初始关闭集 = **用户档 ∪ 工作区档**，会话创建时拍快照，之后改档不追溯。
 
-宿主半不含 Web 组件依赖，**任何 profile 都可单独安装**（命令面完整可用）；浏览器半只在 Web 组合下加载，入口是会话头部工具区的一枚图标按钮与统一「工作区配置」页面里的工作区默认档分节；页面壳与页面级选择框由 holder 提供，**四包同装**（holder + multi-root-workspace / session-tool-toggle / web-ux 三个贡献方）才有完整入口。平台范围 DSH `>=0.2.2-rc.1 <0.3.0`（由仓基线派生，与 `package.json` 的 engines/peer 同源）。**安装/升级后必须重启 web profile**：浏览器半的 bundle 由宿主在启动图里提供，热装不生效。
+宿主半不含 Web 组件依赖，**任何 profile 都可单独安装**（命令面完整可用）；浏览器半只在 Web 组合下加载，入口是会话头部工具区的一枚图标按钮与统一「工作区配置」页面里的工作区默认档分节；页面壳与页面级选择框由 holder 提供，**四包同装**（holder + multi-root-workspace / session-tool-toggle / web-ux 三个贡献方）才有完整入口。平台范围由仓基线派生软范围（`>=<基线> <<主>.<次+1>.0`，与 `package.json` 的 engines/peer 同源）。**安装/升级后必须重启 web profile**：浏览器半的 bundle 由宿主在启动图里提供，热装不生效。
 
 ## 定位
 
@@ -130,8 +130,8 @@ lib/client.js              浏览器产物（CJS bundle，包在 window.__Module
 - **已关条目无描述（页面分节不受此限）**：首条已说明面板清单上的已关（`carried`）条目没有 `title` 描述——不是默认档少读了什么，而是会话读数里本就没有它的 schema。统一页面的工作区默认档分节走工作区宇宙（全局注册表的 schema 完整），行在名称下方带描述次行，不受此条影响。
 - **无 skills 的 Web 组合受限（上游硬依赖）**：上游 agent preset 需要 `skill-filesystem` / `tool-skill`，`skills` 缺席时新会话创建直接失败（`agent-preset/invalid … waiting for skills`），因此该组合下没有可调整的活会话；这是上游 preset 的硬依赖，不是本插件的降级失败。此时命令面照常可用，技能地址只记意图，RPC 面板快照按 `skills-unavailable` 降级（技能组只保留整档开关 + 降级提示，逐技能行不渲染）。
 - **跨窗口不广播**：`command/executed` 只在命令提交的那个窗口发出，另一个窗口要靠 focus 或手动「刷新」才收敛；两处并发修改按「后写者胜」。
-- **`--dump-config-schema` 整体可能 exit 1**：dsh 0.2.2-rc.1 的 schema 遍历器不认官方 `dsh-agent-preset` 的自定义载体（`EntryGroup.key` 标记类，非原生 group/include），4 条 `unrecognized Loader tree carrier` 诊断与本插件无关，全新空 `DSH_HOME` 同样红；**装载冒烟以 `--dump-config` exit 0 为准**。核对本插件的口径是 `x-cordis.entries` 中本插件条目的 `status` 为 `"schema"` 且没有指向本插件的诊断，不要追全局 exit 0。
-- **非目标**：不做追溯（默认档与工作区档都只对之后新建的会话生效，`/tools reset` 只回本会话创建时快照）；不做上游 patch（[`ADR-0002`](../../plugins/multi-root-workspace/docs/decisions/ADR-0002-upstream-coupling-policy.md)：`@deepseek-ai/dsh*` 零修改、零 import，技能影子只走公开 `skills.register`，不替换 `dsh-tool-skill` / `dsh-skill` 行）；上游工作区行菜单入口留作**后续变更**（上游座位定名后另立变更，本期工作区默认档只有统一「工作区配置」页面的分节入口，依赖 holder 同装）；不做全局 / 进程级服务器启停（`plugin_manager` 已有）、不做子代理继承会话开关、不做投影 wire 实时推送或轮询、不改写历史、不适配 DSH `>=0.3.0`（走既有基线升级流程）。
+- **`--dump-config-schema` 整体可能 exit 1**：dsh 的 schema 遍历器不认官方 `dsh-agent-preset` 的自定义载体（`EntryGroup.key` 标记类，非原生 group/include），4 条 `unrecognized Loader tree carrier` 诊断与本插件无关，全新空 `DSH_HOME` 同样红；**装载冒烟以 `--dump-config` exit 0 为准**。核对本插件的口径是 `x-cordis.entries` 中本插件条目的 `status` 为 `"schema"` 且没有指向本插件的诊断，不要追全局 exit 0。
+- **非目标**：不做追溯（默认档与工作区档都只对之后新建的会话生效，`/tools reset` 只回本会话创建时快照）；不做上游 patch（[`ADR-0002`](../../plugins/multi-root-workspace/docs/decisions/ADR-0002-upstream-coupling-policy.md)：`@deepseek-ai/dsh*` 零修改、零 import，技能影子只走公开 `skills.register`，不替换 `dsh-tool-skill` / `dsh-skill` 行）；上游工作区行菜单入口留作**后续变更**（上游座位定名后另立变更，本期工作区默认档只有统一「工作区配置」页面的分节入口，依赖 holder 同装）；不做全局 / 进程级服务器启停（`plugin_manager` 已有）、不做子代理继承会话开关、不做投影 wire 实时推送或轮询、不改写历史、不适配基线 minor 线之外的 DSH（走既有基线升级流程）。
 - 无 Web 组合时只有命令面；面板入口与通道都不出现，也不报错。
 
 ## 排障
@@ -197,7 +197,7 @@ cd ~/develop/docker && docker compose restart dsh   # 必须：浏览器半随�
 
 ### 回滚代价
 
-指回旧 tag 重装并重启即可回到旧版，**但回到不含本功能的旧版（本功能之前的 1.4.0 / 1.5.0 均如此）有代价**：
+指回旧 tag 重装并重启即可回到旧版，**但回到不含本功能的旧版（本功能加入前的任意旧 tag 均如此）有代价**：
 
 - **`skill:<name>` 条目被按自校验丢弃**：旧版 `parseAddress` 不认识 `skill:` 前缀，读状态记录时只保留能解析的条目——技能开关在面板与 `/tools status` 里**静默消失**（进程日志会留一条「条目不合法，已丢弃」的 warn）。若旧版在回滚期间写过状态，这些条目就不再出现在最新记录里，重新升级也读不回来，需要按名字重关一遍。
 - **工作区级默认档不再参与播种**：旧版完全不读 `workspaces.json`，新会话只按 `defaults.json` 播种；文件本身不会被删，重新升级后继续生效。

@@ -33,11 +33,8 @@ import type { LoginGrant } from './credential-record.ts'
 import { BridgeError } from './errors.ts'
 import { KEY_NAME, type KeyState } from './key-manager.ts'
 import type { PatState } from './pat-owner.ts'
-import { ROUTE_ID, ZCODE_PLAN_ROUTE } from './route-config.ts'
+import { ROUTE_ID } from './route-config.ts'
 import type { ClockPort } from './ports.ts'
-
-/** 路由段展示的模型清单（单一真源的 models id 列，`已注册（…）` 的括号内容）。 */
-const ROUTE_MODEL_LIST = ZCODE_PLAN_ROUTE.models.map((model) => model.id).join(', ')
 
 /** `HH:mm` 的两位补齐。 */
 function pad2(value: number): string {
@@ -193,6 +190,8 @@ export interface StatusLlmPort {
 export interface RouteDisplayState {
   readonly registered: boolean
   readonly declared: boolean
+  /** 生效模型清单（`已注册（…）` 的括号内容）：装配层按「profile 声明优先、未声明回落插件默认目录」传入；省略 = 不展示清单。 */
+  readonly models?: readonly string[]
 }
 
 /**
@@ -201,9 +200,10 @@ export interface RouteDisplayState {
  * - 否则 `listConfigurableProviders()` 有 → 已声明未注册（dormant 语义）；
  * - 两读都无 → 未安装。llm 缺席（宿主无 llm 服务）按未安装处理；
  * 任一读抛错按该读未命中处理（status 不因目录异常而整体失败）。
+ * `models` 透传进显示态（省略时不加键，保持既有返回面）。
  */
-export function readRouteState(llm: StatusLlmPort | undefined): RouteDisplayState {
-  if (llm === undefined) return { registered: false, declared: false }
+export function readRouteState(llm: StatusLlmPort | undefined, models?: readonly string[]): RouteDisplayState {
+  if (llm === undefined) return { registered: false, declared: false, ...(models !== undefined && { models }) }
   let registered = false
   let declared = false
   try {
@@ -218,7 +218,7 @@ export function readRouteState(llm: StatusLlmPort | undefined): RouteDisplayStat
       declared = false
     }
   }
-  return { registered, declared }
+  return { registered, declared, ...(models !== undefined && { models }) }
 }
 
 /** status 快照（{@link renderStatus} 的输入；由装配层的采集器拼装，本模块不采集）。 */
@@ -277,10 +277,15 @@ function renderPatLine(pat: PatState, now: number, leadMs: number | undefined): 
 
 /**
  * 路由段三态文本（导出给 `route status` 子命令复用，**无段缩进**）：已注册
- * （附模型清单）/ 已声明未注册 / 未安装（给行动提示）。
+ * （`models` 非空时附生效模型清单，缺省只出「已注册」）/ 已声明未注册 / 未安装
+ * （给行动提示）。清单由装配层按「profile 声明优先」传入，本模块不读目录。
  */
 export function renderRouteLine(route: RouteDisplayState): string {
-  if (route.registered) return `路由：已注册（${ROUTE_MODEL_LIST}）`
+  if (route.registered) {
+    return route.models !== undefined && route.models.length > 0
+      ? `路由：已注册（${route.models.join(', ')}）`
+      : '路由：已注册'
+  }
   if (route.declared) return '路由：已声明未注册'
   return '路由：未安装（运行 /zcode-plan route install）'
 }

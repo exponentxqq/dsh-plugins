@@ -9,7 +9,7 @@ DSH Web GUI 插件（**双端**，`exports "."` 宿主 + `exports "./client"` �
 
 宿主半不再是空壳——它承载会话处置与归档目录管理的 Connection RPC 通道 `/web-ux`（单会话 2 端点 + 批量 / 已迁移 5 端点，共 7 个），同时继续充当 web 客户端模块扫描读取 `dsh.client` 声明的锚点。
 
-本包自 `split-project-mcp-plugin` 变更起**只做 Web 界面体验**——原先同包的「项目级 MCP」宿主能力已拆为独立插件 [`dsh-plugin-project-mcp`](../project-mcp/README.md)（纯宿主面，任何 profile 可单独安装）。自 `add-web-ux-archived-session-delete`（v1.2.0）起宿主半因「删除已归档会话」重新变成实载体：文件系统与工作区注册表只有宿主碰得到，这与拆出去的 MCP 能力互不相干；自 `web-ux-session-delete-archive-option` 起同一入口再补上「移动到归档目录」，宿主半因此多了一个可选配置键 `archiveRoot`（`src/config.ts`）；自 `web-ux-session-manager` 起再叠加「会话管理」——归档目录从「只能手工找回」变成可列出、可清理、可恢复（恢复只回到已归档态），通道扩到 7 个端点，配置面零增量；自 `unify-workspace-config-entry` 起它的 GUI 从侧栏底部入口 + 独立浮层迁为统一「工作区配置」的分节（需与 holder 同装）；自 `2026-11-08-workspace-config-page` 起 holder 的壳由弹窗换成「侧栏面板行 + 独立页面」，本分节随之只消费页面级选择框下传的 `{ workspace }` 份额（节内工作区 Menu 与「关闭」出口一并删除，终点态统一为「完成」）。后续其他 Web 界面体验优化仍落在本包。
+本包自 `split-project-mcp-plugin` 变更起**只做 Web 界面体验**——原先同包的「项目级 MCP」宿主能力已拆为独立插件 [`dsh-plugin-project-mcp`](../project-mcp/README.md)（纯宿主面，任何 profile 可单独安装）。自 `add-web-ux-archived-session-delete` 起（该 tag 见 [CHANGELOG](../../CHANGELOG.md)）宿主半因「删除已归档会话」重新变成实载体：文件系统与工作区注册表只有宿主碰得到，这与拆出去的 MCP 能力互不相干；自 `web-ux-session-delete-archive-option` 起同一入口再补上「移动到归档目录」，宿主半因此多了一个可选配置键 `archiveRoot`（`src/config.ts`）；自 `web-ux-session-manager` 起再叠加「会话管理」——归档目录从「只能手工找回」变成可列出、可清理、可恢复（恢复只回到已归档态），通道扩到 7 个端点，配置面零增量；自 `unify-workspace-config-entry` 起它的 GUI 从侧栏底部入口 + 独立浮层迁为统一「工作区配置」的分节（需与 holder 同装）；自 `2026-11-08-workspace-config-page` 起 holder 的壳由弹窗换成「侧栏面板行 + 独立页面」，本分节随之只消费页面级选择框下传的 `{ workspace }` 份额（节内工作区 Menu 与「关闭」出口一并删除，终点态统一为「完成」）。后续其他 Web 界面体验优化仍落在本包。
 
 ## 定位
 
@@ -171,7 +171,7 @@ mv "$DSH_HOME/archive/sessions/$PROJECT_DIR/$SESSION_ID" \
 
 **注意 `dsh.client.inject` 是模块图顺序依赖，不是运行时 import**：`package.json` 里列的上游客户端包（ui-workspace / ui-layout / ui-renderer / client-connection / client-locale）只用于保证浏览器 boot 图里这些客户端模块先到位（`external` 才表达 bundle 的 `require` 词）。这份声明同时也是**激活面**：web 组合若裁剪掉其中任一个，本插件的客户端半整体不加载，徽章会与删除入口一起消失（而不是 GUI 报错）。已核实 web 组合恒含这几个包，故该分支实际不可达；cordis `inject` 侧同理——`slots` / `locale` / `modelDirectories` 缺失时整半不激活。
 
-**`connection` / `workspaces` 必须在 entry 的注入面（渲染期）读取，不能在 `apply` 里读**：真实 web 组合中 `workspaces` 由 `api-workspace-controller` 在 remote 网关就绪后才 `provide`，晚于本插件 `apply`；若在 `apply` 里 `ctx.get('workspaces')`，拿到的是 `undefined`，删除入口会永久丢失（v1.2.0 即此缺陷，v1.2.1 修复）。改为渲染期读取后，服务缺席时两个 entry 各自渲染 `null`，既有徽章完全不受影响。
+**`connection` / `workspaces` 必须在 entry 的注入面（渲染期）读取，不能在 `apply` 里读**：真实 web 组合中 `workspaces` 由 `api-workspace-controller` 在 remote 网关就绪后才 `provide`，晚于本插件 `apply`；若在 `apply` 里 `ctx.get('workspaces')`，拿到的是 `undefined`，删除入口会永久丢失（双端化初版即此缺陷、随后一个 tag 修复，见 [CHANGELOG](../../CHANGELOG.md)）改为渲染期读取后，服务缺席时两个 entry 各自渲染 `null`，既有徽章完全不受影响。
 
 **关于借用的 `api-session/removed`**：它是官方 Remote Event Selection 里声明可转发（`mode: "emit"`）的事件，client 会话列表模型正是靠它删行——但事件语义归属官方 session controller，我们只是**借用上游内部行为**，本包的类型声明里也没有它。若上游更名或不再转发，降级表现是：**处置本身照常成功，工作区记录与磁盘也已清理，只是当前页面上的行需要手动刷新才消失**（重新打开页面不会复活）。工作区引用清理引发的官方推送不依赖本事件，分组行的消失不受影响。
 
@@ -414,21 +414,21 @@ docker exec dsh dsh --profile web --dump-config | grep -A2 'id: web-ux'
 
 `dsh plugin add` 会把包追加进 profile `package.json` 的 `dsh.profile.bundles`，从而激活本包的 `cordis.patch.yml`（插入 `id: web-ux` 的 bare 包名行）。归档根（可选）在 profile patch 里按 id 覆盖本插件行配置，示例见「[归档目录与手工找回](#归档目录与手工找回)」。
 
-### 版本迁移（v1.2.0）
+### 版本迁移（双端化）
 
-- **升级**：v1.2.0 起本包双端化——新增删除入口与宿主 RPC 通道，provider 徽章行为零变化；`dsh.client.inject` 增补 workspace / connection / locale 依赖，peer 范围统一为 `>=0.2.1-rc.2 <0.3.0`。按 tag 重装即可：`dsh plugin --profile web add "github:exponentxqq/dsh-plugins#v1.2.0&path:plugins/web-ux"`，重启 web profile 生效。
-- **回滚**：同一条命令改指 `#v1.1.1` 重装并重启，**只撤掉删除入口、会话管理入口与宿主通道**（徽章照旧）；删除是真实写操作，已被删除的会话日志、投影缓存与工作区引用**不可恢复**，回滚不会让它们回来。
+- **升级**：双端化 tag 起（见 [CHANGELOG](../../CHANGELOG.md)「web-ux 双端化」条目）本包双端化——新增删除入口与宿主 RPC 通道，provider 徽章行为零变化；`dsh.client.inject` 增补 workspace / connection / locale 依赖，peer 范围统一为当时的基线派生软范围。按该 tag 重装（`dsh plugin --profile web add "github:exponentxqq/dsh-plugins#<该tag>&path:plugins/web-ux"`），重启 web profile 生效。
+- **回滚**：同一条命令改指双端化**之前**的 tag（`git tag` 列表按 CHANGELOG 时点取）重装并重启，**只撤掉删除入口、会话管理入口与宿主通道**（徽章照旧）；删除是真实写操作，已被删除的会话日志、投影缓存与工作区引用**不可恢复**，回滚不会让它们回来。
 
 ### 版本迁移（含迁移归档）
 
 - **升级**：本能力随下一个发布 tag 生效。`/web-ux` 请求体新增**必填** `mode`（`delete` / `archive`）、预览响应新增 `archiveRoot`，其余契约不变；归档档本身不改 `dsh.client.inject` 与 peer 范围（同一发布 tag 里的「会话管理」会再 +3，见下一节），按 tag 重装并重启 profile 即可。**升级前已打开的旧标签页**跑的是旧客户端（不带 `mode`）：新宿主会在**预览阶段**直接返回 `bad-request`，界面显示失败、不会发生「没选模式就被处置」；刷新页面加载新客户端即恢复。归档根可选，不配就用缺省 `$DSH_HOME/archive/sessions`。
-- **回滚**：改指不含本能力的旧 tag（**当前已发布的 `v1.5.0` 及更早版本都没有本能力**）重装并重启。旧宿主不认带 `mode` 的请求，新标签页预览同样得到 `bad-request`，**刷新页面**加载随旧版回落的客户端即恢复「只能永久删除」的旧行为。回滚**不会**把已迁移的日志搬回 `sessions/`，也不会删除归档目录——已迁移数据留在归档目录不受影响（旧版本从不读取它），需要时按[「归档目录与手工找回」](#归档目录与手工找回)手动搬回。
+- **回滚**：改指不含本能力的旧 tag（**引入本能力之前的全部已发布 tag 都没有本能力**，时点见 [CHANGELOG](../../CHANGELOG.md)）重装并重启。旧宿主不认带 `mode` 的请求，新标签页预览同样得到 `bad-request`，**刷新页面**加载随旧版回落的客户端即恢复「只能永久删除」的旧行为。回滚**不会**把已迁移的日志搬回 `sessions/`，也不会删除归档目录——已迁移数据留在归档目录不受影响（旧版本从不读取它），需要时按[「归档目录与手工找回」](#归档目录与手工找回)手动搬回。
 
 ### 版本迁移（会话管理与恢复）
 
 - **升级**：本能力随下一个发布 tag 生效。`dsh.client.inject` 增补 3 项（`dsh-client-ui-sidebar`、`dsh-api-workspace-controller`、`dsh-api-session-controller`，共 12 项），宿主 `/web-ux` 通道扩到 7 个端点（既有两端点一字未动），`archiveRoot` 与 peer 范围不变。按 tag 重装并**重启 web profile**：新增的客户端模块要进 boot 图，只换磁盘产物不重启，入口不会出现。
 - **新旧混跑**：新客户端 + 旧宿主 = 新端点一律 `bad-request`（界面显示「请求不合法，宿主拒绝了本次调用」），既有单会话删除 / 迁移照旧——刷新页面只能换客户端，换不掉旧宿主。旧客户端 + 新宿主 = 只调既有两端点，单会话能力完全照旧（旧页面里本来就没有管理面入口）。
-- **回滚**：改指不含本能力的旧 tag 重装并重启，入口消失；注意 `v1.5.0` 及更早版本连「移动到归档目录」也还没有，回滚会一并失去该档。回滚**不会**把已恢复的日志再搬回归档根，也不会复活已物理删除的归档条目；归档根数据不受影响（旧版本从不读它）。
+- **回滚**：改指不含本能力的旧 tag 重装并重启，入口消失；注意引入「移动到归档目录」之前的 tag 连该档也还没有（时点见 [CHANGELOG](../../CHANGELOG.md)），回滚会一并失去该档。回滚**不会**把已恢复的日志再搬回归档根，也不会复活已物理删除的归档条目；归档根数据不受影响（旧版本从不读它）。
 
 两点运维须知：
 

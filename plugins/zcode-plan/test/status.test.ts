@@ -67,7 +67,7 @@ function makeSnapshot(overrides: Partial<StatusSnapshot> = {}): StatusSnapshot {
     key: { kind: 'ready', keyId: KEY_ID_FIXTURE },
     pat: { kind: 'valid', expiresAt: PAT_EXPIRES_AT },
     patRenewalLeadMs: LEAD_MS,
-    route: { registered: true, declared: false },
+    route: { registered: true, declared: false, models: ['glm-5.4', 'glm-5.3', 'glm-5.3-flash'] },
     usage: {
       kind: 'ok',
       fiveHour: { total: 28_000, used: 3_120, percentage: 11.14, resetAt: NOW + 30 * 60_000 },
@@ -105,7 +105,7 @@ describe('renderStatus 五段齐全（X8 主链）', () => {
     expect(lines[3]).toBe(
       `  PAT ：有效 · 到期 ${formatClockTime(PAT_EXPIRES_AT)}（剩 4h10m） · 下次续期 ≤ ${formatClockTime(PAT_EXPIRES_AT - LEAD_MS)}`,
     )
-    expect(lines[4]).toBe('  路由：已注册（glm-5.4, glm-5.3-flash）')
+    expect(lines[4]).toBe('  路由：已注册（glm-5.4, glm-5.3, glm-5.3-flash）')
     expect(lines[5]).toBe('  签名：未启用（signing 配置关闭或未装配）')
     expect(lines[6]).toContain(`  用量：5h 窗口 3120 / 28000（11%，重置 ${formatClockTime(NOW + 30 * 60_000)}）`)
     expect(lines[6]).toContain(`· 周 18200 / 140000（13%，重置 ${formatWeekTime(NOW + 7 * 86_400_000)}）`)
@@ -207,8 +207,11 @@ describe('Key 三态', () => {
 })
 
 describe('路由三态', () => {
-  it('renderRouteLine：已注册（含模型清单）/ 已声明未注册 / 未安装，单行逐字', () => {
-    expect(renderRouteLine({ registered: true, declared: false })).toBe('路由：已注册（glm-5.4, glm-5.3-flash）')
+  it('renderRouteLine：已注册（有清单附清单 / 无清单降级）/ 已声明未注册 / 未安装，单行逐字', () => {
+    expect(renderRouteLine({ registered: true, declared: false, models: ['glm-5.4', 'glm-5.3', 'glm-5.3-flash'] })).toBe(
+      '路由：已注册（glm-5.4, glm-5.3, glm-5.3-flash）',
+    )
+    expect(renderRouteLine({ registered: true, declared: false })).toBe('路由：已注册')
     expect(renderRouteLine({ registered: false, declared: true })).toBe('路由：已声明未注册')
     expect(renderRouteLine({ registered: false, declared: false })).toBe('路由：未安装（运行 /zcode-plan route install）')
   })

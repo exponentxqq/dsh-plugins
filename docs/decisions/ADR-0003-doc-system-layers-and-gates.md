@@ -4,6 +4,9 @@
 
 Accepted（2026-11-07）。
 
+> 注（2026-11-24）：活文档零版本字面量检查（`version-literals`，第 15 项）由 [ADR-0004](./ADR-0004-single-source-version-facts.md) 增补，判定语义与记录域豁免见彼处。
+
+
 载体为混合：决策本体在本 ADR，索引页只链接不复制，门禁的机器行为进 toolchain spec requirement。
 
 ## Date

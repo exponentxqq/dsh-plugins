@@ -17,7 +17,12 @@
  * 8. 仓库里没有残留的 git-graph 活引用；
  * 9. Node 工具链在根 `package.json#volta.node` 单点声明（精确 x.y.z），且
  *    `.github/workflows/` 里 setup-node 从它派生（`node-version-file`），
- *    不存在 `node-version:` 字面量（防止 CI 与工具链 pin 漂移）。
+ *    不存在 `node-version:` 字面量（防止 CI 与工具链 pin 漂移）；
+ * 10. `DSH_BASELINE` 赋值字面量全仓唯一（只允许 `scripts/dsh-baseline.mjs`），
+ *     且每个运行时门（`src/compat/dsh-version.ts`）都从该单源 import——
+ *     第二处字面量即失败；
+ * 11. 发布版本契约：全部插件的 `version` 恒为 `0.0.0`（安装锚点是 git tag，
+ *     发布版本只存在于根 `package.json#version` 与 tag），根清单是精确 semver。
  *
  * 全部失败会一次列出，而不是遇到第一个就退出；这样一次运行就能修完。
  *
@@ -440,6 +445,77 @@ if (typeof declaredNode !== 'string' || !/^\d+\.\d+\.\d+$/u.test(declaredNode)) 
   note(`node toolchain: ${declaredNode} (package.json#volta.node), CI derives from it`)
 }
 
+// 10. The baseline literal is declared at exactly one point, and every runtime
+//     copy imports that single source. A second `export const DSH_BASELINE =`
+//     anywhere in code files is exactly the dual-source drift ADR-0009 settled:
+//     the upgrade lane rewrites the first textual occurrence and nothing else,
+//     so a stray literal would silently stop being the truth. Declaration
+//     matching is anchored to line starts so the upgrade script's own rewrite
+//     regex (a `/…/` literal inside an expression) never trips it. Declaration
+//     files (`.d.*ts`) carry no values and are skipped, as are build artifacts
+//     (`lib/` / `dist/` / `artifacts/` / `node_modules`).
+/** 递归收集一个目录树下的代码文件（跳过构建产物、依赖与声明文件）。 */
+function collectCodeFiles(root, out = []) {
+  if (!existsSync(root)) return out
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const full = join(root, entry.name)
+    if (entry.isDirectory()) {
+      // `lib` 只在包目录（plugins/ 或 tooling/ 之下）是构建产物；`scripts/lib/`
+      // 这类源码目录名恰好也叫 lib，必须继续扫描（红队验证过一刀切的漏扫）。
+      const inPackage = /[/\\](?:plugins|tooling)[/\\]/u.test(full)
+      if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === 'artifacts') continue
+      if (entry.name === 'lib' && inPackage) continue
+      collectCodeFiles(full, out)
+    } else if (entry.isFile() && /\.(?:[cm]?[jt]s)$/u.test(entry.name) && !/\.d\.[cm]?ts$/u.test(entry.name)) {
+      out.push(full)
+    }
+  }
+  return out
+}
+
+const SINGLE_SOURCE = join(REPO_ROOT, 'scripts', 'dsh-baseline.mjs')
+const DECLARATION_PATTERN = /^export\s+const\s+DSH_BASELINE\s*=/mu
+const IMPORT_PATTERN = /from\s+'[^']*\/scripts\/dsh-baseline\.mjs'/u
+const codeRoots = [
+  join(REPO_ROOT, 'scripts'),
+  ...plugins.map(plugin => join(plugin.dir, 'src')),
+  ...plugins.map(plugin => join(plugin.dir, 'scripts')),
+  join(REPO_ROOT, 'tooling'),
+  join(REPO_ROOT, 'templates'),
+].filter(root => existsSync(root))
+for (const root of codeRoots) {
+  for (const file of collectCodeFiles(root)) {
+    if (file === SINGLE_SOURCE) continue
+    if (DECLARATION_PATTERN.test(readFileSync(file, 'utf8'))) {
+      fail(`${file} declares a second DSH_BASELINE literal (import scripts/dsh-baseline.mjs instead)`)
+    }
+  }
+}
+for (const plugin of plugins) {
+  const runtimeGate = join(plugin.dir, 'src', 'compat', 'dsh-version.ts')
+  if (!existsSync(runtimeGate)) continue
+  const source = readFileSync(runtimeGate, 'utf8')
+  if (!IMPORT_PATTERN.test(source)) {
+    fail(`${plugin.manifest.name}: src/compat/dsh-version.ts must import DSH_BASELINE from scripts/dsh-baseline.mjs`)
+  }
+}
+note(`baseline literal: single source scripts/dsh-baseline.mjs (${codeRoots.length} code roots scanned)`)
+
+// 11. Release versioning contract: plugin manifests are pinned at "0.0.0" — the
+//     install anchor is the git tag, the release version lives only in the root
+//     manifest (and therefore the tag); DSH exemption keys stay stable at
+//     `<pkg>@0.0.0` across releases. The root manifest itself must be exact semver.
+const rootVersion = rootManifest.version
+if (typeof rootVersion !== 'string' || !/^\d+\.\d+\.\d+(?:-[\w.]+)?$/u.test(rootVersion)) {
+  fail(`package.json#version is "${String(rootVersion)}", expected an exact semver`)
+}
+for (const plugin of plugins) {
+  if (plugin.manifest.version !== '0.0.0') {
+    fail(`${plugin.manifest.name}: version is ${JSON.stringify(plugin.manifest.version ?? null)}, expected "0.0.0" (release version lives only in the root manifest and the git tag)`)
+  }
+}
+note(`release contract: root package.json ${rootVersion}, ${plugins.length} plugins pinned at 0.0.0`)
+
 for (const message of notes) console.log(`[dsh:check] ${message}`)
 
 if (failures.length > 0) {
@@ -449,4 +525,4 @@ if (failures.length > 0) {
   process.exit(1)
 }
 
-console.log('[dsh:check] baseline, pins, soft ranges, allowlist, lockfile, installed tree and node toolchain agree')
+console.log('[dsh:check] baseline, pins, soft ranges, allowlist, lockfile, node toolchain, literal uniqueness and release contract agree')

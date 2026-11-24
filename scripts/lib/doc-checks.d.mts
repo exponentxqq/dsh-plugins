@@ -30,6 +30,7 @@ export const CHECK_IDS: readonly [
   'adr-skeleton',
   'evidence-location',
   'bare-adr-ref',
+  'version-literals',
 ]
 
 /** 检查 id 的并集（`CHECK_IDS` 的元素类型）。 */
@@ -50,7 +51,7 @@ export interface DocCheckIssue {
 /** 单项检查结果。 */
 export interface CheckResult {
   id: CheckId
-  /** 显示名：旧 10 项逐字沿用 multi-root 旧脚本，4 项新增见 ③.1 表。 */
+  /** 显示名：旧 10 项逐字沿用 multi-root 旧脚本，5 项新增见 ③.1 表与 ADR-0004。 */
   name: string
   issues: DocCheckIssue[]
 }
@@ -127,6 +128,8 @@ export interface DocCheckRules {
   /** 证据目录名（`artifacts`）。 */
   evidenceDirName: string
   pluginPackages: PluginPackagesRule
+  /** 版本字面量 pattern（`version-literals`，ADR-0004；内核导出 `VERSION_LITERAL_PATTERN` 供入口引用）。 */
+  versionLiteralPattern: RegExp
 }
 
 /** 豁免登记（配置清单，不在检查代码里写 per-file 分支）。 */
@@ -135,6 +138,8 @@ export interface DocCheckExemptions {
   absolutePaths: string[]
   /** 相对路径**精确**匹配（规则自述文件，D-B6）。 */
   bareAdrRefs: string[]
+  /** 相对路径**子串**（版本字面量的记录域，ADR-0004）。 */
+  versionLiterals: string[]
 }
 
 /** 内核唯一入口的配置（唯一旋钮）。 */

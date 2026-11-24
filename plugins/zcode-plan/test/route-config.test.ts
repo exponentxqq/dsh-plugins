@@ -6,8 +6,10 @@ import {
   ROUTE_ID,
   ZCODE_PLAN_ROUTE,
   deepEqual,
+  declaredRouteOf,
   installRoute,
   removeRoute,
+  routeModelIds,
   routeState,
 } from '../src/host/route-config.ts'
 
@@ -93,14 +95,78 @@ describe('installRoute：幂等短路（X7-3 / X7-4）', () => {
     expect(fake.readOverride().providers).toEqual({ [ROUTE_ID]: cloneRoute() })
   })
 
-  it('X7-4 override 的 zcode-plan 与真源值不同（如用户手改 baseURL）→ 照常写盘归一', async () => {
+  it('X7-4 override 的 zcode-plan 与默认值不同（如用户手改 baseURL）→ profile 声明优先：保留手改值、跳过写盘', async () => {
     const drifted = cloneRoute()
     ;(drifted as { baseURL: string }).baseURL = 'https://example.invalid/v1'
     const fake = makeFakeEditor({ override: { providers: { [ROUTE_ID]: drifted } } })
     const result = await installRoute({ configEditor: fake.configEditor, llm: makeFakeLlm([ROUTE_ID]), log: makeLog() })
-    expect(result).toEqual({ ok: true, changed: true, registered: true })
-    expect(fake.edit).toHaveBeenCalledTimes(1)
-    expect((fake.readOverride().providers as Record<string, unknown>)[ROUTE_ID]).toEqual(ZCODE_PLAN_ROUTE)
+    expect(result).toEqual({ ok: true, changed: false })
+    expect(fake.edit).not.toHaveBeenCalled()
+    expect((fake.readOverride().providers as Record<string, unknown>)[ROUTE_ID]).toEqual(drifted)
+  })
+})
+
+describe('installRoute：profile 声明优先（只补缺失键，绝不覆盖已声明键）', () => {
+  it('P1 profile 手改 models 且缺连接键 → 手改 models 原样保留，缺失键由默认目录补齐', async () => {
+    const custom = { displayName: '我的路由', models: [{ id: 'custom-x', name: 'Custom' }] }
+    const fake = makeFakeEditor({ override: { providers: { [ROUTE_ID]: custom } } })
+    const result = await installRoute({ configEditor: fake.configEditor, llm: makeFakeLlm([ROUTE_ID]), log: makeLog() })
+    expect(result.changed).toBe(true)
+    const written = (fake.readOverride().providers as Record<string, unknown>)[ROUTE_ID] as Record<string, unknown>
+    expect(written.displayName).toBe('我的路由')
+    expect(written.models).toEqual([{ id: 'custom-x', name: 'Custom' }])
+    expect(written.apiKeyEnv).toBe('ZCODE_PLAN_PAT')
+    expect(written.api).toBe('openai-completions')
+    expect(written.baseURL).toBe('https://open.bigmodel.cn/api/coding/paas/v4')
+    expect(written.reasoning).toBe('max')
+    expect(written.retryPolicy).toEqual(ZCODE_PLAN_ROUTE.retryPolicy)
+  })
+
+  it('P2 profile 声明为默认目录 + 额外自选键（合并结果即声明本身）→ 幂等短路', async () => {
+    const extended = { ...cloneRoute(), extraKey: 'kept' }
+    const fake = makeFakeEditor({ override: { providers: { [ROUTE_ID]: extended } } })
+    const result = await installRoute({ configEditor: fake.configEditor, llm: makeFakeLlm([ROUTE_ID]), log: makeLog() })
+    expect(result).toEqual({ ok: true, changed: false })
+    expect(fake.edit).not.toHaveBeenCalled()
+    expect((fake.readOverride().providers as Record<string, unknown>)[ROUTE_ID]).toEqual(extended)
+  })
+
+  it('P3 bundle(inherited) 层声明路由而 profile 未声明 → 以 inherited 为底、defaults 补缺后写入 profile 层', async () => {
+    const bundleRoute = { displayName: 'Bundle 版', apiKeyEnv: 'BUNDLE_PAT' }
+    const fake = makeFakeEditor({ inherited: { providers: { [ROUTE_ID]: bundleRoute } } })
+    const result = await installRoute({ configEditor: fake.configEditor, llm: makeFakeLlm([ROUTE_ID]), log: makeLog() })
+    expect(result.changed).toBe(true)
+    const written = (fake.readOverride().providers as Record<string, unknown>)[ROUTE_ID] as Record<string, unknown>
+    expect(written.displayName).toBe('Bundle 版')
+    expect(written.apiKeyEnv).toBe('BUNDLE_PAT')
+    expect(written.api).toBe('openai-completions')
+    expect(written.models).toEqual(ZCODE_PLAN_ROUTE.models)
+  })
+})
+
+describe('declaredRouteOf / routeModelIds（profile 优先的只读面）', () => {
+  it('D1 两层都未声明 → undefined；override 声明 → 返回 effective（profile 胜）', () => {
+    expect(declaredRouteOf(undefined)).toBeUndefined()
+    const bare = makeFakeEditor({ override: { providers: { 'user-route': { apiKeyEnv: 'USER' } } } })
+    expect(declaredRouteOf(bare.configEditor)).toBeUndefined()
+    const declared = makeFakeEditor({
+      inherited: { providers: { [ROUTE_ID]: { displayName: 'Bundle 版' } } },
+      override: { providers: { [ROUTE_ID]: { displayName: 'Profile 版' } } },
+    })
+    const route = declaredRouteOf(declared.configEditor)
+    expect(route?.displayName).toBe('Profile 版')
+    expect(route?.apiKeyEnv).toBe('ZCODE_PLAN_PAT')
+    expect(route?.api).toBe('openai-completions')
+  })
+
+  it('D2 routeModelIds：合法清单原样 / 非数组或缺 id 归 undefined / 空清单归 undefined', () => {
+    expect(routeModelIds({ models: [{ id: 'a' }, { id: 'b' }] })).toEqual(['a', 'b'])
+    expect(routeModelIds({ models: [{ name: 'no-id' }] })).toBeUndefined()
+    expect(routeModelIds({ models: 'not-an-array' })).toBeUndefined()
+    expect(routeModelIds({})).toBeUndefined()
+    expect(routeModelIds(undefined)).toBeUndefined()
+    expect(routeModelIds({ models: [] })).toBeUndefined()
+    expect(routeModelIds({ models: [{ id: 'a' }, 'junk'] })).toEqual(['a'])
   })
 })
 
@@ -162,9 +228,9 @@ describe('ZCODE_PLAN_ROUTE 单一真源（X7-8）', () => {
     ])
   })
 
-  it('X7-8b models 恰两条：最新旗舰 + flash，条目形状照实测 profile', () => {
-    expect(ZCODE_PLAN_ROUTE.models).toHaveLength(2)
-    expect(ZCODE_PLAN_ROUTE.models.map((model) => model.id)).toEqual(['glm-5.4', 'glm-5.3-flash'])
+  it('X7-8b models 恰三条：旗舰置首、纯文本回退居中、flash 收尾，条目形状照实测 profile', () => {
+    expect(ZCODE_PLAN_ROUTE.models).toHaveLength(3)
+    expect(ZCODE_PLAN_ROUTE.models.map((model) => model.id)).toEqual(['glm-5.4', 'glm-5.3', 'glm-5.3-flash'])
     for (const model of ZCODE_PLAN_ROUTE.models) {
       expect(model.contextWindow).toBe(1_000_000)
       expect(model.maxTokens).toBe(131_072)
@@ -172,9 +238,10 @@ describe('ZCODE_PLAN_ROUTE 单一真源（X7-8）', () => {
       expect(model.compat.thinkingFormat).toBe('zai')
       expect(model.compat.maxTokensField).toBe('max_tokens')
     }
-    // 旗舰与 flash 都支持图片输入（2026-11-23 实测可发 image_url）。
+    // 旗舰与 flash 支持图片输入（2026-11-23 实测可发 image_url）；glm-5.3 纯文本回退档。
     expect(ZCODE_PLAN_ROUTE.models[0].input).toEqual(['text', 'image'])
-    expect(ZCODE_PLAN_ROUTE.models[1].input).toEqual(['text', 'image'])
+    expect(ZCODE_PLAN_ROUTE.models[1].input).toEqual(['text'])
+    expect(ZCODE_PLAN_ROUTE.models[2].input).toEqual(['text', 'image'])
   })
 
   it('X7-8c 全树零 headers：指纹头不进单一真源（C3）', () => {

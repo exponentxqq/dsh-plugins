@@ -1,6 +1,6 @@
 # 从 zai-coding-zcode 迁移到 zcode-plan 路由
 
-> 适用 DSH 基线：当前 `0.2.2-rc.1`（读自 `scripts/dsh-baseline.mjs`，复核时点 2026-11-08）。本文是**用户迁移指南**：把 profile 里既有的
+> 适用 DSH 基线：当前基线（读自 `scripts/dsh-baseline.mjs`，当前值看仓根 `pnpm dsh:check` 首行）。本文是**用户迁移指南**：把 profile 里既有的
 > `llm-pi-ai.providers['zai-coding-zcode']` 路由块换成本插件的 `zcode-plan`
 > 路由（PAT 凭证）。所有 `<尖括号>` 均为占位符，替换成你自己的值；本文不含任何真实凭据。
 >
@@ -62,7 +62,7 @@ docker exec dsh dsh plugin --profile web add \
 
 ```bash
 docker exec dsh dsh --profile web --dump-config          # 装载冒烟探针（exit 0 即可加载）
-docker exec dsh dsh --profile web --dump-config-schema   # 查看 schema（0.2.2-rc.1 全局 exit 1 为既有 preset 豁免，按条目核对）
+docker exec dsh dsh --profile web --dump-config-schema   # 查看 schema（当前基线下全局 exit 1 为既有 preset 豁免，按条目核对）
 ```
 
 在 profile patch 的插件行上补必填 config（占位符替换成你自己的值，**不要抄别人的组织/项目**）：
@@ -89,10 +89,10 @@ docker exec dsh dsh --profile web --dump-config-schema   # 查看 schema（0.2.2
 docker exec dsh dsh --profile web --dump-config | sed -n '/providers:/,+40p'
 ```
 
-- `providers['zcode-plan']` 已存在（含最新旗舰与最低成本 flash 两条 models、`apiKeyEnv: ZCODE_PLAN_PAT`；旗舰带图片输入；具体条目与顺序以下一行的 status 输出为准）；
+- `providers['zcode-plan']` 已存在（含 glm-5.4 / glm-5.3 / glm-5.3-flash 三条 models、`apiKeyEnv: ZCODE_PLAN_PAT`；旗舰与 flash 带图片输入，glm-5.3 为纯文本回退；具体条目与顺序以下一行的 status 输出为准）；
 - `providers['zai-coding-cn']` 等你既有的其它键**原样还在**——install 幂等且只覆盖本键，不碰他人路由。
 
-会话内 `/zcode-plan route status` 显示「路由：已注册（glm-5.4, glm-5.3-flash）」即注册完成；若显示「已声明未注册」，等宿主重载配置后再查。
+会话内 `/zcode-plan route status` 显示「路由：已注册（glm-5.4, glm-5.3, glm-5.3-flash）」即注册完成；若显示「已声明未注册」，等宿主重载配置后再查。
 
 ## login：登录并持有 PAT
 
@@ -115,7 +115,7 @@ docker exec dsh dsh --profile web --dump-config | sed -n '/providers:/,+40p'
 /zcode-plan status
 ```
 
-应看到：已登录、PAT 有效、路由已注册（glm-5.4, glm-5.3-flash）。PAT 到期前插件会自动续期；也可随时 `/zcode-plan refresh` 手动换发（回执只报「与上一张不同」与到期时刻，不回显值）。
+应看到：已登录、PAT 有效、路由已注册（glm-5.4, glm-5.3, glm-5.3-flash）。PAT 到期前插件会自动续期；也可随时 `/zcode-plan refresh` 手动换发（回执只报「与上一张不同」与到期时刻，不回显值）。
 
 ## 切换验证（由你决定是否执行）
 

@@ -3,8 +3,9 @@
  *
  * 仓库里所有「当前验证的是哪个 DSH」的声明都从这里的 `DSH_BASELINE` 派生：
  * 七个插件经 `catalog:dsh` 的 devDependencies、七个插件（含 multi-root）统一
- * 派生的 `engines.dsh` 与 DSH peer 范围、multi-root 运行时门持有的基线副本、
- * `dsh:check` 的断言，以及根级升级脚本的重写目标。改基线时只改这里，再跑
+ * 派生的 `engines.dsh` 与 DSH peer 范围、`dsh:check` 的断言、根级升级脚本的
+ * 重写目标，以及 multi-root 运行时门（`src/compat/dsh-version.ts` 直接 import
+ * 本常量，构建期内联进 `lib/`）。改基线时只改这里，再跑
  * `pnpm dsh:upgrade`（带版本参数时脚本也会同步重写本文件）。
  *
  * @module scripts/dsh-baseline

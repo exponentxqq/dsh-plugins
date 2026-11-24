@@ -2,7 +2,8 @@
 /**
  * 文档检查共享内核的负测试（自检）——**样本运行时生成，不入库**（D-B10）。
  *
- * 5 类缺陷样本（断链 / 绝对路径 / 空文档 / 缺骨架节 README / 缺七节 ADR）在
+ * 5 类缺陷样本（断链 / 绝对路径 / 空文档 / 缺骨架节 README / 缺七节 ADR）与
+ * 版本字面量样本（ADR-0004）在
  * `mkdtempSync(os.tmpdir())` 下临时落盘：缺陷样本逐项断言对应检查 FAIL，每类附
  * 合规样本断言 PASS，并覆盖三条豁免/降级路径（归档域断链降 warning、绝对路径
  * 豁免子串、规则自述文件裸 ADR 豁免）。附带 `bare-adr-ref` 的剥离语义：正文裸写
@@ -25,7 +26,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { runDocChecks } from './doc-checks.mjs'
+import { VERSION_LITERAL_PATTERN, runDocChecks } from './doc-checks.mjs'
 
 /**
  * README 必备节样本清单（ADR-0003 §2 的四节）。
@@ -67,6 +68,7 @@ const TEST_RULES = {
     dualSection: '双端结构',
   },
   pluginPackages: { dir: 'plugins', exclude: [] },
+  versionLiteralPattern: VERSION_LITERAL_PATTERN,
 }
 
 /**
@@ -108,7 +110,7 @@ function buildAdr({ omit = null, relatedFirst = false, extraHeading = null } = {
  * @param {string} baseRoot 临时根。
  * @param {string} name 场景目录名。
  * @param {Record<string, string>} files 相对路径 → 正文。
- * @param {{ checks: string[], dirs?: object, linkWarningPaths?: string[], absolutePaths?: string[], bareAdrRefs?: string[] }} options 场景配置。
+ * @param {{ checks: string[], dirs?: object, linkWarningPaths?: string[], absolutePaths?: string[], bareAdrRefs?: string[], versionLiterals?: string[] }} options 场景配置。
  * @returns {{ report: import('./doc-checks.d.mts').DocCheckReport }|{ error: Error }} 报告或执行错误。
  */
 function runScenario(baseRoot, name, files, options) {
@@ -134,6 +136,7 @@ function runScenario(baseRoot, name, files, options) {
     exemptions: {
       absolutePaths: options.absolutePaths ?? [],
       bareAdrRefs: options.bareAdrRefs ?? [],
+      versionLiterals: options.versionLiterals ?? [],
     },
   }
   const originalLog = console.log
@@ -476,6 +479,76 @@ export function runSelfTest(options = {}) {
       ),
       (report) => report.errors === 0 && issuesOf(report, 'bare-adr-ref').length === 0
     )
+
+    // 6 版本字面量（ADR-0004）：活文档多形态 FAIL / 指向单源 PASS / 占位与 IP PASS / 记录域豁免 PASS。
+    expect(
+      '6 版本字面量 · 活文档多形态 FAIL（裸版本 / v 前缀 / 范围串 / 依赖 pin）',
+      runScenario(
+        tempRoot,
+        'version-broken',
+        {
+          'docs/a.md': [
+            '# 版本样本',
+            '',
+            '基线是 0.2.2-rc.1，发布 v1.6.2，要求 ^22.19.0 与 pnpm@11.25.0，范围 >=0.2.2-rc.5 <0.3.0。',
+            '',
+          ].join('\n'),
+        },
+        { checks: ['version-literals'] }
+      ),
+      (report) =>
+        hasIssue(report, 'version-literals', 'error', 'Version literal "0.2.2-rc.1"') &&
+        hasIssue(report, 'version-literals', 'error', 'Version literal "v1.6.2"') &&
+        hasIssue(report, 'version-literals', 'error', 'Version literal "22.19.0"') &&
+        hasIssue(report, 'version-literals', 'error', 'Version literal "11.25.0"') &&
+        hasIssue(report, 'version-literals', 'error', 'Version literal "0.2.2-rc.5"') &&
+        hasIssue(report, 'version-literals', 'error', 'Version literal "0.3.0"') &&
+        report.errors === 6
+    )
+    expect(
+      '6 版本字面量 · 指向单源表述 PASS',
+      runScenario(
+        tempRoot,
+        'version-ok',
+        {
+          'docs/a.md': [
+            '# 单源表述',
+            '',
+            '当前基线看 \`pnpm dsh:check\` 首行；Node 工具链看根 package.json 的 volta 字段；发布以 git tag 为准。',
+            '',
+          ].join('\n'),
+        },
+        { checks: ['version-literals'] }
+      ),
+      (report) => report.errors === 0 && issuesOf(report, 'version-literals').length === 0
+    )
+    expect(
+      '6 版本字面量 · 占位 0.0.0 与 IP 地址不触发',
+      runScenario(
+        tempRoot,
+        'version-allowed-shapes',
+        {
+          'docs/a.md': [
+            '# 非版本事实',
+            '',
+            '插件清单 version 恒为 0.0.0；服务地址 http://127.0.0.1:3080；日期 2026-11-23 不是版本。',
+            '',
+          ].join('\n'),
+        },
+        { checks: ['version-literals'] }
+      ),
+      (report) => report.errors === 0 && issuesOf(report, 'version-literals').length === 0
+    )
+    expect(
+      '6 版本字面量 · 记录域豁免 PASS',
+      runScenario(
+        tempRoot,
+        'version-exempt',
+        { 'docs/decisions/ADR-0002-demo.md': '# ADR\n\n当时基线为 0.1.5-rc.2。\n' },
+        { checks: ['version-literals'], versionLiterals: ['docs/decisions/ADR-'] }
+      ),
+      (report) => report.errors === 0 && issuesOf(report, 'version-literals').length === 0
+    )
   } catch (error) {
     assertions.push({
       name: '自检执行',
@@ -503,7 +576,7 @@ export function runSelfTest(options = {}) {
   }
   if (!quiet) {
     console.log(
-      `5 类缺陷样本（断链 / 绝对路径 / 空文档 / 缺骨架节 README / 缺七节 ADR）+ 附带 bare-adr-ref：` +
+      `5 类缺陷样本（断链 / 绝对路径 / 空文档 / 缺骨架节 README / 缺七节 ADR）+ 附带 bare-adr-ref 与 version-literals：` +
         `${assertions.length} 项断言全部通过；临时样本已清理。`
     )
     console.log('doc-checks selftest passed.')

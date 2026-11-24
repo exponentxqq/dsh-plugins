@@ -3,23 +3,29 @@
  *
  * The runtime gate (`src/compat.ts`) protects an installed harness; this script
  * protects the REPOSITORY. The contract it guards is "baseline → derived range":
- * the code is verified against one exact release in `src/compat/dsh-version.ts`,
- * and that release becomes one installable window (`>=<baseline> <next minor>.0`)
- * that every consumer is asked to satisfy.
+ * the code is verified against the exact release in the single source
+ * `scripts/dsh-baseline.mjs` (imported directly — it is committed source, not a
+ * build artifact, so this still runs before `pnpm build` on a clean checkout),
+ * and that release becomes one installable window
+ * (`>=<baseline> <next minor>.0`) that every consumer is asked to satisfy.
  *
  * These declarations must agree, and this script fails when any pair drifts:
  *
  * ```text
- * src/compat/dsh-version.ts   DSH_BASELINE          the release verified here
+ * scripts/dsh-baseline.mjs    DSH_BASELINE          the release verified here
  * (derived in this script)    >=<baseline> <next>    the window it implies
  * package.json                dsh.engines.dsh       what the harness must provide
  * package.json                peerDependencies      what npm promises
  * node_modules                resolved versions     what is installed here
  * ```
  *
- * It deliberately re-reads the baseline out of the TypeScript source rather than
- * importing it: this script must run before `pnpm build`, on a clean checkout
- * with no `lib/`, so it cannot depend on the bundle existing.
+ * The baseline and its range derivation are imported, not re-parsed: keeping a
+ * second copy of either here is exactly the dual-source drift this script
+ * exists to prevent. The package lists are still read out of the contract
+ * source with a narrow regex — parsing keeps them single-sourced without
+ * needing a TypeScript loader in a pre-build step, and an unparsable list is a
+ * hard error rather than a silent empty list (an empty list would make every
+ * check pass).
  *
  * What it deliberately does NOT do: recompute the range predicate ("is this
  * release inside the window?"). A second copy of that predicate would silently
@@ -36,6 +42,8 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
+import { DSH_BASELINE, SOFT_DSH_RANGE } from '../../../scripts/dsh-baseline.mjs'
+
 const require = createRequire(import.meta.url)
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const CONTRACT = join(REPO_ROOT, 'src', 'compat', 'dsh-version.ts')
@@ -45,6 +53,11 @@ const failures = []
 /** Record a violation. */
 function fail(message) {
   failures.push(message)
+}
+
+/** Whether a dependency name belongs to the DSH release family. */
+function isDshPackage(name) {
+  return name === '@deepseek-ai/dsh' || name.startsWith('@deepseek-ai/dsh-')
 }
 
 /**
@@ -66,48 +79,9 @@ function readStringArray(source, name) {
   return entries
 }
 
-/**
- * Extract one `export const NAME = 'value'` string literal from the contract source.
- *
- * Same reason as {@link readStringArray}: the baseline must be readable before
- * anything is built. A missing literal is a hard error — falling back to some
- * other source would let the check pass while the runtime copy says anything.
- * @param source - the contract file's text.
- * @param name - the exported binding to read.
- * @returns the literal value.
- */
-function readStringLiteral(source, name) {
-  const match = new RegExp(String.raw`^export const ${name} = '([^']+)'`, 'mu').exec(source)
-  if (match === null) throw new Error(`${name} is not declared as a string literal in src/compat/dsh-version.ts`)
-  return match[1]
-}
-
-/**
- * Derive the installable window from an exact baseline: `>=<baseline> <major>.<minor+1>.0`.
- *
- * The same three-line rule `src/compat/dsh-version.ts` uses, kept here on
- * purpose: the derivation is trivial, while the PREDICATE it feeds is not
- * (see the module docblock). A malformed baseline throws — a contract file
- * that no longer holds an exact version is broken, not merely out of date.
- * @param baseline - an exact version such as `0.2.2-rc.1`.
- * @returns the lower-inclusive, upper-exclusive range string.
- */
-function softRange(baseline) {
-  const match = /^(\d+)\.(\d+)\.\d+(?:-[\w.]+)?$/u.exec(baseline)
-  if (match === null) throw new Error(`DSH_BASELINE "${baseline}" in src/compat/dsh-version.ts is not an exact version`)
-  const major = Number(match[1])
-  const minor = Number(match[2])
-  return `>=${baseline} <${major}.${minor + 1}.0`
-}
-
-/** Whether a dependency name belongs to the DSH release family. */
-function isDshPackage(name) {
-  return name === '@deepseek-ai/dsh' || name.startsWith('@deepseek-ai/dsh-')
-}
-
 const contractSource = readFileSync(CONTRACT, 'utf8')
-const baseline = readStringLiteral(contractSource, 'DSH_BASELINE')
-const range = softRange(baseline)
+const baseline = DSH_BASELINE
+const range = SOFT_DSH_RANGE
 const required = readStringArray(contractSource, 'REQUIRED_CORE_PACKAGES')
 const optional = readStringArray(contractSource, 'OPTIONAL_CORE_PACKAGES')
 const core = [...required, ...optional]

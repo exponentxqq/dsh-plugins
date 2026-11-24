@@ -9,6 +9,9 @@
  * 常量类型一律 `string` 而非基线字面量：`pnpm dsh:upgrade` 只按首个文本出现重写
  * `.mjs`，字面量声明会在每次基线提升后过期逼手工同步；基线的精确值由
  * `check-dsh-baseline.mjs` 的运行时断言钉住（tripwire 在门禁，不在类型层）。
+ * 消费面：仓级门禁与软插件测试静态 import 之外，multi-root 的运行时门
+ * （`src/compat/dsh-version.ts`）也直接 import 本模块——仓内 MUST NOT 存在
+ * 第二个 `DSH_BASELINE` 字面量定义（`dsh:check` 第 10 项守住）。
  *
  * @module scripts/dsh-baseline
  */

@@ -33,7 +33,7 @@ import { LOGIN_RECORD_KEY, PAT_REF } from './credential-record.ts'
 import { BridgeError } from './errors.ts'
 import type { LoginDriver } from './login-flow.ts'
 import type { PatOwner } from './pat-owner.ts'
-import { installRoute, removeRoute, ROUTE_ID, type ConfigEditorPort } from './route-config.ts'
+import { ROUTE_ID, ZCODE_PLAN_ROUTE, declaredRouteOf, installRoute, removeRoute, routeModelIds, type ConfigEditorPort } from './route-config.ts'
 import { formatFullTime, readRouteState, renderRouteLine, renderStatus, type StatusLlmPort, type StatusSnapshot } from './status.ts'
 import type { CredentialsPort, LogPort } from './ports.ts'
 
@@ -265,7 +265,10 @@ async function handleRoute(
   deps: ZcodePlanCommandDeps,
 ): Promise<ZcodePlanCommandResult> {
   if (action === 'status') {
-    return { kind: 'success', text: renderRouteLine(readRouteState(deps.llm())) }
+    // 模型清单 profile 优先：profile patch 已声明 → 用声明的 models（含手改值）；
+    // 未声明 / config-editor 缺席 → 回落插件默认目录。
+    const models = routeModelIds(declaredRouteOf(deps.configEditor())) ?? ZCODE_PLAN_ROUTE.models.map((model) => model.id)
+    return { kind: 'success', text: renderRouteLine({ ...readRouteState(deps.llm()), models }) }
   }
   const configEditor = deps.configEditor()
   if (configEditor === undefined) {

@@ -143,7 +143,7 @@ docker exec dsh dsh --profile web --dump-config          # 校验组合可加载
 docker exec dsh dsh --profile web --dump-config | grep -A2 'id: project-mcp'
 ```
 
-已知环境问题：dsh 0.2.2-rc.1 的 `--dump-config-schema` 会因官方 `dsh-agent-preset` 的自定义载体（`EntryGroup.key` 标记类，非原生 group/include）报 4 条 `unrecognized Loader tree carrier` error，全新空 `DSH_HOME` 同样红（与本插件无关；本插件在三个 profile 上零诊断）。装载冒烟因此以 `--dump-config` exit 0 为准，schema dump 只按本插件条目核对。
+已知环境问题：dsh 的 `--dump-config-schema` 会因官方 `dsh-agent-preset` 的自定义载体（`EntryGroup.key` 标记类，非原生 group/include）报 4 条 `unrecognized Loader tree carrier` error，全新空 `DSH_HOME` 同样红（与本插件无关；本插件在三个 profile 上零诊断）。装载冒烟因此以 `--dump-config` exit 0 为准，schema dump 只按本插件条目核对。
 
 `dsh plugin add` 会把包追加进 profile `package.json` 的 `dsh.profile.bundles`，从而激活本包的 `cordis.patch.yml`（插入 `id: project-mcp` 的 bare 包名行）。web profile 想要徽章时另装 [`dsh-plugin-web-ux`](../web-ux/README.md)。
 

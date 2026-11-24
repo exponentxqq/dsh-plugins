@@ -12,6 +12,8 @@ Accepted
 >
 > 修订注（2026-11-07）：插件内的委托 shim 已删除（`scripts/upgrade-dsh.mjs`），升级入口唯一化为仓库根 `pnpm dsh:upgrade`（其 `repointRuntimeBaselines` 在同批重指运行时基线副本，机制见「支持矩阵范围化」修订节）；上文 2026-10-17 修订注中「插件内旧路径保留为委托 shim」的叙述随之过期，以本注为准。
 
+> 修订注（2026-11-24）：运行时门改为直接 import 仓根单源 `scripts/dsh-baseline.mjs`（`src/compat/dsh-version.ts` 不再持有字面量副本，构建期内联进 `lib/`）；`repointRuntimeBaselines` 退役、升级批次不再有运行时副本可重指。仓内第二处基线字面量由根 `pnpm dsh:check` 第 10 项拦截。
+
 ## Date
 
 2026-09-15

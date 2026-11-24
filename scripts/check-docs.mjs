@@ -12,8 +12,9 @@
  * - `1`：自检失败，或检查发现 error（含归档域之外的预期红项，首轮清偿见 G8）；
  * - `2`：用法错误或配置错误（配置非法由内核抛 `TypeError`，捕获后打印原因）。
  *
- * 配置口径（code-design ③.2 现行示例 + ④ G7 要点）：
- * - 检查集合 = ③.1 表中仓级入口为「开」的 9 项；双语三项（`readme-pairs` /
+ * 配置口径（code-design ③.2 现行示例 + ④ G7 要点 + ADR-0004）：
+ * - 检查集合 = ③.1 表中仓级入口为「开」的 9 项 + `version-literals`（活文档零版本
+ *   字面量，记录域经 `exemptions.versionLiterals` 豁免）；双语三项（`readme-pairs` /
  *   `agent-note-pairs` / `readme-navigation`）已随单语化退役，不启用（内核实现保留）；
  * - 七包全部纳入 `readme-skeleton` / `evidence-location` 取包面：`pluginPackages.exclude`
  *   为空集（R5 轮 5 裁定⑤），扫描子树排除不使骨架检查缩水；
@@ -39,7 +40,7 @@
 
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { runDocChecks } from './lib/doc-checks.mjs'
+import { VERSION_LITERAL_PATTERN, runDocChecks } from './lib/doc-checks.mjs'
 import { runSelfTest } from './lib/doc-checks.selftest.mjs'
 
 /** 仓库根（`scripts/` 的上一级，按入口文件物理位置推导，不用环境变量）。 */
@@ -60,7 +61,8 @@ const REPO_CONFIG = {
   root: REPO_ROOT,
   label: 'repo',
   checks: {
-    // ③.1 表中仓级入口为「开」的 9 项；双语三项已退役（D-2 / 任务 4.7）。
+    // ③.1 表中仓级入口为「开」的 9 项 + ADR-0004 的 version-literals；
+    // 双语三项已退役（D-2 / 任务 4.7）。
     'wrong-english-suffix': true,
     'markdown-links': true,
     'absolute-paths': true,
@@ -70,9 +72,10 @@ const REPO_CONFIG = {
     'adr-skeleton': true,
     'evidence-location': true,
     'bare-adr-ref': true,
+    'version-literals': true,
   },
   scan: {
-    markdownRoots: ['README.md', 'AGENTS.md', 'docs', 'tooling', 'templates', 'plugins', 'openspec'],
+    markdownRoots: ['README.md', 'AGENTS.md', 'CHANGELOG.md', 'docs', 'tooling', 'templates', 'plugins', 'openspec'],
     excludeDirs: [
       '.git',
       'node_modules',
@@ -119,6 +122,8 @@ const REPO_CONFIG = {
     evidenceDirName: 'artifacts',
     // 七包统一（R5）：exclude 空集；multi-root 骨架由 G5.5 施工后同样受检。
     pluginPackages: { dir: 'plugins', exclude: [] },
+    // 活文档零版本字面量（ADR-0004）；pattern 单源在内核，两入口引用同一常量。
+    versionLiteralPattern: VERSION_LITERAL_PATTERN,
   },
   exemptions: {
     // 子串匹配（沿用 multi-root 旧脚本 :181 语义）；证据域由 noScanPaths 覆盖，
@@ -133,6 +138,15 @@ const REPO_CONFIG = {
     ],
     // 精确相对路径（D-B6）。
     bareAdrRefs: ['AGENTS.md', 'docs/decisions/README.md'],
+    // 版本字面量的记录域（ADR-0004）：历史取证正文里的版本号是当时事实，不是活断言。
+    // `.agent/note` 与 multi-root 子树不在本入口扫描面，登记属防御性（口径与包内入口一致）。
+    versionLiterals: [
+      'docs/decisions/ADR-',
+      'docs/assessments/',
+      '.agent/note/',
+      'docs/reference/multi-root-workspace-research.md',
+      'CHANGELOG.md',
+    ],
   },
 }
 

@@ -30,10 +30,10 @@
 
 本插件替换的是工作区围栏本身，并且 `src/dialects.ts` 是**靠观测 `super.confine` 产出的 argv 形状**识别内核 sandbox profile、再克隆它的 grant 拼法的（[ADR-0003](../decisions/ADR-0003-dialect-grant-widening.md)）。上游 `@deepseek-ai/dsh-*` 处于 pre-stable，对这些形状没有 semver 承诺。
 
-因此插件把支持矩阵收敛成一个**由基线派生的软范围**：`src/compat/dsh-version.ts` 的 `DSH_BASELINE` 是仓库基线（根 `scripts/dsh-baseline.mjs`）的运行时副本，`SUPPORTED_DSH_RANGE` 由它派生，语义是「与基线同 `major.minor` 且 ≥ 基线」。当前基线 `0.2.2-rc.1` 派生出的范围是 `>=0.2.2-rc.1 <0.3.0`（精确值以 `scripts/dsh-baseline.mjs` 为准）。
+因此插件把支持矩阵收敛成一个**由基线派生的软范围**：`src/compat/dsh-version.ts` 的 `DSH_BASELINE` 直接 import 仓库单源（根 `scripts/dsh-baseline.mjs`，构建期内联），`SUPPORTED_DSH_RANGE` 由它派生，语义是「与基线同 `major.minor` 且 ≥ 基线」，即 `>=<基线> <<主>.<次+1>.0`（当前值以仓根 `pnpm dsh:check` 首行为准）。
 
-- 同一条 minor 线上的新预发布（例如 `0.2.3-alpha.1`）**自动在范围内**，不需要改仓库任何文件；
-- 低于基线、或跨到下一个 minor 的版本（`0.3.0`、`0.3.0-alpha.1`）一律拒绝——只做数值比较会放行 `0.3.0-alpha.1`，所以同 minor 判定是单独做的；
+- 同一条 minor 线上的新预发布**自动在范围内**，不需要改仓库任何文件；
+- 低于基线、或跨到下一个 minor 的版本（含其预发布）一律拒绝——只做数值比较会放行下一 minor 的预发布，所以同 minor 判定是单独做的；
 - 范围是「上游在这条线上还没有改过被观测的形状」这一判断的代码化，不是对未来的 semver 承诺，也不是一份会被人手工追加的名单。
 
 `multi-root-compat` 是 patch 的第一行，七个安全相关的行都 inject 它：

@@ -25,6 +25,7 @@
 | [ADR-0001](./ADR-0001-shared-build-and-source-kits.md) | 共享构建与源码包（`tooling/` 五包）的落地边界：构建期内联与单装安全、五包职责、被否方案；含 **D-15 contracts 权威转移对归档 D4 的修订记录**、**2026-11-07 测试接线底座修订（`/vitest` 工厂、vitest 仅 devDep）**、**2026-11-08 client-kit 入列修订** | Accepted（2026-11-06） |
 | [ADR-0002](./ADR-0002-attribution-kernel.md) | 归属内核：`#3`（`roots[0] ≠ primaryRoot`）值语义裁定、索引原子替换纪律、未命中策略保留在调用方 | Accepted（2026-11-06） |
 | [ADR-0003](./ADR-0003-doc-system-layers-and-gates.md) | 文档体系分层 ownership（入口/参考/证据/规格/决策/评估）、README 软骨架 4+5 节（七包统一）、证据两级制与行文法、门禁 6 查项与「规则在文档、脚本只机械执行」分工 | Accepted（2026-11-07） |
+- [ADR-0004-single-source-version-facts.md](./ADR-0004-single-source-version-facts.md) — 版本事实单源化：发布版本单点（插件恒 0.0.0）、DSH 基线常量唯一（运行时门直接 import 单源）、活文档零版本字面量（`version-literals` 门禁 + 记录域豁免 + 根 CHANGELOG）、zcode-plan 模型清单以 profile patch 为准（Accepted）。
 
 ## 评估档案（非 ADR）
 

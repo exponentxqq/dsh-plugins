@@ -70,7 +70,7 @@ function makeSnapshot(overrides: Partial<StatusSnapshot> = {}): StatusSnapshot {
     key: { kind: 'ready', keyId: KEY_ID_FIXTURE },
     pat: { kind: 'valid', expiresAt: FIXED_NOW + 4 * 3_600_000 + 10 * 60_000 },
     patRenewalLeadMs: 120_000,
-    route: { registered: true, declared: false },
+    route: { registered: true, declared: false, models: ['glm-5.4', 'glm-5.3', 'glm-5.3-flash'] },
     usage: {
       kind: 'ok',
       fiveHour: { total: 28_000, used: 3_120, percentage: 11.14, resetAt: FIXED_NOW + 30 * 60_000 },
@@ -378,7 +378,7 @@ describe('commands handler：route（H12 集成）', () => {
 
   it('route status：已注册 / 未安装两态的单行回执', async () => {
     const registered = await runCommand(makeDeps({ llm: () => makeFakeLlm(['zcode-plan']) }), 'route status')
-    expect(registered).toEqual({ kind: 'success', text: '路由：已注册（glm-5.4, glm-5.3-flash）' })
+    expect(registered).toEqual({ kind: 'success', text: '路由：已注册（glm-5.4, glm-5.3, glm-5.3-flash）' })
     const absent = await runCommand(makeDeps({ llm: () => makeFakeLlm([]) }), 'route')
     expect(absent).toEqual({ kind: 'success', text: '路由：未安装（运行 /zcode-plan route install）' })
   })
@@ -478,7 +478,7 @@ describe('status 渲染（H13 基础）', () => {
     expect(text).toContain('  PAT ：有效 · 到期 ')
     expect(text).toContain('（剩 4h10m）')
     expect(text).toContain('· 下次续期 ≤ ')
-    expect(text).toContain('  路由：已注册（glm-5.4, glm-5.3-flash）')
+    expect(text).toContain('  路由：已注册（glm-5.4, glm-5.3, glm-5.3-flash）')
     expect(text).toContain('5h 窗口 3120 / 28000（11%，重置 ')
     expect(text).toContain('· 周 18200 / 140000（13%，重置 ')
     expect(text).toContain('（读数 2 分钟前，服务端聚合延迟 1–2 分钟）')

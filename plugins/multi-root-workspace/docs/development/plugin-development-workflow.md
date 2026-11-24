@@ -7,24 +7,24 @@
 
 | 项 | 值 | 说明 |
 | --- | --- | --- |
-| 开发目标版本（基线） | `0.2.2-rc.1` | 精确版本在 `catalogs.dsh`（各插件经 `catalog:dsh` 引用）；基线常量在仓库根 `scripts/dsh-baseline.mjs`；升级/回归时用 `DSH_CLI` 逐版本实跑完整检查 |
-| 支持矩阵 | [`SUPPORTED_DSH_RANGE`](../../src/compat/dsh-version.ts) | **基线派生的软范围**（`>=0.2.2-rc.1 <0.3.0`）：与基线同 `major.minor` 且 ≥ 基线才放行；`dsh.engines.dsh` 与 `peerDependencies` 声明同一个派生范围 |
+| 开发目标版本（基线） | 仓根 `scripts/dsh-baseline.mjs` 的当前值（看根 `pnpm dsh:check` 首行） | 精确版本在 `catalogs.dsh`（各插件经 `catalog:dsh` 引用）；升级/回归时用 `DSH_CLI` 逐版本实跑完整检查 |
+| 支持矩阵 | [`SUPPORTED_DSH_RANGE`](../../src/compat/dsh-version.ts) | **基线派生的软范围**（`>=<基线> <<主>.<次+1>.0`）：与基线同 `major.minor` 且 ≥ 基线才放行；`dsh.engines.dsh` 与 `peerDependencies` 声明同一个派生范围 |
 | 实测证据 | 本仓库 `pnpm test` / `pnpm smoke` | 升级与旧版回归都应运行完整检查；升级工具 `pnpm dsh:upgrade` 在同一批次里移动基线并重指派生事实，绿灯是回归证据 |
 | 运行时门禁 | `multi-root-compat` 行 | 版本落在派生范围外或核心包混装时，七个安全相关行根本不启动，且没有降级或放行开关（ADR-0009） |
-| cordis | 基线 `4.1.0`；按 `dsh` 声明的 `^`/`~` 范围 pin 到该精确版本 | 根级 `pnpm dsh:upgrade` 同步重指；`--probe` 从各插件直接声明的 DSH 依赖派生 workspace-only 的 probe overrides，避免预发布范围导致混装、重复副本导致工具调度 Symbol 不一致。已有自定义 overrides 时拒绝覆盖；重跑不带 `--probe` 即移除该块 |
+| cordis | 基线所要求的精确版本（按 `dsh` 声明的 `^`/`~` 范围解析）；当前值看 `catalogs.dsh` | 根级 `pnpm dsh:upgrade` 同步重指；`--probe` 从各插件直接声明的 DSH 依赖派生 workspace-only 的 probe overrides，避免预发布范围导致混装、重复副本导致工具调度 Symbol 不一致。已有自定义 overrides 时拒绝覆盖；重跑不带 `--probe` 即移除该块 |
 
-**开发依赖必须精确 pin**（`catalogs.dsh` 里的每一项都是精确版本；这与 `peerDependencies` 声明范围是两件事）：`@deepseek-ai/dsh-*` 的 `latest` dist-tag 指向陈旧的 `0.0.1-rc.1`，真正的新版发布在 `next`；范围依赖会解析到错误版本。`pnpm-workspace.yaml` 里的 `minimumReleaseAgeExclude` 对开发版本的直接与传递 DSH 包、宿主 document tooling 都逐项列出精确版本，供 frozen install 与运行脚本前的依赖自检使用；不使用跨版本通配豁免。它是为此配套的（pnpm 的发布年龄门禁会拦下刚发布的预发布版本）。该文件与 `pnpm-lock.yaml` 都归 workspace 根（本包是 `dsh-plugins` workspace 成员，不再自持一份——嵌套 `pnpm-workspace.yaml` 会被 pnpm 拒绝）。
+**开发依赖必须精确 pin**（`catalogs.dsh` 里的每一项都是精确版本；这与 `peerDependencies` 声明范围是两件事）：`@deepseek-ai/dsh-*` 的 `latest` dist-tag 指向陈旧的早期预发布，真正的新版发布在 `next`；范围依赖会解析到错误版本。`pnpm-workspace.yaml` 里的 `minimumReleaseAgeExclude` 对开发版本的直接与传递 DSH 包、宿主 document tooling 都逐项列出精确版本，供 frozen install 与运行脚本前的依赖自检使用；不使用跨版本通配豁免。它是为此配套的（pnpm 的发布年龄门禁会拦下刚发布的预发布版本）。该文件与 `pnpm-lock.yaml` 都归 workspace 根（本包是 `dsh-plugins` workspace 成员，不再自持一份——嵌套 `pnpm-workspace.yaml` 会被 pnpm 拒绝）。
 
 ## 2. 工具链
 
 | 用途 | 工具 | 配置 |
 | --- | --- | --- |
-| 包管理 | pnpm `11.25.0` | workspace 根的 `package.json#packageManager`（本包是 `dsh-plugins` workspace 的成员，不再自持版本 pin） |
+| 包管理 | pnpm（`packageManager` 字段钉版本） | workspace 根的 `package.json#packageManager`（本包是 `dsh-plugins` workspace 的成员，不再自持版本 pin） |
 | 类型检查与声明产出 | TypeScript `6.x` | `tsconfig.host.json`（strict、`exactOptionalPropertyTypes`、`noUncheckedIndexedAccess`、`verbatimModuleSyntax`、`rewriteRelativeImportExtensions`） |
 | 打包 | tsdown（rolldown） | `tsdown.config.ts`：逐入口 ESM bundle 到 `lib/`，`@deepseek-ai/*` 与 cordis 保持 external |
 | Lint | oxlint | `.oxlintrc.json`（与上游仓库同一选择） |
 | 测试 | vitest | `vitest.config.ts`（`test/**/*.spec.ts`，`pool: forks`） |
-| 测试运行时 vite | `8.3.0`（`devDependencies` 显式精确 pin） | vitest 4 接受 vite `^6||^7||^8`，但同 workspace 的另一插件用 vitest 3（只接受 vite ≤7），pnpm 去重会把本包的 vite 降到 7.x——迁移前本包单独解析为 8.3.0，显式 pin 才能保住同一解析。改动前先跑 `pnpm --filter dsh-plugin-multi-root-workspace test` 确认 jsx 变换行为未变（vite 7 下 `.tsx` 测试因经典 jsx 变换而 `React is not defined`） |
+| 测试运行时 vite | 显式精确 pin（`devDependencies`） | vitest 4 接受 vite 的宽范围，但同 workspace 的另一插件用 vitest 3（只接受更窄范围），pnpm 去重会把本包的 vite 降档——显式 pin 才能保住同一解析。改动前先跑 `pnpm --filter dsh-plugin-multi-root-workspace test` 确认 jsx 变换行为未变（vite 7 下 `.tsx` 测试因经典 jsx 变换而 `React is not defined`） |
 
 源码里的相对导入写 `.ts` 后缀（`./containment.ts`）：tsc 以 `rewriteRelativeImportExtensions` 重写为 `.js`，tsdown 在打包时直接解析。
 
@@ -50,7 +50,7 @@ pnpm docs:check         # 文档结构检查
 
 `pnpm verify:all` **包含** `compat:check`，位置在 `lint` 之后：支持范围与运行时门禁读的是同一个基线，静态契约不再是升级要绕开的障碍。根 `.github/workflows/ci.yml` 的七步链（`install → lint → typecheck → build → test → docs:check → dsh:check`）不含它，根 `pnpm dsh:check` 也不复制它——`compat:check` 随本包 `verify:all` 覆盖。
 
-**`pnpm test` 必须在 `pnpm build` 之后**：`test/client-bundle.spec.ts` 断言的是**构建产物** `lib/client.js`（浏览器闭包工厂形态、模块表依赖清单）；`test/windows-multi-root.spec.ts` 的原生执行用例加载 `lib/sandbox.js`，以便 provider 的 `import.meta.url` 定位同目录的 `lib/windows-runner.js`。从源码加载 provider 会指向不存在的 `src/windows-runner.js`，不能作为发布制品的执行验证。`lib/` 自 v1.1.1 起随仓库提交（release 时递归重建），完整类型产物仍需 `pnpm build`；CI 七步链与包内 `verify:all` 都按 `lint → typecheck → build → test` 排序（`compat:check` 在 `verify:all` 里紧跟 `lint`，不进 CI）。
+**`pnpm test` 必须在 `pnpm build` 之后**：`test/client-bundle.spec.ts` 断言的是**构建产物** `lib/client.js`（浏览器闭包工厂形态、模块表依赖清单）；`test/windows-multi-root.spec.ts` 的原生执行用例加载 `lib/sandbox.js`，以便 provider 的 `import.meta.url` 定位同目录的 `lib/windows-runner.js`。从源码加载 provider 会指向不存在的 `src/windows-runner.js`，不能作为发布制品的执行验证。`lib/` 自 lib 入库 tag（见仓根 CHANGELOG）起随仓库提交（release 时递归重建），完整类型产物仍需 `pnpm build`；CI 七步链与包内 `verify:all` 都按 `lint → typecheck → build → test` 排序（`compat:check` 在 `verify:all` 里紧跟 `lint`，不进 CI）。
 
 ## 4. 冒烟机制
 
@@ -140,7 +140,7 @@ dsh --profile web --dump-config     # 应看到两行 disabled + 十一行 inser
 dsh plugin --profile web add <本仓库路径>
 ```
 
-`link:` 来源用的是本仓库已装好的依赖，因此不需要 `allowBuilds` 表态。npm / tarball / git 三种来源自 v1.1.1 起也只剩 `koffi` 的一次表态（按包名匹配，不随 tag 变化）；插件自身的 `prepare` 已移除、产物 `lib/` 随 tag 提交，git 来源不再触发构建授权。原因与处置见 [README §安装](../../README.md) 与[故障排查：安装停在构建授权](../troubleshooting/install-stops-at-build-approval.md)。宿主 `~/.gitconfig` 若有 github.com 的 `insteadOf=ssh` 改写，dsh 容器现挂载宿主 `~/.ssh`、钥匙可用时 ssh 直连正常；仅当认证不可用时才需加 `-e GIT_CONFIG_GLOBAL=/dev/null`。
+`link:` 来源用的是本仓库已装好的依赖，因此不需要 `allowBuilds` 表态。npm / tarball / git 三种来源自仓根 [CHANGELOG](../../../../CHANGELOG.md) 所载「lib 入库」tag 起也只剩 `koffi` 的一次表态（按包名匹配，不随 tag 变化）；插件自身的 `prepare` 已移除、产物 `lib/` 随 tag 提交，git 来源不再触发构建授权。原因与处置见 [README §安装](../../README.md) 与[故障排查：安装停在构建授权](../troubleshooting/install-stops-at-build-approval.md)。宿主 `~/.gitconfig` 若有 github.com 的 `insteadOf=ssh` 改写，dsh 容器现挂载宿主 `~/.ssh`、钥匙可用时 ssh 直连正常；仅当认证不可用时才需加 `-e GIT_CONFIG_GLOBAL=/dev/null`。
 
 `dsh plugin` 是 pnpm 的转发器：它在 profile 目录里执行 pnpm，并把解析到 `dsh.bundle` 声明的依赖回填进 `dsh.profile.bundles`。桌面端（Electron）保留自己的 `$DSH_HOME/profiles/desktop`，安装方式同源。
 
@@ -148,7 +148,7 @@ dsh plugin --profile web add <本仓库路径>
 
 发布形态的 `files` 现在包含 `lib/*.js`（含 `lib/client.js`）与两面的 `lib/types/**/*.d.ts`；client 制品必须在 `pnpm pack` 之前构建好（宿主直接读盘，不做编译）。
 
-**`prepack` 脚本（npm 发布入口，历史上有过 `prepare`）**：v1.1.1 之前 `package.json` 带 `prepare`（`pnpm run bundle`），git 安装靠它在安装现场构建——代价是 pnpm ≥10 的构建授权硬失败（键带 commit、换 tag 过期，见[故障排查](../troubleshooting/install-stops-at-build-approval.md)）。现在产物 `lib/` 随仓库提交、`prepare` 已移除，取而代之的 `prepack` 只跑 `pnpm run build`（完整两面构建），唯一触发点是将来 `pnpm publish` 打包前保证产物新鲜；pnpm 对 git 依赖看到 `prepack` 但 `main` 文件（`lib/index.js`）已存在时判定"无需构建"，授权门不触发。日常的产物新鲜度由仓库根的 `scripts/release.mjs` 在发布提交前递归重建并入库来构造性保证。
+**`prepack` 脚本（npm 发布入口，历史上有过 `prepare`）**：lib 入库之前 `package.json` 带 `prepare`（`pnpm run bundle`），git 安装靠它在安装现场构建——代价是 pnpm ≥10 的构建授权硬失败（键带 commit、换 tag 过期，见[故障排查](../troubleshooting/install-stops-at-build-approval.md)）。现在产物 `lib/` 随仓库提交、`prepare` 已移除，取而代之的 `prepack` 只跑 `pnpm run build`（完整两面构建），唯一触发点是将来 `pnpm publish` 打包前保证产物新鲜；pnpm 对 git 依赖看到 `prepack` 但 `main` 文件（`lib/index.js`）已存在时判定"无需构建"，授权门不触发。日常的产物新鲜度由仓库根的 `scripts/release.mjs` 在发布提交前递归重建并入库来构造性保证。
 
 三种安装形态都已验证：
 
@@ -156,7 +156,7 @@ dsh plugin --profile web add <本仓库路径>
 | --- | --- | --- |
 | 本地路径（`link:`，开发调试） | 插件按自身真实路径解析，使用本仓库 pin 的 `@deepseek-ai/*` 副本 | 三行全部挂载，冒烟全绿 |
 | 打包安装（`pnpm pack` + `file:`，即发布形态） | 包内不含 `node_modules`，`@deepseek-ai/*` 由宿主运行时/模块回退目录提供 | 三行全部挂载，provider 身份正确 |
-| git tag 安装（`github:<owner>/<repo>#v<tag>&path:plugins/<目录>`，正式通道） | pnpm 拉 tarball，`lib/` 已随 tag 提交、无 `prepare`，按 `files` 打包进 profile | 十一行 insert + 两行 disabled 全部就位，`node_modules/<包名>` 为实体目录且版本等于 tag，`--dump-config-schema` 通过（v1.1.1 起免构建授权） |
+| git tag 安装（`github:<owner>/<repo>#<tag>&path:plugins/<目录>`，正式通道） | pnpm 拉 tarball，`lib/` 已随 tag 提交、无 `prepare`，按 `files` 打包进 profile | 十一行 insert + 两行 disabled 全部就位，`node_modules/<包名>` 为实体目录且版本等于 tag，`--dump-config-schema` 通过（lib 入库起免构建授权） |
 
 发布形态的包内容为：`package.json`、`cordis.patch.yml`、`lib/*.js`（含共享 chunk）、`lib/types/**/*.d.ts`、README、LICENSE —— 因此**不要**假设任何 `src/` 路径在安装后存在（见 §6）。
 
@@ -164,7 +164,7 @@ dsh plugin --profile web add <本仓库路径>
 
 - **只允许包入口导入**。发布包里没有 `src/`，`pkg/src/*` 在安装形态下不存在；需要上游内部实现时改为本地实现 + 注明出处 + 差分测试钉住（见 `src/containment.ts`）。
 - 子类只使用上游公开方法面（不碰 TS-private、不做原型替换）。`dsh-sandbox-local` 公开面只有 `confine` + `internals`，因此方言适配是**观测克隆 + 结构识别 + 识别失败即抛错**（`src/dialects.ts`，见 [ADR-0003](../decisions/ADR-0003-dialect-grant-widening.md)）；新增或改变方言必须同时更新调研 §10 与本文件的测试清单。
-- **支持矩阵是基线派生的软范围**（`src/compat/dsh-version.ts` 的 `DSH_BASELINE` → `SUPPORTED_DSH_RANGE`）：与基线同 `major.minor` 且 ≥ 基线的版本放行（同线的 `0.2.3-alpha.1` 自动通过），跨 minor 的版本连预发布也拒绝；`dsh.engines.dsh` 与 `peerDependencies` 声明同一个派生范围。运行时由 `multi-root-compat` 门禁把判定变成前置条件，七个安全相关的 provider 行全部 inject `multiRootCompat`，判定失败时它们根本不启动，也没有降级或放行开关。详见 [ADR-0009](../decisions/ADR-0009-dsh-compat-contract.md)。
+- **支持矩阵是基线派生的软范围**（`src/compat/dsh-version.ts` 的 `DSH_BASELINE` → `SUPPORTED_DSH_RANGE`）：与基线同 `major.minor` 且 ≥ 基线的版本放行（同线的新预发布自动通过），跨 minor 的版本连预发布也拒绝；`dsh.engines.dsh` 与 `peerDependencies` 声明同一个派生范围。运行时由 `multi-root-compat` 门禁把判定变成前置条件，七个安全相关的 provider 行全部 inject `multiRootCompat`，判定失败时它们根本不启动，也没有降级或放行开关。详见 [ADR-0009](../decisions/ADR-0009-dsh-compat-contract.md)。
 - **版本差异只允许存在于 `src/compat/`**，且用结构探测而非版本比较（`confine` 的同步/异步、instruction renderer 改名、客户端当前会话、session format 4 的 source kind、工具失败位、面板图标）。业务代码不写版本判断。
 - **升级流程**（把基线移到某个候选版本）：
 
@@ -221,7 +221,7 @@ LSP 源码回传断言应比较读盘得到的完整源码。夹具里的路径�
 | `pnpm <script>` 报 `ERR_PNPM_UNEXPECTED_STORE` 或 `ABORTED_REMOVE_MODULES_DIR_NO_TTY` | checkout 里存在一个陈旧的 `.pnpm-store/`（被 gitignore），而 `node_modules` 是从磁盘级 store（如 `<挂载点>/.pnpm-store/v11`）链接的；pnpm 运行脚本前的依赖自检因此想重装，而在没有 TTY 时无法确认删除 | 最快解除：`CI=true pnpm <script>`（pnpm 只在 CI 下继续而不交互确认）。根治：删掉陈旧的仓库内 `.pnpm-store/`；或 `pnpm config set store-dir <node_modules 实际链接的 store>`；或直接用 `sh node_modules/.bin/<tool>` / `node scripts/<smoke>.mjs` 跑门禁（CI 不受影响，它本来就有 `CI=true`） |
 | `ERR_PNPM_IGNORED_BUILDS` | 有构建脚本的依赖未在 `pnpm-workspace.yaml` 声明 | 把该依赖加入 `allowBuilds`（需要构建）或 `allowBuilds: false`（明确不需要）；当前 `esbuild`（经 vite/vitest 引入）声明为 `false` |
 | 面板在 Web GUI 里看不到 | 组合里没有声明 `workspace-config.section` 的 holder 弹窗（未装/未启用 `dsh-plugin-workspace-config`），或该面没有 host `connection`（headless 组合） | 面板是软注册（`slots.inject` 不触发即不出现）；装了 holder 后入口在统一弹窗的分节里；用 `/workspace-folders list` 确认注册表本身可用 |
-| 面板显示「当前没有活动会话」 | 浏览器当前没有被主视图持有的 Session；或客户端仍在读已删除的 `list.current`（0.1.6-alpha.2 起导航在 `retainedBy.mainView` 上） | 确认主界面已打开会话后点重试。host 不会猜测主根（ADR-0008）。若会话明明开着仍出现这条，检查 `@dsh-plugins/client-kit/client-session`（经 `src/compat/client-session.ts` re-export）是否同时认 `current` 与 `retainedBy.mainView`，且没有回退 `ids[0]` |
+| 面板显示「当前没有活动会话」 | 浏览器当前没有被主视图持有的 Session；或客户端仍在读已删除的 `list.current`（上游 0.1 线后期起导航在 `retainedBy.mainView` 上） | 确认主界面已打开会话后点重试。host 不会猜测主根（ADR-0008）。若会话明明开着仍出现这条，检查 `@dsh-plugins/client-kit/client-session`（经 `src/compat/client-session.ts` re-export）是否同时认 `current` 与 `retainedBy.mainView`，且没有回退 `ids[0]` |
 | 面板报 "根目录登记的存储不可用" | `$DSH_HOME/storages/multi_root_workspace.json` 损坏或版本不符 | 按提示修复或删除该文件后重启 dsh；插件不会因此拒绝启动（ADR-0004） |
 | 面板报 "无法连接到 dsh 主进程" 且括号里是 **HTTP 405** | 通道前缀路由未注册，请求落到了 SPA 静态回退——典型根因是 `rpc.handle` 的调用形态违反 cordis 属性解析纪律（服务必须从根上下文读取，依赖必须同时声明 `connection` 与 `webServer`） | 用 `curl -X POST http://127.0.0.1:<port>/multi-root-workspace/list` 区分：401 = 路由在（只是 curl 未认证），405 = 路由缺；详见[故障排查：面板 HTTP 405](../troubleshooting/panel-channel-http-405.md) |
 | 注册的根标着 `missing` 且写不进去 | 目录当前不存在（或不是目录） | 恢复目录后执行 `/workspace-folders list`（或在面板里刷新/重试）即可重新授予——这正是 `registry.refresh()` 的作用，不需要重启；`missing` 的根在被重新校验前不会被授予 |

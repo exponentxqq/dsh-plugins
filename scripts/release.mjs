@@ -1,25 +1,26 @@
 #!/usr/bin/env node
 /**
- * 发布：同步仓库级版本号，产出发布提交与 annotated tag。
+ * 发布：同步仓库级版本号（仅根清单），产出发布提交与 annotated tag。
  *
  * 用法：
  *   pnpm release <version> [--dry-run]     # 等价于 node scripts/release.mjs <version>
- *   pnpm release <version>                 # 同步版本 → 重建产物 → 提交 chore(release): v<version> → 打 tag v<version>
+ *   pnpm release <version>                 # 写根版本 → 重建产物 → 提交 chore(release): v<version> → 打 tag v<version>
  *
- * 约定（见根 README「发布与版本」）：
- * - **仓库级统一版本**：根 `package.json` 与每个插件包的 `package.json`
- *   （即 plugins/<目录>/package.json）的
- *   `version` 同步为同一个值，tag 风格 `v<version>`。
- * - tag 是 profile 侧安装的唯一锚点：`github:<owner>/<repo>#v<version>&path:plugins/<目录>`；
- *   `package.json` 的 `version` 与 tag 保持一致，是为了让 DSH 的
- *   `package@version` 版本豁免与排障输出能直接对上发布点。
- * - **构建产物 `plugins/<name>/lib/` 随仓库提交**（v1.1.1 起）：git 来源安装因此
+ * 约定（见根 README「发布与版本」与 ADR-0004）：
+ * - **发布版本单点**：版本号只写在根 `package.json#version`（tag 风格
+ *   `v<version>`）。全部插件包的 `version` 恒为 `0.0.0`（`dsh:check` 第 11 项
+ *   守住）——插件是按 tag 安装的 bundle，发布流程 MUST NOT 改写任何插件清单。
+ * - 接受的代价：`dsh plugin list` 显示 `0.0.0`（发布点看安装 spec 的 tag）；
+ *   DSH 的 `package@version` 版本豁免键恒为 `<包名>@0.0.0`、不随发版失效；
+ *   `dsh plugin update <包> <版本>` 不再适用——升级 = 改 spec 里的 tag 重装。
+ * - tag 是 profile 侧安装的唯一锚点：`github:<owner>/<repo>#v<version>&path:plugins/<目录>`。
+ * - **构建产物 `plugins/<name>/lib/` 随仓库提交**：git 来源安装因此
  *   不触发 pnpm 的构建脚本授权（无 `prepare` → `packageShouldBeBuilt` 为 false）。
- *   发布提交前递归重建一次全部产物并连同版本号入库，新鲜度由发布流程构造性保证。
+ *   发布提交前递归重建一次全部产物并连同根版本号入库，新鲜度由发布流程构造性保证。
  * - **发布前置检查**：写版本之前先跑 `pnpm dsh:check`；DSH 基线、软插件范围、
- *   multi-root 的 allowlist/peers 或发布年龄豁免任一漂移，发布直接拒绝。
+ *   版本契约或发布年龄豁免任一漂移，发布直接拒绝。
  *
- * 脚本只做本地动作（校验 → 改版本 → 重建产物 → 提交 → 打 tag）。dsh 容器已挂载
+ * 脚本只做本地动作（校验 → 改根版本 → 重建产物 → 提交 → 打 tag）。dsh 容器已挂载
  * 宿主 ~/.ssh，push 可直接在容器内执行：`git push origin main --tags`；
  * tag 未推送到远程前，profile 无法按 `#v<version>` 解析安装。
  */
@@ -107,17 +108,9 @@ try {
   fail('dsh:check 未通过，拒绝发布；按上面的失败项修复后重试')
 }
 
-// 目标清单：workspace 根 + 每个插件目录。tooling 包（`0.0.0`）不在版本契约内：
-// 它们不随 tag 发布、版本恒为 0.0.0，因此这里只遍历 plugins/*（不把 tooling 纳入同步）。
-const pluginDirs = readdirSync(join(REPO_ROOT, 'plugins'), { withFileTypes: true })
-  .filter((entry) => entry.isDirectory())
-  .map((entry) => entry.name)
-  .sort()
-if (pluginDirs.length === 0) fail('plugins/ 下没有插件目录')
-const targets = [
-  { path: 'package.json', label: 'workspace 根' },
-  ...pluginDirs.map((name) => ({ path: `plugins/${name}/package.json`, label: name })),
-]
+// 目标清单：只有 workspace 根。插件包的 `version` 恒为 `0.0.0`（dsh:check 第 11 项
+// 守住），tooling 包同样恒 `0.0.0`，两者都不在版本契约内；发布流程只移动根清单。
+const targets = [{ path: 'package.json', label: 'workspace 根' }]
 
 const results = []
 /** 原文件内容，供提交/打 tag 失败时回滚（发布要么整体成功，要么不留痕迹）。 */
@@ -159,6 +152,9 @@ process.stdout.write('release: 递归重建全部插件产物（lib/ 随仓库�
 try {
   // 产物新鲜度构造性保证：发布提交里的 lib 一定对应当前源码，不依赖提交纪律。
   execFileSync('pnpm', ['build'], { cwd: REPO_ROOT, stdio: 'inherit' })
+  const pluginDirs = readdirSync(join(REPO_ROOT, 'plugins'), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
   const libPaths = pluginDirs
     .map((name) => `plugins/${name}/lib`)
     .filter((path) => existsSync(join(REPO_ROOT, path)))
@@ -177,7 +173,7 @@ try {
 } catch (error) {
   for (const [path, original] of backups) writeFileSync(join(REPO_ROOT, path), original)
   try {
-    // 发布前工作区是干净的，checkout 即可撤销重建出的产物与版本改动。
+    // 发布前工作区是干净的，checkout 即可撤销重建出的产物改动（插件清单不再被本脚本触碰）。
     git(['checkout', 'HEAD', '--', 'plugins'])
   } catch {
     // 回滚失败不影响版本文件已还原的事实，交由用户处理。

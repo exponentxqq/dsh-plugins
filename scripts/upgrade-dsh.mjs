@@ -4,16 +4,16 @@
  * 升级车道只回答一个问题：如果 harness 换成版本 X，这套插件是否仍然正确？
  * 回答它需要把**整个仓库**钉到 X：七个插件的 devDependencies、
  * `pnpm-workspace.yaml` 的发布年龄豁免、各插件 `dsh.engines.dsh` 与 DSH peer
- * 的派生软范围、运行时基线副本，以及随后由 pnpm 重写的 lockfile。围栏与内核
+ * 的派生软范围，以及随后由 pnpm 重写的 lockfile。围栏与内核
  * 沙箱的方言是针对实际安装的那份副本验证的，不是针对一个范围。
  *
- * 全部插件统一由 `scripts/dsh-baseline.mjs` 的基线派生软范围：升级脚本在同一个
- * 批次里重写 engines / DSH peer 与 `plugins/<name>/src/compat/dsh-version.ts` 的
- * `DSH_BASELINE` 字面量，绿灯是回归证据，不再有人工提升支持矩阵的动作。
+ * 全部插件统一由 `scripts/dsh-baseline.mjs` 的基线派生软范围；运行时门
+ * （multi-root 的 `src/compat/dsh-version.ts`）直接 import 该单源（构建期内联），
+ * 升级批次不再有运行时副本可重指——基线一改，所有派生面随下一次构建/安装自然跟上。
  *
  * 默认模式是永久的：重写 `catalogs.dsh` 基线册（各插件的 `catalog:dsh` 引用
  * 因而随单点移动）、字面量 devDeps、全部插件的 engines 与 DSH peer 范围、
- * 运行时基线副本、workspace 豁免，并同步 `scripts/dsh-baseline.mjs`。值为
+ * workspace 豁免，并同步 `scripts/dsh-baseline.mjs`。值为
  * `catalog:`/`catalog:dsh` 的 manifest 条目一律跳过，重写结束后断言各插件的
  * devDependencies 不残留 DSH 家族、cordis 与 schemastery 的字面量版本。
  * `--probe` 额外追加 workspace-only 的 `overrides:` 块，避免预发布范围在探测
@@ -145,41 +145,6 @@ function repointBaseline(target) {
   if (previous === target) return previous
   writeFileSync(BASELINE_FILE, source.replace(match[0], `export const DSH_BASELINE = '${target}'`))
   return previous
-}
-
-/**
- * Repoint every plugin's runtime copy of the DSH baseline.
- *
- * The runtime gate keeps a local baseline literal so it stays pure (no manifest
- * read at module load); this rewrite is what keeps that copy in step with
- * `scripts/dsh-baseline.mjs`. Doing it in the same run as the manifests is the
- * point — a separate human step would let a green upgrade leave the runtime copy
- * behind. The pattern matches `repointBaseline`, and the rewrite is idempotent:
- * a literal that already equals the target is left untouched.
- *
- * A plugin without `src/compat/dsh-version.ts` has no runtime copy and is
- * skipped. A plugin that owns the file but lost the literal is a template defect
- * and throws, rather than silently skipping the rewrite.
- * @param plugins - discovered plugins.
- * @param target - the release being pinned.
- * @returns human-readable change descriptions.
- */
-function repointRuntimeBaselines(plugins, target) {
-  const changes = []
-  for (const plugin of plugins) {
-    const file = join(plugin.dir, 'src', 'compat', 'dsh-version.ts')
-    if (!existsSync(file)) continue
-    const source = readFileSync(file, 'utf8')
-    const match = /(export const DSH_BASELINE = ')([^']+)(')/u.exec(source)
-    if (match === null) {
-      throw new Error(`[upgrade] ${plugin.manifest.name}: src/compat/dsh-version.ts has no DSH_BASELINE literal`)
-    }
-    const previous = match[2]
-    if (previous === target) continue
-    writeFileSync(file, source.replace(match[0], `${match[1]}${target}${match[3]}`))
-    changes.push(`${plugin.manifest.name}: runtime DSH baseline ${previous} → ${target}`)
-  }
-  return changes
 }
 
 /**
@@ -439,7 +404,6 @@ for (const plugin of plugins) {
     changes.push(`${plugin.manifest.name}: ${entry}`)
   }
 }
-const runtimeBaselineChanges = repointRuntimeBaselines(plugins, target)
 const catalogRewrite = repointCatalog(readFileSync(WORKSPACE, 'utf8'), target, cordisVersion, schemasteryVersion)
 const { allowances, probeEntries } = repointWorkspace(
   catalogRewrite.source,
@@ -456,8 +420,6 @@ console.log(`[upgrade] cordis pin: ${cordisVersion}`)
 console.log(`[upgrade] schemastery pin: ${schemasteryVersion}`)
 console.log(`[upgrade] manifest entries rewritten: ${changes.length}`)
 for (const entry of changes) console.log(`           ${entry}`)
-console.log(`[upgrade] runtime baselines rewritten: ${runtimeBaselineChanges.length}`)
-for (const entry of runtimeBaselineChanges) console.log(`           ${entry}`)
 console.log(`[upgrade] catalogs.dsh entries rewritten: ${catalogRewrite.changes.length}`)
 for (const entry of catalogRewrite.changes) console.log(`           ${entry}`)
 console.log(`[upgrade] release-age allowances rewritten: ${allowances}`)
@@ -476,5 +438,5 @@ if (probe) {
 }
 console.log('[upgrade] next: pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0')
 console.log('[upgrade] probe: pnpm --filter dsh-plugin-multi-root-workspace verify:all')
-console.log('[upgrade] 全部插件统一由基线派生软范围；运行时基线副本已同批重指')
+console.log('[upgrade] 全部插件统一由基线派生软范围；运行时门直接消费单源（构建期内联）')
 console.log('[upgrade] remove probe overrides by rerunning without --probe (or git checkout -- pnpm-workspace.yaml)')

@@ -14,7 +14,7 @@ bigmodel.cn GLM Coding Plan 的 **ZCode 折扣凭证桥接**：插件维护官�
 
 ## 前置条件
 
-- **dsh ≥ 0.2.2-rc.1**（本包 `engines.dsh` 为 `>=0.2.2-rc.1 <0.3.0`，读自仓库根 `scripts/dsh-baseline.mjs` 派生）。
+- **dsh 在基线派生软范围内**（本包 `engines.dsh` = `>=<基线> <<主>.<次+1>.0`，读自仓库根 `scripts/dsh-baseline.mjs` 派生，当前值看 `pnpm dsh:check` 首行）。
 - **已订阅 GLM Coding Plan** 并能用浏览器登录 bigmodel.cn。
 - **拿到 `organization` / `project` 两个 id**：平台没有可依赖的程序化发现接口（实测管理面无此路由，见变更 artifacts 的 spike-org-project），这两个值是**必填配置**。从控制台或用量页（`https://www.bigmodel.cn/coding-plan/personal/usage`）的 URL 里取。
 - **headless profile 不适用**：headless 部署禁用凭据存储，登录态与 PAT 无处落盘，本插件的登录/续期能力整体不装配（软注入零注册、零报错，但功能不可用）。装在 web / acp 等带凭据存储的 profile 上。
@@ -43,7 +43,7 @@ docker exec dsh dsh plugin --profile web add \
     project: <your-project-id>       # 同一 URL 里的项目 id
 ```
 
-其余配置键全部有默认值，不补也能跑：`clientVersion`（`'0.17.0'`）、`refreshLeadMs`（`120000`，到期前提前量）、`refreshJitterMs`（`60000`，续期随机抖动上限）、`requestTimeoutMs`（`15000`）、`callbackServer`（`true`，是否起本地回调服务器）、`loginAttemptTtlMs`（`600000`，登录尝试有效期）、`signing`（`true`，[签名通道](#签名通道折扣计费)开关——官方 ZCode 折扣计费；`false` = 无签名直连基线行为，路由仍可用只是无折扣）。
+其余配置键全部有默认值，不补也能跑：`clientVersion`（默认值见 `src/host/index.ts` 的 schema）、`refreshLeadMs`（`120000`，到期前提前量）、`refreshJitterMs`（`60000`，续期随机抖动上限）、`requestTimeoutMs`（`15000`）、`callbackServer`（`true`，是否起本地回调服务器）、`loginAttemptTtlMs`（`600000`，登录尝试有效期）、`signing`（`true`，[签名通道](#签名通道折扣计费)开关——官方 ZCode 折扣计费；`false` = 无签名直连基线行为，路由仍可用只是无折扣）。
 
 校验安装：
 
@@ -69,9 +69,9 @@ docker exec dsh dsh --profile web --dump-config | grep -B2 -A8 'id: zcode-plan'
   /zcode-plan login http://127.0.0.1:<port>/oauth/callback/bigmodel?authCode=<一次性授权码>&state=<32hex>
   ```
 
-**核对**：`/zcode-plan status` 输出七行——登录（已登录）、Key（`zcode-plan-bridge` · scene=1 · id 前 8 位）、PAT（有效 · 到期时刻 · 下次续期 ≤）、路由（已注册（glm-5.4, glm-5.3-flash））、签名（已启用 · 私钥缓存命中）、用量（5h 窗口 + 周 两档）、备注（无）。任何一行为「未…」按[排障](#排障)处理。
+**核对**：`/zcode-plan status` 输出七行——登录（已登录）、Key（`zcode-plan-bridge` · scene=1 · id 前 8 位）、PAT（有效 · 到期时刻 · 下次续期 ≤）、路由（已注册（glm-5.4, glm-5.3, glm-5.3-flash））、签名（已启用 · 私钥缓存命中）、用量（5h 窗口 + 周 两档）、备注（无）。任何一行为「未…」按[排障](#排障)处理。
 
-**路由里的模型目录**（单一真源 `ZCODE_PLAN_ROUTE`）：最新旗舰置首（1M 上下文、131072 输出、**支持图片输入**、thinking 档位 off/low/high/max）→ 套餐内最低成本 flash（同样支持图片输入）。旧旗舰因服务端 `1305 访问量过大` 已移除；具体条目与顺序以 `/zcode-plan status` 实读为准。
+**路由里的模型目录**（内置默认目录 `ZCODE_PLAN_ROUTE`，**可被 profile 覆盖**）：旗舰 glm-5.4 置首（1M 上下文、131072 输出、**支持图片输入**、thinking 档位 off/low/high/max）→ glm-5.3（纯文本回退档，曾因服务端 `1305 访问量过大` 短暂不可用，已恢复）→ 套餐内最低成本 flash（同样支持图片输入）。**profile 的 `cordis.patch.yml` 是路由事实的最终真源**：`route install` 只补缺失键、绝不覆盖 profile 已声明键（含手改 `models`），`status` / `route status` 显示的清单以 profile 声明为准、未声明时回落内置默认目录；具体条目与顺序以 `/zcode-plan status` 实读为准。
 
 **切换默认模型需你自行决定**：本插件只注册 `zcode-plan` 路由，不动 `agent-default-model`。要让会话默认走折扣路由，请自行把 profile 里 `agent-default-model` 条目的 `provider` 改为 `zcode-plan`（想回退时同理，见[回退](#回退)）。
 
@@ -101,7 +101,7 @@ docker exec dsh dsh --profile web --dump-config | grep -B2 -A8 'id: zcode-plan'
 | `login <回调URL>` | 提交粘贴的回调 URL（URL 原样透传，`state` 在流程内校验）；回执「已收到回调，正在换发登录凭证…」。没有在途尝试时报错提示先发起 `login`。 |
 | `logout` | 按序：中止在途授权 → 删登录记录 → 清 `ZCODE_PLAN_PAT` 引用 → 停续期循环。回执「已退出登录并清除 ZCODE_PLAN_PAT；**服务端 Key 未被删除**」。 |
 | `status`（缺省） | 渲染六行状态（见上）；其中用量只读一次 quota/limit，失败降级为一行说明、其余段照常。 |
-| `route install` | 幂等写入 profile 层 `llm-pi-ai.providers['zcode-plan']`（内容一致时跳过写盘）；只覆盖本键，**不碰其它 providers 键、不碰 `agent-default-model`**。回执区分「当前路由已注册」与「待宿主重载配置后生效」。profile 没有 `llm-pi-ai` 行时报错（无从落键，用[手工路由 YAML](#手工路由-yaml不用-route-install-时的降级路径)）。 |
+| `route install` | 以 profile 为准写入 profile 层 `llm-pi-ai.providers['zcode-plan']`：**只补缺失键、绝不覆盖 profile 已声明键**（含手改 `models` / `baseURL`）——profile 未声明本路由时写入内置默认目录，已声明且装配齐全时跳过写盘（幂等）；只动本键，**不碰其它 providers 键、不碰 `agent-default-model`**。回执区分「当前路由已注册」与「待宿主重载配置后生效」。profile 没有 `llm-pi-ai` 行时报错（无从落键，用[手工路由 YAML](#手工路由-yaml不用-route-install-时的降级路径)）。 |
 | `route remove` | 幂等摘除 `providers['zcode-plan']` 键（本无此键时跳过写盘）；**只删本键**，不动其它 providers 键。 |
 | `refresh` | 立即换发一张 PAT。回执只报「与上一张不同：是/否」的**布尔比对**与到期时刻，**不回显任何值**（同 Key 幂等签发时是「否」；首张是「是」）。 |
 
@@ -120,7 +120,7 @@ docker exec dsh dsh --profile web --dump-config | grep -B2 -A8 'id: zcode-plan'
 
 签名被拒（`VERIFY_SIGNATURE_INVALID` / `VERIFY_APIKEY_EXPIRED` / 业务码 `3007`）、凭证更换（PAT 轮换后新 token）、插件配置变更都会失效私钥缓存并重握手。`signing: false` = 回到无签名直连基线（路由可用，无折扣）。
 
-**合规边界与协议升级风险声明**：本通道复刻的是**官方公开的请求认证协议**——签名材料全部账户自有（你的 PAT / Key）或服务端按账户下发（Ed25519 私钥密文），零官方内嵌机密；不实现任何 TLS / 指纹层伪装。协议常量（握手路径版本 hash `c1f3a7e2`、clientVersion `3.17.2`、KDF salt、PoW 难度）集中收口在 `src/host/bigmodel/signing.ts`，为官方当前值——**官方协议升级时签名可能被拒或握手失败**，此时按两级降级处理（不会静默多扣），需以新变更跟进常量更新。
+**合规边界与协议升级风险声明**：本通道复刻的是**官方公开的请求认证协议**——签名材料全部账户自有（你的 PAT / Key）或服务端按账户下发（Ed25519 私钥密文），零官方内嵌机密；不实现任何 TLS / 指纹层伪装。协议常量（握手路径版本 hash、clientVersion、KDF salt、PoW 难度）集中收口在 `src/host/bigmodel/signing.ts`，为官方当前值——**官方协议升级时签名可能被拒或握手失败**，此时按两级降级处理（不会静默多扣），需以新变更跟进常量更新。
 
 ## 安全模型与差异声明
 
@@ -176,7 +176,7 @@ dsh 官方对短期 token 的立场是**仅内存**（short-lived token 不落�
 
 ## 手工路由 YAML（不用 route install 时的降级路径）
 
-如果你的部署没有 `commands` 或 `config-editor` 服务（或 profile 没有 `llm-pi-ai` 行导致自动注册报错），可以**手工**把下面整段粘进 profile `cordis.patch.yml`，效果与 `/zcode-plan route install` 写入的内容一致（逐字转写自实现的单一真源 `ZCODE_PLAN_ROUTE`）：
+如果你的部署没有 `commands` 或 `config-editor` 服务（或 profile 没有 `llm-pi-ai` 行导致自动注册报错），可以**手工**把下面整段粘进 profile `cordis.patch.yml`，效果与 `/zcode-plan route install` 写入的内容一致（逐字转写自实现的内置默认目录 `ZCODE_PLAN_ROUTE`）。**这也是自定义模型清单的主路径**：直接编辑 profile 层这段 `models`（换模型 id、加自有模型、改上下文窗口等）——`route install` 以 profile 为准、不会把手改的 `models` 冲回默认目录：
 
 - profile patch **已有** `- id: llm-pi-ai` 条目时：把 `zcode-plan:` 一段粘进它**现有的** `config.providers` 下；
 - 没有该条目时：追加完整条目。
@@ -209,6 +209,25 @@ dsh 官方对短期 token 的立场是**仅内存**（short-lived token 不落�
             input:
               - text
               - image
+            reasoningEfforts:
+              off: null
+              low: low
+              medium: high
+              high: high
+              max: max
+            compat:
+              thinkingFormat: zai
+              supportsReasoningEffort: true
+              supportsStore: false
+              supportsDeveloperRole: false
+              supportsStrictMode: true
+              maxTokensField: max_tokens
+          - id: glm-5.3
+            name: GLM-5.3
+            contextWindow: 1000000
+            maxTokens: 131072
+            input:
+              - text
             reasoningEfforts:
               off: null
               low: low

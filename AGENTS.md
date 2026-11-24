@@ -9,14 +9,14 @@ DSH（DeepSeek Harness）自定义插件仓库：pnpm workspace 单仓多包，�
 ## 目录结构
 
 - `pnpm-workspace.yaml` — workspace 定义（packages: `plugins/*` + 五个显式 tooling 包）+ allowBuilds 构建白名单 + minimumReleaseAgeExclude 发布年龄豁免
-- `package.json` — workspace 根：pnpm 版本 pin（packageManager: pnpm@11.25.0）与递归脚本
+- `package.json` — workspace 根：pnpm 版本 pin（`packageManager` 字段，当前值以根清单为准）与递归脚本
 - `tsconfig.plugin.base.json` — 除 multi-root 外的六个插件共用的根编译基准（各包 tsconfig 只 `extends` 它 + `include` 差异）
 - `tooling/build-kit` — 构建期骨架（esbuild 宿主半 / 浏览器半 / CSS modules / 产物守卫）；`tooling/host-kit` — 运行期共享内核（归属 / 监听 / 触发器 / 根枚举 / 日志，零依赖、被内联进产物）；`tooling/client-kit` — client 半共享运行时函数（当前会话探测 + 会话 `updatedAt` 投影，TS 源消费、构建期内联）；`tooling/test-kit` — 测试夹具底座（ui-primitives 并集 / locale-parity）；`tooling/contracts` — 座位契约纯类型包
 - `templates/default/` — `pnpm gen:plugin` 的默认模板素材（**不是包**：清单叫 `template.json`；件套表见 `templates/default/README.md`，多模板约定见 `templates/README.md`）
 - `plugins/<name>/` — 一个插件一个目录（清单与结构见下文）
 - `scripts/gen-plugin.mjs` — 新插件脚手架：从 `templates/default/` 生成骨架，`--template <name>` 可选其他模板（只写文件，不跑 git / pnpm）
 - `scripts/check-{dsh-baseline,architecture,artifacts}.mjs` — 三组门禁（基线 / 结构不变式 AR1–AR8 / 产物契约 B1–B5）；`scripts/dsh-check.mjs` 是它们的聚合入口
-- `scripts/release.mjs` — 发布：dsh:check → 同步版本号 → 重建产物 → 发布提交 → annotated tag
+- `scripts/release.mjs` — 发布：dsh:check → 写根清单版本 → 重建产物 → 发布提交 → annotated tag（插件清单恒 0.0.0，不触碰）
 - [`docs/README.md`](docs/README.md) — 仓级文档索引页（只链接，不复制摘要）
 - `docs/decisions/` — 仓级 ADR（见「仓级 ADR」）
 - `docs/assessments/` — 评估档案（**非 ADR**）：现状差异与「暂不施工」依据，索引见 `docs/assessments/README.md`
@@ -46,12 +46,12 @@ DSH（DeepSeek Harness）自定义插件仓库：pnpm workspace 单仓多包，�
 
 ## DSH 基线
 
-- DSH 版本常量唯一来源在 `scripts/dsh-baseline.mjs`（当前 `0.2.2-rc.5`）。
-- Node 工具链唯一声明点在根 `package.json#volta.node`（当前 `26.13.1`，与 dsh 运行时同版本）：CI 用 `actions/setup-node` 的 `node-version-file: package.json` 从它派生（workflow 里 MUST NOT 出现 `node-version:` 字面量），`pnpm dsh:check` 第 9 项守这条单源纪律。
-- `engines.node`（根 + 七个插件 `^22.19.0 || >=24.0.0`）声明的是**支持面**而非工具链：dsh 自身要求 `>=24.9.0`，抬工具链不收紧它；`@types/node` 停在 22 线同理（类型层不放行仅新 node 才有的 API），留待抬支持下界时随升。
-- 全部七个插件（含 multi-root）的 `engines.dsh` 与 DSH peer 统一由基线派生为 `>=0.2.2-rc.5 <0.3.0`，无例外。
-- multi-root 运行时门持有的基线副本（`plugins/multi-root-workspace/src/compat/dsh-version.ts` 的 `DSH_BASELINE`）与派生范围同源，由升级脚本同批重指；基线提升 = 改 `scripts/dsh-baseline.mjs` 后跑 `pnpm dsh:upgrade`，绿灯是回归证据。
-- `pnpm dsh:upgrade <version> [--probe]` 统一重指 devDeps / cordis / 全部插件的 engines 与 DSH peer 范围 / 运行时基线副本 / 豁免；`pnpm dsh:check` 在发布前守住这些事实，`release` 已自动调用。
+- DSH 版本常量唯一来源在 `scripts/dsh-baseline.mjs`（当前值看 `pnpm dsh:check` 首行）。
+- Node 工具链唯一声明点在根 `package.json#volta.node`（与 dsh 运行时同版本）：CI 用 `actions/setup-node` 的 `node-version-file: package.json` 从它派生（workflow 里 MUST NOT 出现 `node-version:` 字面量），`pnpm dsh:check` 第 9 项守这条单源纪律。
+- `engines.node`（根 + 七个插件同值）声明的是**支持面**而非工具链：dsh 自身的 node 下界更严，抬工具链不收紧它；`@types/node` 停在 22 线同理（类型层不放行仅新 node 才有的 API），留待抬支持下界时随升。当前值以根清单为准。
+- 全部七个插件（含 multi-root）的 `engines.dsh` 与 DSH peer 统一由基线派生软范围（`>=<基线> <<主>.<次+1>.0`），无例外。
+- multi-root 运行时门（`plugins/multi-root-workspace/src/compat/dsh-version.ts` 的 `DSH_BASELINE`）直接 import 仓内单源（构建期内联），仓内 MUST NOT 存在第二个基线字面量（`pnpm dsh:check` 第 10 项守）；基线提升 = 改 `scripts/dsh-baseline.mjs` 后跑 `pnpm dsh:upgrade`，绿灯是回归证据。
+- `pnpm dsh:upgrade <version> [--probe]` 统一重指 devDeps / cordis / 全部插件的 engines 与 DSH peer 范围 / 豁免；`pnpm dsh:check` 在发布前守住这些事实，`release` 已自动调用。
 
 ## 开发与验证命令
 
@@ -89,7 +89,7 @@ docker exec dsh dsh plugin --profile web add \
 # 本地调试可 link: 安装（改源码重启 profile 即生效）：docker exec dsh dsh plugin --profile web add <本仓>/plugins/<name>
 docker exec dsh dsh --profile web --dump-config          # 校验配置可加载（合成完整配置树；安装冒烟以此为准）
 docker exec dsh dsh --profile web --dump-config-schema   # 查看 schema/逐条目装配形态（会 import 插件模块）
-# 注：dsh 0.2.2-rc.5 的 --dump-config-schema 全局 exit 1 仍为既有豁免（自 rc.1 起）——官方 dsh-agent-preset 的
+# 注：当前基线下 --dump-config-schema 的全局 exit 1 仍为既有豁免（自本 minor 线早期起）——官方 dsh-agent-preset 的
 # 自定义载体（EntryGroup.key 标记类）触发 4 条 unrecognized Loader tree carrier；装载门禁只认 --dump-config exit 0
 ```
 
@@ -97,12 +97,13 @@ DSH 源码与 API 参考位于 `/usr/local/lib/node_modules/@deepseek-ai/dsh/`�
 
 ## 发布与版本
 
-仓库级统一版本：根 `package.json` 与各插件的 `version` 恒等于当前 tag（`v<major>.<minor>.<patch>`），tag 是 profile 侧安装的唯一锚点。`scripts/release.mjs` 拒绝脏工作区、非 main 分支与已存在的 tag；push 可直接在容器内执行（dsh 容器已挂载宿主 `~/.ssh`）：`git push origin main --tags`；tag 未推远程前 profile 无法按 `#v<version>` 解析安装。
+发布版本单点：版本号只写在根 `package.json#version`（tag 风格 `v<版本>`），全部插件的 `version` 恒为 `0.0.0`（`pnpm dsh:check` 第 11 项守）——插件是按 tag 安装的 bundle，tag 是 profile 侧安装的唯一锚点；接受的代价：`dsh plugin list` 显示 `0.0.0`（发布点看安装 spec 的 tag）、DSH 版本豁免键恒为 `包名@0.0.0`、`dsh plugin update <包> <版本>` 不再适用（升级 = 改 spec 里的 tag 重装）。`scripts/release.mjs` 拒绝脏工作区、非 main 分支与已存在的 tag；push 可直接在容器内执行（dsh 容器已挂载宿主 `~/.ssh`）：`git push origin main --tags`；tag 未推远程前 profile 无法按 `#v<version>` 解析安装。
 
 ## 仓级 ADR
 
 - 结构性决策记录在 `docs/decisions/`：`ADR-0001`（共享构建与源码包 `tooling/` 五包的落地边界）与 `ADR-0002`（归属内核与 `#3` 值语义），索引见 [`docs/decisions/README.md`](docs/decisions/README.md)。
 - `ADR-0003`（文档体系分层与门禁）见 [`docs/decisions/ADR-0003-doc-system-layers-and-gates.md`](docs/decisions/ADR-0003-doc-system-layers-and-gates.md)。
+- `ADR-0004`（版本事实单源化：发布版本单点、基线常量唯一、活文档零版本号、模型清单 profile 优先）见 [`docs/decisions/ADR-0004-single-source-version-facts.md`](docs/decisions/ADR-0004-single-source-version-facts.md)。
 - 仓级 ADR 与 `plugins/multi-root-workspace/docs/decisions/` 的插件级 ADR 是**两套独立编号**；引用时必须带路径——裸写「ADR-0009」有歧义（仓级没有 0009，multi-root 的 0009 是 DSH 兼容契约）。
 - 插件业务规格仍以 `openspec/specs/` 为准；ADR 只约束仓级结构与工程约定。
 
