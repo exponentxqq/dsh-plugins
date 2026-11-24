@@ -36,4 +36,4 @@
 
 - [x] 5.1 新建 `docs/decisions/ADR-0004-single-source-version-facts.md`，登记进索引与根 AGENTS
 - [x] 5.2 本变更 specs delta 三份（dsh-baseline / dsh-plugin-toolchain / dsh-zcode-plan）
-- [ ] 5.3 `openspec-archive-change`（复核通过后执行，本次不归档）
+- [x] 5.3 `openspec-archive-change`（复核通过后执行）
